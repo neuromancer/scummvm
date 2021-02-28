@@ -4,7 +4,9 @@ MODULE_OBJS := \
     code.o \
     cursors.o \
     funcs.o \
+    bgrammar.o \
     grammar.o \
+    blexer.o \
 	lexer.o \
 	metaengine.o \
     private.o \

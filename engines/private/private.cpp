@@ -46,6 +46,7 @@ namespace Private {
 PrivateEngine *g_private = NULL;
 
 extern int parse(char *);
+extern int bparse(char *);
 
 PrivateEngine::PrivateEngine(OSystem *syst, const ADGameDescription *gd)
     : Engine(syst), _gameDescription(gd) {
@@ -134,6 +135,9 @@ Common::Error PrivateEngine::run() {
         if (_installerArchive.hasFile("GAME.TXT"))
             file = _installerArchive.createReadStreamForMember("GAME.TXT");
 
+        else if (_installerArchive.hasFile("DEMOGAME.WIN"))
+            file = _installerArchive.createReadStreamForMember("DEMOGAME.WIN");
+
         // if the demo from the full retail CDROM is used
         else {
             if (_installerArchive.hasFile("DEMOGAME.DAT"))
@@ -143,13 +147,25 @@ Common::Error PrivateEngine::run() {
 
     // Read assets file
     assert(file != NULL);
-    char *buf = (char *)malloc(file->size()+1);
-    file->read(buf, file->size()+1);
+    char *buf = (char *)calloc(file->size()+1, 1);
+    file->read(buf, file->size());
 
     // Initialize stuff
     initFuncs();
     initCursors();
-    parse(buf);
+    if (memcmp(buf, "Precompiled Game Matrix", 23))
+        parse(buf);
+    else {
+        for (uint i = 0; i < file->size(); i++) {
+            if (buf[i] == 0)
+                buf[i] = 127;
+            debugN("%02x ",buf[i] & 0xff);
+            if (i % 24 == 0)
+              debug("");
+        }
+        bparse(buf+23);
+        assert(0);
+    }
     free(buf);
     delete file;
     assert(maps.constants.size() > 0);
