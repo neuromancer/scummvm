@@ -295,6 +295,14 @@ int NutRenderer::getCharHeight(byte c) const {
 	return _chars[c].height;
 }
 
+const byte *NutRenderer::getCharData(byte c) {
+	if (c >= _numChars)
+		error("invalid character in NutRenderer::getCharData : %d (%d)", c, _numChars);
+	
+	// Ensure data is unpacked if necessary (though current usage implies 8bpp loaded font)
+	return unpackChar(c);
+}
+
 byte *NutRenderer::unpackChar(byte c) {
 	if (_bpp == 8)
 		return _chars[c].src;
