@@ -338,9 +338,44 @@ byte *NutRenderer::unpackChar(byte c) {
 	return _charBuffer;
 }
 
-void NutRenderer::drawFrame(byte *dst, int c, int x, int y) {
+void NutRenderer::drawFrame(byte *dst, int c, int x, int y, int pitch) {
 	const int width = MIN((int)_chars[c].width, _vm->_screenWidth - x);
 	const int height = MIN((int)_chars[c].height, _vm->_screenHeight - y);
+	const byte *src = unpackChar(c);
+	const int srcPitch = _chars[c].width;
+	byte bits = 0;
+
+	if (pitch == -1)
+		pitch = _vm->_screenWidth;
+
+	const int minX = x < 0 ? -x : 0;
+	const int minY = y < 0 ? -y : 0;
+
+	if (height <= 0 || width <= 0) {
+		return;
+	}
+
+	dst += pitch * y + x;
+	if (minY) {
+		src += minY * srcPitch;
+		dst += minY * pitch;
+	}
+
+	for (int ty = minY; ty < height; ty++) {
+		for (int tx = minX; tx < width; tx++) {
+			bits = src[tx];
+			if (bits != 231 && bits) {
+				dst[tx] = bits;
+			}
+		}
+		src += srcPitch;
+		dst += pitch;
+	}
+}
+
+void NutRenderer::drawFrame(byte *dst, int c, int x, int y, int pitch, int maxWidth, int maxHeight) {
+	const int width = MIN((int)_chars[c].width, maxWidth - x);
+	const int height = MIN((int)_chars[c].height, maxHeight - y);
 	const byte *src = unpackChar(c);
 	const int srcPitch = _chars[c].width;
 	byte bits = 0;
@@ -352,10 +387,10 @@ void NutRenderer::drawFrame(byte *dst, int c, int x, int y) {
 		return;
 	}
 
-	dst += _vm->_screenWidth * y + x;
+	dst += pitch * y + x;
 	if (minY) {
 		src += minY * srcPitch;
-		dst += minY * _vm->_screenWidth;
+		dst += minY * pitch;
 	}
 
 	for (int ty = minY; ty < height; ty++) {
@@ -366,7 +401,7 @@ void NutRenderer::drawFrame(byte *dst, int c, int x, int y) {
 			}
 		}
 		src += srcPitch;
-		dst += _vm->_screenWidth;
+		dst += pitch;
 	}
 }
 
