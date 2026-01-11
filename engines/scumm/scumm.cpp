@@ -2591,16 +2591,6 @@ void ScummEngine_v7::syncSoundSettings() {
 	if (!_setupIsComplete)
 		return;
 
-	if (_game.id == GID_REBEL2) {
-		ScummEngine::syncSoundSettings();
-		if (_imuseDigital) {
-			_imuseDigital->diMUSESetMusicGroupVol(ConfMan.getInt("music_volume") / 2);
-			_imuseDigital->diMUSESetVoiceGroupVol(ConfMan.getInt("speech_volume") / 2);
-			_imuseDigital->diMUSESetSFXGroupVol(ConfMan.getInt("sfx_volume") / 2);
-		}
-		return;
-	}
-
 	if (!isUsingOriginalGUI()) {
 		ScummEngine::syncSoundSettings();
 		if (_splayer) {
@@ -2665,8 +2655,8 @@ Common::Error ScummEngine::go() {
 			((ScummEngine_v7 *)this)->_splayer->play("OPEN/O_DEMO.SAN", 12);
 		} else {
 			// Mark the following SAN as an intro so HUD isn't rendered during it (bit 0x20)
-			((ScummEngine_v7 *)this)->_splayer->setCurVideoFlags(0x20);
-			((ScummEngine_v7 *)this)->_splayer->play("LEV01/01BEG.SAN", 12);
+			//((ScummEngine_v7 *)this)->_splayer->setCurVideoFlags(0x20);
+			//((ScummEngine_v7 *)this)->_splayer->play("LEV01/01BEG.SAN", 12);
 			// Clear intro flag and immediately start the mission SAN
 			((ScummEngine_v7 *)this)->_splayer->setCurVideoFlags(0);
 			((ScummEngine_v7 *)this)->_splayer->play("LEV01/01P01.SAN", 12);
