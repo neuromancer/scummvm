@@ -67,10 +67,12 @@ protected:
 	void codec21(byte *dst, const byte *src, int width, int height, int pitch);
 
 	void loadFont(const char *filename);
+	void loadFontFromData(const byte *data, int32 dataSize);
 	byte *unpackChar(byte c);
 
 public:
 	NutRenderer(ScummEngine *vm, const char *filename);
+	NutRenderer(ScummEngine *vm, const byte *data, int32 dataSize);
 	virtual ~NutRenderer();
 	int getNumChars() const { return _numChars; }
 

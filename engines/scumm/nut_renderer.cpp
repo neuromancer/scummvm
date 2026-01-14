@@ -52,6 +52,31 @@ NutRenderer::NutRenderer(ScummEngine *vm, const char *filename) :
 		loadFont(filename);
 }
 
+NutRenderer::NutRenderer(ScummEngine *vm, const byte *data, int32 dataSize) :
+	_vm(vm),
+	_numChars(0),
+	_maxCharSize(0),
+	_fontHeight(0),
+	_charBuffer(0),
+	_decodedData(0),
+	_2byteColorTable(0),
+	_2byteShadowXOffsetTable(0),
+	_2byteShadowYOffsetTable(0),
+	_2byteMainColor(0),
+	_spacing(vm->_useCJKMode && vm->_language != Common::JA_JPN ? 1 : 0),
+	_2byteSteps(vm->_game.version == 8 ? 4 : 2),
+	_direction(vm->_language == Common::HE_ISR ? -1 : 1) {
+		static const int8 cjkShadowOffsetsX[4] = { -1, 0, 1, 0 };
+		static const int8 cjkShadowOffsetsY[4] = { 0, 1, 0, 0 };
+		_2byteShadowXOffsetTable = &cjkShadowOffsetsX[ARRAYSIZE(cjkShadowOffsetsX) - _2byteSteps];
+		_2byteShadowYOffsetTable = &cjkShadowOffsetsY[ARRAYSIZE(cjkShadowOffsetsY) - _2byteSteps];
+		_2byteColorTable = new uint8[_2byteSteps];
+		memset(_2byteColorTable, 0, _2byteSteps);
+		_2byteMainColor = &_2byteColorTable[_2byteSteps - 1];
+		memset(_chars, 0, sizeof(_chars));
+		loadFontFromData(data, dataSize);
+}
+
 NutRenderer::~NutRenderer() {
 	delete[] _charBuffer;
 	delete[] _decodedData;
@@ -272,6 +297,179 @@ void NutRenderer::loadFont(const char *filename) {
 	}
 
 	delete[] dataSrc;
+	delete[] _paletteMap;
+}
+
+void NutRenderer::loadFontFromData(const byte *data, int32 dataSize) {
+	// This method loads a NUT font/sprite from raw data buffer
+	// The data should start with ANIM tag (like a NUT file)
+	
+	if (dataSize < 8) {
+		warning("NutRenderer::loadFontFromData: data too small (%d bytes)", dataSize);
+		return;
+	}
+
+	// Check for ANIM header
+	uint32 tag = READ_BE_UINT32(data);
+	if (tag != MKTAG('A','N','I','M')) {
+		warning("NutRenderer::loadFontFromData: no ANIM chunk (got %08x)", tag);
+		return;
+	}
+
+	uint32 length = READ_BE_UINT32(data + 4);
+	if ((int32)(length + 8) > dataSize) {
+		warning("NutRenderer::loadFontFromData: ANIM size (%d) exceeds data size (%d)", length, dataSize);
+		length = dataSize - 8;
+	}
+
+	// dataSrc points to the content after ANIM header (same as loadFont)
+	const byte *dataSrc = data + 8;
+
+	if (READ_BE_UINT32(dataSrc) != MKTAG('A','H','D','R')) {
+		warning("NutRenderer::loadFontFromData: no AHDR chunk in font data");
+		return;
+	}
+
+	// Parse the font data (same logic as loadFont)
+	_numChars = READ_LE_UINT16(dataSrc + 10);
+	if (_numChars > ARRAYSIZE(_chars)) {
+		warning("NutRenderer::loadFontFromData: numChars (%d) exceeds max", _numChars);
+		_numChars = ARRAYSIZE(_chars);
+	}
+
+	uint32 offset = 0;
+	uint32 decodedLength = 0;
+	int l;
+
+	_paletteMap = new byte[256]();
+
+	for (l = 0; l < _numChars; l++) {
+		offset += READ_BE_UINT32(dataSrc + offset + 4) + 16;
+		if (offset + 18 > length) break;
+		int width = READ_LE_UINT16(dataSrc + offset + 14);
+		_fontHeight = READ_LE_UINT16(dataSrc + offset + 16);
+		int size = width * _fontHeight;
+		decodedLength += size;
+		if (size > _maxCharSize)
+			_maxCharSize = size;
+	}
+
+	debug(1, "NutRenderer::loadFontFromData() - numChars=%d decodedLength=%d", _numChars, decodedLength);
+
+	_decodedData = new byte[decodedLength];
+	byte *decodedPtr = _decodedData;
+
+	offset = 0;
+	for (l = 0; l < _numChars; l++) {
+		offset += READ_BE_UINT32(dataSrc + offset + 4) + 8;
+		if (offset + 8 > length) break;
+		if (READ_BE_UINT32(dataSrc + offset) != MKTAG('F','R','M','E')) {
+			warning("NutRenderer::loadFontFromData: no FRME chunk %d (offset %x)", l, offset);
+			break;
+		}
+		offset += 8;
+		if (offset + 22 > length) break;
+		if (READ_BE_UINT32(dataSrc + offset) != MKTAG('F','O','B','J')) {
+			warning("NutRenderer::loadFontFromData: no FOBJ chunk in FRME chunk %d (offset %x)", l, offset);
+			break;
+		}
+		int codec = READ_LE_UINT16(dataSrc + offset + 8);
+		_chars[l].width = READ_LE_UINT16(dataSrc + offset + 14);
+		_chars[l].height = READ_LE_UINT16(dataSrc + offset + 16);
+		_chars[l].src = decodedPtr;
+
+		decodedPtr += (_chars[l].width * _chars[l].height);
+
+		if (codec == 44) {
+			memset(_chars[l].src, kSmush44TransparentColor, _chars[l].width * _chars[l].height);
+			_paletteMap[kSmush44TransparentColor] = 1;
+			_chars[l].transparency = kSmush44TransparentColor;
+		} else {
+			memset(_chars[l].src, kDefaultTransparentColor, _chars[l].width * _chars[l].height);
+			_paletteMap[kDefaultTransparentColor] = 1;
+			_chars[l].transparency = kDefaultTransparentColor;
+		}
+
+		const uint8 *fobjptr = dataSrc + offset + 22;
+		switch (codec) {
+		case 1:
+			codec1(_chars[l].src, fobjptr, _chars[l].width, _chars[l].height, _chars[l].width);
+			break;
+		case 21:
+		case 44:
+			codec21(_chars[l].src, fobjptr, _chars[l].width, _chars[l].height, _chars[l].width);
+			break;
+		default:
+			warning("NutRenderer::loadFontFromData: unknown codec: %d", codec);
+		}
+	}
+
+	// Palette compression (same as loadFont)
+	int numColors = 0;
+	for (l = 0; l < 256; l++) {
+		if (_paletteMap[l]) {
+			if (numColors < ARRAYSIZE(_palette)) {
+				_paletteMap[l] = numColors;
+				_palette[numColors] = l;
+			}
+			numColors++;
+		}
+	}
+
+	if (numColors <= 2)
+		_bpp = 1;
+	else if (numColors <= 4)
+		_bpp = 2;
+	else if (numColors <= 16)
+		_bpp = 4;
+	else
+		_bpp = 8;
+
+	if (_bpp < 8) {
+		int compressedLength = 0;
+		for (l = 0; l < 256; l++) {
+			compressedLength += (((_bpp * _chars[l].width + 7) / 8) * _chars[l].height);
+		}
+
+		debug(1, "NutRenderer::loadFontFromData() - compressedLength=%d (%d bpp)", compressedLength, _bpp);
+
+		byte *compressedData = new byte[compressedLength]();
+		offset = 0;
+
+		for (l = 0; l < 256; l++) {
+			byte *src = _chars[l].src;
+			byte *dst = compressedData + offset;
+			int srcPitch = _chars[l].width;
+			int dstPitch = (_bpp * _chars[l].width + 7) / 8;
+
+			for (int h = 0; h < _chars[l].height; h++) {
+				byte bit = 0x80;
+				byte *nextDst = dst + dstPitch;
+				for (int w = 0; w < srcPitch; w++) {
+					byte color = _paletteMap[src[w]];
+					for (int i = 0; i < _bpp; i++) {
+						if (color & (1 << i))
+							*dst |= bit;
+						bit >>= 1;
+					}
+					if (!bit) {
+						bit = 0x80;
+						dst++;
+					}
+				}
+				src += srcPitch;
+				dst = nextDst;
+			}
+			_chars[l].src = compressedData + offset;
+			offset += (dstPitch * _chars[l].height);
+		}
+
+		delete[] _decodedData;
+		_decodedData = compressedData;
+
+		_charBuffer = new byte[_maxCharSize];
+	}
+
 	delete[] _paletteMap;
 }
 
