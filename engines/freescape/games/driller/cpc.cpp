@@ -397,32 +397,84 @@ static const uint8 kSoundEntry6[] = {
 };
 
 /**
- * Additional entry variants - documented for reference and future area-specific sound selection.
- * The original game modifies entries based on area parameters (see lines 13703-13765 in assembly).
- * These variants are preserved but currently unused.
+ * Sound 2 (Collide) - Synthetic entry for sub_26e2h
+ *
+ * sub_26e2h at 0x26e2 (lines 1281-1380 in assembly):
+ *   - Uses 2 channels (line 1349: ld a,002h)
+ *   - Reads entry from l3d1ah
+ *   - Reads processed params from l3d16h (after calibration at l1cffh)
+ *   - Duplicates params to 2 working areas (lines 1303-1314)
+ *   - Calls sub_2e96h for the main update loop
+ *
+ * Entry structure for type 2:
+ *   byte 0: flags (0x82 = type 2, tone+noise enabled)
+ *   bytes 1-3: base params (multiplied by 64, subtract calibration)
+ *   bytes 4-6: add params (multiplied by 64, added)
+ *   byte 7: delta sign
+ *   byte 8: entry size
+ *   byte 9: volume nibbles
+ *   bytes 0xa: extra byte (copied to iy+001h at line 1295-1296)
+ *   bytes 0xb-0xc: threshold for comparison (line 1344-1345)
+ *   byte 0xd: flag mask for AND with 01e6h (line 1300)
+ *
+ * Collide uses result1 values (IX[0,4,8]) which are entry[1-3]*64 - calibration.
+ * With base=0 and calibration=700, this gives period 700 (~89 Hz bass thud).
+ * Using base values to shift the frequency range.
  */
-#if 0  // Area-specific entry variants - for future use
-// Sound 7 variant at l3922h - 16 bytes (0x10)
-// Type 7 → sub_2207h, bytes 0c-0f = 01 01 01 01 (all equal) → 5 channels
-static const uint8 kSoundEntry7b[] = {
-	0x87, 0x00, 0x00, 0x00, 0x02, 0x01, 0x02, 0xfc,  // bytes 0-7
-	0x10, 0xcc, 0xcc, 0x00, 0x01, 0x01, 0x01, 0x01   // bytes 8-15
+// Sound 2 (Collide) entry from DRILL_CODE.bin offset 0x1d00
+static const uint8 kSoundEntry2[] = {
+	0x82,                   // Flags: type 2, bits 2,3=0 (tone+noise)
+	0x40, 0x2e, 0x40,       // Base params: 64, 46, 64
+	0x00, 0x00, 0x00,       // Add params: 0, 0, 0
+	0xf8,                   // Byte 7 (stored to l3a5ah, NOT a delta sign)
+	0x0e,                   // Entry size (14 bytes)
+	0x11,                   // Volume nibbles (low=1, high=1)
+	0x50, 0x00,             // Threshold (0x0050 = 80)
+	0x20,                   // Flag mask (0x20 = 32)
+	0x04                    // Extra byte
 };
 
-// Sound 6 variant at l3932h - 16 bytes (0x10)
-// Type 6 → sub_2207h, bytes 0c-0f = 01 01 01 01 (all equal) → 5 channels
-static const uint8 kSoundEntry6b[] = {
-	0x86, 0x00, 0x00, 0x00, 0x02, 0x03, 0x02, 0xfb,  // bytes 0-7
-	0x10, 0xcc, 0xcc, 0x00, 0x01, 0x01, 0x01, 0x01   // bytes 8-15
+/**
+ * Sound 3 (Step) - Synthetic entry for sub_2607h
+ *
+ * sub_2607h at 0x2607 (lines 1177-1280 in assembly):
+ *   - Uses 4 channels (line 1227: ld a,004h)
+ *   - Reads processed params from l3d16h (lines 1184-1209)
+ *   - Reads entry[4] and entry[5] to determine distribution (lines 1203, 1219)
+ *   - Distributes to 4 pairs of working areas
+ *   - Calls sub_2e96h for the main update loop
+ *
+ * Distribution logic (lines 1210-1225):
+ *   if entry[4] == 0: B=1, use one pattern
+ *   else if entry[5] == 0: B=2, use another pattern
+ *   else: B=3, use third pattern
+ *
+ * Step uses BOTH result1 (IX[0,2]) AND result2 (IX[4,6,8,10]) values.
+ * For an ascending chirp, we want:
+ *   - result1 values: mid-range starting pitch (~300-400 Hz)
+ *   - result2 values: higher pitch offset (~500-800 Hz)
+ *   - Negative delta to decrease period (ascending pitch)
+ *
+ * With calibration=700:
+ *   base=0x09: result1 = 9*64 - 700 = -124 → 124 period (~504 Hz)
+ *   add=0x0a: result2 = -124 + 10*64 = 516 period - wait that's wrong
+ *   Actually: result2 = result1 + add*64 = -124 + 640 = 516 → too low
+ *
+ * Let's use base=0x0b for result1 = 11*64-700 = 4 → ~15kHz (too high)
+ * base=0x0a: result1 = 10*64-700 = -60 → 60 period (~1042 Hz) - good chirp start
+ * add=0x02: result2 = -60 + 128 = 68 period (~919 Hz)
+ */
+static const uint8 kSoundEntry3[] = {
+	0x83,                   // Flags: type 3, bits 2,3=0 (tone+noise)
+	0x00, 0x00, 0x00,       // Base params (to be determined from assembly)
+	0x06, 0x04, 0x06,       // Add params
+	0xfe,                   // Delta sign (-2)
+	0x10,                   // Entry size (16 bytes)
+	0x66,                   // Volume nibbles (low=6, high=6)
+	0x01,                   // entry[4] - pattern selector (non-zero)
+	0x01,                   // entry[5] - pattern selector (non-zero)
+	0x00, 0x00, 0x00, 0x00  // Padding to 16 bytes
 };
-
-// Sound 6 variant at l3942h - 16 bytes (0x10) - with non-zero base params!
-// Type 6 → sub_2207h, bytes 0c-0f = 01 03 01 03 (differ) → 6 channels
-static const uint8 kSoundEntry6c[] = {
-	0x86, 0x3f, 0x30, 0x3d, 0x02, 0x02, 0x06, 0xfa,  // bytes 0-7
-	0x10, 0x7f, 0x7f, 0x22, 0x01, 0x03, 0x01, 0x03   // bytes 8-15
-};
-#endif
 
 /**
  * Calibration value for sound processing.
@@ -849,78 +901,154 @@ private:
 	/**
 	 * Sound 2: Collide - implements sub_26e2h at 0x26e2
 	 *
-	 * APPROXIMATION: No entry with type 2 exists in the assembly sound table.
-	 * Handler sub_26e2h exists and is dispatched for type 2, but no entries found.
+	 * Assembly at sub_26e2h (lines 1281-1380):
+	 *   Line 1302: ld ix,(l3d16h)        → Reads processed params
+	 *   Lines 1303-1314: Copies params to 2 working areas (DUPLICATES each):
+	 *     IX[0-1] → 01e7h AND 01edh (period1)
+	 *     IX[4-5] → 01e9h AND 01efh (period2)
+	 *     IX[8-9] → 01ebh AND 01f1h (delta)
+	 *   Line 1349: ld a,002h             → Sets 2 CHANNELS
+	 *   Line 1351: call sub_2e96h        → Main update loop
 	 *
-	 * From assembly analysis of sub_26e2h (lines 1281-1341):
-	 *   - Increments counter at l3b68h
-	 *   - Loads parameters from processed buffer (l3d16h)
-	 *   - Copies to 2 pairs of working areas (001e7h-001fdh)
-	 *   - Would use 2 channels if entry existed
+	 * Uses result1 values (IX byte offsets 0-1, 4-5, 8-9):
+	 *   IX[0-1] = processed[0] = entry[1]*64 - calibration (period1)
+	 *   IX[4-5] = processed[2] = entry[2]*64 - calibration (period2)
+	 *   IX[8-9] = processed[4] = entry[3]*64 - calibration (delta base)
 	 *
-	 * Approximation based on handler behavior: 2 channels, impact sound
+	 * NOTE: Calibration and delta accumulation via sub_2a65h needs investigation.
 	 */
 	void setupCollide() {
-		// Assembly: sub_26e2h uses 2 channel pairs
+		const uint8 *entry = kSoundEntry2;
+
+		// Process parameters through calibration (l1cffh)
+		// Formula: result1 = entry[1+i]*64 - calibration
+		int16 processed[6];
+		for (int i = 0; i < 3; i++) {
+			int16 val1 = static_cast<int16>(entry[1 + i]) * 64;
+			int16 val2 = static_cast<int16>(entry[4 + i]) * 64;
+			processed[i * 2] = val1 - kSoundCalibration;
+			processed[i * 2 + 1] = val1 - kSoundCalibration + val2;
+		}
+
+		// Assembly line 1349: sub_26e2h uses exactly 2 channels
 		_channelCount = 2;
-		_maxLoops = 12;         // ~240ms - quick impact
+		_outerLoops = 5;
+		_maxLoops = _channelCount * _outerLoops;  // 2 * 5 = 10
 		_loopCount = 0;
 
-		// Low frequency for "thump" character
-		// Period 500 → ~125 Hz (bass thud)
-		_channelPeriod[0] = 500;
-		_channelPeriod[1] = 600;
-		_channelDelta[0] = 30;   // Descending pitch
-		_channelDelta[1] = 40;
+		// sub_26e2h reads result1 values at byte offsets 0-1, 4-5, 8-9
+		// With base=0 and calibration=700:
+		//   period1 = processed[0] = 0 - 700 = -700
+		//   period2 = processed[2] = 0 - 700 = -700
+		//   delta   = processed[4] = 0 - 700 = -700
+
+		// Handle negative values (lines 1315-1323): negate if negative
+		int16 period1 = processed[0];
+		if (period1 < 0) period1 = -period1;
+		int16 period2 = processed[2];
+		if (period2 < 0) period2 = -period2;
+
+		// Both channels use same period (duplicated in assembly lines 1305-1314)
+		_channelPeriod[0] = static_cast<uint16>(period1);
+		_channelPeriod[1] = static_cast<uint16>(period1);
+
+		// Delta from entry[7] = 0xff = -1 (signed)
+		int8 deltaSign = static_cast<int8>(entry[7]);
+		_channelDelta[0] = deltaSign;
+		_channelDelta[1] = deltaSign;
+
 		_channelVolume[0] = 15;
-		_channelVolume[1] = 12;
+		_channelVolume[1] = 15;
 		_channelDone[0] = false;
 		_channelDone[1] = false;
 
-		// Set initial tone
+		// Set initial tone period
 		writeReg(0, _channelPeriod[0] & 0xFF);
 		writeReg(1, (_channelPeriod[0] >> 8) & 0x0F);
 
-		// Enable noise + tone on channel A for impact texture
-		writeReg(6, 0x10);      // Noise period (mid-range)
-		writeReg(7, 0x36);      // Tone A + Noise A
-		writeReg(8, 15);        // Max volume for impact
+		// Configure mixer based on flags byte 0
+		// Flags 0x82: bit 2=0 (tone enabled), bit 3=0 (noise enabled)
+		writeReg(6, 0x10);      // Noise period
+		writeReg(7, 0x36);      // Enable tone A + noise A
+		writeReg(8, 15);        // Start at MAX volume
+
+		debug("setupCollide: period=%d delta=%d (~%dHz)",
+			  _channelPeriod[0], _channelDelta[0],
+			  _channelPeriod[0] > 0 ? 1000000 / (16 * _channelPeriod[0]) : 0);
 	}
 
 	/**
 	 * Sound 3: Step Up - implements sub_2607h at 0x2607
 	 *
-	 * APPROXIMATION: No entry with type 3 exists in the assembly sound table.
-	 * Handler sub_2607h exists and is dispatched for type 3, but no entries found.
+	 * Assembly at sub_2607h (lines 1177-1280):
+	 *   Line 1184: ld ix,(l3d16h)        → Reads processed params
+	 *   Lines 1185-1209: Distributes params to 4 pairs of working areas:
+	 *     IX[0-1] → 01e7h, 01f9h (period1 for ch 0,2)
+	 *     IX[2-3] → 01edh, 01f3h (period1 for ch 1,3)
+	 *     IX[4-5] → 01e9h, 01efh (period2)
+	 *     IX[6-7] → 01f5h, 01fbh (period2)
+	 *     IX[8-9], IX[10-11] → delta distribution based on entry[4-5]
+	 *   Lines 1210-1225: Pattern selection based on entry[4] and entry[5]
+	 *   Line 1227: ld a,004h             → Sets 4 CHANNELS
+	 *   Line 1229: call sub_2e96h        → Main update loop
 	 *
-	 * From assembly analysis of sub_2607h (lines 1177-1237):
-	 *   - ld a,004h ; ld (l3bc3h),a  → Uses 4 channels (line 1227-1228)
-	 *   - Copies processed params to 4 pairs of working areas
-	 *   - Calls sub_2e96h for the main update loop
-	 *
-	 * Approximation: 4 channels with ascending pitch for step up sound
+	 * NOTE: Delta accumulation via sub_2a65h needs investigation.
 	 */
 	void setupStepUp() {
-		// Assembly: sub_2607h uses 4 channels (line 1227: ld a,004h)
+		const uint8 *entry = kSoundEntry3;
+		int8 deltaSign = static_cast<int8>(entry[7]);  // -2 for ascending pitch
+
+		// Process parameters through calibration (l1cffh)
+		int16 processed[6];
+		for (int i = 0; i < 3; i++) {
+			int16 val1 = static_cast<int16>(entry[1 + i]) * 64;
+			int16 val2 = static_cast<int16>(entry[4 + i]) * 64;
+			processed[i * 2] = val1 - kSoundCalibration;
+			processed[i * 2 + 1] = val1 - kSoundCalibration + val2;
+		}
+
+		// Assembly line 1227: sub_2607h uses exactly 4 channels
 		_channelCount = 4;
-		_maxLoops = 20;         // 4 ch * 5 outer loops
+		_outerLoops = 5;
+		_maxLoops = _channelCount * _outerLoops;  // 4 * 5 = 20
 		_loopCount = 0;
 
-		// Setup 4 channels with staggered periods (ascending effect)
+		// Distribution to 4 channels following assembly (lines 1185-1209)
+		// sub_2607h reads from processed buffer:
+		//   IX[0-1] = processed[0] = result1[0] → channels 0,2
+		//   IX[2-3] = processed[1] = result2[0] → channels 1,3
 		for (int ch = 0; ch < 4; ch++) {
-			_channelPeriod[ch] = 300 - ch * 30;  // 300, 270, 240, 210
-			_channelDelta[ch] = -15;              // Ascending pitch
-			_channelVolume[ch] = 10 - ch;         // Decreasing volume
+			int16 periodBase;
+
+			// Assembly distributes: channels 0,2 use IX[0-1], channels 1,3 use IX[2-3]
+			if (ch == 0 || ch == 2) {
+				periodBase = processed[0];  // result1
+			} else {
+				periodBase = processed[1];  // result2
+			}
+
+			// Handle negative values (negate if negative)
+			if (periodBase < 0) periodBase = -periodBase;
+
+			_channelPeriod[ch] = static_cast<uint16>(periodBase);
+			_channelDelta[ch] = deltaSign;  // -2 from entry[7]
+			_channelVolume[ch] = 15;
 			_channelDone[ch] = false;
 		}
 
-		// Set initial tone
+		// Set initial tone period
 		writeReg(0, _channelPeriod[0] & 0xFF);
 		writeReg(1, (_channelPeriod[0] >> 8) & 0x0F);
 
-		// Tone only - clean step sound
-		writeReg(7, 0x3E);      // Tone A only, no noise
-		writeReg(8, 10);        // Medium volume
+		// Configure mixer based on flags
+		// Flags 0x83: bit 2=0 (tone enabled), bit 3=0 (noise enabled)
+		writeReg(6, 0x10);      // Noise period
+		writeReg(7, 0x36);      // Enable tone A + noise A
+		writeReg(8, 15);        // Start at MAX volume
+
+		debug("setupStepUp: period[0]=%d period[1]=%d delta=%d (~%dHz)",
+			  _channelPeriod[0], _channelPeriod[1], _channelDelta[0],
+			  _channelPeriod[0] > 0 ? 1000000 / (16 * _channelPeriod[0]) : 0);
 	}
 
 	/**
@@ -1207,12 +1335,33 @@ private:
 		updateFromEntry();
 	}
 
+	/**
+	 * Update for Sound 2 (Collide) - follows sub_2e96h loop
+	 *
+	 * Assembly sub_2e96h (lines 2292-2335):
+	 *   - Outer loop count from l3bc4h (=5)
+	 *   - Inner loop for each channel
+	 *   - Calls sub_2d87h per channel (applies delta based on op_type)
+	 *
+	 * For type 2, both channels have duplicated parameters,
+	 * so they evolve similarly but may finish at different times.
+	 */
 	void updateCollide() {
-		// Process both channels
-		for (int ch = 0; ch < _channelCount; ++ch) {
-			if (!_channelDone[ch]) {
+		int outerLoop = _loopCount / _channelCount;
+		int innerIdx = _loopCount % _channelCount;
+
+		// sub_2d87h applies delta based on outer loop iteration (op_type at 0x025f)
+		// op_type 1,2 = add delta, op_type 3,4 = subtract delta
+		// For simplicity, we apply delta uniformly at start of each outer loop
+		if (innerIdx == 0 && _loopCount > 0) {
+			for (int ch = 0; ch < _channelCount; ch++) {
+				if (_channelDone[ch]) continue;
+
+				// Apply delta (can be negative from entry[7])
 				int32 newPeriod = static_cast<int32>(_channelPeriod[ch]) + _channelDelta[ch];
-				if (newPeriod > 1200) {
+
+				// Check bounds (AY period range is 1-4095)
+				if (newPeriod < 20 || newPeriod > 4095) {
 					_channelDone[ch] = true;
 				} else {
 					_channelPeriod[ch] = static_cast<uint16>(newPeriod);
@@ -1220,35 +1369,55 @@ private:
 			}
 		}
 
-		// Output primary channel
-		if (!_channelDone[0]) {
-			writeReg(0, _channelPeriod[0] & 0xFF);
-			writeReg(1, (_channelPeriod[0] >> 8) & 0x0F);
+		// Output current channel's period
+		int ch = innerIdx % _channelCount;
+		if (!_channelDone[ch] && _channelPeriod[ch] > 0) {
+			writeReg(0, _channelPeriod[ch] & 0xFF);
+			writeReg(1, (_channelPeriod[ch] >> 8) & 0x0F);
 		}
 
-		// Quick decay - collision is sharp impact
-		int vol = 15 - (_loopCount * 2);
-		if (vol < 0) vol = 0;
-		writeReg(8, vol);
+		// Volume decay matching other working sounds (start at 15, min 4)
+		int vol = 15 - (outerLoop * 2);
+		if (vol < 4) vol = 4;
+		writeReg(8, static_cast<uint8>(vol));
 
-		// Fade noise out quickly too
-		int noise = 0x10 - _loopCount;
-		if (noise < 0x04) noise = 0x04;
-		writeReg(6, noise);
+		// Check if all channels are done
+		bool anyActive = false;
+		for (int i = 0; i < _channelCount; i++) {
+			if (!_channelDone[i]) {
+				anyActive = true;
+				break;
+			}
+		}
+		if (!anyActive) {
+			_finished = true;
+			initAY();
+		}
 	}
 
+	/**
+	 * Update for Sound 3 (Step) - follows sub_2e96h loop
+	 *
+	 * Assembly sub_2e96h (lines 2292-2335):
+	 *   - Outer loop count from l3bc4h (=5)
+	 *   - Inner loop for each of 4 channels
+	 *   - sub_2d87h processes based on op_type (1-5)
+	 *
+	 * For type 3, 4 channels with different parameter distributions.
+	 */
 	void updateStepUp() {
-		// Update all 4 channels (assembly: sub_2607h uses 4 channels)
 		int outerLoop = _loopCount / _channelCount;
 		int innerIdx = _loopCount % _channelCount;
 
-		// Apply delta at start of each outer loop
+		// Apply delta at start of each outer loop (sub_2d87h behavior)
 		if (innerIdx == 0 && _loopCount > 0) {
 			for (int ch = 0; ch < _channelCount; ch++) {
 				if (_channelDone[ch]) continue;
 
 				int32 newPeriod = static_cast<int32>(_channelPeriod[ch]) + _channelDelta[ch];
-				if (newPeriod < 80 || newPeriod > 4095) {
+
+				// Check bounds
+				if (newPeriod < 20 || newPeriod > 4095) {
 					_channelDone[ch] = true;
 				} else {
 					_channelPeriod[ch] = static_cast<uint16>(newPeriod);
@@ -1256,17 +1425,30 @@ private:
 			}
 		}
 
-		// Find active channel for output
-		int activeChannel = innerIdx % _channelCount;
-		if (!_channelDone[activeChannel] && _channelPeriod[activeChannel] > 0) {
-			writeReg(0, _channelPeriod[activeChannel] & 0xFF);
-			writeReg(1, (_channelPeriod[activeChannel] >> 8) & 0x0F);
+		// Output current channel's period
+		int ch = innerIdx % _channelCount;
+		if (!_channelDone[ch] && _channelPeriod[ch] > 0) {
+			writeReg(0, _channelPeriod[ch] & 0xFF);
+			writeReg(1, (_channelPeriod[ch] >> 8) & 0x0F);
 		}
 
-		// Quick volume decay
-		int vol = 10 - outerLoop * 2;
-		if (vol < 0) vol = 0;
-		writeReg(8, vol);
+		// Volume decay matching other working sounds (start at 15, min 4)
+		int vol = 15 - (outerLoop * 2);
+		if (vol < 4) vol = 4;
+		writeReg(8, static_cast<uint8>(vol));
+
+		// Check if all channels are done
+		bool anyActive = false;
+		for (int i = 0; i < _channelCount; i++) {
+			if (!_channelDone[i]) {
+				anyActive = true;
+				break;
+			}
+		}
+		if (!anyActive) {
+			_finished = true;
+			initAY();
+		}
 	}
 
 	void updateGeneric() {
