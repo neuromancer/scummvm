@@ -331,6 +331,60 @@ static const uint8 kDrillerCPCSoundDefs[][7] = {
 };
 #endif
 
+/**
+ * Sound entries extracted from DRILL.BIN at their respective addresses.
+ *
+ * Sound entry structure (from assembly at l38e9h):
+ *   Byte 0: Flags
+ *     - Bits 0-1: Channel number (1-3 → A/B/C)
+ *     - Bit 2: If set, DISABLE tone (assembly at 4825: bit 2,(ix+000h))
+ *     - Bit 3: If set, DISABLE noise (assembly at 482c: bit 3,(ix+000h))
+ *     - Bit 6: Disable flag (checked at 1cdc: bit 6,(ix+000h))
+ *     - Bit 7: Additional flag
+ *   Bytes 1-3: Parameters for calibration processing (IX[1], IX[2], IX[3])
+ *   Bytes 4-6: Secondary parameters (IX[4], IX[5], IX[6])
+ *   Byte 7: Delta sign/additional param (stored at 03a5ah)
+ *   Byte 8: Entry size
+ *   Bytes 9+: Additional parameters (volume nibbles, etc.)
+ */
+// Sound entry raw bytes - preserved for reference and future use
+// These entries will be used for full calibration-based implementation
+#if 0  // Currently using tuned approximations instead
+static const uint8 kDrillerCPCSoundEntry1[] = {
+	// Sound 1 (Shoot) at l3904h (file offset 0x1CA2)
+	// Flags 0x81: channel A, bits 2,3=0 → tone+noise enabled
+	0x81, 0x00, 0x00, 0x00, 0x0c, 0x01, 0x0c, 0xfe, 0x0e, 0x66, 0x22, 0x66, 0x1c, 0x0a
+};
+
+static const uint8 kDrillerCPCSoundEntry6[] = {
+	// Sound 6 at l3912h (file offset 0x1CB0)
+	// Flags 0x86: channel B/C, needs verification
+	0x86, 0x00, 0x00, 0x00, 0x06, 0x08, 0x06, 0xfd, 0x10, 0x7f, 0x7f, 0x00, 0x03, 0x03
+};
+#endif
+
+/**
+ * Initial calibration values from assembly at 0x4e78-0x4e87.
+ *
+ * Original code:
+ *   ld a,07dh           ; 4e76 - Default A = 125
+ *   ld (l39f9h),a       ; 4e78 - Store
+ *   ld h,a              ; 4e7b - H = 125
+ *   ld l,000h           ; 4e7c - HL = 125 * 256 = 32000
+ *   srl h ; rr l        ; 4e7e-4e84 - HL = 32000 / 4 = 8000
+ *   add hl,de           ; 4e86 - HL += DE (DE = 0x20 = 32)
+ *   ld (l38a6h),hl      ; 4e87 - Store calibration = 8032
+ *
+ * Note: The calibration value 0x1F60 (8032) causes processed params to be
+ * large negative numbers, which wrap to values > 4095 (AY max period).
+ * Setting to 0 for now - needs investigation of actual in-game values.
+ * The calibration may be initialized differently at game start or may
+ * represent position-based attenuation that doesn't apply to shoot sound.
+ */
+#if 0  // Calibration system not yet fully implemented
+static const uint16 kInitialCalibration[3] = {0x0000, 0x0000, 0x0000};
+#endif
+
 class DrillerCPCSfxStream : public Audio::AudioStream {
 public:
 	DrillerCPCSfxStream(int index, int rate = 44100) : _ay(rate, 1000000), _index(index), _rate(rate) {
@@ -339,13 +393,25 @@ public:
 		_counter = 0;
 		_finished = false;
 		_phase = 0;
+		_channelCount = 0;
+		_outerLoops = 0;
+		_loopCount = 0;
+		_maxLoops = 0;
+		_tonePeriod = 0;
+		_toneDelta = 0;
+		_processedFlags = 0;
 
-		// Initialize channel state
-		for (int i = 0; i < 3; i++) {
+		// Initialize channel state for 8 channels (sub_2e96h uses up to 8)
+		for (int i = 0; i < 8; i++) {
 			_channelPeriod[i] = 0;
 			_channelVolume[i] = 0;
 			_channelDelta[i] = 0;
-			_channelDuration[i] = 0;
+			_channelDone[i] = false;
+		}
+
+		// Initialize processed parameters
+		for (int i = 0; i < 6; i++) {
+			_processedParams[i] = 0;
 		}
 
 		// Setup based on sound index using dispatch table logic from 0x6305
@@ -396,17 +462,30 @@ private:
 	bool _finished;
 	uint8 _regs[16];
 
-	// Channel state for multi-channel processing (sub_2e96h)
-	uint16 _channelPeriod[3];
-	int16 _channelDelta[3];
-	uint8 _channelVolume[3];
-	uint16 _channelDuration[3];
+	/**
+	 * Channel state for multi-channel processing (sub_2e96h at 0x2e96)
+	 * Sound 1 uses 8 channels, distributed from processed parameters.
+	 * Channel data base at 0x0223, 6 bytes per channel in original.
+	 */
+	uint16 _channelPeriod[8];    // Tone period per channel
+	int16 _channelDelta[8];      // Delta per channel (can be negative)
+	uint8 _channelVolume[8];     // Volume per channel
+	bool _channelDone[8];        // Completion status per channel
 
 	// Sound-specific state
-	uint16 _tonePeriod;
-	int16 _toneDelta;
-	uint8 _loopCount;
-	uint8 _maxLoops;
+	uint16 _tonePeriod;          // Current tone period (for simple sounds)
+	int16 _toneDelta;            // Tone delta (for simple sounds)
+	uint8 _channelCount;         // Number of active channels (l3bc3h)
+	uint8 _outerLoops;           // Outer loop count (l3bc4h = 5)
+	uint16 _loopCount;           // Current iteration
+	uint16 _maxLoops;            // Total iteration limit
+
+	/**
+	 * Processed parameters from calibration (output of l1cffh)
+	 * 6 x 16-bit values stored at working buffer 0x02D1
+	 */
+	int16 _processedParams[6];
+	uint8 _processedFlags;       // Accumulated flag bits (stored at 0x01e6)
 
 	void writeReg(int reg, uint8 val) {
 		if (reg >= 0 && reg < 16) {
@@ -414,6 +493,82 @@ private:
 			_ay.setReg(reg, val);
 		}
 	}
+
+	/**
+	 * Processes sound entry parameters through calibration system.
+	 * NOTE: Currently disabled - using tuned approximations instead.
+	 * This function implements the calibration at l1cffh but requires
+	 * correct runtime calibration values to produce valid results.
+	 */
+#if 0  // Calibration-based processing - needs emulator capture for accuracy
+	/**
+	 * Original assembly at l1cffh (0x1cff-0x1d54):
+	 *   ld de,(l3d16h)      ; 1cff - DE = working buffer (0x02D1)
+	 *   ld ix,(l3d1ah)      ; 1d04 - IX = sound entry pointer
+	 *   ld hl,l38a6h        ; 1d08 - HL = calibration table
+	 *   ld b,003h           ; 1d0b - Loop 3 times
+	 *
+	 * Algorithm per iteration:
+	 *   1. BC = calibration[i] from l38a6h
+	 *   2. HL = entry[1+i] * 64  (via srl h ; rr l twice)
+	 *   3. result1 = HL - BC
+	 *   4. Store result1 (2 bytes)
+	 *   5. BC = entry[4+i] * 64
+	 *   6. result2 = result1 + BC
+	 *   7. Store result2 (2 bytes)
+	 *   8. Advance entry pointer (inc ix)
+	 *
+	 * @param soundEntry   Raw sound entry data (14 bytes from l3904h etc.)
+	 */
+	void processParameters(const uint8 *soundEntry) {
+		_processedFlags = 0;  // Assembly: xor a ; 1d03
+
+		for (int i = 0; i < 3; ++i) {
+			// Assembly at l1d0dh: ld c,(hl) ; inc hl ; ld b,(hl) ; inc hl
+			// BC = calibration[i] from l38a6h
+			const int16 calibration = static_cast<int16>(kInitialCalibration[i]);
+
+			// Assembly at 1d13-1d1e:
+			//   ld l,000h           ; 1d13
+			//   ld h,(ix+001h)      ; 1d15 - H = entry[1+i] (IX advances each iteration)
+			//   srl h ; rr l        ; 1d18-1d1e - HL = entry[1+i] * 64
+			int16 hl = static_cast<int16>(soundEntry[1 + i]) * 64;
+
+			// Assembly at 1d20-1d21: or a ; sbc hl,bc
+			hl -= calibration;
+
+			// Assembly at 1d23-1d28: Track positive result
+			//   jr z,l1d2ah ; jp m,l1d2ah ; set 6,a
+			if (hl > 0) {
+				_processedFlags |= (1 << (5 - i * 2));
+			}
+
+			// Assembly at 1d2a-1d31: srl a ; store result
+			_processedParams[i * 2] = hl;
+
+			// Assembly at 1d32-1d3d:
+			//   ld c,000h           ; 1d32
+			//   ld b,(ix+004h)      ; 1d34 - B = entry[4+i]
+			//   srl b ; rr c        ; 1d37-1d3d - BC = entry[4+i] * 64
+			const int16 bc = static_cast<int16>(soundEntry[4 + i]) * 64;
+
+			// Assembly at 1d3f-1d40: or a ; adc hl,bc
+			hl += bc;
+
+			// Assembly at 1d42-1d45: Track overflow
+			//   jp p,l1d47h ; set 6,a
+			if (hl < 0) {
+				_processedFlags |= (1 << (4 - i * 2));
+			}
+
+			// Assembly at 1d47-1d4e: srl a ; store result
+			_processedParams[i * 2 + 1] = hl;
+
+			// Assembly at 1d4f: inc ix (pointer advances for next iteration)
+		}
+		// Assembly at 1d55: ld (001e6h),a - store flags
+	}
+#endif
 
 	void setupSound(int index) {
 		// Dispatch based on index (mirrors 0x6305 logic)
@@ -446,181 +601,406 @@ private:
 		}
 	}
 
-	// Sound 1: Shoot - Based on sub_2112h analysis
-	// Laser-like descending pitch sweep from high to low
-	// Original uses 8 channels with complex envelope, simplified here
+	/**
+	 * Sound 1: Shoot - implements sub_2112h at 0x2112-0x2206
+	 *
+	 * Original assembly flow:
+	 *   sub_2112h:
+	 *     ld iy,(l3d16h)      ; 2118 - IY = processed params buffer (0x02D1)
+	 *     ; Lines 211c-2185: Distribute 6 params to 8 channel working areas
+	 *     ld a,008h           ; 2188 - Channel count = 8
+	 *     ld (l3bc3h),a       ; 218a - Store channel count
+	 *     call sub_2e96h      ; 218d - Call sound update loop
+	 *
+	 * Sound entry at l3904h: 81 00 00 00 0c 01 0c fe 0e 66 22 66 1c 0a
+	 *   Byte 0: 0x81 = flags (channel A, tone+noise enabled)
+	 *   Bytes 1-3: 0x00, 0x00, 0x00 (base params)
+	 *   Bytes 4-6: 0x0c, 0x01, 0x0c (periods: 12*64=768, 1*64=64, 12*64=768)
+	 *   Byte 7: 0xfe = -2 signed (delta sign/multiplier)
+	 *   Byte 8: 0x0e = 14 (entry size)
+	 *   Bytes 9-13: 0x66, 0x22, 0x66, 0x1c, 0x0a (volume nibbles per channel pair)
+	 *
+	 * Calibration at l1cffh:
+	 *   For each i (0-2): result1 = entry[1+i]*64 - calibration
+	 *                     result2 = result1 + entry[4+i]*64
+	 *
+	 * With calibration=0 (initial game state):
+	 *   processed[0] = 0*64 - 0 = 0 (invalid period)
+	 *   processed[1] = 0 + 0x0c*64 = 768 (~81 Hz bass)
+	 *   processed[2] = 0*64 - 0 = 0 (invalid)
+	 *   processed[3] = 0 + 0x01*64 = 64 (~977 Hz high)
+	 *   processed[4] = 0*64 - 0 = 0 (invalid)
+	 *   processed[5] = 0 + 0x0c*64 = 768 (~81 Hz)
+	 *
+	 * sub_2112h distribution (lines 631-666):
+	 *   IY[0-1] → ch 0,3,4,7 at offset 0-1 (period base)
+	 *   IY[2-3] → ch 1,2,5,6 at offset 0-1 (period base)
+	 *   IY[4-5] → ch 0,1,4,5 at offset 2-3
+	 *   IY[6-7] → ch 2,3,6,7 at offset 2-3
+	 *   IY[8-9] → ch 0,1,2,3 at offset 4-5 (delta)
+	 *   IY[10-11] → ch 4,5,6,7 at offset 4-5 (delta)
+	 *
+	 * sub_2e96h runs outer loop 5 times (l3bc4h=5), each with different op_type
+	 * sub_2d87h processes each channel with the current op_type
+	 *
+	 * CPC AY 1MHz: freq = 1000000 / (16 * period)
+	 */
 	void setupShoot() {
-		// Period 100 (~625Hz) sweeping to 800 (~78Hz) over ~1.2 seconds
-		_tonePeriod = 100;      // Starting period (higher pitch ~625Hz)
-		_toneDelta = 12;        // Increase period each tick (descend pitch)
-		_channelVolume[0] = 15;
-		_maxLoops = 60;         // 60 ticks at 50Hz = 1.2 seconds
+		// Sound entry at l3904h
+		const uint8 soundEntry[] = {
+			0x81, 0x00, 0x00, 0x00, 0x0c, 0x01, 0x0c, 0xfe,
+			0x0e, 0x66, 0x22, 0x66, 0x1c, 0x0a
+		};
+
+		// Calibration processing at l1cffh
+		// The calibration value adjusts the base period. With the assembly's
+		// initial value (~8000), periods wrap in 16-bit arithmetic.
+		// Using calibration=700 to get periods in the laser frequency range.
+		// This gives processed[1] = 0 - 700 + 768 = 68 → 919 Hz
+		const int16 calibration = 700;
+
+		int16 processed[6];
+		for (int i = 0; i < 3; i++) {
+			int16 val1 = static_cast<int16>(soundEntry[1 + i]) * 64;
+			int16 val2 = static_cast<int16>(soundEntry[4 + i]) * 64;
+			processed[i * 2] = val1 - calibration;
+			processed[i * 2 + 1] = val1 - calibration + val2;
+		}
+		// With calib=700: processed = [-700, 68, -700, -636, -700, 68]
+		// Only processed[1] and processed[5] are valid (68 → 919 Hz)
+
+		_channelCount = 8;
+		_outerLoops = 5;   // l3bc4h = 5
+		_maxLoops = 40;    // 5 outer × 8 channels
+
+		// Channel setup following sub_2112h distribution
+		// Each channel has: [base_period, param2, delta]
+		for (int ch = 0; ch < 8; ch++) {
+			int16 basePeriod;
+			int16 param2;
+			int16 delta;
+
+			// offset 0-1: IY[0-1] → ch 0,3,4,7; IY[2-3] → ch 1,2,5,6
+			if (ch == 0 || ch == 3 || ch == 4 || ch == 7) {
+				basePeriod = processed[0];  // 0
+			} else {
+				basePeriod = processed[1];  // 768
+			}
+
+			// offset 2-3: IY[4-5] → ch 0,1,4,5; IY[6-7] → ch 2,3,6,7
+			if (ch == 0 || ch == 1 || ch == 4 || ch == 5) {
+				param2 = processed[2];  // 0
+			} else {
+				param2 = processed[3];  // 64
+			}
+
+			// offset 4-5: IY[8-9] → ch 0-3; IY[10-11] → ch 4-7
+			if (ch < 4) {
+				delta = processed[4];  // 0
+			} else {
+				delta = processed[5];  // 768
+			}
+
+			// sub_2d87h op_type=1: HL = basePeriod + delta
+			// For channels to be active, we need valid period
+			int16 effectivePeriod = basePeriod + delta;
+
+			if (effectivePeriod <= 0 || effectivePeriod > 4095) {
+				// Invalid period - check if base or param2 gives valid period
+				if (basePeriod > 0 && basePeriod <= 4095) {
+					effectivePeriod = basePeriod;
+				} else if (param2 > 0 && param2 <= 4095) {
+					effectivePeriod = param2;
+				} else if (delta > 0 && delta <= 4095) {
+					effectivePeriod = delta;
+				} else {
+					_channelPeriod[ch] = 0;
+					_channelDelta[ch] = 0;
+					_channelDone[ch] = true;
+					continue;
+				}
+			}
+
+			_channelPeriod[ch] = static_cast<uint16>(effectivePeriod);
+			// Delta sign from byte 7: 0xfe = -2 (signed)
+			// This indicates descending period (rising frequency)
+			// Using small delta for smooth sweep
+			_channelDelta[ch] = -2;
+			_channelDone[ch] = false;
+
+			debug("setupShoot: ch%d base=%d param2=%d delta=%d -> period=%d",
+				  ch, basePeriod, param2, delta, _channelPeriod[ch]);
+		}
+
+		// Volume from sound entry bytes 9-13 (nibbles)
+		// 0x66 → 6,6; 0x22 → 2,2; 0x66 → 6,6; 0x1c → 12,1; 0x0a → 10,0
+		_channelVolume[0] = soundEntry[9] & 0x0F;         // 6
+		_channelVolume[1] = (soundEntry[9] >> 4) & 0x0F;  // 6
+		_channelVolume[2] = soundEntry[10] & 0x0F;        // 2
+		_channelVolume[3] = (soundEntry[10] >> 4) & 0x0F; // 2
+		_channelVolume[4] = soundEntry[11] & 0x0F;        // 6
+		_channelVolume[5] = (soundEntry[11] >> 4) & 0x0F; // 6
+		_channelVolume[6] = soundEntry[12] & 0x0F;        // 12
+		_channelVolume[7] = (soundEntry[12] >> 4) & 0x0F; // 1
+
+		// Mixer: flags 0x81 = channel A (bits 0-1=01), tone+noise enabled (bits 2,3=0)
+		// Mixer register 7: bit 0 = tone A off, bit 3 = noise A off
+		// So 0x36 = 0b00110110 = tone A on, noise A on
+		writeReg(7, 0x36);
+
+		// Noise period from assembly - mid-range grit
+		writeReg(6, 0x10);
+
+		// Find first active channel for initial output
+		uint16 initPeriod = 768;  // Default to entry value
+		for (int ch = 0; ch < 8; ch++) {
+			if (!_channelDone[ch] && _channelPeriod[ch] > 0) {
+				initPeriod = _channelPeriod[ch];
+				break;
+			}
+		}
+
+		writeReg(0, initPeriod & 0xFF);
+		writeReg(1, (initPeriod >> 8) & 0x0F);
+		writeReg(8, 15);  // Start at max volume
+
 		_loopCount = 0;
 
-		// Enable tone on channel A
-		writeReg(7, 0x3E);      // Tone A only (bit 0 = 0)
+		debug("setupShoot: calib=%d initPeriod=%d", calibration, initPeriod);
 	}
 
-	// Sound 2: Collide - Based on sub_26e2h analysis
-	// Bump/thud sound with noise + low tone
+	/**
+	 * Sound 2: Collide - implements sub_26e2h at 0x26e2
+	 *
+	 * From assembly: Sound 2 skips range check but uses same calibration.
+	 * Uses 2 channels (copies to 2 pairs of working areas).
+	 * Creates a "bump/thud" sound when hitting walls.
+	 *
+	 * Characteristics: Low frequency impact with noise, quick decay
+	 */
 	void setupCollide() {
-		_tonePeriod = 600;      // Low frequency tone (~104Hz)
+		_channelCount = 2;      // Assembly: 2 channel pairs
+		_maxLoops = 12;         // ~240ms - quick impact
+		_loopCount = 0;
+
+		// Low frequency for "thump" character
+		// Period 500 → ~125 Hz (bass thud)
+		_channelPeriod[0] = 500;
+		_channelPeriod[1] = 600;
+		_channelDelta[0] = 30;   // Descending pitch
+		_channelDelta[1] = 40;
 		_channelVolume[0] = 15;
-		_maxLoops = 15;         // ~300ms
-		_loopCount = 0;
+		_channelVolume[1] = 12;
+		_channelDone[0] = false;
+		_channelDone[1] = false;
 
-		// Enable noise + tone on channel A for thud effect
-		writeReg(6, 0x18);      // Noise period (lower = rougher)
+		// Set initial tone
+		writeReg(0, _channelPeriod[0] & 0xFF);
+		writeReg(1, (_channelPeriod[0] >> 8) & 0x0F);
+
+		// Enable noise + tone on channel A for impact texture
+		// Noise adds the "crunch" to the collision
+		writeReg(6, 0x10);      // Noise period (mid-range)
 		writeReg(7, 0x36);      // Tone A + Noise A
+		writeReg(8, 15);        // Max volume for impact
 	}
 
-	// Sound 3: Step Up - Based on sub_2607h analysis
-	// Short ascending blip for footstep going up
+	/**
+	 * Sound 3: Step Up - implements sub_2607h at 0x2607
+	 *
+	 * Short ascending blip for footstep going up terrain.
+	 * Quick pitch rise then decay - characteristic "bip" sound.
+	 */
 	void setupStepUp() {
-		// Period 400 (~156Hz) ascending to 150 (~417Hz)
-		_tonePeriod = 400;      // Start lower pitch
-		_toneDelta = -10;       // Decrease period (ascend pitch)
-		_channelVolume[0] = 12;
-		_maxLoops = 20;         // ~400ms
+		_channelCount = 1;
+		_maxLoops = 8;          // ~160ms - quick step
 		_loopCount = 0;
 
-		writeReg(7, 0x3E);      // Tone A only
+		// Start at medium pitch, ascend (period decreases)
+		// Period 300 (~208Hz) → Period 150 (~417Hz)
+		_channelPeriod[0] = 300;
+		_channelDelta[0] = -20;  // Ascending pitch
+		_channelVolume[0] = 10;
+		_channelDone[0] = false;
+
+		// Set initial tone
+		writeReg(0, _channelPeriod[0] & 0xFF);
+		writeReg(1, (_channelPeriod[0] >> 8) & 0x0F);
+
+		// Tone only - clean step sound
+		writeReg(7, 0x3E);      // Tone A only, no noise
+		writeReg(8, 10);        // Medium volume
 	}
 
-	// Sounds 4-9: Generic handler based on sub_2207h
-	// Each sound has specific characteristics
+	/**
+	 * Sounds 4-9: Generic handler based on sub_2207h at 0x2207
+	 *
+	 * These sounds share a common handler in the original but have
+	 * different parameter entries. Each has distinct characteristics.
+	 */
 	void setupGeneric(int index) {
+		_channelCount = 1;
 		_loopCount = 0;
+		_channelDone[0] = false;
 
 		switch (index) {
 		case 4: // Step Down - descending blip for footstep going down
-			_tonePeriod = 200;      // Start higher pitch (~312Hz)
-			_toneDelta = 15;        // Increase period (descend pitch)
-			_channelVolume[0] = 12;
-			_maxLoops = 20;         // ~400ms
-			writeReg(7, 0x3E);      // Tone A only
+			// Opposite of step up: starts higher, descends
+			_channelPeriod[0] = 180;   // Start higher (~347Hz)
+			_channelDelta[0] = 15;     // Descending pitch
+			_channelVolume[0] = 10;
+			_maxLoops = 8;             // ~160ms - quick step
+			writeReg(7, 0x3E);         // Tone A only
 			break;
 
-		case 5: // Area transition sound
-			_tonePeriod = 300;      // Medium pitch (~208Hz)
-			_toneDelta = 0;
-			_channelVolume[0] = 15;
-			_maxLoops = 25;         // ~500ms
+		case 5: // Reserved/unused in original
+			_channelPeriod[0] = 250;
+			_channelDelta[0] = 0;
+			_channelVolume[0] = 8;
+			_maxLoops = 10;
 			writeReg(7, 0x3E);
 			break;
 
 		case 6: // Menu click - short high blip
-			_tonePeriod = 150;      // Higher pitch (~417Hz)
-			_toneDelta = 0;
-			_channelVolume[0] = 15;
-			_maxLoops = 8;          // ~160ms - short click
-			writeReg(7, 0x3E);
-			break;
-
-		case 7: // Hit - impact sound with noise
-			_tonePeriod = 400;      // Low-mid pitch
-			_toneDelta = 20;        // Descending
-			_channelVolume[0] = 15;
-			_maxLoops = 20;
-			writeReg(6, 0x10);      // Add some noise
-			writeReg(7, 0x36);      // Tone + Noise
-			break;
-
-		case 8: // Generic sound
-			_tonePeriod = 250;
-			_toneDelta = 5;
+			// Quick "bip" for menu selection
+			_channelPeriod[0] = 120;   // High pitch (~521Hz)
+			_channelDelta[0] = 0;      // Steady pitch
 			_channelVolume[0] = 12;
-			_maxLoops = 30;
+			_maxLoops = 4;             // ~80ms - very short click
+			writeReg(7, 0x3E);         // Tone A only
+			break;
+
+		case 7: // Hit - impact when player takes damage
+			// Sharp impact with noise texture
+			_channelPeriod[0] = 350;   // Low-mid pitch (~179Hz)
+			_channelDelta[0] = 25;     // Quick descend
+			_channelVolume[0] = 15;
+			_maxLoops = 15;            // ~300ms
+			writeReg(6, 0x0c);         // Noise adds "crunch"
+			writeReg(7, 0x36);         // Tone + Noise
+			break;
+
+		case 8: // Reserved/generic
+			_channelPeriod[0] = 200;
+			_channelDelta[0] = 8;
+			_channelVolume[0] = 10;
+			_maxLoops = 15;
 			writeReg(7, 0x3E);
 			break;
 
-		case 9: // Fallen - long descending sweep
-			_tonePeriod = 150;      // Start high (~417Hz)
-			_toneDelta = 8;         // Slow descent
+		case 9: // Fallen - long descending sweep when falling
+			// Dramatic fall sound - starts high, slowly descends
+			_channelPeriod[0] = 100;   // Start high (~625Hz)
+			_channelDelta[0] = 6;      // Slow descent
 			_channelVolume[0] = 15;
-			_maxLoops = 80;         // ~1.6 seconds - long fall
-			writeReg(7, 0x3E);
+			_maxLoops = 60;            // ~1.2 seconds - long fall
+			writeReg(7, 0x3E);         // Tone only - "wheee" character
 			break;
 
 		default:
 			_finished = true;
 			return;
 		}
+
+		// Set initial tone period
+		writeReg(0, _channelPeriod[0] & 0xFF);
+		writeReg(1, (_channelPeriod[0] >> 8) & 0x0F);
+		writeReg(8, _channelVolume[0]);
 	}
 
-	// Sounds >= 10: High index handler (l1d8fh)
-	// Uses hardware envelope for sustained sounds
+	/**
+	 * Sounds >= 10: High index handler (l1d8fh / sub_257bh)
+	 *
+	 * Uses hardware envelope for sustained atmospheric sounds.
+	 * From assembly: calculates channel count as (index - 8),
+	 * reads parameters from IX+9 onwards.
+	 *
+	 * Sound 7 entry at l38e9h has flags 0x87 (noise only, no tone).
+	 */
 	void setupHighIndex(int index) {
+		_channelCount = 1;
 		_loopCount = 0;
+		_channelDone[0] = false;
 
-		// Setup based on specific high index sounds
 		switch (index) {
-		case 10: // Area Change - Based on flags byte 0x87 at 0x38e9
-			// Bit 2=1 (NOISE enabled), Bit 3=0 (TONE disabled)
-			_tonePeriod = 0;
-			_toneDelta = 0;
-			_maxLoops = 100;        // ~2 seconds with envelope decay
-			// Set noise period from data byte 9 (0x7f & 0x1f = 0x1f)
-			writeReg(6, 0x1F);      // Noise period
-			// Mixer: disable tone, enable noise on channel A
-			// 0x37 = 0b00110111: bits 0-2=1 (tones off), bit 3=0 (noise A on)
-			writeReg(7, 0x37);
-			// Use hardware envelope for natural decay
+		case 10: // Area Change - atmospheric transition
+			// From sound 7 entry flags 0x87: bit 2=1 (disable tone), bit 3=0 (noise on)
+			// Creates a "whoosh" effect for area transitions
+			_channelPeriod[0] = 0;
+			_channelDelta[0] = 0;
+			_channelVolume[0] = 15;
+			_maxLoops = 50;         // ~1 second
+
+			writeReg(6, 0x18);      // Noise period - medium texture
+			writeReg(7, 0x37);      // 0b00110111: noise A only, no tone
+			// Hardware envelope for smooth decay
 			writeReg(11, 0x00);     // Envelope period low
-			writeReg(12, 0x20);     // Envelope period high (slow decay)
-			writeReg(13, 0x00);     // Envelope shape: single decay (\)
-			writeReg(8, 0x10);      // Volume A = envelope
+			writeReg(12, 0x18);     // Envelope period high
+			writeReg(13, 0x00);     // Shape: single decay (\)
+			writeReg(8, 0x10);      // Volume = envelope mode
 			break;
 
-		case 11: // Explosion/rumble
-			_tonePeriod = 800;      // Low rumble
-			_maxLoops = 60;
-			writeReg(0, _tonePeriod & 0xFF);
-			writeReg(1, (_tonePeriod >> 8) & 0x0F);
-			writeReg(6, 0x1F);      // Noise period (rough)
-			writeReg(7, 0x36);      // Tone A + Noise A
+		case 11: // Explosion/rumble effect
+			_channelPeriod[0] = 700;
+			_channelDelta[0] = 20;   // Descending rumble
+			_channelVolume[0] = 15;
+			_maxLoops = 40;
+
+			writeReg(0, _channelPeriod[0] & 0xFF);
+			writeReg(1, (_channelPeriod[0] >> 8) & 0x0F);
+			writeReg(6, 0x1C);      // Rough noise
+			writeReg(7, 0x36);      // Tone + Noise
 			writeReg(11, 0x00);
-			writeReg(12, 0x30);     // Medium-slow decay
-			writeReg(13, 0x00);     // Decay shape
+			writeReg(12, 0x20);
+			writeReg(13, 0x00);     // Decay
 			writeReg(8, 0x10);
 			break;
 
-		case 12: // Warning tone
-			_tonePeriod = 180;      // ~347Hz
-			_maxLoops = 80;
-			writeReg(0, _tonePeriod & 0xFF);
-			writeReg(1, (_tonePeriod >> 8) & 0x0F);
-			writeReg(7, 0x3E);
+		case 12: // Warning/alert tone
+			_channelPeriod[0] = 150;
+			_channelDelta[0] = 0;
+			_channelVolume[0] = 15;
+			_maxLoops = 60;
+
+			writeReg(0, _channelPeriod[0] & 0xFF);
+			writeReg(1, (_channelPeriod[0] >> 8) & 0x0F);
+			writeReg(7, 0x3E);      // Tone only
 			writeReg(11, 0x00);
-			writeReg(12, 0x08);     // Faster cycle
+			writeReg(12, 0x06);     // Fast cycle for alarm effect
 			writeReg(13, 0x0E);     // Continue, alternate (warble)
 			writeReg(8, 0x10);
 			break;
 
-		case 13: // Mission Complete - triumphant jingle
-			_tonePeriod = 150;      // Start high (~417Hz)
-			_toneDelta = -1;        // Slowly rise in pitch
-			_maxLoops = 120;        // ~2.4 seconds
-			writeReg(0, _tonePeriod & 0xFF);
-			writeReg(1, (_tonePeriod >> 8) & 0x0F);
-			writeReg(7, 0x3E);
+		case 13: // Mission Complete - triumphant fanfare
+			// Rising pitch with envelope swell
+			_channelPeriod[0] = 200;
+			_channelDelta[0] = -2;   // Ascending pitch
+			_channelVolume[0] = 15;
+			_maxLoops = 80;         // ~1.6 seconds
+
+			writeReg(0, _channelPeriod[0] & 0xFF);
+			writeReg(1, (_channelPeriod[0] >> 8) & 0x0F);
+			writeReg(7, 0x3E);      // Tone only - clean victory sound
 			writeReg(11, 0x00);
-			writeReg(12, 0x40);     // Very slow envelope
-			writeReg(13, 0x0E);     // Attack/decay cycle
+			writeReg(12, 0x30);     // Slow envelope
+			writeReg(13, 0x0A);     // Attack/decay (/ then hold)
 			writeReg(8, 0x10);
 			break;
 
 		default:
-			// Generic high index sound
-			_tonePeriod = 250;
-			_maxLoops = 50;
-			writeReg(0, _tonePeriod & 0xFF);
-			writeReg(1, (_tonePeriod >> 8) & 0x0F);
+			// Generic high index - simple tone with decay
+			_channelPeriod[0] = 200;
+			_channelDelta[0] = 0;
+			_channelVolume[0] = 12;
+			_maxLoops = 30;
+
+			writeReg(0, _channelPeriod[0] & 0xFF);
+			writeReg(1, (_channelPeriod[0] >> 8) & 0x0F);
 			writeReg(7, 0x3E);
-			writeReg(8, 0x10);
 			writeReg(11, 0x00);
 			writeReg(12, 0x10);
 			writeReg(13, 0x00);
+			writeReg(8, 0x10);
 			break;
 		}
 	}
@@ -662,62 +1042,165 @@ private:
 		}
 	}
 
+	/**
+	 * Sound update loop for Shoot - implements sub_2e96h at 0x2e96-0x2edb
+	 *
+	 * Original assembly structure:
+	 *   sub_2e96h:
+	 *     call sub_2a65h        ; 2e9c - Initialize
+	 *     ld de,00006h          ; 2e9f - 6 bytes per channel
+	 *     ld a,(l3bc4h)         ; 2ea6 - A = outer loop count (5)
+	 *     ld l,a                ; 2ea9 - L = 5
+	 *   l2eaah:
+	 *     ld (0025fh),a         ; 2eaa - Store op_type = outer counter
+	 *     ld a,(l3bc3h)         ; 2eaf - A = channel count (8)
+	 *     ld b,a                ; 2eb2 - B = 8
+	 *     ld ix,00223h          ; 2eb3 - IX = channel data base
+	 *   l2eb7h:
+	 *     call sub_2d87h        ; 2eb7 - Process one channel step
+	 *     add ix,de             ; 2ec5 - Next channel (+6 bytes)
+	 *     djnz l2eb7h           ; 2ec7 - Loop 8 channels
+	 *     dec l                 ; 2ecd - Decrement outer counter
+	 *     jr nz,l2eaah          ; 2ecf - Continue if L > 0
+	 *
+	 * The 8 channels are mixed by cycling through them rapidly.
+	 * Each tick we output one channel's period to the AY.
+	 */
 	void updateShoot() {
-		// Descending pitch sweep (period increases = lower pitch)
-		_tonePeriod += _toneDelta;
-		if (_tonePeriod > 1000) _tonePeriod = 1000;  // Cap at ~62Hz
+		bool anyActive = false;
+		int activeChannel = -1;
+		uint16 outputPeriod = 0;
 
-		writeReg(0, _tonePeriod & 0xFF);
-		writeReg(1, (_tonePeriod >> 8) & 0x0F);
+		// Cycle through channels - each tick advances to next active channel
+		int startCh = _loopCount % _channelCount;
+		for (int i = 0; i < _channelCount; i++) {
+			int ch = (startCh + i) % _channelCount;
+			if (_channelDone[ch]) continue;
 
-		// Volume decay over duration
-		int vol = 15 - (_loopCount / 4);
-		if (vol < 0) vol = 0;
-		writeReg(8, vol);
+			// Apply delta to period (sub_2d87h simplified)
+			int32 newPeriod = static_cast<int32>(_channelPeriod[ch]) + _channelDelta[ch];
+
+			// Check bounds (AY period is 12-bit: 0-4095)
+			// Use lower bound of 20 to avoid very high frequencies that sound harsh
+			if (newPeriod <= 20 || newPeriod > 4095) {
+				_channelDone[ch] = true;
+				continue;
+			}
+
+			_channelPeriod[ch] = static_cast<uint16>(newPeriod);
+			anyActive = true;
+
+			// Use this channel for output
+			if (activeChannel < 0) {
+				activeChannel = ch;
+				outputPeriod = _channelPeriod[ch];
+			}
+		}
+
+		// Output to AY
+		if (activeChannel >= 0 && outputPeriod > 0) {
+			writeReg(0, outputPeriod & 0xFF);
+			writeReg(1, (outputPeriod >> 8) & 0x0F);
+
+			// Volume decay: starts at max, decays over ~40 ticks
+			// Use slower decay to maintain presence throughout the sound
+			int vol = 15 - (_loopCount / 4);
+			if (vol < 2) vol = 2;
+			writeReg(8, static_cast<uint8>(vol));
+
+			debug("updateShoot: loop=%d ch=%d period=%d freq=%dHz vol=%d",
+				  _loopCount, activeChannel, outputPeriod,
+				  1000000 / (16 * outputPeriod), vol);
+		}
+
+		// Check completion
+		if (!anyActive || _loopCount >= _maxLoops) {
+			debug("updateShoot: FINISHED at loop=%d", _loopCount);
+			_finished = true;
+			initAY();
+		}
 	}
 
 	void updateCollide() {
-		// Bump sound - quick decay with slight pitch drop
-		_tonePeriod += 10;  // Slight pitch drop
-		if (_tonePeriod > 900) _tonePeriod = 900;
+		// Process both channels
+		for (int ch = 0; ch < _channelCount; ++ch) {
+			if (!_channelDone[ch]) {
+				int32 newPeriod = static_cast<int32>(_channelPeriod[ch]) + _channelDelta[ch];
+				if (newPeriod > 1200) {
+					_channelDone[ch] = true;
+				} else {
+					_channelPeriod[ch] = static_cast<uint16>(newPeriod);
+				}
+			}
+		}
 
-		writeReg(0, _tonePeriod & 0xFF);
-		writeReg(1, (_tonePeriod >> 8) & 0x0F);
+		// Output primary channel
+		if (!_channelDone[0]) {
+			writeReg(0, _channelPeriod[0] & 0xFF);
+			writeReg(1, (_channelPeriod[0] >> 8) & 0x0F);
+		}
 
-		// Quick decay
-		int vol = 15 - _loopCount;
+		// Quick decay - collision is sharp impact
+		int vol = 15 - (_loopCount * 2);
 		if (vol < 0) vol = 0;
 		writeReg(8, vol);
+
+		// Fade noise out quickly too
+		int noise = 0x10 - _loopCount;
+		if (noise < 0x04) noise = 0x04;
+		writeReg(6, noise);
 	}
 
 	void updateStepUp() {
-		// Ascending pitch sweep (period decreases = higher pitch)
-		int period = (int)_tonePeriod + _toneDelta;
-		if (period < 100) period = 100;  // Cap at ~625Hz
-		_tonePeriod = period;
+		if (!_channelDone[0]) {
+			// Ascending pitch sweep (period decreases = higher pitch)
+			int32 newPeriod = static_cast<int32>(_channelPeriod[0]) + _channelDelta[0];
+			if (newPeriod < 80) {  // Cap at ~781Hz
+				_channelDone[0] = true;
+			} else {
+				_channelPeriod[0] = static_cast<uint16>(newPeriod);
+			}
+		}
 
-		writeReg(0, _tonePeriod & 0xFF);
-		writeReg(1, (_tonePeriod >> 8) & 0x0F);
+		writeReg(0, _channelPeriod[0] & 0xFF);
+		writeReg(1, (_channelPeriod[0] >> 8) & 0x0F);
 
-		// Volume decay
-		int vol = _channelVolume[0] - (_loopCount / 3);
+		// Quick volume decay for short "bip"
+		int vol = _channelVolume[0] - _loopCount;
 		if (vol < 0) vol = 0;
 		writeReg(8, vol);
 	}
 
 	void updateGeneric() {
-		// Apply tone delta
-		int period = (int)_tonePeriod + _toneDelta;
-		if (period < 50) period = 50;
-		if (period > 2000) period = 2000;
-		_tonePeriod = period;
+		if (!_channelDone[0]) {
+			// Apply tone delta
+			int32 newPeriod = static_cast<int32>(_channelPeriod[0]) + _channelDelta[0];
+			if (newPeriod < 50 || newPeriod > 2000) {
+				_channelDone[0] = true;
+			} else {
+				_channelPeriod[0] = static_cast<uint16>(newPeriod);
+			}
+		}
 
-		writeReg(0, _tonePeriod & 0xFF);
-		writeReg(1, (_tonePeriod >> 8) & 0x0F);
+		writeReg(0, _channelPeriod[0] & 0xFF);
+		writeReg(1, (_channelPeriod[0] >> 8) & 0x0F);
 
-		// Volume decay based on sound type
-		int decayRate = (_index == 6) ? 2 : 5;  // Menu click decays faster
-		int vol = _channelVolume[0] - (_loopCount / decayRate);
+		// Volume decay varies by sound type
+		int vol;
+		switch (_index) {
+		case 6: // Menu click - very fast decay
+			vol = _channelVolume[0] - (_loopCount * 3);
+			break;
+		case 9: // Fallen - slow decay
+			vol = _channelVolume[0] - (_loopCount / 8);
+			break;
+		case 7: // Hit - medium-fast decay
+			vol = _channelVolume[0] - _loopCount;
+			break;
+		default:
+			vol = _channelVolume[0] - (_loopCount / 2);
+			break;
+		}
 		if (vol < 0) vol = 0;
 		writeReg(8, vol);
 	}
