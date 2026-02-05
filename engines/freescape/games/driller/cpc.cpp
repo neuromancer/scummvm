@@ -356,33 +356,73 @@ static const uint8 kDrillerCPCSoundDefs[][7] = {
  * We use a fixed calibration that produces reasonable frequencies.
  */
 
-// Sound entry data from DRILL.BIN - used by unified processing system
-// Entry structure: flags(1), base[3], add[3], delta(1), size(1), vol/extra[...]
-// Channel count for sub_2207h: compare bytes 0x0c-0x0f
+/**
+ * Sound entries extracted from DRILL.BIN at their respective addresses.
+ *
+ * IMPLEMENTATION STATUS:
+ *   - Types 1, 6, 7: HAVE ASSEMBLY ENTRY DATA (l3904h, l3912h, l38e9h, l3922h, l3932h, l3942h)
+ *   - Types 2, 3:    HANDLERS EXIST but NO ENTRY DATA in table (sub_26e2h, sub_2607h)
+ *   - Types 4, 5, 8, 9: HANDLERS EXIST (sub_2207h) but NO ENTRY DATA found
+ *   - Types >= 10:   Use sub_257bh with hardware envelope
+ *
+ * Entry structure: flags(1), base[3], add[3], delta(1), size(1), vol/extra[...]
+ * Channel count for sub_2207h: compare bytes 0x0c-0x0f
+ *   - All equal → 5 channels
+ *   - One pair differs → 6 channels
+ *   - Both pairs differ → 8 channels
+ */
 
+// Sound 7 (Hit) at l38e9h - 27 bytes (0x1b)
+// Type 7 → sub_2207h, bytes 0c-0f = 03 03 05 05 (differ) → 8 channels
+// Flags 0x87: bit 2=1 (no tone), bit 3=0 (noise on)
 static const uint8 kSoundEntry7[] = {
-	// Sound 7 (Hit) at l38e9h - 27 bytes (0x1b)
-	// Type 7 → sub_2207h, bytes 0c-0f = 03 03 05 05 (differ) → 8 channels
-	// Flags 0x87: bit 2=1 (no tone), bit 3=0 (noise on)
 	0x87, 0x00, 0x00, 0x00, 0x08, 0x0a, 0x08, 0xff,  // bytes 0-7
 	0x1b, 0x7f, 0x7f, 0x00, 0x03, 0x03, 0x05, 0x05   // bytes 8-15 (0c-0f for channel count)
 };
 
+// Sound 1 (Shoot) at l3904h - 14 bytes (0x0e)
+// Type 1 → sub_2112h → 8 channels (hardcoded in handler)
+// Flags 0x81: bits 2,3=0 → tone+noise enabled
 static const uint8 kSoundEntry1[] = {
-	// Sound 1 (Shoot) at l3904h - 14 bytes (0x0e)
-	// Type 1 → sub_2112h → 8 channels (hardcoded in handler)
-	// Flags 0x81: bits 2,3=0 → tone+noise enabled
 	0x81, 0x00, 0x00, 0x00, 0x0c, 0x01, 0x0c, 0xfe,  // bytes 0-7
 	0x0e, 0x66, 0x22, 0x66, 0x1c, 0x0a               // bytes 8-13
 };
 
+// Sound 6 (Menu) at l3912h - 16 bytes (0x10)
+// Type 6 → sub_2207h, bytes 0c-0f = 03 03 03 03 (all equal) → 5 channels
+// Flags 0x86: bit 2=1 (no tone), bit 3=0 (noise on)
 static const uint8 kSoundEntry6[] = {
-	// Sound 6 (Menu) at l3912h - 16 bytes (0x10)
-	// Type 6 → sub_2207h, bytes 0c-0f = 03 03 03 03 (all equal) → 5 channels
-	// Flags 0x86: bit 2=1 (no tone), bit 3=0 (noise on)
 	0x86, 0x00, 0x00, 0x00, 0x06, 0x08, 0x06, 0xfd,  // bytes 0-7
 	0x10, 0x7f, 0x7f, 0x00, 0x03, 0x03, 0x03, 0x03   // bytes 8-15 (0c-0f for channel count)
 };
+
+/**
+ * Additional entry variants - documented for reference and future area-specific sound selection.
+ * The original game modifies entries based on area parameters (see lines 13703-13765 in assembly).
+ * These variants are preserved but currently unused.
+ */
+#if 0  // Area-specific entry variants - for future use
+// Sound 7 variant at l3922h - 16 bytes (0x10)
+// Type 7 → sub_2207h, bytes 0c-0f = 01 01 01 01 (all equal) → 5 channels
+static const uint8 kSoundEntry7b[] = {
+	0x87, 0x00, 0x00, 0x00, 0x02, 0x01, 0x02, 0xfc,  // bytes 0-7
+	0x10, 0xcc, 0xcc, 0x00, 0x01, 0x01, 0x01, 0x01   // bytes 8-15
+};
+
+// Sound 6 variant at l3932h - 16 bytes (0x10)
+// Type 6 → sub_2207h, bytes 0c-0f = 01 01 01 01 (all equal) → 5 channels
+static const uint8 kSoundEntry6b[] = {
+	0x86, 0x00, 0x00, 0x00, 0x02, 0x03, 0x02, 0xfb,  // bytes 0-7
+	0x10, 0xcc, 0xcc, 0x00, 0x01, 0x01, 0x01, 0x01   // bytes 8-15
+};
+
+// Sound 6 variant at l3942h - 16 bytes (0x10) - with non-zero base params!
+// Type 6 → sub_2207h, bytes 0c-0f = 01 03 01 03 (differ) → 6 channels
+static const uint8 kSoundEntry6c[] = {
+	0x86, 0x3f, 0x30, 0x3d, 0x02, 0x02, 0x06, 0xfa,  // bytes 0-7
+	0x10, 0x7f, 0x7f, 0x22, 0x01, 0x03, 0x01, 0x03   // bytes 8-15
+};
+#endif
 
 /**
  * Calibration value for sound processing.
@@ -809,14 +849,20 @@ private:
 	/**
 	 * Sound 2: Collide - implements sub_26e2h at 0x26e2
 	 *
-	 * From assembly: Sound 2 skips range check but uses same calibration.
-	 * Uses 2 channels (copies to 2 pairs of working areas).
-	 * Creates a "bump/thud" sound when hitting walls.
+	 * APPROXIMATION: No entry with type 2 exists in the assembly sound table.
+	 * Handler sub_26e2h exists and is dispatched for type 2, but no entries found.
 	 *
-	 * Characteristics: Low frequency impact with noise, quick decay
+	 * From assembly analysis of sub_26e2h (lines 1281-1341):
+	 *   - Increments counter at l3b68h
+	 *   - Loads parameters from processed buffer (l3d16h)
+	 *   - Copies to 2 pairs of working areas (001e7h-001fdh)
+	 *   - Would use 2 channels if entry existed
+	 *
+	 * Approximation based on handler behavior: 2 channels, impact sound
 	 */
 	void setupCollide() {
-		_channelCount = 2;      // Assembly: 2 channel pairs
+		// Assembly: sub_26e2h uses 2 channel pairs
+		_channelCount = 2;
 		_maxLoops = 12;         // ~240ms - quick impact
 		_loopCount = 0;
 
@@ -836,7 +882,6 @@ private:
 		writeReg(1, (_channelPeriod[0] >> 8) & 0x0F);
 
 		// Enable noise + tone on channel A for impact texture
-		// Noise adds the "crunch" to the collision
 		writeReg(6, 0x10);      // Noise period (mid-range)
 		writeReg(7, 0x36);      // Tone A + Noise A
 		writeReg(8, 15);        // Max volume for impact
@@ -845,20 +890,29 @@ private:
 	/**
 	 * Sound 3: Step Up - implements sub_2607h at 0x2607
 	 *
-	 * Short ascending blip for footstep going up terrain.
-	 * Quick pitch rise then decay - characteristic "bip" sound.
+	 * APPROXIMATION: No entry with type 3 exists in the assembly sound table.
+	 * Handler sub_2607h exists and is dispatched for type 3, but no entries found.
+	 *
+	 * From assembly analysis of sub_2607h (lines 1177-1237):
+	 *   - ld a,004h ; ld (l3bc3h),a  → Uses 4 channels (line 1227-1228)
+	 *   - Copies processed params to 4 pairs of working areas
+	 *   - Calls sub_2e96h for the main update loop
+	 *
+	 * Approximation: 4 channels with ascending pitch for step up sound
 	 */
 	void setupStepUp() {
-		_channelCount = 1;
-		_maxLoops = 8;          // ~160ms - quick step
+		// Assembly: sub_2607h uses 4 channels (line 1227: ld a,004h)
+		_channelCount = 4;
+		_maxLoops = 20;         // 4 ch * 5 outer loops
 		_loopCount = 0;
 
-		// Start at medium pitch, ascend (period decreases)
-		// Period 300 (~208Hz) → Period 150 (~417Hz)
-		_channelPeriod[0] = 300;
-		_channelDelta[0] = -20;  // Ascending pitch
-		_channelVolume[0] = 10;
-		_channelDone[0] = false;
+		// Setup 4 channels with staggered periods (ascending effect)
+		for (int ch = 0; ch < 4; ch++) {
+			_channelPeriod[ch] = 300 - ch * 30;  // 300, 270, 240, 210
+			_channelDelta[ch] = -15;              // Ascending pitch
+			_channelVolume[ch] = 10 - ch;         // Decreasing volume
+			_channelDone[ch] = false;
+		}
 
 		// Set initial tone
 		writeReg(0, _channelPeriod[0] & 0xFF);
@@ -872,70 +926,82 @@ private:
 	/**
 	 * Sounds 4-9: Generic handler based on sub_2207h at 0x2207
 	 *
-	 * Assembly uses calibrated params from l1cffh. Channel count determined by
-	 * comparing entry bytes 0x0c-0x0f:
+	 * IMPLEMENTATION STATUS:
+	 *   - Sound 6 (Menu): ASSEMBLY DATA from l3912h (type 6, 5 channels)
+	 *   - Sound 7 (Hit):  ASSEMBLY DATA from l38e9h (type 7, 8 channels)
+	 *   - Sound 4, 5, 8, 9: APPROXIMATION - no entries with these types exist
+	 *
+	 * Channel count for sub_2207h determined by comparing entry bytes 0x0c-0x0f:
 	 *   - All equal → 5 channels
 	 *   - One pair differs → 6 channels
 	 *   - Both pairs differ → 8 channels
-	 *
-	 * Sound 6 (l3912h): bytes 0x0c-0x0f = 03 03 03 03 → 5 channels
-	 * Sound 7 (l38e9h): bytes 0x0c-0x0f = 03 03 05 05 → 8 channels
 	 */
 	void setupGeneric(int index) {
 		_loopCount = 0;
 
 		switch (index) {
-		case 6: // Menu - uses l3912h entry data (type 6)
-			// Assembly: bytes 0c-0f all equal (03 03 03 03) → 5 channels
-			// l3bc4h outer loops not explicitly specified, using 5
+		case 6: // Menu - ASSEMBLY DATA from l3912h
+			// Type 6, bytes 0c-0f = 03 03 03 03 (all equal) → 5 channels
 			setupFromEntry(kSoundEntry6, 5, 5);
 			return;
 
-		case 7: // Hit - uses l38e9h entry data (type 7)
-			// Assembly: bytes 0c != 0e (03 != 05) → 8 channels
+		case 7: // Hit - ASSEMBLY DATA from l38e9h
+			// Type 7, bytes 0c-0f = 03 03 05 05 (differ) → 8 channels
 			setupFromEntry(kSoundEntry7, 8, 5);
 			return;
 
-		// Sounds 4, 5, 8, 9: No explicit entry data found in assembly.
-		// Using approximations until entries are located.
-		// TODO: Find assembly entry data for these sounds
-		case 4: // Step Down
-			_channelCount = 1;
-			_channelDone[0] = false;
-			_channelPeriod[0] = 180;
-			_channelDelta[0] = 15;
-			_channelVolume[0] = 10;
-			_maxLoops = 8;
+		// APPROXIMATIONS: Sounds 4, 5, 8, 9 have no entries in the assembly table.
+		// These would use sub_2207h if entries existed.
+		// Implementing reasonable approximations based on handler behavior.
+
+		case 4: // Step Down - APPROXIMATION (no type 4 entry exists)
+			// Would use 5 channels (sub_2207h default) if entry existed
+			// Descending pitch (opposite of step up)
+			_channelCount = 4;  // Match step handler channel count
+			for (int ch = 0; ch < 4; ch++) {
+				_channelPeriod[ch] = 180 + ch * 20;  // 180, 200, 220, 240
+				_channelDelta[ch] = 15;               // Descending pitch
+				_channelVolume[ch] = 10 - ch;
+				_channelDone[ch] = false;
+			}
+			_maxLoops = 20;
+			writeReg(7, 0x3E);  // Tone only
+			break;
+
+		case 5: // Reserved - APPROXIMATION (no type 5 entry exists)
+			_channelCount = 5;  // sub_2207h minimum
+			for (int ch = 0; ch < 5; ch++) {
+				_channelPeriod[ch] = 250;
+				_channelDelta[ch] = 0;
+				_channelVolume[ch] = 8;
+				_channelDone[ch] = false;
+			}
+			_maxLoops = 25;
 			writeReg(7, 0x3E);
 			break;
 
-		case 5: // Reserved
-			_channelCount = 1;
-			_channelDone[0] = false;
-			_channelPeriod[0] = 250;
-			_channelDelta[0] = 0;
-			_channelVolume[0] = 8;
-			_maxLoops = 10;
+		case 8: // Reserved - APPROXIMATION (no type 8 entry exists)
+			_channelCount = 5;  // sub_2207h default
+			for (int ch = 0; ch < 5; ch++) {
+				_channelPeriod[ch] = 200 + ch * 10;
+				_channelDelta[ch] = 8;
+				_channelVolume[ch] = 10;
+				_channelDone[ch] = false;
+			}
+			_maxLoops = 25;
 			writeReg(7, 0x3E);
 			break;
 
-		case 8: // Reserved
-			_channelCount = 1;
-			_channelDone[0] = false;
-			_channelPeriod[0] = 200;
-			_channelDelta[0] = 8;
-			_channelVolume[0] = 10;
-			_maxLoops = 15;
-			writeReg(7, 0x3E);
-			break;
-
-		case 9: // Fallen
-			_channelCount = 1;
-			_channelDone[0] = false;
-			_channelPeriod[0] = 100;
-			_channelDelta[0] = 6;
-			_channelVolume[0] = 15;
-			_maxLoops = 60;
+		case 9: // Fallen - APPROXIMATION (no type 9 entry exists)
+			// Long descending sound for falling
+			_channelCount = 5;
+			for (int ch = 0; ch < 5; ch++) {
+				_channelPeriod[ch] = 100 + ch * 20;
+				_channelDelta[ch] = 6;
+				_channelVolume[ch] = 15 - ch;
+				_channelDone[ch] = false;
+			}
+			_maxLoops = 60;  // Long sound
 			writeReg(7, 0x3E);
 			break;
 
@@ -944,7 +1010,7 @@ private:
 			return;
 		}
 
-		// Set initial tone period for non-entry-based sounds
+		// Set initial tone period for approximation-based sounds
 		writeReg(0, _channelPeriod[0] & 0xFF);
 		writeReg(1, (_channelPeriod[0] >> 8) & 0x0F);
 		writeReg(8, _channelVolume[0]);
@@ -953,32 +1019,41 @@ private:
 	/**
 	 * Sounds >= 10: High index handler (l1d8fh / sub_257bh)
 	 *
-	 * From assembly at sub_257bh (0x257b):
+	 * From assembly at sub_257bh (0x257b, line 1109 in disassembly):
 	 *   ld a,(001e5h)      ; Get type
 	 *   sub 008h           ; Channel count = type - 8
 	 *   ld (l3bc3h),a      ; Store channel count
 	 *
-	 * So type 10 → 2 channels, type 11 → 3 channels, etc.
-	 * Uses calibration table and hardware envelope.
+	 * Channel count formula: index - 8
+	 *   Type 10 → 2 channels
+	 *   Type 11 → 3 channels
+	 *   Type 12 → 4 channels
+	 *   Type 13 → 5 channels
 	 *
-	 * TODO: Find specific entry data for high index sounds.
-	 * Current implementation uses approximations with HW envelope.
+	 * APPROXIMATION: No specific entry data found for high index sounds.
+	 * These use hardware envelope (AY registers 11-13) based on sub_257bh behavior.
+	 * Uses l38a6h calibration table and processes through l1cffh.
 	 */
 	void setupHighIndex(int index) {
-		// Assembly: channel count = type - 8
+		// Assembly (line 1109): channel count = type - 8
 		_channelCount = index - 8;
 		if (_channelCount < 1) _channelCount = 1;
 		if (_channelCount > 8) _channelCount = 8;
 		_loopCount = 0;
-		_channelDone[0] = false;
+
+		for (int ch = 0; ch < _channelCount; ch++) {
+			_channelDone[ch] = false;
+		}
 
 		switch (index) {
 		case 10: // Area Change - 2 channels (10 - 8 = 2)
-			// Assembly: uses calibration + HW envelope
-			// Approximation until entry data found
+			// APPROXIMATION: Uses HW envelope for transition effect
 			_channelPeriod[0] = 0;
+			_channelPeriod[1] = 0;
 			_channelDelta[0] = 0;
+			_channelDelta[1] = 0;
 			_channelVolume[0] = 15;
+			_channelVolume[1] = 15;
 			_maxLoops = 100;        // ~2 seconds
 
 			writeReg(6, 0x18);      // Noise period
@@ -989,56 +1064,89 @@ private:
 			writeReg(8, 0x10);      // Volume = envelope mode
 			break;
 
-		case 11: // 3 channels (11 - 8 = 3)
+		case 11: // Explosion - 3 channels (11 - 8 = 3)
+			// APPROXIMATION: Low rumble with envelope
 			_channelPeriod[0] = 700;
+			_channelPeriod[1] = 750;
+			_channelPeriod[2] = 800;
 			_channelDelta[0] = 20;
+			_channelDelta[1] = 25;
+			_channelDelta[2] = 30;
 			_channelVolume[0] = 15;
+			_channelVolume[1] = 14;
+			_channelVolume[2] = 13;
 			_maxLoops = 40;
 
 			writeReg(0, _channelPeriod[0] & 0xFF);
 			writeReg(1, (_channelPeriod[0] >> 8) & 0x0F);
 			writeReg(6, 0x1C);
-			writeReg(7, 0x36);
+			writeReg(7, 0x36);      // Tone + Noise
 			writeReg(11, 0x00);
 			writeReg(12, 0x20);
-			writeReg(13, 0x00);
-			writeReg(8, 0x10);
+			writeReg(13, 0x00);     // Single decay
+			writeReg(8, 0x10);      // Envelope mode
 			break;
 
-		case 12: // 4 channels (12 - 8 = 4)
+		case 12: // Warning - 4 channels (12 - 8 = 4)
+			// APPROXIMATION: Alert tone with envelope
 			_channelPeriod[0] = 150;
+			_channelPeriod[1] = 160;
+			_channelPeriod[2] = 170;
+			_channelPeriod[3] = 180;
 			_channelDelta[0] = 0;
+			_channelDelta[1] = 0;
+			_channelDelta[2] = 0;
+			_channelDelta[3] = 0;
 			_channelVolume[0] = 15;
+			_channelVolume[1] = 14;
+			_channelVolume[2] = 13;
+			_channelVolume[3] = 12;
 			_maxLoops = 60;
 
 			writeReg(0, _channelPeriod[0] & 0xFF);
 			writeReg(1, (_channelPeriod[0] >> 8) & 0x0F);
-			writeReg(7, 0x3E);
+			writeReg(7, 0x3E);      // Tone only
 			writeReg(11, 0x00);
 			writeReg(12, 0x06);
-			writeReg(13, 0x0E);
-			writeReg(8, 0x10);
+			writeReg(13, 0x0E);     // Continue, attack-decay
+			writeReg(8, 0x10);      // Envelope mode
 			break;
 
 		case 13: // Mission Complete - 5 channels (13 - 8 = 5)
+			// APPROXIMATION: Triumphant ascending tone
 			_channelPeriod[0] = 200;
+			_channelPeriod[1] = 190;
+			_channelPeriod[2] = 180;
+			_channelPeriod[3] = 170;
+			_channelPeriod[4] = 160;
 			_channelDelta[0] = -2;
+			_channelDelta[1] = -2;
+			_channelDelta[2] = -2;
+			_channelDelta[3] = -2;
+			_channelDelta[4] = -2;
 			_channelVolume[0] = 15;
+			_channelVolume[1] = 14;
+			_channelVolume[2] = 13;
+			_channelVolume[3] = 12;
+			_channelVolume[4] = 11;
 			_maxLoops = 80;
 
 			writeReg(0, _channelPeriod[0] & 0xFF);
 			writeReg(1, (_channelPeriod[0] >> 8) & 0x0F);
-			writeReg(7, 0x3E);
+			writeReg(7, 0x3E);      // Tone only
 			writeReg(11, 0x00);
 			writeReg(12, 0x30);
-			writeReg(13, 0x0A);
-			writeReg(8, 0x10);
+			writeReg(13, 0x0A);     // Continue, hold
+			writeReg(8, 0x10);      // Envelope mode
 			break;
 
 		default:
-			_channelPeriod[0] = 200;
-			_channelDelta[0] = 0;
-			_channelVolume[0] = 12;
+			// Generic high index sound
+			for (int ch = 0; ch < _channelCount; ch++) {
+				_channelPeriod[ch] = 200 + ch * 20;
+				_channelDelta[ch] = 0;
+				_channelVolume[ch] = 12 - ch;
+			}
 			_maxLoops = 30;
 
 			writeReg(0, _channelPeriod[0] & 0xFF);
@@ -1047,7 +1155,7 @@ private:
 			writeReg(11, 0x00);
 			writeReg(12, 0x10);
 			writeReg(13, 0x00);
-			writeReg(8, 0x10);
+			writeReg(8, 0x10);      // Envelope mode
 			break;
 		}
 	}
@@ -1130,53 +1238,89 @@ private:
 	}
 
 	void updateStepUp() {
-		if (!_channelDone[0]) {
-			// Ascending pitch sweep (period decreases = higher pitch)
-			int32 newPeriod = static_cast<int32>(_channelPeriod[0]) + _channelDelta[0];
-			if (newPeriod < 80) {  // Cap at ~781Hz
-				_channelDone[0] = true;
-			} else {
-				_channelPeriod[0] = static_cast<uint16>(newPeriod);
+		// Update all 4 channels (assembly: sub_2607h uses 4 channels)
+		int outerLoop = _loopCount / _channelCount;
+		int innerIdx = _loopCount % _channelCount;
+
+		// Apply delta at start of each outer loop
+		if (innerIdx == 0 && _loopCount > 0) {
+			for (int ch = 0; ch < _channelCount; ch++) {
+				if (_channelDone[ch]) continue;
+
+				int32 newPeriod = static_cast<int32>(_channelPeriod[ch]) + _channelDelta[ch];
+				if (newPeriod < 80 || newPeriod > 4095) {
+					_channelDone[ch] = true;
+				} else {
+					_channelPeriod[ch] = static_cast<uint16>(newPeriod);
+				}
 			}
 		}
 
-		writeReg(0, _channelPeriod[0] & 0xFF);
-		writeReg(1, (_channelPeriod[0] >> 8) & 0x0F);
+		// Find active channel for output
+		int activeChannel = innerIdx % _channelCount;
+		if (!_channelDone[activeChannel] && _channelPeriod[activeChannel] > 0) {
+			writeReg(0, _channelPeriod[activeChannel] & 0xFF);
+			writeReg(1, (_channelPeriod[activeChannel] >> 8) & 0x0F);
+		}
 
-		// Quick volume decay for short "bip"
-		int vol = _channelVolume[0] - _loopCount;
+		// Quick volume decay
+		int vol = 10 - outerLoop * 2;
 		if (vol < 0) vol = 0;
 		writeReg(8, vol);
 	}
 
 	void updateGeneric() {
-		// Sounds 6 and 7 use unified entry-based system
+		// Sounds 6 and 7 use unified entry-based system (ASSEMBLY DATA)
 		if (_index == 6 || _index == 7) {
 			updateFromEntry();
 			return;
 		}
 
-		// Other generic sounds use simple single-channel update
-		if (!_channelDone[0]) {
-			int32 newPeriod = static_cast<int32>(_channelPeriod[0]) + _channelDelta[0];
-			if (newPeriod < 50 || newPeriod > 2000) {
-				_channelDone[0] = true;
-			} else {
-				_channelPeriod[0] = static_cast<uint16>(newPeriod);
+		// Sounds 4, 5, 8, 9: APPROXIMATIONS using multi-channel update
+		// (mimics sub_2207h behavior with 4-5 channels)
+		int outerLoop = _loopCount / _channelCount;
+		int innerIdx = _loopCount % _channelCount;
+
+		// Apply delta at start of each outer loop
+		if (innerIdx == 0 && _loopCount > 0) {
+			for (int ch = 0; ch < _channelCount; ch++) {
+				if (_channelDone[ch]) continue;
+
+				int32 newPeriod = static_cast<int32>(_channelPeriod[ch]) + _channelDelta[ch];
+				if (newPeriod < 50 || newPeriod > 2000) {
+					_channelDone[ch] = true;
+				} else {
+					_channelPeriod[ch] = static_cast<uint16>(newPeriod);
+				}
 			}
 		}
 
-		writeReg(0, _channelPeriod[0] & 0xFF);
-		writeReg(1, (_channelPeriod[0] >> 8) & 0x0F);
+		// Find active channel for output
+		bool anyActive = false;
+		for (int i = 0; i < _channelCount; i++) {
+			int ch = (innerIdx + i) % _channelCount;
+			if (!_channelDone[ch] && _channelPeriod[ch] > 0) {
+				writeReg(0, _channelPeriod[ch] & 0xFF);
+				writeReg(1, (_channelPeriod[ch] >> 8) & 0x0F);
+				anyActive = true;
+				break;
+			}
+		}
+
+		if (!anyActive) {
+			_finished = true;
+			initAY();
+			return;
+		}
 
 		// Volume decay varies by sound type
 		int vol;
 		switch (_index) {
 		case 9: // Fallen - slow decay
-			vol = _channelVolume[0] - (_loopCount / 8);
+			vol = 15 - (outerLoop / 2);
 			break;
 		default:
-			vol = _channelVolume[0] - (_loopCount / 2);
+			vol = 15 - outerLoop * 2;
 			break;
 		}
 		if (vol < 0) vol = 0;
