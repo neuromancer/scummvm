@@ -488,7 +488,7 @@ public:
 	void playSoundDOS(soundSpeakerFx *speakerFxInfo, bool sync, Audio::SoundHandle &handle);
 
 	void playSoundDrillerZX(int index, Audio::SoundHandle &handle);
-	void playSoundDrillerCPC(int index, Audio::SoundHandle &handle);
+	void playSoundCPC(int index, Audio::SoundHandle &handle);
 	virtual void playSoundFx(int index, bool sync);
 	virtual void loadSoundsFx(Common::SeekableReadStream *file, int offset, int number);
 	Common::HashMap<uint16, soundFx *> _soundsFx;
@@ -499,7 +499,7 @@ public:
 	void playSoundZX(Common::Array<soundUnitZX> *data, Audio::SoundHandle &handle);
 	Common::HashMap<uint16, Common::Array<soundUnitZX>*> _soundsSpeakerFxZX;
 
-	void loadSoundsCPC(Common::SeekableReadStream *file, int offsetTone, int offsetEnvelope, int offsetSoundDef);
+	void loadSoundsCPC(Common::SeekableReadStream *file, int offsetTone, int sizeTone, int offsetEnvelope, int sizeEnvelope, int offsetSoundDef, int sizeSoundDef);
 	Common::Array<byte> _soundsCPCToneTable;
 	Common::Array<byte> _soundsCPCEnvelopeTable;
 	Common::Array<byte> _soundsCPCSoundDefTable;
