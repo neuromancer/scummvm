@@ -171,10 +171,29 @@ void DrillerEngine::loadAssetsCPCFullGame() {
 	if (!file.isOpen())
 		error("Failed to open DRILL.BIN");
 
+	loadSoundsCPC(&file, 0x23D2 + 0x80, 0x2416 + 0x80, 0x247E + 0x80);
 	loadMessagesFixedSize(&file, 0x214c, 14, 20);
 	loadFonts(&file, 0x5b69);
 	loadGlobalObjects(&file, 0x1d07, 8);
 	load8bitBinary(&file, 0x5ccb, 16);
+}
+
+void FreescapeEngine::loadSoundsCPC(Common::SeekableReadStream *file, int offsetTone, int offsetEnvelope, int offsetSoundDef) {
+	// DRILL.BIN has a 128-byte AMSDOS header, so file offsets = (memory_addr - 0x1C62) + 0x80
+	// Tone table at l4034h: volume envelope data (68 bytes = gap to envelope table)
+	_soundsCPCToneTable.resize(68);
+	file->seek(offsetTone);
+	file->read(_soundsCPCToneTable.data(), 68);
+
+	// Envelope table at l4078h: pitch sweep data (104 bytes = gap to sound def table)
+	_soundsCPCEnvelopeTable.resize(104);
+	file->seek(offsetEnvelope);
+	file->read(_soundsCPCEnvelopeTable.data(), 104);
+
+	// Sound definition table at l40e0h: 20 entries × 7 bytes = 140 bytes
+	_soundsCPCSoundDefTable.resize(140);
+	file->seek(offsetSoundDef);
+	file->read(_soundsCPCSoundDefTable.data(), 140);
 }
 
 void DrillerEngine::drawCPCUI(Graphics::Surface *surface) {
@@ -265,129 +284,59 @@ void DrillerEngine::drawCPCUI(Graphics::Surface *surface) {
  *
  * AY-3-8912 PSG with 1MHz clock, register write at 0x4872:
  *   Port 0xF4 = register select, Port 0xF6 = data
+ *
+ * ---- Sound Definition Table (l40e0h) ----
+ * 20 entries, 7 bytes each. Loaded by sub_4760h with 1-based sound number.
+ *   Byte 0: flags
+ *     - Bits 0-1: channel number (1=A, 2=B, 3=C)
+ *     - Bit 2: tone disable (0 = enable tone, 1 = disable)
+ *     - Bit 3: noise disable (0 = enable noise, 1 = disable)
+ *   Byte 1: "tone" table index (volume envelope)
+ *   Byte 2: "envelope" table index (pitch sweep)
+ *   Bytes 3-4: initial AY tone period (little-endian, 12-bit)
+ *   Byte 5: initial AY volume (0-15)
+ *   Byte 6: duration (repeat count; 0 = single play)
+ *
+ * ---- "Tone" Table (l4034h) - Volume Envelope ----
+ * Despite the name, this table controls VOLUME modulation, not pitch.
+ * Indexed by 4-byte stride: base = index * 4.
+ *   Byte 0: number of triplets (N)
+ *   Then N triplets of 3 bytes each:
+ *     Byte 0: counter - how many times to apply the delta
+ *     Byte 1: delta (signed) - added to volume each step
+ *     Byte 2: limit - ticks between each application
+ *
+ * Volume update algorithm (sub_7571h, l763ah):
+ *   Every tick: decrement limit countdown. When it reaches 0:
+ *     1. Reload limit countdown from current triplet's limit
+ *     2. volume = (volume + delta) & 0x0F
+ *     3. Decrement counter. When it reaches 0:
+ *        Advance to next triplet, or set finishedFlag if all done.
+ *
+ * ---- "Envelope" Table (l4078h) - Pitch Sweep ----
+ * Despite the name, this table controls PITCH modulation, not envelope.
+ * Indexed by 4-byte stride: base = index * 4.
+ *   Byte 0: number of triplets (N)
+ *   Then N triplets of 3 bytes each:
+ *     Byte 0: counter - how many times to apply the delta
+ *     Byte 1: delta (signed) - added to period each step
+ *     Byte 2: limit - ticks between each application
+ *
+ * Pitch update algorithm (sub_7571h, l758bh):
+ *   Every tick: decrement limit countdown. When it reaches 0:
+ *     1. Reload limit countdown from current triplet's limit
+ *     2. period += sign_extend(delta) (natural 16-bit wrapping)
+ *     3. Decrement counter. When it reaches 0:
+ *        Advance to next triplet, or if all done:
+ *          - Decrement duration. If 0 -> shutdown (silence + deactivate).
+ *          - If duration > 0 -> restart BOTH volume and pitch from beginning.
  */
-
-/**
- * "Tone" Table at l4034h (file offset 0x23D2) - actually controls VOLUME ENVELOPE
- *
- * 17 entries, variable-length: byte[0] = triplet count, then (count * 3) bytes of data.
- * Stored as flat 4-byte entries because all verified entries have count <= 4.
- *
- * Format: {triplet_count, counter, delta, limit}
- *   triplet_count: number of {counter, delta, limit} triplets (first one inline)
- *   counter: ticks between volume changes (reload value)
- *   delta: signed value added to volume each time (masked to 4 bits)
- *   limit: how many times counter expires before advancing to next triplet
- *
- * Volume update per tick (sub_7571h at l763ah):
- *   1. dec limit_countdown; if != 0, skip
- *   2. reload limit, apply: volume = (volume + delta) & 0x0F
- *   3. dec counter; if != 0, skip
- *   4. advance to next triplet (or set finished flag if all done)
- */
-static const uint8 kToneTable[][4] = {
-	{0x01, 0x01, 0x00, 0x01},  // 0
-	{0x02, 0x0f, 0x01, 0x03},  // 1
-	{0x01, 0xf1, 0x01, 0x00},  // 2
-	{0x01, 0x0f, 0xff, 0x18},  // 3
-	{0x01, 0x06, 0xfe, 0x3f},  // 4
-	{0x01, 0x0f, 0xff, 0x18},  // 5
-	{0x02, 0x01, 0x00, 0x06},  // 6
-	{0x0f, 0xff, 0x0f, 0x00},  // 7
-	{0x04, 0x05, 0xff, 0x0f},  // 8
-	{0x01, 0x05, 0x01, 0x01},  // 9
-	{0x00, 0x7b, 0x0f, 0xff},  // 10
-	{0x04, 0x00, 0x00, 0x00},  // 11
-	{0x03, 0x01, 0x0f, 0x01},  // 12
-	{0x01, 0xf1, 0x2a, 0x01},  // 13
-	{0x0f, 0x18, 0x00, 0x00},  // 14
-	{0x02, 0x01, 0x0f, 0x01},  // 15
-	{0x01, 0xf1, 0x01, 0x00},  // 16
-};
-
-/**
- * "Envelope" Table at l4078h (file offset 0x2416) - actually controls PITCH SWEEP
- *
- * 26 entries, variable-length: byte[0] = triplet count, then (count * 3) bytes of data.
- * Stored as flat 4-byte entries because all verified entries have count <= 5.
- *
- * Format: {triplet_count, counter, delta, limit}
- *   triplet_count: number of {counter, delta, limit} triplets (first one inline)
- *   counter: how many delta applications before advancing to next triplet
- *   delta: signed byte added to 16-bit period each time limit expires
- *   limit: ticks between pitch changes (reload value)
- *
- * Pitch update per tick (sub_7571h at l758bh):
- *   1. dec limit_countdown; if != 0, skip
- *   2. reload limit, apply: period += sign_extend(delta)
- *   3. write period to AY tone registers
- *   4. dec counter; if != 0, skip
- *   5. advance to next triplet (or check duration if all done)
- */
-static const uint8 kEnvelopeTable[][4] = {
-	{0x01, 0x02, 0x00, 0xff},  // 0
-	{0x01, 0x10, 0x01, 0x01},  // 1
-	{0x01, 0x02, 0x30, 0x10},  // 2
-	{0x01, 0x02, 0xd0, 0x10},  // 3
-	{0x03, 0x01, 0xe0, 0x06},  // 4
-	{0x01, 0x20, 0x06, 0x01},  // 5
-	{0xe0, 0x06, 0x00, 0x00},  // 6
-	{0x01, 0x02, 0xfb, 0x03},  // 7
-	{0x01, 0x02, 0xfd, 0x0c},  // 8
-	{0x02, 0x01, 0x04, 0x03},  // 9
-	{0x08, 0xf5, 0x03, 0x00},  // 10
-	{0x01, 0x10, 0x02, 0x06},  // 11
-	{0x01, 0x80, 0x01, 0x03},  // 12
-	{0x01, 0x64, 0x01, 0x01},  // 13
-	{0x03, 0x01, 0x00, 0x7b},  // 14
-	{0x01, 0xcf, 0x01, 0x01},  // 15
-	{0x00, 0x96, 0x00, 0x00},  // 16
-	{0x05, 0x01, 0x00, 0x4b},  // 17
-	{0x01, 0xe9, 0x01, 0x01},  // 18
-	{0x00, 0x30, 0x01, 0xe1},  // 19
-	{0x01, 0x01, 0x00, 0x96},  // 20
-	{0x03, 0x02, 0xf2, 0x15},  // 21
-	{0x05, 0x60, 0x01, 0x02},  // 22
-	{0x00, 0x40, 0x00, 0x00},  // 23
-	{0x01, 0x01, 0x00, 0x10},  // 24
-	{0x01, 0x01, 0x00, 0x0f},  // 25
-};
-
-/**
- * Sound Definition Table at l40e0h (file offset 0x247E)
- * 7 bytes per entry: {flags, tone_idx, env_idx, period_lo, period_hi, volume, duration}
- *
- * Flags:
- *   Bits 0-1: Channel (1=A, 2=B, 3=C)
- *   Bit 2: If set, DISABLE tone
- *   Bit 3: If set, DISABLE noise
- */
-static const uint8 kSoundDefTable[][7] = {
-	{0x02, 0x00, 0x0d, 0x00, 0x00, 0x0f, 0x01},  // 1: ch=2 T+N env=13 per=0 vol=15 dur=1
-	{0x03, 0x00, 0x01, 0x00, 0x00, 0x0f, 0x01},  // 2: ch=3 T+N env=1 per=0 vol=15 dur=1
-	{0x09, 0x00, 0x02, 0x20, 0x01, 0x0f, 0x01},  // 3: ch=1 T env=2 per=288 vol=15 dur=1
-	{0x09, 0x00, 0x03, 0x20, 0x01, 0x0f, 0x01},  // 4: Step Down - ch=1 T env=3 per=288
-	{0x05, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01},  // 5: ch=1 N tone=1 env=0 per=256 vol=0
-	{0x09, 0x03, 0x00, 0x27, 0x00, 0x0f, 0x01},  // 6: ch=1 T tone=3 env=0 per=39 vol=15
-	{0x05, 0x04, 0x00, 0x00, 0x00, 0x01, 0x01},  // 7: ch=1 N tone=4 env=0 per=0 vol=1
-	{0x09, 0x00, 0x04, 0x20, 0x01, 0x0f, 0x08},  // 8: ch=1 T env=4 per=288 vol=15 dur=8
-	{0x09, 0x00, 0x07, 0x00, 0x01, 0x0f, 0x18},  // 9: Fallen - ch=1 T env=7 per=256 dur=24
-	{0x01, 0x00, 0x08, 0x00, 0x01, 0x0f, 0x02},  // 10: Area Change - ch=1 T+N env=8 per=256 dur=2
-	{0x01, 0x05, 0x09, 0x10, 0x00, 0x0f, 0x0d},  // 11: ch=1 T+N tone=5 env=9 per=16 dur=13
-	{0x09, 0x00, 0x0b, 0x70, 0x00, 0x0f, 0x01},  // 12: ch=1 T env=11 per=112 vol=15
-	{0x05, 0x06, 0x00, 0x00, 0x00, 0x0f, 0x01},  // 13: Mission Complete - ch=1 N tone=6 env=0
-	{0x09, 0x00, 0x0c, 0x50, 0x00, 0x0f, 0x01},  // 14: ch=1 T env=12 per=80 vol=15
-	{0x09, 0x08, 0x0e, 0x77, 0x00, 0x0f, 0x01},  // 15: ch=1 T tone=8 env=14 per=119
-	{0x0a, 0x08, 0x11, 0x6a, 0x00, 0x0f, 0x01},  // 16: ch=2 T tone=8 env=17 per=106
-	{0x09, 0x0c, 0x15, 0xbc, 0x03, 0x00, 0x01},  // 17: ch=1 T tone=12 env=21 per=956
-	{0x06, 0x0f, 0x18, 0x00, 0x00, 0x00, 0x01},  // 18: ch=2 N tone=15 env=24
-	{0x09, 0x00, 0x19, 0xf6, 0x02, 0x0f, 0x01},  // 19: ch=1 T env=25 per=758
-	{0x05, 0x04, 0x00, 0x00, 0x00, 0x01, 0x01},  // 20: ch=1 N tone=4 env=0
-};
 
 class DrillerCPCSfxStream : public Audio::AudioStream {
 public:
-	DrillerCPCSfxStream(int index, int rate = 44100) : _ay(rate, 1000000), _rate(rate) {
+	DrillerCPCSfxStream(int index, const byte *soundDefTable, const byte *toneTable, const byte *envelopeTable, int rate = 44100)
+		: _ay(rate, 1000000), _rate(rate),
+		  _soundDefTable(soundDefTable), _toneTable(toneTable), _envelopeTable(envelopeTable) {
 		_finished = false;
 		_tickSampleCount = 0;
 
@@ -442,6 +391,11 @@ private:
 	int _rate;
 	bool _finished;
 	int _tickSampleCount; // Samples generated in current tick
+
+	// Pointers to table data loaded from DRILL.BIN (owned by FreescapeEngine)
+	const byte *_soundDefTable;  // 20 entries × 7 bytes at l40e0h
+	const byte *_toneTable;      // Volume envelope data at l4034h
+	const byte *_envelopeTable;  // Pitch sweep data at l4078h
 
 	/**
 	 * Channel state - mirrors the 23-byte per-channel structure at l416dh
@@ -521,7 +475,7 @@ private:
 			return;
 		}
 
-		const uint8 *entry = kSoundDefTable[soundNum - 1];
+		const byte *entry = &_soundDefTable[(soundNum - 1) * 7];
 		uint8 flags = entry[0];
 		uint8 toneIdx = entry[1];
 		uint8 envIdx = entry[2];
@@ -565,34 +519,32 @@ private:
 		_ch.duration = duration;
 
 		// Load volume envelope from "tone" table (l4034h)
-		// Table format: byte[0]=triplet_count, then triplets of {counter, delta, limit}
-		const uint8 *toneRaw = &kToneTable[0][0];
+		// Assembly: index * 4 stride, byte[0]=triplet_count, then {counter, delta, limit}
 		int toneBase = toneIdx * 4;
-		_ch.volTripletTotal = toneRaw[toneBase];
+		_ch.volTripletTotal = _toneTable[toneBase];
 		_ch.volCurrentStep = 0;
 		_ch.volToneIdx = toneIdx;
 
 		// Load first volume triplet
 		int volOff = toneBase + 1;
-		_ch.volCounter = toneRaw[volOff];
-		_ch.volDelta = static_cast<int8>(toneRaw[volOff + 1]);
-		_ch.volLimit = toneRaw[volOff + 2];
+		_ch.volCounter = _toneTable[volOff];
+		_ch.volDelta = static_cast<int8>(_toneTable[volOff + 1]);
+		_ch.volLimit = _toneTable[volOff + 2];
 		_ch.volCounterCur = _ch.volCounter;
 		_ch.volLimitCur = _ch.volLimit;
 
 		// Load pitch sweep from "envelope" table (l4078h)
-		// Table format: byte[0]=triplet_count, then triplets of {counter, delta, limit}
-		const uint8 *envRaw = &kEnvelopeTable[0][0];
+		// Assembly: index * 4 stride, byte[0]=triplet_count, then {counter, delta, limit}
 		int envBase = envIdx * 4;
-		_ch.pitchTripletTotal = envRaw[envBase];
+		_ch.pitchTripletTotal = _envelopeTable[envBase];
 		_ch.pitchCurrentStep = 0;
 		_ch.pitchEnvIdx = envIdx;
 
 		// Load first pitch triplet
 		int pitchOff = envBase + 1;
-		_ch.pitchCounter = envRaw[pitchOff];
-		_ch.pitchDelta = static_cast<int8>(envRaw[pitchOff + 1]);
-		_ch.pitchLimit = envRaw[pitchOff + 2];
+		_ch.pitchCounter = _envelopeTable[pitchOff];
+		_ch.pitchDelta = static_cast<int8>(_envelopeTable[pitchOff + 1]);
+		_ch.pitchLimit = _envelopeTable[pitchOff + 2];
 		_ch.pitchCounterCur = _ch.pitchCounter;
 		_ch.pitchLimitCur = _ch.pitchLimit;
 
@@ -637,8 +589,8 @@ private:
 			return;
 		}
 
-		const uint8 *toneRaw = &kToneTable[0][0];
-		const uint8 *envRaw = &kEnvelopeTable[0][0];
+		const byte *toneRaw = _toneTable;
+		const byte *envRaw = _envelopeTable;
 
 		// === PITCH UPDATE (l758bh) ===
 		_ch.pitchLimitCur--;
@@ -745,7 +697,8 @@ void FreescapeEngine::playSoundDrillerCPC(int index, Audio::SoundHandle &handle)
 	// DO NOT CHANGE: This debug line is used to track sound usage in Driller CPC
 	debug("Playing Driller CPC sound %d", index);
 	// Create a new stream for the sound
-	DrillerCPCSfxStream *stream = new DrillerCPCSfxStream(index);
+	DrillerCPCSfxStream *stream = new DrillerCPCSfxStream(index,
+		_soundsCPCSoundDefTable.data(), _soundsCPCToneTable.data(), _soundsCPCEnvelopeTable.data());
 	_mixer->playStream(Audio::Mixer::kSFXSoundType, &handle, stream, -1, kFreescapeDefaultVolume, 0, DisposeAfterUse::YES);
 }
 

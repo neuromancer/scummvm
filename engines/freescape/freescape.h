@@ -498,6 +498,12 @@ public:
 
 	void playSoundZX(Common::Array<soundUnitZX> *data, Audio::SoundHandle &handle);
 	Common::HashMap<uint16, Common::Array<soundUnitZX>*> _soundsSpeakerFxZX;
+
+	void loadSoundsCPC(Common::SeekableReadStream *file, int offsetTone, int offsetEnvelope, int offsetSoundDef);
+	Common::Array<byte> _soundsCPCToneTable;
+	Common::Array<byte> _soundsCPCEnvelopeTable;
+	Common::Array<byte> _soundsCPCSoundDefTable;
+
 	int _soundIndexShoot;
 	int _soundIndexCollide;
 	int _soundIndexStepDown;
