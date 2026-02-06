@@ -261,7 +261,7 @@ void DrillerEngine::drawCPCUI(Graphics::Surface *surface) {
  *   - Sound initialization loads 7-byte entry from l40e0h
  *   - Volume envelope from "Tone" Table at l4034h
  *   - Pitch sweep from "Envelope" Table at l4078h
- *   - 50Hz interrupt-driven update via sub_7571h (0x7571-0x76A9)
+ *   - 300Hz interrupt-driven update via sub_7571h (0x7571-0x76A9)
  *
  * AY-3-8912 PSG with 1MHz clock, register write at 0x4872:
  *   Port 0xF4 = register select, Port 0xF6 = data
@@ -396,6 +396,10 @@ public:
 		for (int r = 0; r < 11; r++)
 			writeReg(r, 0);
 
+		// Initialize noise period from game init at 0x66D5 (table at 0x66A4h)
+		// Register 6 is set ONCE during init and never changed by sub_4760h or sub_7571h
+		writeReg(6, 0x07);
+
 		// Initialize channel state
 		memset(&_ch, 0, sizeof(_ch));
 
@@ -407,7 +411,10 @@ public:
 			return 0;
 
 		int samplesGenerated = 0;
-		int samplesPerTick = _rate / 50; // 50Hz interrupt rate
+		// AY8912Stream is stereo: readBuffer counts int16 values (2 per frame).
+		// CPC interrupts fire at 300Hz (6 per frame). sub_7571h is called
+		// unconditionally at every interrupt (0x68DD), NOT inside the 50Hz divider.
+		int samplesPerTick = (_rate / 300) * 2;
 
 		while (samplesGenerated < numSamples && !_finished) {
 			// Generate samples until next tick
@@ -420,7 +427,7 @@ public:
 				_tickSampleCount += toGenerate;
 			}
 
-			// Run interrupt handler at 50Hz tick boundary
+			// Run interrupt handler at 300Hz tick boundary
 			if (_tickSampleCount >= samplesPerTick) {
 				_tickSampleCount -= samplesPerTick;
 				tickUpdate();
@@ -610,9 +617,9 @@ private:
 	}
 
 	/**
-	 * Implements sub_7571h (0x7571-0x76A9) - 50Hz interrupt-driven update.
+	 * Implements sub_7571h (0x7571-0x76A9) - 300Hz interrupt-driven update.
 	 *
-	 * Called at 50Hz (CPC vsync rate). Updates pitch first, then volume.
+	 * Called at 300Hz (every CPC interrupt). Updates pitch first, then volume.
 	 *
 	 * PITCH UPDATE (l758bh):
 	 *   1. dec pitchLimitCur; if != 0, skip to volume
@@ -674,8 +681,25 @@ private:
 						_finished = true;
 						return;
 					}
-					// Duration > 0: restart pitch pattern from beginning
+					// Duration > 0: restart BOTH volume and pitch from beginning
+					// Assembly at 0x75D0: reloads tone (volume) table first triplet,
+					// then resets both position indices and done flag,
+					// then loads first envelope (pitch) triplet.
+
+					// Reload first volume triplet (from tone table)
+					int volOff = _ch.volToneIdx * 4 + 1;
+					_ch.volCounter = toneRaw[volOff];
+					_ch.volDelta = static_cast<int8>(toneRaw[volOff + 1]);
+					_ch.volLimit = toneRaw[volOff + 2];
+					_ch.volCounterCur = _ch.volCounter;
+					_ch.volLimitCur = _ch.volLimit;
+
+					// Reset both position indices and done flag
+					_ch.volCurrentStep = 0;
 					_ch.pitchCurrentStep = 0;
+					_ch.finishedFlag = 0;
+
+					// Reload first pitch triplet (from envelope table)
 					int off = _ch.pitchEnvIdx * 4 + 1;
 					_ch.pitchCounter = envRaw[off];
 					_ch.pitchDelta = static_cast<int8>(envRaw[off + 1]);
