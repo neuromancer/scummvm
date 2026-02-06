@@ -557,11 +557,11 @@ void FreescapeEngine::loadSoundsFx(Common::SeekableReadStream *file, int offset,
  *     Byte 2: limit - ticks between each application
  */
 
-class CPCSfxStream : public Audio::AudioStream {
+class CPCSfxStream : public Audio::AY8912Stream {
 public:
 	CPCSfxStream(int index, const byte *soundDefTable, int soundDefTableSize,
 	             const byte *toneTable, const byte *envelopeTable, int rate = 44100)
-		: _ay(rate, 1000000), _rate(rate),
+		: AY8912Stream(rate, 1000000),
 		  _soundDefTable(soundDefTable), _soundDefTableSize(soundDefTableSize),
 		  _toneTable(toneTable), _envelopeTable(envelopeTable) {
 		_finished = false;
@@ -569,9 +569,9 @@ public:
 
 		// Reset all AY registers to match CPC init state
 		for (int r = 0; r < 14; r++)
-			_ay.setReg(r, 0);
+			setReg(r, 0);
 		// Noise period from CPC init table (verified in binary)
-		_ay.setReg(6, 0x07);
+		setReg(6, 0x07);
 
 		memset(&_ch, 0, sizeof(_ch));
 		setupSound(index);
@@ -585,7 +585,7 @@ public:
 		// AY8912Stream is stereo: readBuffer counts int16 values (2 per frame).
 		// CPC interrupts fire at 300Hz (6 per frame). The update routine is called
 		// unconditionally at every interrupt, NOT inside the 50Hz divider.
-		int samplesPerTick = (_rate / 300) * 2;
+		int samplesPerTick = (getRate() / 300) * 2;
 
 		while (samplesGenerated < numSamples && !_finished) {
 			// Generate samples until next tick
@@ -593,7 +593,7 @@ public:
 			int toGenerate = MIN(numSamples - samplesGenerated, remaining);
 
 			if (toGenerate > 0) {
-				_ay.readBuffer(buffer + samplesGenerated, toGenerate);
+				generateSamples(buffer + samplesGenerated, toGenerate);
 				samplesGenerated += toGenerate;
 				_tickSampleCount += toGenerate;
 			}
@@ -608,14 +608,10 @@ public:
 		return samplesGenerated;
 	}
 
-	bool isStereo() const override { return true; }
 	bool endOfData() const override { return _finished; }
 	bool endOfStream() const override { return _finished; }
-	int getRate() const override { return _rate; }
 
 private:
-	Audio::AY8912Stream _ay;
-	int _rate;
 	bool _finished;
 	int _tickSampleCount; // Samples generated in current tick
 
@@ -667,7 +663,7 @@ private:
 	} _ch;
 
 	void writeReg(int reg, byte val) {
-		_ay.setReg(reg, val);
+		setReg(reg, val);
 	}
 
 	void setupSound(int index) {
@@ -891,7 +887,7 @@ void FreescapeEngine::playSoundCPC(int index, Audio::SoundHandle &handle) {
 	CPCSfxStream *stream = new CPCSfxStream(index,
 		_soundsCPCSoundDefTable.data(), _soundsCPCSoundDefTable.size(),
 		_soundsCPCToneTable.data(), _soundsCPCEnvelopeTable.data());
-	_mixer->playStream(Audio::Mixer::kSFXSoundType, &handle, stream, -1, kFreescapeDefaultVolume, 0, DisposeAfterUse::YES);
+	_mixer->playStream(Audio::Mixer::kSFXSoundType, &handle, stream->toAudioStream(), -1, kFreescapeDefaultVolume, 0, DisposeAfterUse::YES);
 }
 
 void FreescapeEngine::playSoundDrillerZX(int index, Audio::SoundHandle &handle) {

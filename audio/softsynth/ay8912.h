@@ -22,12 +22,12 @@
 #ifndef AUDIO_SOFTSYNTH_AY8912_H
 #define AUDIO_SOFTSYNTH_AY8912_H
 
-#include "audio/audiostream.h"
+#include "audio/chip.h"
 #include "common/mutex.h"
 
 namespace Audio {
 
-class AY8912Stream : public AudioStream {
+class AY8912Stream : public EmulatedChip {
 public:
 	enum ChipType {
 		AY_TYPE_AY,
@@ -56,6 +56,12 @@ public:
 
 	void setReg(int reg, unsigned char value);
 	void setRegs(const unsigned char *regs);
+
+	AudioStream *toAudioStream() { return this; }
+
+protected:
+	// EmulatedChip interface
+	void generateSamples(int16 *buffer, int numSamples) override;
 
 private:
 	struct RegData {

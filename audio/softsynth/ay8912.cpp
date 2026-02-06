@@ -217,6 +217,11 @@ void AY8912Stream::setReg(int reg, unsigned char value) {
 }
 
 int AY8912Stream::readBuffer(int16 *buffer, const int numSamples) {
+	generateSamples(buffer, numSamples);
+	return numSamples;
+}
+
+void AY8912Stream::generateSamples(int16 *buffer, int numSamples) {
 	Common::StackLock lock(_mutex);
 
 	int mix_l, mix_r;
@@ -284,8 +289,6 @@ int AY8912Stream::readBuffer(int16 *buffer, const int numSamples) {
 		*bufPtr++ = mix_l;
 		*bufPtr++ = mix_r;
 	}
-
-	return numSamples;
 }
 
 } // End of namespace Audio
