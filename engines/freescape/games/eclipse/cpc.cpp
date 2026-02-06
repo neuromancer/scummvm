@@ -30,6 +30,21 @@ namespace Freescape {
 
 void EclipseEngine::initCPC() {
 	_viewArea = Common::Rect(36 + 3, 24 + 8, 284, 130 + 3);
+	// Sound mappings from TEPROG.BIN disassembly (sub_6D19h call sites)
+	_soundIndexShoot = 5;            // 0x5D80: LD A,05h; CALL 6D19h (type 0x16 destroy)
+	_soundIndexCollide = 12;         // 0x5192/0x5239: deferred via (0CFD9h)
+	_soundIndexStepDown = 12;        // 0x5194/0x5239: small height drop within threshold
+	_soundIndexStepUp = 12;          // same sound for step up (matches ZX version)
+	_soundIndexStart = 3;            // 0x770F/7726/776A: game start transition
+	_soundIndexAreaChange = 7;       // 0x63E0: deferred via (0CFD9h), type 0x12
+	_soundIndexStartFalling = 6;     // 0x797E: falling handler, first phase
+	_soundIndexEndFalling = 8;       // 0x79AC: falling handler, landing
+	_soundIndexFall = 5;             // 0x7D25: death/game-over animation
+	_soundIndexNoShield = 5;         // game-over conditions reuse death sound
+	_soundIndexFallen = 5;
+	_soundIndexTimeout = 5;
+	_soundIndexForceEndGame = 5;
+	_soundIndexCrushed = 5;
 }
 
 byte kCPCPaletteEclipseTitleData[4][3] = {
@@ -88,10 +103,12 @@ void EclipseEngine::loadAssetsCPCFullGame() {
 		loadFonts(&file, 0x60bc);
 		loadMessagesFixedSize(&file, 0x326, 16, 30);
 		load8bitBinary(&file, 0x62b4, 16);
+		// TODO: loadSoundsCPC for Eclipse 2 - need to determine table offsets from TE2.BI2
 	} else {
 		loadFonts(&file, 0x6076);
 		loadMessagesFixedSize(&file, 0x326, 16, 30);
 		load8bitBinary(&file, 0x626e, 16);
+		// TODO: loadSoundsCPC for full game - need to determine table offsets from TECODE.BIN
 	}
 
 	loadColorPalette();
@@ -123,6 +140,7 @@ void EclipseEngine::loadAssetsCPCDemo() {
 	loadMessagesFixedSize(&file, 0x362, 16, 23);
 	loadMessagesFixedSize(&file, 0x570b, 264, 5);
 	load8bitBinary(&file, 0x65c6, 16);
+	loadSoundsCPC(&file, 0x0805, 104, 0x086D, 165, 0x0772, 147);
 	loadColorPalette();
 	swapPalette(1);
 
