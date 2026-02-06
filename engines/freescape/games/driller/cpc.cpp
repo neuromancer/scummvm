@@ -406,39 +406,39 @@ private:
 	 */
 	struct ChannelState {
 		// Volume modulation (from "tone" table)
-		uint8 volCounter;        // ix+000h: initial counter value
-		int8 volDelta;           // ix+001h: signed delta added to volume
-		uint8 volLimit;          // ix+002h: initial limit value
-		uint8 volCounterCur;     // ix+003h: current counter (decremented)
-		uint8 volLimitCur;       // ix+004h: current limit countdown
-		uint8 volume;            // ix+005h: current AY volume (0-15)
-		uint8 volTripletTotal;   // ix+006h: total number of volume triplets
-		uint8 volCurrentStep;    // ix+007h: current triplet index
-		uint8 duration;          // ix+008h: repeat count
-		uint8 volToneIdx;        // tone table index (to recompute data pointer)
+		byte volCounter;        // ix+000h: initial counter value
+		int8 volDelta;          // ix+001h: signed delta added to volume
+		byte volLimit;          // ix+002h: initial limit value
+		byte volCounterCur;     // ix+003h: current counter (decremented)
+		byte volLimitCur;       // ix+004h: current limit countdown
+		byte volume;            // ix+005h: current AY volume (0-15)
+		byte volTripletTotal;   // ix+006h: total number of volume triplets
+		byte volCurrentStep;    // ix+007h: current triplet index
+		byte duration;          // ix+008h: repeat count
+		byte volToneIdx;        // tone table index (to recompute data pointer)
 
 		// Pitch modulation (from "envelope" table)
-		uint8 pitchCounter;      // ix+00Bh: initial counter value
-		int8 pitchDelta;         // ix+00Ch: signed delta added to period
-		uint8 pitchLimit;        // ix+00Dh: initial limit value
-		uint8 pitchCounterCur;   // ix+00Eh: current counter (decremented)
-		uint8 pitchLimitCur;     // ix+00Fh: current limit countdown
-		uint16 period;           // ix+010h-011h: current 16-bit AY tone period
-		uint8 pitchTripletTotal; // ix+012h: total number of pitch triplets
-		uint8 pitchCurrentStep;  // ix+013h: current triplet index
-		uint8 pitchEnvIdx;       // envelope table index (to recompute data pointer)
+		byte pitchCounter;      // ix+00Bh: initial counter value
+		int8 pitchDelta;        // ix+00Ch: signed delta added to period
+		byte pitchLimit;        // ix+00Dh: initial limit value
+		byte pitchCounterCur;   // ix+00Eh: current counter (decremented)
+		byte pitchLimitCur;     // ix+00Fh: current limit countdown
+		uint16 period;          // ix+010h-011h: current 16-bit AY tone period
+		byte pitchTripletTotal; // ix+012h: total number of pitch triplets
+		byte pitchCurrentStep;  // ix+013h: current triplet index
+		byte pitchEnvIdx;       // envelope table index (to recompute data pointer)
 
-		uint8 finishedFlag;      // ix+016h: set when volume envelope exhausted
+		byte finishedFlag;      // ix+016h: set when volume envelope exhausted
 
 		// AY register mapping for this channel
-		uint8 channelNum;        // 1=A, 2=B, 3=C
-		uint8 toneRegLo;         // AY register for tone fine
-		uint8 toneRegHi;         // AY register for tone coarse
-		uint8 volReg;            // AY register for volume
+		byte channelNum;        // 1=A, 2=B, 3=C
+		byte toneRegLo;         // AY register for tone fine
+		byte toneRegHi;         // AY register for tone coarse
+		byte volReg;            // AY register for volume
 		bool active;             // Channel is producing sound
 	} _ch;
 
-	void writeReg(int reg, uint8 val) {
+	void writeReg(int reg, byte val) {
 		_ay.setReg(reg, val);
 	}
 
@@ -476,15 +476,15 @@ private:
 		}
 
 		const byte *entry = &_soundDefTable[(soundNum - 1) * 7];
-		uint8 flags = entry[0];
-		uint8 toneIdx = entry[1];
-		uint8 envIdx = entry[2];
+		byte flags = entry[0];
+		byte toneIdx = entry[1];
+		byte envIdx = entry[2];
 		uint16 period = entry[3] | (entry[4] << 8);
-		uint8 volume = entry[5];
-		uint8 duration = entry[6];
+		byte volume = entry[5];
+		byte duration = entry[6];
 
 		// Channel number (1-based): 1=A, 2=B, 3=C
-		uint8 channelNum = flags & 0x03;
+		byte channelNum = flags & 0x03;
 		if (channelNum < 1 || channelNum > 3) {
 			_finished = true;
 			return;
@@ -499,7 +499,7 @@ private:
 		// Configure mixer (register 7)
 		// Start with all disabled (0xFF), selectively enable per flags
 		// Bit 2 set in flags = DISABLE tone, Bit 3 set = DISABLE noise
-		uint8 mixer = 0xFF;
+		byte mixer = 0xFF;
 		if (!(flags & 0x04))
 			mixer &= ~(1 << (channelNum - 1));        // Enable tone
 		if (!(flags & 0x08))
@@ -551,11 +551,11 @@ private:
 		_ch.finishedFlag = 0;
 		_ch.active = true;
 
-		debug("sub_4760h: sound %d ch=%d mixer=0x%02x period=%d vol=%d dur=%d tone[%d] env[%d]",
+		debugC(1, kFreescapeDebugMedia, "sub_4760h: sound %d ch=%d mixer=0x%02x period=%d vol=%d dur=%d tone[%d] env[%d]",
 			soundNum, channelNum, mixer, period, volume, duration, toneIdx, envIdx);
-		debug("  vol envelope: triplets=%d counter=%d delta=%d limit=%d",
+		debugC(1, kFreescapeDebugMedia, "  vol envelope: triplets=%d counter=%d delta=%d limit=%d",
 			_ch.volTripletTotal, _ch.volCounter, _ch.volDelta, _ch.volLimit);
-		debug("  pitch sweep:  triplets=%d counter=%d delta=%d limit=%d",
+		debugC(1, kFreescapeDebugMedia, "  pitch sweep:  triplets=%d counter=%d delta=%d limit=%d",
 			_ch.pitchTripletTotal, _ch.pitchCounter, _ch.pitchDelta, _ch.pitchLimit);
 	}
 
@@ -694,8 +694,7 @@ private:
 };
 
 void FreescapeEngine::playSoundDrillerCPC(int index, Audio::SoundHandle &handle) {
-	// DO NOT CHANGE: This debug line is used to track sound usage in Driller CPC
-	debug("Playing Driller CPC sound %d", index);
+	debugC(1, kFreescapeDebugMedia, "Playing Driller CPC sound %d", index);
 	// Create a new stream for the sound
 	DrillerCPCSfxStream *stream = new DrillerCPCSfxStream(index,
 		_soundsCPCSoundDefTable.data(), _soundsCPCToneTable.data(), _soundsCPCEnvelopeTable.data());
