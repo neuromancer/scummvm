@@ -391,18 +391,13 @@ public:
 		_finished = false;
 		_tickSampleCount = 0;
 
-		// Silence all channels
-		writeReg(7, 0xFF);
-		for (int r = 0; r < 11; r++)
-			writeReg(r, 0);
+		// Reset all AY registers to match CPC init state
+		for (int r = 0; r < 14; r++)
+			_ay.setReg(r, 0);
+		// Noise period from CPC init table at 0x66A4h (verified in binary)
+		_ay.setReg(6, 0x07);
 
-		// Initialize noise period from game init at 0x66D5 (table at 0x66A4h)
-		// Register 6 is set ONCE during init and never changed by sub_4760h or sub_7571h
-		writeReg(6, 0x07);
-
-		// Initialize channel state
 		memset(&_ch, 0, sizeof(_ch));
-
 		setupSound(index);
 	}
 
@@ -447,7 +442,6 @@ private:
 	int _rate;
 	bool _finished;
 	int _tickSampleCount; // Samples generated in current tick
-	uint8 _regs[16]; // Shadow copy of AY registers
 
 	/**
 	 * Channel state - mirrors the 23-byte per-channel structure at l416dh
@@ -491,10 +485,7 @@ private:
 	} _ch;
 
 	void writeReg(int reg, uint8 val) {
-		if (reg >= 0 && reg < 16) {
-			_regs[reg] = val;
-			_ay.setReg(reg, val);
-		}
+		_ay.setReg(reg, val);
 	}
 
 	/**
@@ -564,7 +555,7 @@ private:
 		// Set AY tone period from entry[3-4]
 		_ch.period = period;
 		writeReg(_ch.toneRegLo, period & 0xFF);
-		writeReg(_ch.toneRegHi, (period >> 8) & 0x0F);
+		writeReg(_ch.toneRegHi, period >> 8);
 
 		// Set AY volume from entry[5]
 		_ch.volume = volume;
@@ -655,16 +646,13 @@ private:
 			// Reload limit countdown
 			_ch.pitchLimitCur = _ch.pitchLimit;
 
-			// period += sign_extend(pitchDelta)
-			int32 newPeriod = static_cast<int32>(_ch.period) +
-							  static_cast<int16>(static_cast<int8>(_ch.pitchDelta));
-			if (newPeriod < 0) newPeriod = 0;
-			if (newPeriod > 4095) newPeriod = 4095;
-			_ch.period = static_cast<uint16>(newPeriod);
+			// period += sign_extend(pitchDelta) with natural 16-bit wrapping
+			// Assembly: add hl,de where de = sign-extended 8-bit delta
+			_ch.period += static_cast<int8>(_ch.pitchDelta);
 
-			// Write period to AY tone registers
+			// Write period to AY tone registers (AY masks coarse to 4 bits)
 			writeReg(_ch.toneRegLo, _ch.period & 0xFF);
-			writeReg(_ch.toneRegHi, (_ch.period >> 8) & 0x0F);
+			writeReg(_ch.toneRegHi, _ch.period >> 8);
 
 			// Decrement pitch counter
 			_ch.pitchCounterCur--;
