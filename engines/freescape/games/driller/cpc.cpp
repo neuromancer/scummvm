@@ -33,15 +33,24 @@ namespace Freescape {
 
 void DrillerEngine::initCPC() {
 	_viewArea = Common::Rect(36, 16, 284, 117);
-	_soundIndexShoot = 1;
-	_soundIndexCollide = 2;
-	_soundIndexStepUp = 3;
-	_soundIndexStepDown = 4;
-	_soundIndexMenu = 6;
-	_soundIndexAreaChange = 10;
-	_soundIndexHit = 7;
-	_soundIndexFallen = 9;
-	_soundIndexMissionComplete = 13;
+	// Sound mappings from DRILL.BIN disassembly (sub_4760h call sites)
+	_soundIndexShoot = 1;            // 0x5BBC: LD A,01h; CALL 4760h
+	_soundIndexCollide = 19;         // 0x4CE6/0x5AE4: LD A,13h; CALL 4760h
+	_soundIndexStepUp = 3;           // 0x5025: deferred via (3B63h)
+	_soundIndexStepDown = 4;         // 0x4FB2: deferred via (3B63h)
+	_soundIndexFall = 9;             // long dur=24 falling sound
+	_soundIndexStart = 6;            // 0x4906/0x4C84: game start transition
+	_soundIndexMenu = 6;             // reuse start/transition sound
+	_soundIndexAreaChange = 10;      // TODO: verify this
+	_soundIndexHit = 2;              // 0x6801: LD A,02h; drill/hit destruction
+	_soundIndexFallen = 9;           // long dur=24 tone sweep
+	_soundIndexNoShield = 9;         // game-over conditions reuse fallen sound
+	_soundIndexNoEnergy = 9;
+	_soundIndexTimeout = 9;
+	_soundIndexForceEndGame = 9;
+	_soundIndexCrushed = 9;
+	_soundIndexMissionComplete = 13; // via object handler at 0x61E4
+	// Sound 5 is used when deploying or recalling the drill, but these are not currently implemented yet
 }
 
 byte kCPCPaletteTitleData[4][3] = {
