@@ -519,7 +519,6 @@ void OpenGLShaderRenderer::drawAABB(const Math::AABB &aabb, uint8 r, uint8 g, ui
 
 	// restore state
 	glLineWidth(1.0f);
-	glEnable(GL_DEPTH_TEST);
 }
 
 void OpenGLShaderRenderer::renderCrossair(const Common::Point &crossairPosition) {
