@@ -269,10 +269,10 @@ public:
 
 	// debug flags
 	bool _debugRenderBoundingBoxes;
-	int _debugBoundingBoxFilterID;
+	bool _debugRenderOcclusionBoxes;
 	bool _debugRenderWireframe;
 	bool _debugRenderNormals;
-	int _debugHighlightObjectID;
+	Common::Array<uint8> _debugHighlightObjectIDs;
 
 	// for drawing bounding boxes
 	virtual void drawAABB(const Math::AABB &aabb, uint8 r, uint8 g, uint8 b) {}

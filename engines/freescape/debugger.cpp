@@ -40,20 +40,18 @@ Debugger::Debugger(FreescapeEngine *vm) : GUI::Debugger(), _vm(vm) {
 	registerCmd("obj_pos", WRAP_METHOD(Debugger, cmdObjPos)); // get object pos
 	registerCmd("obj_mov", WRAP_METHOD(Debugger, cmdSetObjPos)); // move object
 	registerCmd("goto", WRAP_METHOD(Debugger, cmdGoto)); // teleport to a position
+	registerCmd("sort_order", WRAP_METHOD(Debugger, cmdSortOrder)); // print current draw order of objects
+	registerCmd("occ", WRAP_METHOD(Debugger, cmdShowOcclusion)); // toggle occlussion boxes
 }
 
 Debugger::~Debugger() {}
 
 bool Debugger::cmdShowBBox(int argc, const char **argv) {
 	if (argc < 2) {
-		debugPrintf("Usage: bbox <0/1> [id]\n");
+		debugPrintf("Usage: bbox <0/1>\n");
 		return true;
 	}
 	_vm->_gfx->_debugRenderBoundingBoxes = atoi(argv[1]);
-	if (argc > 2)
-		_vm->_gfx->_debugBoundingBoxFilterID = atoi(argv[2]);
-	else
-		_vm->_gfx->_debugBoundingBoxFilterID = -1;
 	return true;
 }
 
@@ -76,11 +74,25 @@ bool Debugger::cmdShowNormals(int argc, const char **argv) {
 }
 
 bool Debugger::cmdHighlightID(int argc, const char **argv) {
+	_vm->_gfx->_debugHighlightObjectIDs.clear();
 	if (argc < 2) {
-		debugPrintf("Usage: iso <id> (-1 for all)\n");
+		debugPrintf("Isolation cleared, drawing all objects.\n");
+		debugPrintf("Usage: iso [id1] [id2] [id3] ...\n");
 		return true;
 	}
-	_vm->_gfx->_debugHighlightObjectID = atoi(argv[1]);
+	debugPrintf("Isolating Objects: ");
+	for (int i = 1; i < argc; i++) {
+		int id = atoi(argv[i]);
+		if (id == -1) {
+			_vm->_gfx->_debugHighlightObjectIDs.clear();
+			debugPrintf("All (Cleared)");
+			break;
+		}
+
+		_vm->_gfx->_debugHighlightObjectIDs.push_back(id);
+		debugPrintf("%d ", id);
+	}
+	debugPrintf("\n");
 	return true;
 }
 
@@ -161,6 +173,33 @@ bool Debugger::cmdGoto(int argc, const char **argv) {
 	float z = atof(argv[3]);
 	_vm->_position = Math::Vector3d(x, y, z);
 	debugPrintf("Teleported to %f %f %f\n", x, y, z);
+	return true;
+}
+
+bool Debugger::cmdSortOrder(int argc, const char** argv) {
+	if (!_vm->_currentArea) {
+		debugPrintf("No area loaded.\n");
+		return true;
+	}
+
+	Common::Array<Object *> &objs = _vm->_currentArea->getSortedObjects();
+
+	debugPrintf("Current Draw Order:\n");
+	debugPrintf("Total Objects: %d\n", objs.size());
+	for (uint i = 0; i < objs.size(); i++) {
+		Object *obj = objs[i];
+		debugPrintf("%d ", obj->getObjectID());
+	}
+	debugPrintf("\n");
+	return true;
+}
+
+bool Debugger::cmdShowOcclusion(int argc, const char **argv) {
+	if (argc < 2) {
+		debugPrintf("Usage: occ <0/1>\n");
+		return true;
+	}
+	_vm->_gfx->_debugRenderOcclusionBoxes = atoi(argv[1]);
 	return true;
 }
 

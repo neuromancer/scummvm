@@ -44,6 +44,8 @@ private:
 	bool cmdGoto(int argc, const char **argv);
 	bool cmdObjPos(int argc, const char **argv);
 	bool cmdSetObjPos(int argc, const char **argv);
+	bool cmdSortOrder(int argc, const char **argv);
+	bool cmdShowOcclusion(int argc, const char **argv);
 };
 
 }

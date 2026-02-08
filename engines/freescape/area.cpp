@@ -236,6 +236,19 @@ void Area::draw(Freescape::Renderer *gfx, uint32 animationTicks, Math::Vector3d 
 
 	for (auto &obj : _drawableObjects) {
 		if (!obj->isDestroyed() && !obj->isInvisible()) {
+			if (!gfx->_debugHighlightObjectIDs.empty()) {
+				bool found = false;
+				for (auto id : gfx->_debugHighlightObjectIDs) {
+					if (obj->getObjectID() == id) {
+						found = true;
+						break;
+					}
+				}
+				// if this object is not in our list, skip it completely.
+				// it will not be sorted, and it will not be drawn.
+				if (!found)
+					continue;
+			}
 			if (obj->getObjectID() == 0 && _groundColor < 255 && _skyColor < 255) {
 				floor = obj;
 				continue;
@@ -374,17 +387,13 @@ void Area::draw(Freescape::Renderer *gfx, uint32 animationTicks, Math::Vector3d 
 	}
 
 	for (auto &obj : _sortedObjects) {
-		if (gfx->_debugHighlightObjectID != -1 && obj->getObjectID() != gfx->_debugHighlightObjectID)
-			continue;
-
 		obj->draw(gfx);
 
 		// draw bounding boxes
-		if (gfx->_debugRenderBoundingBoxes) {
-			if (gfx->_debugBoundingBoxFilterID == -1 || gfx->_debugBoundingBoxFilterID == obj->getObjectID()) {
-				gfx->drawAABB(obj->_boundingBox, 0, 255, 0);
-			}
-		}
+		if (gfx->_debugRenderBoundingBoxes)
+			gfx->drawAABB(obj->_boundingBox, 0, 255, 0);
+		if (gfx->_debugRenderOcclusionBoxes)
+			gfx->drawAABB(obj->_occlusionBox, 255, 0, 0);
 	}
 	_lastTick = animationTicks;
 	if (sort)
