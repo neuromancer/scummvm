@@ -134,6 +134,18 @@ void VM::jump(int n) {
 	_state->_vmCurRecord = _data->readChunk(chunkAddr);
 }
 
+void VM::jumpTo(int pos) {
+	// Jump to absolute position within the current message (for CSE targets)
+	if (pos > _state->_msgLength && _state->_msgLength > 0) {
+		_state->_eom = true;
+		return;
+	}
+	_state->_msgPos = pos;
+	_state->_msgCursor = pos % kChunkSize;
+	int chunkAddr = _state->_msgBase + (pos / kChunkSize);
+	_state->_vmCurRecord = _data->readChunk(chunkAddr);
+}
+
 void VM::displayMsg(int addr) {
 	warning("Angel VM: displayMsg(%d) called, callDepth=%d", addr, _callDepth);
 	openMsg(addr, "displayMsg");
@@ -314,16 +326,31 @@ void VM::executeMsg() {
 }
 
 void VM::executeCase() {
-	// Format A: CSE marker already consumed. Read type and count.
-	// Then entries: each is (value: 1 nip, target: 2 nips via getNumber).
-	// No extra nips are read for the match value — it comes from game state.
-	// If no case matches, execution continues sequentially after the table.
+	// Format B (from P-code analysis of proc 103):
+	//   CSE marker already consumed by getAChar().
+	//   type: 1 nip (KindOfCase: 0=Random, 1=Word, 2=Syn, 3=Ref)
+	//   [match_ref: getNumber — only for RefCase]
+	//   nbrCases: 1 nip
+	//   entries: nbrCases × (value: 1 nip, target: getNumber)
+	//
+	// For RefCase, match_ref is read from the stream (getNumber = 12 bits).
+	// The P-code loop reads ALL entries first, then jumps to the matched
+	// target using Jump (relative forward from current stream position).
+	// If no match, execution falls through after the table.
+
 	int caseType = getNip();
+	KindOfCase kind = (KindOfCase)caseType;
+
+	// For RefCase, read the match reference from the stream
+	int matchRef = 0;
+	if (kind == kRefCase) {
+		matchRef = getNumber();
+	}
+
 	int nbrCases = getNip();
 
-	KindOfCase kind = (KindOfCase)caseType;
+	// Determine match value based on case type
 	int matchValue = 0;
-
 	switch (kind) {
 	case kRandomCase:
 		matchValue = _engine->getRandom(nbrCases);
@@ -338,9 +365,12 @@ void VM::executeCase() {
 		break;
 
 	case kRefCase:
-		// The match value comes from game state, not from the stream.
-		// For event-driven messages, this is the event register's x value.
+		// matchRef identifies which game state variable to match against.
+		// The P-code uses native calls to look up the value, which we
+		// approximate here. Common cases: xReg event counters.
 		matchValue = _state->_clock.xReg[kXWelcome].x;
+		warning("Angel VM: CSE RefCase matchRef=%d matchValue=%d (xReg[Welcome].x) location=%d",
+		        matchRef, matchValue, _state->_location);
 		break;
 
 	default:
@@ -348,31 +378,40 @@ void VM::executeCase() {
 		break;
 	}
 
-	debugC(kDebugScripts, "Angel VM: CSE type=%d count=%d matchValue=%d",
-	       caseType, nbrCases, matchValue);
+	warning("Angel VM: CSE type=%d nbrCases=%d matchValue=%d matchRef=%d pos=%d",
+	        caseType, nbrCases, matchValue, matchRef, _state->_msgPos);
 
-	// Read case table entries and find match
+	// Read ALL case table entries, recording the matched target
+	int matchedTarget = -1;
 	for (int i = 0; i < nbrCases; i++) {
 		int caseValue = getNip();
 		int target = getNumber();
 
-		debugC(kDebugScripts, "Angel VM: CSE entry[%d] value=%d target=%d",
-		       i, caseValue, target);
+		warning("Angel VM: CSE entry[%d] val=%d target=%d", i, caseValue, target);
 
-		bool isMatch = (kind == kRandomCase)
-			? (i == matchValue)
-			: (caseValue == matchValue);
+		bool isMatch;
+		if (kind == kRandomCase) {
+			isMatch = (i == matchValue);
+		} else {
+			isMatch = (caseValue == matchValue);
+		}
 
-		if (isMatch) {
-			debugC(kDebugScripts, "Angel VM: CSE matched, jumping to %d", target);
-			jump(target);
-			return;
+		if (isMatch && matchedTarget < 0) {
+			matchedTarget = target;
+			warning("Angel VM: CSE MATCHED at entry %d, target=%d", i, target);
 		}
 	}
 
-	// No match — fall through: continue sequential execution after the table.
-	debugC(kDebugScripts, "Angel VM: CSE no match, falling through at pos %d",
-	       _state->_msgPos);
+	if (matchedTarget >= 0) {
+		// Jump is RELATIVE forward from current position (after all entries consumed)
+		warning("Angel VM: CSE jumping +%d from pos %d -> pos %d (msgLength=%d)",
+		        matchedTarget, _state->_msgPos, _state->_msgPos + matchedTarget,
+		        _state->_msgLength);
+		jump(matchedTarget);
+	} else {
+		// No match — fall through after the table
+		warning("Angel VM: CSE no match, falling through at pos %d", _state->_msgPos);
+	}
 }
 
 // ============================================================

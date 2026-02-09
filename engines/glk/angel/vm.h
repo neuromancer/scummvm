@@ -82,8 +82,11 @@ public:
 	/** Read a multi-nip integer value (2 nips = 12 bits) */
 	int getNumber();
 
-	/** Jump to a new position within the current message */
+	/** Jump forward by a relative offset within the current message (for JU/JF) */
 	void jump(int offset);
+
+	/** Jump to an absolute position within the current message (for CSE targets) */
+	void jumpTo(int pos);
 
 private:
 	Angel *_engine;
