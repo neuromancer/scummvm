@@ -34,6 +34,7 @@
 
 #include "glk/adrift/detection.h"
 #include "glk/advsys/detection.h"
+#include "glk/angel/detection.h"
 #include "glk/agt/detection.h"
 #include "glk/alan2/detection.h"
 #include "glk/alan3/detection.h"
@@ -135,6 +136,7 @@ PlainGameList GlkMetaEngineDetection::getSupportedGames() const {
 	PlainGameList list;
 	Glk::Adrift::AdriftMetaEngine::getSupportedGames(list);
 	Glk::AdvSys::AdvSysMetaEngine::getSupportedGames(list);
+	Glk::Angel::AngelMetaEngine::getSupportedGames(list);
 	Glk::AGT::AGTMetaEngine::getSupportedGames(list);
 	Glk::Alan2::Alan2MetaEngine::getSupportedGames(list);
 	Glk::Alan3::Alan3MetaEngine::getSupportedGames(list);
@@ -166,6 +168,7 @@ const DebugChannelDef *GlkMetaEngineDetection::getDebugChannels() const {
 PlainGameDescriptor GlkMetaEngineDetection::findGame(const char *gameId) const {
 	FIND_GAME(Adrift);
 	FIND_GAME(AdvSys);
+	FIND_GAME(Angel);
 	FIND_GAME(Alan2);
 	FIND_GAME(AGT);
 	FIND_GAME(Alan3);
@@ -270,6 +273,7 @@ DetectedGames GlkMetaEngineDetection::detectGames(const Common::FSList &fslist, 
 	DetectedGames detectedGames;
 	Glk::Adrift::AdriftMetaEngine::detectGames(fslist, detectedGames);
 	Glk::AdvSys::AdvSysMetaEngine::detectGames(fslist, detectedGames);
+	Glk::Angel::AngelMetaEngine::detectGames(fslist, detectedGames);
 	Glk::AGT::AGTMetaEngine::detectGames(fslist, detectedGames);
 	Glk::Alan2::Alan2MetaEngine::detectGames(fslist, detectedGames);
 	Glk::Alan3::Alan3MetaEngine::detectGames(fslist, detectedGames);
@@ -294,6 +298,7 @@ void GlkMetaEngineDetection::detectClashes() const {
 	Common::StringMap map;
 	Glk::Adrift::AdriftMetaEngine::detectClashes(map);
 	Glk::AdvSys::AdvSysMetaEngine::detectClashes(map);
+	Glk::Angel::AngelMetaEngine::detectClashes(map);
 	Glk::AGT::AGTMetaEngine::detectClashes(map);
 	Glk::Alan2::Alan2MetaEngine::detectClashes(map);
 	Glk::Alan3::Alan3MetaEngine::detectClashes(map);

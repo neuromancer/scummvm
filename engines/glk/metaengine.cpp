@@ -26,6 +26,8 @@
 #include "glk/adrift/adrift.h"
 #include "glk/advsys/detection.h"
 #include "glk/advsys/advsys.h"
+#include "glk/angel/detection.h"
+#include "glk/angel/angel.h"
 #include "glk/agt/detection.h"
 #include "glk/agt/agt.h"
 #include "glk/alan2/detection.h"
@@ -153,6 +155,7 @@ Common::Error GlkMetaEngine::createInstance(OSystem *syst, Engine **engine,
 	*engine = nullptr;
 	if ((create<Glk::Adrift::AdriftMetaEngine, Glk::Adrift::Adrift>(syst, *gameDesc, *engine))) {}
 	else if ((create<Glk::AdvSys::AdvSysMetaEngine, Glk::AdvSys::AdvSys>(syst, *gameDesc, *engine))) {}
+	else if ((create<Glk::Angel::AngelMetaEngine, Glk::Angel::Angel>(syst, *gameDesc, *engine))) {}
 	else if ((create<Glk::AGT::AGTMetaEngine, Glk::AGT::AGT>(syst, *gameDesc, *engine))) {}
 	else if ((create<Glk::Alan2::Alan2MetaEngine, Glk::Alan2::Alan2>(syst, *gameDesc, *engine))) {}
 	else if ((create<Glk::Alan3::Alan3MetaEngine, Glk::Alan3::Alan3>(syst, *gameDesc, *engine))) {}

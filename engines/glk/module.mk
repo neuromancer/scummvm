@@ -59,6 +59,12 @@ MODULE_OBJS := \
 	advsys/game.o \
 	advsys/glk_interface.o \
 	advsys/vm.o \
+	angel/angel.o \
+	angel/game_data.o \
+	angel/game_state.o \
+	angel/parser.o \
+	angel/utilities.o \
+	angel/vm.o \
 	agt/agil.o \
 	agt/agt.o \
 	agt/agtread.o \
@@ -342,6 +348,7 @@ MODULE_OBJS := \
 	detection.o \
 	adrift/detection.o \
 	advsys/detection.o \
+	angel/detection.o \
 	agt/detection.o \
 	alan2/detection.o \
 	alan3/detection.o \
