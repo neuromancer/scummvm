@@ -59,7 +59,7 @@ public:
 	 * Open and begin interpreting a message procedure at the given address.
 	 * This is the main entry point for running game scripts.
 	 */
-	void openMsg(int addr);
+	void openMsg(int addr, const char *caller = "unknown");
 
 	/**
 	 * Execute the current message procedure until EndSym or EOM.

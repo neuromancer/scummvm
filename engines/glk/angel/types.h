@@ -83,6 +83,14 @@ static const int kChunkWidth = 6;          // Bytes per message file record
 static const int kPageSize = 512;          // Size of a VM page in bytes
 static const int kPageHeader = 2;          // Bytes of header at start of each page
 
+// Bytecode opcode offsets: nips are 6-bit (0-63), but the Operation enum
+// spans 0-165+. Each prefix (Fa/Ft/Fe) has its own nip-to-Operation mapping:
+//   Fa/Far (actions):  Operation = nip (no offset, enum values 0-63)
+//   Fe/Fer (edits):    Operation = nip + 73 (TickOp base)
+//   Ft/Ftr (tests):    Operation = nip + 87 (LessOp base)
+static const int kEditOpcodeBase = 73;    // = kTickOp ordinal
+static const int kTestOpcodeBase = 87;    // = kLessOp ordinal
+
 // Special codes in proc strings (message VM bytecodes)
 static const char kJU = '^';              // Unconditional jump
 static const char kJF = '|';              // Jump if FALSE

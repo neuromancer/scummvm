@@ -196,6 +196,16 @@ void GameState::recomputeSets() {
 	_vclInterior.clear();
 	_vStops.clear();
 
+	// Populate Place.people sets from Person.located data
+	for (int loc = 1; loc <= _data->_nbrLocations; loc++)
+		_data->_map[loc].people.clear();
+	for (int p = 1; p <= _data->_castSize; p++) {
+		int loc = _data->_cast[p].located;
+		warning("Angel: Person[%d] located=%d", p, loc);
+		if (loc > 0 && loc <= _data->_nbrLocations)
+			_data->_map[loc].people.set(p);
+	}
+
 	for (int i = 1; i <= _data->_nbrObjects; i++) {
 		const Object &obj = _data->_props[i];
 

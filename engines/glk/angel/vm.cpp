@@ -34,7 +34,7 @@ VM::VM(Angel *engine, GameData *data, GameState *state)
 	memset(_callStack, 0, sizeof(_callStack));
 }
 
-void VM::openMsg(int addr) {
+void VM::openMsg(int addr, const char *caller) {
 	if (addr <= 0) {
 		_state->_eom = true;
 		return;
@@ -48,11 +48,38 @@ void VM::openMsg(int addr) {
 	// Read the first chunk at the message address
 	_state->_vmCurRecord = _data->readChunk(addr);
 
-	// Messages do NOT have a length prefix - they continue until kEndSym (@)
-	// Set a large max length for safety
-	_state->_msgLength = 10000;
+	// Messages have a 2-nip header: (nip0 << 6) | nip1 = length/marker.
+	// The original ForceMsg "sets the first two nips of Msg to zero".
+	// Content starts at nip position 2. Read and skip the header.
+	int hdr0 = getNip();
+	int hdr1 = getNip();
+	_state->_msgLength = (hdr0 << 6) | hdr1;
 
-	debug("Angel VM: openMsg addr=%d", addr);
+	warning("Angel VM: openMsg addr=%d hdrLen=%d caller=%s", addr, _state->_msgLength, caller);
+
+	// Debug: dump nips at key positions for message 4546
+	if (addr == 4546) {
+		Common::String dump;
+		for (int p = 95; p <= 120; p++) {
+			int cursor = p % kChunkSize;
+			int chunkAddr = addr + (p / kChunkSize);
+			Chunk c = _data->readChunk(chunkAddr);
+			int nip = c.getNip(cursor);
+			char ch = _data->_yTable[nip];
+			dump += Common::String::format(" %d:%d(%c)", p, nip, (ch >= 32 && ch < 127) ? ch : '?');
+		}
+		warning("Angel VM: msg4546 nips[95-120]:%s", dump.c_str());
+		dump.clear();
+		for (int p = 295; p <= 320; p++) {
+			int cursor = p % kChunkSize;
+			int chunkAddr = addr + (p / kChunkSize);
+			Chunk c = _data->readChunk(chunkAddr);
+			int nip = c.getNip(cursor);
+			char ch = _data->_yTable[nip];
+			dump += Common::String::format(" %d:%d(%c)", p, nip, (ch >= 32 && ch < 127) ? ch : '?');
+		}
+		warning("Angel VM: msg4546 nips[295-320]:%s", dump.c_str());
+	}
 }
 
 int VM::getNip() {
@@ -94,24 +121,38 @@ void VM::bumpMsg() {
 	}
 }
 
-void VM::jump(int offset) {
-	// Jump to an absolute position within the message
-	_state->_msgPos = offset;
-	_state->_msgCursor = offset % kChunkSize;
-	int chunkAddr = _state->_msgBase + (offset / kChunkSize);
+void VM::jump(int n) {
+	// "Jump ahead n places in the current message" (relative forward)
+	int newPos = _state->_msgPos + n;
+	if (newPos > _state->_msgLength && _state->_msgLength > 0) {
+		_state->_eom = true;
+		return;
+	}
+	_state->_msgPos = newPos;
+	_state->_msgCursor = newPos % kChunkSize;
+	int chunkAddr = _state->_msgBase + (newPos / kChunkSize);
 	_state->_vmCurRecord = _data->readChunk(chunkAddr);
 }
 
 void VM::displayMsg(int addr) {
-	openMsg(addr);
+	warning("Angel VM: displayMsg(%d) called, callDepth=%d", addr, _callDepth);
+	openMsg(addr, "displayMsg");
 	executeMsg();
+	warning("Angel VM: displayMsg(%d) returned", addr);
 }
 
 void VM::executeMsg() {
 	debugC(kDebugScripts, "Angel VM: executeMsg starting, msgBase=%d msgLength=%d", _state->_msgBase, _state->_msgLength);
 	int charCount = 0;
+	int iterCount = 0;
 	Common::String textOutput;  // Accumulate text for debug
 	while (!_state->_eom && _state->_stillPlaying) {
+		if (++iterCount > 5000) {
+			warning("Angel VM: executeMsg runaway loop after %d iterations at pos=%d base=%d",
+			        iterCount, _state->_msgPos, _state->_msgBase);
+			_state->_eom = true;
+			break;
+		}
 		char ch = getAChar();
 
 		if (_state->_eom)
@@ -121,7 +162,7 @@ void VM::executeMsg() {
 		switch (ch) {
 		case kEndSym:
 			// End of message / return from call
-			debugC(kDebugScripts, "Angel VM: kEndSym at pos %d", _state->_msgPos);
+			warning("Angel VM: EndSym at pos=%d base=%d depth=%d", _state->_msgPos, _state->_msgBase, _callDepth);
 			if (_callDepth > 0) {
 				// Return from FCall
 				_callDepth--;
@@ -138,17 +179,21 @@ void VM::executeMsg() {
 			break;
 
 		case kJU:
-			// Unconditional jump: next 2 nips = target offset
+			// Unconditional jump: next 2 nips = forward offset
 			{
 				int target = getNumber();
+				warning("Angel VM: JU target=%d from pos=%d -> pos=%d", target, _state->_msgPos, _state->_msgPos + target);
 				jump(target);
 			}
 			break;
 
 		case kJF:
-			// Jump if FALSE
+			// Jump if FALSE: next 2 nips = forward offset
 			{
 				int target = getNumber();
+				if (!_state->_tfIndicator) {
+					warning("Angel VM: JF target=%d tf=F from pos=%d -> pos=%d", target, _state->_msgPos, _state->_msgPos + target);
+				}
 				if (!_state->_tfIndicator)
 					jump(target);
 			}
@@ -182,48 +227,52 @@ void VM::executeMsg() {
 			break;
 
 		case kFt:
-			// Test without reference
+			// Test without reference — nip + kTestOpcodeBase = Operation
 			{
 				int opNip = getNip();
-				if (opNip < kNumOperations)
-					executeTest((Operation)opNip, 0);
+				int opVal = opNip + kTestOpcodeBase;
+				if (opVal < kNumOperations)
+					executeTest((Operation)opVal, 0);
 				else
-					warning("Angel VM: Unknown test opcode %d", opNip);
+					warning("Angel VM: Unknown test opcode nip=%d op=%d", opNip, opVal);
 			}
 			break;
 
 		case kFtr:
-			// Test with reference
+			// Test with reference — nip + kTestOpcodeBase = Operation
 			{
 				int opNip = getNip();
 				int ref = getNumber();
-				if (opNip < kNumOperations)
-					executeTest((Operation)opNip, ref);
+				int opVal = opNip + kTestOpcodeBase;
+				if (opVal < kNumOperations)
+					executeTest((Operation)opVal, ref);
 				else
-					warning("Angel VM: Unknown test+ref opcode %d", opNip);
+					warning("Angel VM: Unknown test+ref opcode nip=%d op=%d", opNip, opVal);
 			}
 			break;
 
 		case kFe:
-			// Edit without reference
+			// Edit without reference — nip + kEditOpcodeBase = Operation
 			{
 				int opNip = getNip();
-				if (opNip < kNumOperations)
-					executeEdit((Operation)opNip, 0);
+				int opVal = opNip + kEditOpcodeBase;
+				if (opVal < kNumOperations)
+					executeEdit((Operation)opVal, 0);
 				else
-					warning("Angel VM: Unknown edit opcode %d", opNip);
+					warning("Angel VM: Unknown edit opcode nip=%d op=%d", opNip, opVal);
 			}
 			break;
 
 		case kFer:
-			// Edit with reference
+			// Edit with reference — nip + kEditOpcodeBase = Operation
 			{
 				int opNip = getNip();
 				int ref = getNumber();
-				if (opNip < kNumOperations)
-					executeEdit((Operation)opNip, ref);
+				int opVal = opNip + kEditOpcodeBase;
+				if (opVal < kNumOperations)
+					executeEdit((Operation)opVal, ref);
 				else
-					warning("Angel VM: Unknown edit+ref opcode %d", opNip);
+					warning("Angel VM: Unknown edit+ref opcode nip=%d op=%d", opNip, opVal);
 			}
 			break;
 
@@ -231,13 +280,15 @@ void VM::executeMsg() {
 			// Procedure call
 			{
 				int addr = getNumber();
+				warning("Angel VM: FCall addr=%d depth=%d returnBase=%d returnPos=%d",
+				        addr, _callDepth, _state->_msgBase, _state->_msgPos);
 				if (_callDepth < kMaxCallDepth) {
 					CallFrame &frame = _callStack[_callDepth++];
 					frame.base = _state->_msgBase;
 					frame.pos = _state->_msgPos;
 					frame.cursor = _state->_msgCursor;
 					frame.length = _state->_msgLength;
-					openMsg(addr);
+					openMsg(addr, "FCall");
 				} else {
 					warning("Angel VM: Call stack overflow");
 				}
@@ -249,7 +300,7 @@ void VM::executeMsg() {
 			charCount++;
 			textOutput += ch;
 			if (textOutput.size() >= 80) {
-				debug("Angel VM text: %s", textOutput.c_str());
+				warning("Angel VM text: %s", textOutput.c_str());
 				textOutput.clear();
 			}
 			_engine->putChar(ch);
@@ -257,12 +308,16 @@ void VM::executeMsg() {
 		}
 	}
 	if (!textOutput.empty()) {
-		debug("Angel VM text: %s", textOutput.c_str());
+		warning("Angel VM text: %s", textOutput.c_str());
 	}
 	debugC(kDebugScripts, "Angel VM: executeMsg ending, charCount=%d eom=%d", charCount, _state->_eom);
 }
 
 void VM::executeCase() {
+	// Format A: CSE marker already consumed. Read type and count.
+	// Then entries: each is (value: 1 nip, target: 2 nips via getNumber).
+	// No extra nips are read for the match value — it comes from game state.
+	// If no case matches, execution continues sequentially after the table.
 	int caseType = getNip();
 	int nbrCases = getNip();
 
@@ -271,24 +326,21 @@ void VM::executeCase() {
 
 	switch (kind) {
 	case kRandomCase:
-		// Pick a random case
 		matchValue = _engine->getRandom(nbrCases);
 		break;
 
 	case kWordCase:
-		// Match based on a VWord in the current input
-		matchValue = getNip();  // The word code to match
-		// TODO: Implement actual word matching against input
+		matchValue = _state->_verb;
 		break;
 
 	case kSynCase:
-		// Match based on synonym group
-		matchValue = getNip();
+		matchValue = _state->_verb;
 		break;
 
 	case kRefCase:
-		// Match based on a reference value
-		matchValue = getNumber();
+		// The match value comes from game state, not from the stream.
+		// For event-driven messages, this is the event register's x value.
+		matchValue = _state->_clock.xReg[kXWelcome].x;
 		break;
 
 	default:
@@ -296,29 +348,31 @@ void VM::executeCase() {
 		break;
 	}
 
-	// Read case table: each entry is (value, target_offset)
-	// Find matching case and jump to it
-	int defaultTarget = 0;
-	bool matched = false;
+	debugC(kDebugScripts, "Angel VM: CSE type=%d count=%d matchValue=%d",
+	       caseType, nbrCases, matchValue);
 
+	// Read case table entries and find match
 	for (int i = 0; i < nbrCases; i++) {
 		int caseValue = getNip();
 		int target = getNumber();
 
-		if (i == 0)
-			defaultTarget = target;  // First case is default fallthrough
+		debugC(kDebugScripts, "Angel VM: CSE entry[%d] value=%d target=%d",
+		       i, caseValue, target);
 
-		if (!matched && (kind == kRandomCase ? (i == matchValue) : (caseValue == matchValue))) {
+		bool isMatch = (kind == kRandomCase)
+			? (i == matchValue)
+			: (caseValue == matchValue);
+
+		if (isMatch) {
+			debugC(kDebugScripts, "Angel VM: CSE matched, jumping to %d", target);
 			jump(target);
-			matched = true;
 			return;
 		}
 	}
 
-	// No match — jump to default (after the case table)
-	if (!matched && defaultTarget > 0) {
-		jump(defaultTarget);
-	}
+	// No match — fall through: continue sequential execution after the table.
+	debugC(kDebugScripts, "Angel VM: CSE no match, falling through at pos %d",
+	       _state->_msgPos);
 }
 
 // ============================================================
@@ -522,6 +576,7 @@ void VM::executeEdit(Operation op, int ref) {
 
 void VM::opPrint(int ref) {
 	// Display a numbered message
+	warning("Angel VM: opPrint(%d)", ref);
 	if (ref > 0)
 		displayMsg(ref);
 }
@@ -529,6 +584,7 @@ void VM::opPrint(int ref) {
 void VM::opDsc(int ref) {
 	// Describe a location or object
 	// ref = description key (n field of Place or Object)
+	warning("Angel VM: opDsc(%d)", ref);
 	if (ref > 0)
 		displayMsg(ref);
 }
@@ -1053,10 +1109,19 @@ void VM::opSub(int ref) {
 // ============================================================
 
 bool VM::testHere(int ref) {
-	// Is object ref at the current location?
-	if (ref > 0 && ref <= _data->_nbrObjects)
-		return _state->map(_state->_location).objects.has(ref);
-	return false;
+	Place &loc = _state->map(_state->_location);
+	warning("Angel VM: testHere ref=%d loc=%d people.empty=%d objects.empty=%d",
+	        ref, _state->_location, loc.people.isEmpty() ? 1 : 0, loc.objects.isEmpty() ? 1 : 0);
+	if (ref > 0) {
+		// Specific ref: check objects then people
+		if (ref <= _data->_nbrObjects && loc.objects.has(ref))
+			return true;
+		if (ref <= _data->_castSize && loc.people.has(ref))
+			return true;
+		return false;
+	}
+	// No ref: is any person present at this location?
+	return !loc.people.isEmpty();
 }
 
 bool VM::testOwns(int ref) {

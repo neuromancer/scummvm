@@ -111,8 +111,8 @@ bool Angel::loadGameData() {
 		return false;
 	}
 
-	debugC(1, 0, "Angel: Game data loaded successfully");
-	debugC(1, 0, "  Locations: %d, Objects: %d, Cast: %d, Vehicles: %d, Vocab: %d",
+	warning("Angel: Game data loaded successfully");
+	warning("  Locations: %d, Objects: %d, Cast: %d, Vehicles: %d, Vocab: %d",
 	       _data->_nbrLocations, _data->_nbrObjects, _data->_castSize,
 	       _data->_nbrVehicles, _data->_nbrVWords);
 
@@ -291,28 +291,37 @@ void Angel::describeLocation() {
 	}
 
 	// List visible objects
+	warning("Angel describeLocation: checking %d objects at loc %d", _data->_nbrObjects, _state->_location);
 	const ObjSet &objs = here.objects;
 	for (int obj = 1; obj <= _data->_nbrObjects; obj++) {
-		if (objs.has(obj) && !_data->_props[obj].unseen) {
-			if (_data->_props[obj].n > 0) {
-				_vm->displayMsg(_data->_props[obj].n);
-				forceQ();
-				outLn();
+		if (objs.has(obj)) {
+			warning("Angel describeLocation: obj %d at loc, unseen=%d n=%d", obj, _data->_props[obj].unseen ? 1 : 0, _data->_props[obj].n);
+			if (!_data->_props[obj].unseen) {
+				if (_data->_props[obj].n > 0) {
+					_vm->displayMsg(_data->_props[obj].n);
+					forceQ();
+					outLn();
+				}
 			}
 		}
 	}
 
 	// List visible people
+	warning("Angel describeLocation: checking %d people at loc %d", _data->_castSize, _state->_location);
 	const PersonSet &people = here.people;
 	for (int p = 1; p <= _data->_castSize; p++) {
-		if (people.has(p) && !_data->_cast[p].unseen && _data->_cast[p].located == _state->_location) {
-			if (_data->_cast[p].n > 0) {
-				_vm->displayMsg(_data->_cast[p].n);
-				forceQ();
-				outLn();
+		if (people.has(p)) {
+			warning("Angel describeLocation: person %d at loc, unseen=%d n=%d located=%d", p, _data->_cast[p].unseen ? 1 : 0, _data->_cast[p].n, _data->_cast[p].located);
+			if (!_data->_cast[p].unseen && _data->_cast[p].located == _state->_location) {
+				if (_data->_cast[p].n > 0) {
+					_vm->displayMsg(_data->_cast[p].n);
+					forceQ();
+					outLn();
+				}
 			}
 		}
 	}
+	warning("Angel describeLocation: done");
 }
 
 void Angel::animateAll() {
@@ -486,6 +495,8 @@ void Angel::doTurn() {
 // ============================================================
 
 void Angel::runGame() {
+	warning("Angel: runGame() entered");
+
 	// Open the main text window
 	_mainWindow = glk_window_open(nullptr, 0, 0, wintype_TextBuffer, 1);
 	if (!_mainWindow) {
@@ -516,6 +527,16 @@ void Angel::runGame() {
 	println("An interactive fiction adventure by Angelsoft, Inc.");
 	println("(c) 1987 Lucasfilm Ltd.");
 	println("");
+
+	// Execute the WELCOME event procedure from the NtgrRegisters.
+	// xReg[kXWelcome] holds the proc address for the game's intro text.
+	if (_state->_clock.xReg[kXWelcome].proc > 0) {
+		warning("Angel: Executing WELCOME event at proc=%d",
+		       _state->_clock.xReg[kXWelcome].proc);
+		_vm->displayMsg(_state->_clock.xReg[kXWelcome].proc);
+		forceQ();
+		outLn();
+	}
 
 	// Describe starting location
 	describeLocation();
