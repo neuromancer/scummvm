@@ -8,6 +8,7 @@ MODULE_OBJS := \
 	icocur.o \
 	iff.o \
 	jpeg.o \
+	macpaint.o \
 	neo.o \
 	pcx.o \
 	pict.o \
