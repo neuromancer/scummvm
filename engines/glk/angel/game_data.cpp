@@ -318,17 +318,42 @@ bool GameData::loadTables(Common::SeekableReadStream *stream) {
 		case kObjEntry: {
 			// Object layout (36 bytes):
 			//   0-1:   disc (1)
-			//   2-9:   contents (ObjSet, 8 bytes)
-			//   10-11: n (description key)  — estimated offset
-			//   12+:   other fields (oName, size, value, properties, etc.)
+			//   2-9:   contents (ObjSet, 8 bytes = 64 bits)
+			//   10-11: n (description key)
+			//   12-13: oName (VWordIndex)
+			//   14-15: size (Measure 0..9)
+			//   16-17: value (Measure 0..9)
+			//   18-25: properties (PropSet, 8 bytes = 64 bits)
+			//   26-27: state (Measure 0..9)
+			//   28-29: inOrOn (ObjRef)
+			//   30:    kindOfThing (ObjType enum)
+			//   31:    useThe (boolean)
+			//   32:    litUp (boolean)
+			//   33:    itsOpen (boolean)
+			//   34:    itsLocked (boolean)
+			//   35:    unseen (boolean)
 			if (objIdx < kMaxNbrObjects + 1) {
 				Object &obj = _props[objIdx];
-				// The exact field offsets need more analysis.
-				// For now, extract what we can from known byte positions.
-				// n appears to be embedded in the packed data.
-				obj.unseen = true;
-				debugC(2, 0, "Angel: Object[%d]: raw[2..5]=%02x%02x%02x%02x",
-				       objIdx, buf[off+2], buf[off+3], buf[off+4], buf[off+5]);
+				// Contents: 8 bytes as 2 x 32-bit words (big-endian)
+				obj.contents.setWord(0, (uint32)RW(off + 2) << 16 | RW(off + 4));
+				obj.contents.setWord(1, (uint32)RW(off + 6) << 16 | RW(off + 8));
+				obj.n = (int)RW(off + 10);
+				obj.oName = (int)RW(off + 12);
+				obj.size = (int)RW(off + 14);
+				obj.value = (int)RW(off + 16);
+				// Properties: 8 bytes as 2 x 32-bit words (big-endian)
+				obj.properties.setWord(0, (uint32)RW(off + 18) << 16 | RW(off + 20));
+				obj.properties.setWord(1, (uint32)RW(off + 22) << 16 | RW(off + 24));
+				obj.state = (int)RW(off + 26);
+				obj.inOrOn = (int)RW(off + 28);
+				obj.kindOfThing = (ObjType)buf[off + 30];
+				obj.useThe = (buf[off + 31] != 0);
+				obj.litUp = (buf[off + 32] != 0);
+				obj.itsOpen = (buf[off + 33] != 0);
+				obj.itsLocked = (buf[off + 34] != 0);
+				obj.unseen = (buf[off + 35] != 0);
+				debugC(2, 0, "Angel: Object[%d]: n=%d oName=%d size=%d val=%d state=%d kind=%d",
+				       objIdx, obj.n, obj.oName, obj.size, obj.value, obj.state, obj.kindOfThing);
 			}
 			objIdx++;
 			break;
@@ -356,11 +381,25 @@ bool GameData::loadTables(Common::SeekableReadStream *stream) {
 
 		case kVclEntry: {
 			// Vehicle layout (36 bytes):
-			//   0-1: disc (3), 2-3: n
+			//   0-1:   disc (3)
+			//   2-3:   n (description key)
+			//   4-5:   rideProc
+			//   6-7:   vName (VWordIndex)
+			//   8-15:  cantCarry (ObjSet, 8 bytes)
+			//   16-17: stopped (LocRef)
+			//   18:    useThe (boolean)
+			//   19:    unseen (boolean)
+			//   20+:   vclType + variant (route/inside)
 			if (vclIdx < kMaxNbrVehicles + 1) {
 				Vehicle &vcl = _fleet[vclIdx];
 				vcl.n = (int)RW(off + 2);
-				debugC(2, 0, "Angel: Vehicle[%d]: n=%d", vclIdx, vcl.n);
+				vcl.rideProc = (int)RW(off + 4);
+				vcl.vName = (int)RW(off + 6);
+				vcl.stopped = (int)RW(off + 16);
+				vcl.useThe = (buf[off + 18] != 0);
+				vcl.unseen = (buf[off + 19] != 0);
+				debugC(2, 0, "Angel: Vehicle[%d]: n=%d vName=%d stopped=%d",
+				       vclIdx, vcl.n, vcl.vName, vcl.stopped);
 			}
 			vclIdx++;
 			break;
