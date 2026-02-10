@@ -608,7 +608,7 @@ void Angel::runGame() {
 	warning("Angel: runGame() entered");
 
 	// Show intro images (StartupScreen + BOOTUP) if present
-	showIntroImage();
+	//showIntroImage();
 
 	// Open the main text window
 	_mainWindow = glk_window_open(nullptr, 0, 0, wintype_TextBuffer, 1);

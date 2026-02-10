@@ -458,20 +458,34 @@ void VM::executeCase() {
 
 		if (isMatch) {
 			matched = true;
-			warning("Angel VM: CSE MATCHED entry %d (val=%d), content at pos=%d", i, caseValue, _state->_msgPos);
-			// Push a return frame so that EndSym within the CSE content
-			// returns to endPos (past the entire CSE block) instead of
-			// terminating the entire displayMsg call. This matches the
-			// original p-code epilogue: NAT_F0 66 + Jump(endPos-currentPos).
-			if (_callDepth < kMaxCallDepth) {
-				CallFrame &frame = _callStack[_callDepth++];
-				frame.base = _state->_msgBase;
-				frame.pos = endPos;
-				frame.cursor = endPos % kChunkSize;
-				frame.length = _state->_msgLength;
+			int contentEndPos = _state->_msgPos + skip;
+			warning("Angel VM: CSE MATCHED entry %d (val=%d), content at pos=%d skip=%d contentEnd=%d",
+			        i, caseValue, _state->_msgPos, skip, contentEndPos);
+
+			// Process the matched case's content inline by calling executeMsg()
+			// in a loop. The content may contain internal EndSym markers that
+			// separate sub-blocks (e.g., kFe kCapOp + letter + EndSym patterns
+			// within "Tepotzteco"). These are sub-block separators, NOT message
+			// terminators. The original p-code (proc 103 epilogue) handles this
+			// via NAT_F0 66 which processes content as an inline call — EndSym
+			// returns from that call, not from the outer message loop.
+			//
+			// We do NOT push a CallFrame here. Instead we call executeMsg()
+			// repeatedly until all `skip` nips of content are consumed.
+			int safety = 0;
+			while (_state->_msgPos < contentEndPos && _state->_stillPlaying && safety < 200) {
+				_state->_eom = false;
+				executeMsg();
+				safety++;
 			}
-			// Stream is at content start — return and let executeMsg process it.
-			// When content hits EndSym, the frame will pop and resume at endPos.
+
+			// After content, skip remaining CSE entries by jumping to endPos
+			if (_state->_msgPos < endPos) {
+				warning("Angel VM: CSE epilogue: jumping from pos=%d to endPos=%d", _state->_msgPos, endPos);
+				jumpTo(endPos);
+			}
+			// Reset EOM — there may be more message content after the CSE block
+			_state->_eom = false;
 		} else {
 			// Skip over this entry's inline content
 			warning("Angel VM: CSE skip entry %d, jump(%d) from pos=%d", i, skip, _state->_msgPos);
@@ -486,10 +500,6 @@ void VM::executeCase() {
 			jump(endPos - _state->_msgPos);
 		}
 	}
-
-	// If matched, the stream is positioned at the start of the matched
-	// entry's inline content. executeMsg() will process it naturally
-	// (text output, opcodes, JU/JF flow control, etc.).
 }
 
 // ============================================================
