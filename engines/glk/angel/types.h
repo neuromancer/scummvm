@@ -91,6 +91,7 @@ static const int kPageHeader = 2;          // Bytes of header at start of each p
 static const int kActionOpcodeBase = 50;  // = kTkOffOp ordinal
 static const int kEditOpcodeBase = 73;    // = kTickOp ordinal
 static const int kTestOpcodeBase = 87;    // = kLessOp ordinal
+static const int kFeOpcodeBase = 135;     // = kPassOp ordinal (for kFe/kFer handlers)
 
 // Special codes in proc strings (message VM bytecodes)
 static const char kJU = '^';              // Unconditional jump

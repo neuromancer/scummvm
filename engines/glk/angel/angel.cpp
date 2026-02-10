@@ -140,6 +140,7 @@ void Angel::initGame() {
 
 void Angel::print(const Common::String &text) {
 	if (_mainWindow) {
+		debug("ANGEL_TEXT: \"%s\"", text.c_str());
 		glk_set_window(_mainWindow);
 		glk_put_string(text.c_str());
 	}
@@ -495,6 +496,7 @@ void Angel::doTurn() {
 // ============================================================
 
 void Angel::runGame() {
+	debug("ANGEL_TRACE: runGame() entered");
 	warning("Angel: runGame() entered");
 
 	// Open the main text window
@@ -530,10 +532,24 @@ void Angel::runGame() {
 
 	// Execute the WELCOME event procedure from the NtgrRegisters.
 	// xReg[kXWelcome] holds the proc address for the game's intro text.
+	debug("ANGEL_TRACE: about to check WELCOME, proc=%d",
+		_state->_clock.xReg[kXWelcome].proc);
 	if (_state->_clock.xReg[kXWelcome].proc > 0) {
 		warning("Angel: Executing WELCOME event at proc=%d",
 		       _state->_clock.xReg[kXWelcome].proc);
 		_vm->displayMsg(_state->_clock.xReg[kXWelcome].proc);
+		debug("ANGEL_TRACE: WELCOME displayMsg returned");
+		forceQ();
+		outLn();
+	}
+
+	// Execute the ENTRY event procedure (xReg[kXEntry]).
+	// This runs the location entry script, which may display narrative
+	// text and set up location state before the description.
+	if (_state->_clock.xReg[kXEntry].proc > 0) {
+		warning("Angel: Executing ENTRY event at proc=%d",
+		       _state->_clock.xReg[kXEntry].proc);
+		_vm->displayMsg(_state->_clock.xReg[kXEntry].proc);
 		forceQ();
 		outLn();
 	}

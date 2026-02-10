@@ -104,6 +104,19 @@ private:
 	CallFrame _callStack[kMaxCallDepth];
 	int _callDepth;
 
+	bool _capitalizeNext;    // Set by kCapOp via kFe, capitalizes next text char
+	bool _suppressText;      // Text output suppression (set during init opcodes)
+
+	// Entity context — set by resolveEntity() (NAT_F0 35 / proc 35 equivalent).
+	// The kFtr/kFar handlers read a ref nip (getNip()+135), then call
+	// resolveEntity() which sets these variables based on the ref operation.
+	// testIs (proc 77) saves this context, does a second resolution, and
+	// compares the two entity values.
+	bool _entityFlag;        // intermediate[N][9]  — entity resolved successfully
+	int _entityValue;        // intermediate[N][10] — resolved entity value
+	int _entityOp;           // intermediate[N][11] — raw operation enum
+	int _entityType;         // intermediate[N][12] — entity type (0-6)
+
 	/** Advance to the next nip, handling chunk boundaries */
 	void bumpMsg();
 
@@ -121,8 +134,11 @@ private:
 	/** Execute a test opcode (Ft/Ftr), sets _state->_tfIndicator */
 	void executeTest(Operation op, int ref);
 
-	/** Execute an edit opcode (Fe/Fer) */
+	/** Execute an edit opcode (via Fa/Far edit range) */
 	void executeEdit(Operation op, int ref);
+
+	/** Execute an Fe/Fer opcode (base 135, reference/display ops) */
+	void executeFe(Operation op, int ref);
 
 	// ---- Action implementations ----
 	void opPrint(int ref);
@@ -253,6 +269,9 @@ private:
 
 	// ---- Reference/value ops ----
 	int getRefValue(Operation op);
+
+	/** Resolve entity context (proc 35 equivalent) for kFtr/kFar ref operations */
+	void resolveEntity(int op);
 };
 
 } // End of namespace Angel
