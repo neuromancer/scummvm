@@ -194,25 +194,42 @@ void VM::executeMsg() {
 			break;
 
 		case kFa:
-			// Action without reference
+			// Action without reference — nip + kActionOpcodeBase = Operation
+			// kFa XJP covers cases 50-93: player verb ops (50-72),
+			// edit ops (73-86), and arithmetic edits (90-93).
+			// Cases 87-89 (kLessOp-kLEqOp) are no-ops via kFa.
 			{
 				int opNip = getNip();
-				if (opNip < kNumOperations)
-					executeAction((Operation)opNip, 0);
-				else
-					warning("Angel VM: Unknown action opcode %d", opNip);
+				int opVal = opNip + kActionOpcodeBase;
+				if (opVal >= kNumOperations) {
+					warning("Angel VM: Unknown action opcode nip=%d op=%d", opNip, opVal);
+				} else if (opVal >= kEditOpcodeBase) {
+					if (opVal >= kTestOpcodeBase && opVal < (int)kIncrOp) {
+						// kLessOp/kEqOp/kLEqOp: no-op via kFa (XJP cases 87-89 → return)
+						debugC(kDebugScripts, "Angel VM: kFa test op %d (no-op)", opVal);
+					} else {
+						executeEdit((Operation)opVal, 0);
+					}
+				} else {
+					executeAction((Operation)opVal, 0);
+				}
 			}
 			break;
 
 		case kFar:
-			// Action with reference
+			// Action with reference — nip + kActionOpcodeBase = Operation
+			// kFar XJP covers cases 78-86 (edit ops with reference).
 			{
 				int opNip = getNip();
 				int ref = getNumber();
-				if (opNip < kNumOperations)
-					executeAction((Operation)opNip, ref);
-				else
-					warning("Angel VM: Unknown action+ref opcode %d", opNip);
+				int opVal = opNip + kActionOpcodeBase;
+				if (opVal >= kNumOperations) {
+					warning("Angel VM: Unknown action+ref opcode nip=%d op=%d", opNip, opVal);
+				} else if (opVal >= kEditOpcodeBase) {
+					executeEdit((Operation)opVal, ref);
+				} else {
+					executeAction((Operation)opVal, ref);
+				}
 			}
 			break;
 
@@ -499,7 +516,7 @@ void VM::executeAction(Operation op, int ref) {
 	case kNoOp:       break;  // Do nothing
 
 	default:
-		error("Angel VM: Unimplemented action opcode %d", (int)op);
+		warning("Angel VM: Unimplemented action opcode %d", (int)op);
 		break;
 	}
 }
@@ -583,6 +600,7 @@ void VM::executeEdit(Operation op, int ref) {
 	case kAttrOp:     opAttr(ref); break;
 	case kAsgOp:      opAsg(ref); break;
 	case kMovOp:      opMov(ref); break;
+	case kPrintOp:    opPrint(ref); break;
 	case kRstOp:      opRst(ref); break;
 	case kIncrOp:     opIncr(ref); break;
 	case kDecrOp:     opDecr(ref); break;
@@ -590,7 +608,7 @@ void VM::executeEdit(Operation op, int ref) {
 	case kSubOp:      opSub(ref); break;
 
 	default:
-		error("Angel VM: Unimplemented edit opcode %d", (int)op);
+		warning("Angel VM: Unimplemented edit opcode %d", (int)op);
 		break;
 	}
 }
@@ -888,7 +906,15 @@ void VM::opCurse() {
 }
 
 void VM::opWelcome() {
-	debug("Angel VM: opWelcome not implemented");
+	// kWelcomeOp (enum 33) is in the "Character/action response ops" range
+	// (26-49). In the original p-code, the kFa handler adds base 50 to the
+	// raw nip (NAT_F0 32(0,50)), making these ops unreachable via bytecode:
+	// raw nip 33 → XJP case 83 = kAsgOp, not kWelcomeOp.
+	//
+	// This is only reached due to the base-offset bug (PLAN.md Priority 1).
+	// The welcome event is triggered from angel.cpp via displayMsg(4098).
+	// Calling displayMsg here would recurse since we're inside msg 4098.
+	debugC(kDebugScripts, "Angel VM: opWelcome (no-op, base-offset misdispatch)");
 }
 
 void VM::opMrdr() {
@@ -975,7 +1001,11 @@ void VM::opEvent(int ref) {
 }
 
 void VM::opSet(int ref) {
-	error("Angel VM: opSet(%d) not implemented", ref);
+	// Set object attribute (case 75 in kFa XJP → L_28f3)
+	// p-code: CXG 18,15 → reads 1 nip (attribute index)
+	// Then NAT_F0 53 resolves it, LEQS set operations, NAT_F0 58/54 apply changes
+	int attrNip = getNip();
+	warning("Angel VM: opSet(ref=%d, attrNip=%d) stub - nip consumed but logic not implemented", ref, attrNip);
 }
 
 void VM::opSsp(int ref) {
@@ -993,7 +1023,7 @@ void VM::opRsm(int ref) {
 }
 
 void VM::opSw(int ref) {
-	error("Angel VM: opSw(%d) not implemented", ref);
+	warning("Angel VM: opSw(%d) not implemented", ref);
 }
 
 void VM::opAdv() {
@@ -1040,11 +1070,20 @@ void VM::opChz(int ref) {
 }
 
 void VM::opAttr(int ref) {
-	error("Angel VM: opAttr(%d) not implemented", ref);
+	warning("Angel VM: opAttr(%d) not implemented", ref);
 }
 
 void VM::opAsg(int ref) {
-	error("Angel VM: opAsg(%d) not implemented", ref);
+	// Assign xReg event register (case 83 in kFa XJP → L_2949)
+	// p-code: CPI 3,5(0,1) → flag=1 means getNumber (2 nips)
+	// UCSD p-machine param order: local[2]=last pushed=1 (the flag)
+	// Then dispatches on xReg[index] sub-field via XJP cases 0-3:
+	//   case 0: set xReg[i].proc to resolved set value
+	//   case 1: set global[3008] (vocabulary set)
+	//   case 2: set global[3010] (entity set) + derived lookups
+	//   case 3: set global[3009] (attribute set)
+	int xRegValue = getNumber();  // 2 nips: CPI 3,5 with flag=1
+	warning("Angel VM: opAsg(ref=%d, value=%d) stub - nips consumed but logic not implemented", ref, xRegValue);
 }
 
 void VM::opMov(int ref) {
@@ -1065,23 +1104,23 @@ void VM::opMov(int ref) {
 }
 
 void VM::opRst(int ref) {
-	error("Angel VM: opRst(%d) not implemented", ref);
+	warning("Angel VM: opRst(%d) not implemented", ref);
 }
 
 void VM::opIncr(int ref) {
-	error("Angel VM: opIncr(%d) not implemented", ref);
+	warning("Angel VM: opIncr(%d) not implemented", ref);
 }
 
 void VM::opDecr(int ref) {
-	error("Angel VM: opDecr(%d) not implemented", ref);
+	warning("Angel VM: opDecr(%d) not implemented", ref);
 }
 
 void VM::opAdd(int ref) {
-	error("Angel VM: opAdd(%d) not implemented", ref);
+	warning("Angel VM: opAdd(%d) not implemented", ref);
 }
 
 void VM::opSub(int ref) {
-	error("Angel VM: opSub(%d) not implemented", ref);
+	warning("Angel VM: opSub(%d) not implemented", ref);
 }
 
 // ============================================================
@@ -1321,10 +1360,46 @@ bool VM::testHolds(int ref) {
 }
 
 bool VM::testIs(int ref) {
-	// "Is" test: checks if the current object/entity matches ref.
-	// TODO: implement properly — for now, return false (safe default for intro).
-	warning("Angel VM: testIs(%d) stub — returning true", ref);
-	return true;
+	// "Is" test -- a compound test that reads additional inline data from the
+	// message stream (proc 77 in the RESPOND segment). It compares the kFtr
+	// reference value against an inline reference specification.
+	//
+	// Stream format after the kFtr prefix has consumed the opcode and ref nips:
+	//   char = getAChar()
+	//   if char == '$': entityNum = getNumber()  ($ path, 3 nips total)
+	//   else:           refNip = getNip()        (non-$ path, 2 nips total)
+	//
+	// The original proc 77 then dispatches on entity type (0-6) to extract a
+	// property from the game data tables and compares it against the resolved
+	// kFtr reference. When no entity context exists (e.g. game start before
+	// any command is parsed), the comparison is skipped and the result defaults
+	// to true.
+
+	char ch = getAChar();
+
+	if (ch == kFt) {
+		// $ path: inline entity specification
+		int entityNum = getNumber();
+		debugC(kDebugScripts, "Angel VM: testIs(ref=%d) $ path entity=%d",
+		       ref, entityNum);
+		// In the original, this looks up entity properties via a type dispatch
+		// and compares against the resolved kFtr reference value.
+		// TODO: full entity property lookup (proc 77 XJP cases 0-6)
+		return ref == entityNum;
+	} else {
+		// Non-$ path: read one more nip as inline reference data
+		int refNip = getNip();
+		debugC(kDebugScripts, "Angel VM: testIs(ref=%d) non-$ path ch=%d refNip=%d",
+		       ref, (int)ch, refNip);
+		// In the original, CPI 3,32(0,135) resolves the inline reference and
+		// CPI 3,35 processes it. The comparison checks the resolved kFtr ref
+		// against the resolved inline ref. When no entity context exists
+		// (intermediate[3][9] is false), the comparison is skipped and the
+		// default result is true.
+		// TODO: implement proper comparison when entity context is available
+		warning("Angel VM: testIs non-$ path not fully implemented - skipping comparison and returning true");
+		return true;
+	}
 }
 
 bool VM::testFair(int ref) {
