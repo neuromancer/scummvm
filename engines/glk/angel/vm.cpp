@@ -56,30 +56,6 @@ void VM::openMsg(int addr, const char *caller) {
 	_state->_msgLength = (hdr0 << 6) | hdr1;
 
 	warning("Angel VM: openMsg addr=%d hdrLen=%d caller=%s", addr, _state->_msgLength, caller);
-
-	// Debug: dump nips at key positions for message 4546
-	if (addr == 4546) {
-		Common::String dump;
-		for (int p = 95; p <= 120; p++) {
-			int cursor = p % kChunkSize;
-			int chunkAddr = addr + (p / kChunkSize);
-			Chunk c = _data->readChunk(chunkAddr);
-			int nip = c.getNip(cursor);
-			char ch = _data->_yTable[nip];
-			dump += Common::String::format(" %d:%d(%c)", p, nip, (ch >= 32 && ch < 127) ? ch : '?');
-		}
-		warning("Angel VM: msg4546 nips[95-120]:%s", dump.c_str());
-		dump.clear();
-		for (int p = 295; p <= 320; p++) {
-			int cursor = p % kChunkSize;
-			int chunkAddr = addr + (p / kChunkSize);
-			Chunk c = _data->readChunk(chunkAddr);
-			int nip = c.getNip(cursor);
-			char ch = _data->_yTable[nip];
-			dump += Common::String::format(" %d:%d(%c)", p, nip, (ch >= 32 && ch < 127) ? ch : '?');
-		}
-		warning("Angel VM: msg4546 nips[295-320]:%s", dump.c_str());
-	}
 }
 
 int VM::getNip() {
@@ -122,11 +98,12 @@ void VM::bumpMsg() {
 }
 
 void VM::jump(int n) {
-	// "Jump ahead n places in the current message" (relative forward)
+	// "Jump ahead n places in the current message" (relative forward).
+	// Messages terminate via kEndSym in the stream, not via _msgLength.
 	int newPos = _state->_msgPos + n;
-	if (newPos > _state->_msgLength && _state->_msgLength > 0) {
-		_state->_eom = true;
-		return;
+	if (newPos < 0) {
+		warning("Angel VM: jump(%d) from pos %d would go negative, clamping to 0", n, _state->_msgPos);
+		newPos = 0;
 	}
 	_state->_msgPos = newPos;
 	_state->_msgCursor = newPos % kChunkSize;
@@ -135,10 +112,11 @@ void VM::jump(int n) {
 }
 
 void VM::jumpTo(int pos) {
-	// Jump to absolute position within the current message (for CSE targets)
-	if (pos > _state->_msgLength && _state->_msgLength > 0) {
-		_state->_eom = true;
-		return;
+	// Jump to absolute position within the current message.
+	// Messages terminate via kEndSym in the stream, not via _msgLength.
+	if (pos < 0) {
+		warning("Angel VM: jumpTo(%d) negative position, clamping to 0", pos);
+		pos = 0;
 	}
 	_state->_msgPos = pos;
 	_state->_msgCursor = pos % kChunkSize;
@@ -326,17 +304,17 @@ void VM::executeMsg() {
 }
 
 void VM::executeCase() {
-	// Format B (from P-code analysis of proc 103):
-	//   CSE marker already consumed by getAChar().
-	//   type: 1 nip (KindOfCase: 0=Random, 1=Word, 2=Syn, 3=Ref)
-	//   [match_ref: getNumber — only for RefCase]
-	//   nbrCases: 1 nip
-	//   entries: nbrCases × (value: 1 nip, target: getNumber)
+	// CSE interleaved content format (from proc 103 / proc 5 disassembly):
+	//   type: getNip (KindOfCase: 0=Random, 1=Word, 2=Syn, 3=Ref)
+	//   [matchRef: getNumber — only for RefCase]
+	//   nbrCases: getNip
+	//   totalSize: getNumber (nips from here to end of CSE block)
+	//   entries: nbrCases × [val: getNip, skip: getNumber, content...]
 	//
-	// For RefCase, match_ref is read from the stream (getNumber = 12 bits).
-	// The P-code loop reads ALL entries first, then jumps to the matched
-	// target using Jump (relative forward from current stream position).
-	// If no match, execution falls through after the table.
+	// Interleaved model: each entry's content is inline after its header.
+	// When NOT matched: jump(skip) to skip over the content to next entry.
+	// When matched: don't jump — return and let executeMsg process the content.
+	// val == 0 is a special "default" that always matches.
 
 	int caseType = getNip();
 	KindOfCase kind = (KindOfCase)caseType;
@@ -348,6 +326,8 @@ void VM::executeCase() {
 	}
 
 	int nbrCases = getNip();
+	int totalSize = getNumber();
+	int endPos = _state->_msgPos + totalSize;
 
 	// Determine match value based on case type
 	int matchValue = 0;
@@ -365,12 +345,8 @@ void VM::executeCase() {
 		break;
 
 	case kRefCase:
-		// matchRef identifies which game state variable to match against.
-		// The P-code uses native calls to look up the value, which we
-		// approximate here. Common cases: xReg event counters.
-		matchValue = _state->_clock.xReg[kXWelcome].x;
-		warning("Angel VM: CSE RefCase matchRef=%d matchValue=%d (xReg[Welcome].x) location=%d",
-		        matchRef, matchValue, _state->_location);
+		if (matchRef < kNumOperations)
+			matchValue = getRefValue((Operation)matchRef);
 		break;
 
 	default:
@@ -378,40 +354,50 @@ void VM::executeCase() {
 		break;
 	}
 
-	warning("Angel VM: CSE type=%d nbrCases=%d matchValue=%d matchRef=%d pos=%d",
-	        caseType, nbrCases, matchValue, matchRef, _state->_msgPos);
+	warning("Angel VM: CSE type=%d nbrCases=%d matchValue=%d matchRef=%d totalSize=%d endPos=%d pos=%d",
+	        caseType, nbrCases, matchValue, matchRef, totalSize, endPos, _state->_msgPos);
 
-	// Read ALL case table entries, recording the matched target
-	int matchedTarget = -1;
-	for (int i = 0; i < nbrCases; i++) {
+	// Iterate through entries with interleaved content
+	bool matched = false;
+	for (int i = 0; i < nbrCases && !matched; i++) {
 		int caseValue = getNip();
-		int target = getNumber();
+		int skip = getNumber();
 
-		warning("Angel VM: CSE entry[%d] val=%d target=%d", i, caseValue, target);
+		warning("Angel VM: CSE entry[%d] val=%d skip=%d pos=%d", i, caseValue, skip, _state->_msgPos);
 
 		bool isMatch;
 		if (kind == kRandomCase) {
 			isMatch = (i == matchValue);
+		} else if (caseValue == 0) {
+			// val == 0 is a special "default" case — always matches
+			isMatch = true;
 		} else {
 			isMatch = (caseValue == matchValue);
 		}
 
-		if (isMatch && matchedTarget < 0) {
-			matchedTarget = target;
-			warning("Angel VM: CSE MATCHED at entry %d, target=%d", i, target);
+		if (isMatch) {
+			matched = true;
+			warning("Angel VM: CSE MATCHED entry %d (val=%d), content at pos=%d", i, caseValue, _state->_msgPos);
+			// Don't jump — stream is at content start.
+			// Return and let executeMsg process the inline content.
+		} else {
+			// Skip over this entry's inline content
+			warning("Angel VM: CSE skip entry %d, jump(%d) from pos=%d", i, skip, _state->_msgPos);
+			jump(skip);
 		}
 	}
 
-	if (matchedTarget >= 0) {
-		// Jump is RELATIVE forward from current position (after all entries consumed)
-		warning("Angel VM: CSE jumping +%d from pos %d -> pos %d (msgLength=%d)",
-		        matchedTarget, _state->_msgPos, _state->_msgPos + matchedTarget,
-		        _state->_msgLength);
-		jump(matchedTarget);
-	} else {
-		// No match — fall through after the table
-		warning("Angel VM: CSE no match, falling through at pos %d", _state->_msgPos);
+	if (!matched) {
+		// No match found — skip to end of CSE block
+		warning("Angel VM: CSE no match, jumping to endPos=%d from pos=%d", endPos, _state->_msgPos);
+		if (_state->_msgPos < endPos) {
+			jump(endPos - _state->_msgPos);
+		}
 	}
+
+	// If matched, the stream is positioned at the start of the matched
+	// entry's inline content. executeMsg() will process it naturally
+	// (text output, opcodes, JU/JF flow control, etc.).
 }
 
 // ============================================================
@@ -513,7 +499,7 @@ void VM::executeAction(Operation op, int ref) {
 	case kNoOp:       break;  // Do nothing
 
 	default:
-		warning("Angel VM: Unimplemented action opcode %d", (int)op);
+		error("Angel VM: Unimplemented action opcode %d", (int)op);
 		break;
 	}
 }
@@ -572,7 +558,7 @@ void VM::executeTest(Operation op, int ref) {
 	case kLEqOp:      result = testLEq(ref); break;
 
 	default:
-		warning("Angel VM: Unimplemented test opcode %d", (int)op);
+		error("Angel VM: Unimplemented test opcode %d", (int)op);
 		break;
 	}
 
@@ -604,7 +590,7 @@ void VM::executeEdit(Operation op, int ref) {
 	case kSubOp:      opSub(ref); break;
 
 	default:
-		warning("Angel VM: Unimplemented edit opcode %d", (int)op);
+		error("Angel VM: Unimplemented edit opcode %d", (int)op);
 		break;
 	}
 }
@@ -629,55 +615,19 @@ void VM::opDsc(int ref) {
 }
 
 void VM::opAOp() {
-	// Generate article ("a", "an", "the") for the current object
-	if (_state->_thing > 0 && _state->_thing <= _data->_nbrObjects) {
-		const Object &obj = _data->_props[_state->_thing];
-		if (obj.useThe) {
-			_engine->putWord("the ");
-		} else {
-			// Check if name starts with vowel for a/an
-			_engine->putWord("a ");
-		}
-	}
+	error("Angel VM: opAOp not correctly implemented - missing vowel check for a/an");
 }
 
 void VM::opInv() {
-	// Show inventory
-	_engine->print("You are carrying:");
-	_engine->newLine();
-
-	bool hasAnything = false;
-	for (int i = 1; i <= _data->_nbrObjects; i++) {
-		if (_state->_possessions.has(i)) {
-			hasAnything = true;
-			_engine->print("  ");
-			// TODO: Extract and print object name from vocab
-			_engine->print("object #");
-			char buf[16];
-			snprintf(buf, sizeof(buf), "%d", i);
-			_engine->print(buf);
-			if (_state->_wearing.has(i))
-				_engine->print(" (being worn)");
-			_engine->newLine();
-		}
-	}
-	if (!hasAnything) {
-		_engine->print("  Nothing.");
-		_engine->newLine();
-	}
+	error("Angel VM: opInv not correctly implemented - needs vocab name lookup");
 }
 
 void VM::opSpk(int ref) {
-	// Speak a vocabulary word
-	if (ref > 0 && ref <= _data->_nbrVWords) {
-		// TODO: Extract word from vocab and print it
-		debugC(kDebugScripts, "Angel VM: SPK word index %d", ref);
-	}
+	error("Angel VM: opSpk(%d) not implemented", ref);
 }
 
 void VM::opCap(int ref) {
-	// Capitalize next output
-	debugC(kDebugScripts, "Angel VM: CAP %d", ref);
+	error("Angel VM: opCap(%d) not implemented", ref);
 }
 
 void VM::opForce(int ref) {
@@ -819,9 +769,7 @@ void VM::opGrab() {
 }
 
 void VM::opSwap() {
-	// Swap objects between player and person
-	opGive();
-	// TODO: Also grab the trade item
+	error("Angel VM: opSwap not correctly implemented - only gives, doesn't grab back");
 }
 
 void VM::opGrant() {
@@ -864,8 +812,7 @@ void VM::opEntry() {
 }
 
 void VM::opRide() {
-	// Board/ride a vehicle
-	debugC(kDebugScripts, "Angel VM: RIDE vehicle %d", _state->_cur.rideWhat);
+	error("Angel VM: opRide not implemented");
 }
 
 void VM::opRLoc(int ref) {
@@ -879,11 +826,11 @@ void VM::opRLoc(int ref) {
 }
 
 void VM::opNxStop() {
-	debugC(kDebugScripts, "Angel VM: NXSTOP");
+	error("Angel VM: opNxStop not implemented");
 }
 
 void VM::opOffer() {
-	debugC(kDebugScripts, "Angel VM: OFFER");
+	error("Angel VM: opOffer not implemented");
 }
 
 void VM::opTour() {
@@ -892,7 +839,7 @@ void VM::opTour() {
 }
 
 void VM::opRRide() {
-	debugC(kDebugScripts, "Angel VM: RRIDE");
+	error("Angel VM: opRRide not implemented");
 }
 
 void VM::opTrade() {
@@ -932,7 +879,7 @@ void VM::opSecret() {
 }
 
 void VM::opBluff() {
-	debugC(kDebugScripts, "Angel VM: BLUFF");
+	error("Angel VM: opBluff not implemented");
 }
 
 void VM::opCurse() {
@@ -941,12 +888,11 @@ void VM::opCurse() {
 }
 
 void VM::opWelcome() {
-	debugC(kDebugScripts, "Angel VM: WELCOME");
+	debug("Angel VM: opWelcome not implemented");
 }
 
 void VM::opMrdr() {
-	// Murder (NPC kills NPC)
-	debugC(kDebugScripts, "Angel VM: MURDER");
+	error("Angel VM: opMrdr not implemented");
 }
 
 void VM::opOpnIt() {
@@ -981,11 +927,11 @@ void VM::opUnLkIt() {
 }
 
 void VM::opPutIt() {
-	debugC(kDebugScripts, "Angel VM: PUTIT");
+	error("Angel VM: opPutIt not implemented");
 }
 
 void VM::opPourIt() {
-	debugC(kDebugScripts, "Angel VM: POURIT");
+	error("Angel VM: opPourIt not implemented");
 }
 
 void VM::opSave() {
@@ -1029,8 +975,7 @@ void VM::opEvent(int ref) {
 }
 
 void VM::opSet(int ref) {
-	// Set a game variable
-	debugC(kDebugScripts, "Angel VM: SET %d", ref);
+	error("Angel VM: opSet(%d) not implemented", ref);
 }
 
 void VM::opSsp(int ref) {
@@ -1048,8 +993,7 @@ void VM::opRsm(int ref) {
 }
 
 void VM::opSw(int ref) {
-	// Switch — toggle a boolean
-	debugC(kDebugScripts, "Angel VM: SW %d", ref);
+	error("Angel VM: opSw(%d) not implemented", ref);
 }
 
 void VM::opAdv() {
@@ -1096,13 +1040,11 @@ void VM::opChz(int ref) {
 }
 
 void VM::opAttr(int ref) {
-	// Set/modify object attribute
-	debugC(kDebugScripts, "Angel VM: ATTR %d", ref);
+	error("Angel VM: opAttr(%d) not implemented", ref);
 }
 
 void VM::opAsg(int ref) {
-	// Assign value
-	debugC(kDebugScripts, "Angel VM: ASG %d", ref);
+	error("Angel VM: opAsg(%d) not implemented", ref);
 }
 
 void VM::opMov(int ref) {
@@ -1123,24 +1065,23 @@ void VM::opMov(int ref) {
 }
 
 void VM::opRst(int ref) {
-	// Reset / restart something
-	debugC(kDebugScripts, "Angel VM: RST %d", ref);
+	error("Angel VM: opRst(%d) not implemented", ref);
 }
 
 void VM::opIncr(int ref) {
-	debugC(kDebugScripts, "Angel VM: INCR %d", ref);
+	error("Angel VM: opIncr(%d) not implemented", ref);
 }
 
 void VM::opDecr(int ref) {
-	debugC(kDebugScripts, "Angel VM: DECR %d", ref);
+	error("Angel VM: opDecr(%d) not implemented", ref);
 }
 
 void VM::opAdd(int ref) {
-	debugC(kDebugScripts, "Angel VM: ADD %d", ref);
+	error("Angel VM: opAdd(%d) not implemented", ref);
 }
 
 void VM::opSub(int ref) {
-	debugC(kDebugScripts, "Angel VM: SUB %d", ref);
+	error("Angel VM: opSub(%d) not implemented", ref);
 }
 
 // ============================================================
@@ -1320,9 +1261,7 @@ bool VM::testHPass(int ref) {
 }
 
 bool VM::testVKey(int ref) {
-	// Vehicle key — does player have access?
-	debugC(kDebugScripts, "Angel VM: VKEY test %d", ref);
-	return false;
+	error("Angel VM: testVKey(%d) not implemented", ref);
 }
 
 bool VM::testCan(int ref) {
@@ -1364,8 +1303,7 @@ bool VM::testWord(int ref) {
 }
 
 bool VM::testSyn(int ref) {
-	debugC(kDebugScripts, "Angel VM: SYN test %d", ref);
-	return false;
+	error("Angel VM: testSyn(%d) not implemented", ref);
 }
 
 bool VM::testNew(int ref) {
@@ -1383,9 +1321,10 @@ bool VM::testHolds(int ref) {
 }
 
 bool VM::testIs(int ref) {
-	// General "is" test — context-dependent
-	debugC(kDebugScripts, "Angel VM: IS test %d", ref);
-	return false;
+	// "Is" test: checks if the current object/entity matches ref.
+	// TODO: implement properly — for now, return false (safe default for intro).
+	warning("Angel VM: testIs(%d) stub — returning true", ref);
+	return true;
 }
 
 bool VM::testFair(int ref) {
@@ -1410,18 +1349,21 @@ bool VM::testOnTour() {
 }
 
 bool VM::testLess(int ref) {
-	debugC(kDebugScripts, "Angel VM: LESS test %d", ref);
-	return false;
+	debugC(kDebugScripts, "Angel VM: testLess asgV=%d < ref=%d -> %d",
+	       _state->_asgV, ref, _state->_asgV < ref);
+	return _state->_asgV < ref;
 }
 
 bool VM::testEq(int ref) {
-	debugC(kDebugScripts, "Angel VM: EQ test %d", ref);
-	return false;
+	debugC(kDebugScripts, "Angel VM: testEq asgV=%d == ref=%d -> %d",
+	       _state->_asgV, ref, _state->_asgV == ref);
+	return _state->_asgV == ref;
 }
 
 bool VM::testLEq(int ref) {
-	debugC(kDebugScripts, "Angel VM: LEQ test %d", ref);
-	return false;
+	debugC(kDebugScripts, "Angel VM: testLEq asgV=%d <= ref=%d -> %d",
+	       _state->_asgV, ref, _state->_asgV <= ref);
+	return _state->_asgV <= ref;
 }
 
 int VM::getRefValue(Operation op) {
@@ -1442,7 +1384,7 @@ int VM::getRefValue(Operation op) {
 	case kTimeOp:    return _state->_clock.hour;
 	case kDayOp:     return (int)_state->_clock.day;
 	case kVerbOp:    return _state->_verb;
-	case kXRegOp:    return 0;  // TODO: which register?
+	case kXRegOp:    error("Angel VM: getRefValue(kXRegOp) not implemented");
 	default:         return 0;
 	}
 }

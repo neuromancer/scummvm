@@ -102,13 +102,11 @@ void GameState::initFromData(GameData *data) {
 		_clock.xReg[i].proc = 0;
 	}
 
-	// For a NEW game, xReg[kXWelcome].x must be 3 to trigger the first-time
-	// intro ("With the whine of bullets..."). The tables file stores x=0
-	// (used for restore/continue), so we override it here for new games.
-	// The WELCOME message (proc 4098) has a CSE type=3 (kRefCase) that checks
-	// xReg[kXWelcome].x: val=0 → no match → fallback to intro text
-	// After intro, game sets x=3 or x=2 to skip intro on subsequent visits.
-	// Tables file correctly has x=0 for new games, so don't override.
+	// The WELCOME message (proc 4098) has a CSE type=3 (kRefCase) with
+	// matchRef=kXWelcome(1). For a NEW game, xReg[kXWelcome].x=0 (from tables
+	// file) means no case matches → fallthrough to the intro text
+	// ("With the whine of bullets..."). After displaying the intro, the game
+	// sets x to a non-zero value so subsequent WELCOME events show different text.
 
 	_stillPlaying = true;
 	_moveNumber = 0;
