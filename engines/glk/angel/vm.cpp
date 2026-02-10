@@ -21,6 +21,7 @@
 
 #include "glk/angel/vm.h"
 #include "glk/angel/angel.h"
+#include "glk/angel/parser.h"
 #include "glk/glk.h"
 #include "common/debug.h"
 #include "common/textconsole.h"
@@ -31,7 +32,7 @@ namespace Angel {
 
 VM::VM(Angel *engine, GameData *data, GameState *state)
     : _engine(engine), _data(data), _state(state), _callDepth(0),
-      _capitalizeNext(false), _suppressText(false),
+      _capitalizeNext(false), _suppressText(true),
       _entityFlag(false), _entityValue(0), _entityOp(0), _entityType(-1) {
 	memset(_callStack, 0, sizeof(_callStack));
 }
@@ -68,7 +69,7 @@ int VM::getNip() {
 	int nip = _state->_vmCurRecord.getNip(_state->_msgCursor);
 	bumpMsg();
 	// Verbose tracing for WELCOME message (addr 4098)
-	if (_state->_msgBase == 4098 && (pos < 20 || (pos >= 740 && pos < 780))) {
+	if (_state->_msgBase == 4098 && pos >= 92) {
 		warning("Angel VM: getNip pos=%d nip=%d", pos, nip);
 	}
 	return nip;
@@ -81,7 +82,7 @@ char VM::getAChar() {
 		return kEndSym;
 	char ch = _data->_yTable[nip];
 	// Verbose tracing for WELCOME message (addr 4098)
-	if (_state->_msgBase == 4098 && (pos < 20 || (pos >= 740 && pos < 780))) {
+	if (_state->_msgBase == 4098 && pos >= 92) {
 		warning("Angel VM: getAChar pos=%d nip=%d char=%d '%c'",
 			pos, nip, (int)ch, (ch >= 32 && ch < 127) ? ch : '?');
 	}
@@ -162,11 +163,12 @@ void VM::executeMsg() {
 		switch (ch) {
 		case kEndSym:
 			// End of message / return from call
-			warning("Angel VM: EndSym at pos=%d base=%d depth=%d", _state->_msgPos, _state->_msgBase, _callDepth);
 			if (_callDepth > 0) {
-				// Return from FCall
 				_callDepth--;
 				CallFrame &frame = _callStack[_callDepth];
+				warning("Angel VM: EndSym at pos=%d base=%d depth=%d → restore base=%d pos=%d cursor=%d",
+				        _state->_msgPos, _state->_msgBase, _callDepth + 1,
+				        frame.base, frame.pos, frame.cursor);
 				_state->_msgBase = frame.base;
 				_state->_msgPos = frame.pos;
 				_state->_msgCursor = frame.cursor;
@@ -174,6 +176,7 @@ void VM::executeMsg() {
 				_state->_vmCurRecord = _data->readChunk(
 					_state->_msgBase + (_state->_msgPos / kChunkSize));
 			} else {
+				warning("Angel VM: EndSym at pos=%d base=%d depth=0 → EOM", _state->_msgPos, _state->_msgBase);
 				_state->_eom = true;
 			}
 			break;
@@ -538,7 +541,14 @@ void VM::executeAction(Operation op, int ref) {
 	case kDropOp:     opDrop(); break;
 	case kWearOp:     opWear(); break;
 	case kShedOp:     opShed(); break;
-	case kPkUpOp:     opPkUp(); break;
+	case kPkUpOp:
+		// In VM bytecode context (kFa dispatch), kPkUpOp controls text suppression
+		// (proc 12 in RESPOND segment). Sets seg[20].global[5] := 0 (suppress text),
+		// then conditionally enables based on game state check. During WELCOME init
+		// the condition fails, so text stays suppressed.
+		_suppressText = true;
+		debugC(kDebugScripts, "Angel VM: kPkUpOp → suppress text");
+		break;
 	case kDrpOp:      opDrp(); break;
 	case kThrowOp:    opThrow(); break;
 	case kPourOp:     opPour(); break;
@@ -553,7 +563,15 @@ void VM::executeAction(Operation op, int ref) {
 	case kSwapOp:     opSwap(); break;
 	case kGrantOp:    opGrant(); break;
 	case kTkOffOp:    opTkOff(); break;
-	case kPtOnOp:     opPtOn(); break;
+	case kPtOnOp:
+		// In VM bytecode context (kFa dispatch), kPtOnOp controls text suppression
+		// (proc 15 in RESPOND segment). Sets seg[20].global[5] := 0 first, then
+		// conditionally enables if game state check passes. During WELCOME init
+		// the condition typically fails, keeping text suppressed.
+		// TODO: implement conditional enable based on CXG 20,10 check
+		_suppressText = true;
+		debugC(kDebugScripts, "Angel VM: kPtOnOp → suppress text (conditional enable TODO)");
+		break;
 	case kTossOp:     opToss(); break;
 	case kTrashOp:    opTrash(); break;
 
@@ -821,10 +839,67 @@ void VM::executeFe(Operation op, int ref) {
 		break;
 
 	default:
-		// Reference value ops (kVerbOp..kPPrvOp, kDayOp, etc.) are no-ops
-		// when used via kFe — they only have meaning as kFer ref codes.
+		// Reference value ops (kVerbOp..kSunOp, kLocOp..kPPrvOp, kDayOp).
+		// When used via kFe, these resolve the entity AND display its name.
+		// P-code: proc 96 L_2edd → NAT_F0 35 (resolveEntity) + CXG 17,2 +
+		// XJP on entityType (0=object, 1=person, 2=location, 3=vehicle) +
+		// L_2f41: if name found, display via CXG 18,6 (putWord).
 		if (op >= kPassOp && op < kNumOperations) {
-			debugC(kDebugScripts, "Angel VM: Fe ref-value op %d (no-op)", (int)op);
+			resolveEntity(op);
+			if (_entityFlag) {
+				Common::String name;
+				bool useThe = false;
+				switch (_entityType) {
+				case 0: // object
+					if (_entityValue > 0 && _entityValue <= _data->_nbrObjects) {
+						name = _engine->parser()->getWordName(_data->_props[_entityValue].oName);
+						useThe = _data->_props[_entityValue].useThe;
+					}
+					break;
+				case 1: // person
+					if (_entityValue > 0 && _entityValue <= _data->_castSize) {
+						name = _engine->parser()->getWordName(_data->_cast[_entityValue].pName);
+						useThe = _data->_cast[_entityValue].useThe;
+					}
+					break;
+				case 2: // location
+					if (_entityValue > 0 && _entityValue <= _data->_nbrLocations) {
+						name = _engine->parser()->getWordName(_data->_map[_entityValue].shortDscr);
+						useThe = _data->_map[_entityValue].useThe;
+					}
+					break;
+				case 3: // vehicle
+					if (_entityValue > 0 && _entityValue <= _data->_nbrVehicles) {
+						name = _engine->parser()->getWordName(_data->_fleet[_entityValue].vName);
+						useThe = _data->_fleet[_entityValue].useThe;
+					}
+					break;
+				default:
+					break; // types 5-10 (verb, day, etc.): no display
+				}
+				if (!name.empty()) {
+					if (useThe)
+						_engine->putWord("the ");
+					for (uint i = 0; i < name.size(); i++)
+						_engine->putChar(name[i]);
+					warning("Angel VM: Fe ref-value op %d → displayed '%s%s'",
+					        (int)op, useThe ? "the " : "", name.c_str());
+				} else {
+					int nameIdx = 0;
+					if (_entityType == 0 && _entityValue > 0 && _entityValue <= _data->_nbrObjects)
+						nameIdx = _data->_props[_entityValue].oName;
+					else if (_entityType == 1 && _entityValue > 0 && _entityValue <= _data->_castSize)
+						nameIdx = _data->_cast[_entityValue].pName;
+					else if (_entityType == 2 && _entityValue > 0 && _entityValue <= _data->_nbrLocations)
+						nameIdx = _data->_map[_entityValue].shortDscr;
+					else if (_entityType == 3 && _entityValue > 0 && _entityValue <= _data->_nbrVehicles)
+						nameIdx = _data->_fleet[_entityValue].vName;
+					warning("Angel VM: Fe ref-value op %d type=%d val=%d nameIdx=%d nbrVWords=%d → no name",
+					        (int)op, _entityType, _entityValue, nameIdx, _data->_nbrVWords);
+				}
+			} else {
+				debugC(kDebugScripts, "Angel VM: Fe ref-value op %d → entity not resolved", (int)op);
+			}
 		} else {
 			warning("Angel VM: Unknown Fe opcode %d ref=%d", (int)op, ref);
 		}
@@ -1220,11 +1295,22 @@ void VM::opEvent(int ref) {
 }
 
 void VM::opSet(int ref) {
-	// Set object attribute (case 75 in kFa XJP → L_28f3)
-	// p-code: CXG 18,15 → reads 1 nip (attribute index)
-	// Then NAT_F0 53 resolves it, LEQS set operations, NAT_F0 58/54 apply changes
+	// Set object attribute (case 75 in kFa XJP -> L_28f3)
+	// p-code: CXG 18,15 reads 1 nip (attribute index),
+	// then NAT_F0 53 resolves it (reads 2 more getNumber values from stream),
+	// LEQS set operations, NAT_F0 58/54 apply changes and enable text display.
+	//
+	// Stream consumption: 1 nip (attrNip) + 2 getNumber (4 nips) = 5 nips total
 	int attrNip = getNip();
-	warning("Angel VM: opSet(ref=%d, attrNip=%d) stub - nip consumed but logic not implemented", ref, attrNip);
+	int setVal1 = getNumber();  // NAT_F0 53 reads these from stream
+	int setVal2 = getNumber();
+
+	// NAT_F0 58/54 apply set operations and enable text display
+	// (sets seg[20].global[5] := 1, enabling text output after init)
+	_suppressText = false;
+
+	warning("Angel VM: opSet(ref=%d, attrNip=%d, val1=%d, val2=%d) stub - text enabled",
+	        ref, attrNip, setVal1, setVal2);
 }
 
 void VM::opSsp(int ref) {

@@ -383,36 +383,113 @@ bool GameData::loadTables(Common::SeekableReadStream *stream) {
 
 bool GameData::loadVocab(Common::SeekableReadStream *stream) {
 	/**
-	 * The vocab file is a UCSD Pascal "FILE OF XVEntry".
-	 * Each XVEntry contains:
-	 *   - ComprWord Wd: PACKED ARRAY[0..21] OF 0..63 (22 * 6 bits = 132 bits ≈ 17 bytes)
-	 *   - VECore XV: the vocabulary core data
+	 * The vocab file is a UCSD Pascal "FILE OF XVEntry" with 13-word (26-byte) records.
 	 *
-	 * TODO: Determine exact byte size of XVEntry and parse word/core fields.
-	 * For now, we estimate the number of entries from file size.
+	 * XVEntry layout (26 bytes = 13 big-endian 16-bit words):
+	 *   Bytes 0-21:  ComprWord (11 BE words, IXP 2,6 packed array of 22 6-bit nips)
+	 *   Bytes 22-25: VECore (2 BE words, packed record)
+	 *
+	 * ComprWord IXP 2,6 decoding: each word holds 2 nips:
+	 *   even nip = word & 0x3F, odd nip = (word >> 6) & 0x3F
+	 *   nip[0] = word length, nips[1..length] = YTable-ciphered characters
+	 *
+	 * VECore byte layout:
+	 *   byte22 bits 0-3: vType (KindOfWord)
+	 *   byte22 bits 4-6: ref for directions/days
+	 *   byte23 bits 0-5: code (VWords)
+	 *   byte23 bits 6-7: display (DsplType)
+	 *   byte25:          ref for persons/locations/objects/verbs/others
 	 */
 
 	int fileSize = stream->size();
 	debugC(1, 0, "Angel: vocab file size = %d bytes", fileSize);
 
-	// Read entire vocab file
 	byte *buf = new byte[fileSize];
 	stream->read(buf, fileSize);
 
-	// Estimate record count. XVEntry is approximately 26 bytes:
-	// ComprWord = 17 bytes (22 * 6 bits packed), VECore ≈ 9 bytes
-	// (code: 2, display: 1, vType: 1, ref: 2, padding: ~3)
-	// TODO: Verify exact entry size from binary analysis
-	int estimatedEntrySize = 26;
-	_nbrVWords = fileSize / estimatedEntrySize;
+	static const int kRecordSize = 26;
+	_nbrVWords = fileSize / kRecordSize;
 	if (_nbrVWords > kMaxNbrVWords)
 		_nbrVWords = kMaxNbrVWords;
 
-	debugC(1, 0, "Angel: vocab estimated %d entries (%d bytes each)",
-	       _nbrVWords, estimatedEntrySize);
+	debugC(1, 0, "Angel: vocab loading %d entries", _nbrVWords);
 
-	// TODO: Parse XVEntry records and build _vocab[] and _vText[] arrays
+	// Initialize VText blocks
+	int curBlock = 1;
+	for (int i = 1; i <= kNbrVBlocks; i++)
+		_vText[i].clear();
+
+	for (int i = 0; i < _nbrVWords; i++) {
+		const byte *rec = buf + i * kRecordSize;
+
+		// --- Decode ComprWord (IXP 2,6 big-endian words) ---
+		int nips[22];
+		for (int w = 0; w < 11; w++) {
+			uint16 word = (rec[w * 2] << 8) | rec[w * 2 + 1];
+			nips[w * 2]     = word & 0x3F;
+			nips[w * 2 + 1] = (word >> 6) & 0x3F;
+		}
+
+		int wordLen = nips[0];
+		if (wordLen < 1 || wordLen > kNameSize)
+			wordLen = 0;
+
+		// Decode nips to characters via YTable
+		Common::String decoded;
+		for (int c = 1; c <= wordLen; c++) {
+			int nip = nips[c];
+			decoded += _yTable[nip];
+		}
+
+		// --- Build VText blocks ---
+		// Each block can hold up to 255 characters (Pascal STRING[255]).
+		// When adding a word would exceed 255, advance to the next block.
+		if (curBlock <= kNbrVBlocks && _vText[curBlock].size() + decoded.size() > 255) {
+			curBlock++;
+		}
+
+		VEntry &ve = _vocab[i];
+		if (curBlock <= kNbrVBlocks && !decoded.empty()) {
+			ve.dsp = _vText[curBlock].size();
+			ve.len = decoded.size();
+			ve.vbi = curBlock;
+			_vText[curBlock] += decoded;
+		} else {
+			ve.dsp = 0;
+			ve.len = 0;
+			ve.vbi = 0;
+		}
+
+		// --- Decode VECore (bytes 22-25) ---
+		byte b22 = rec[22];
+		byte b23 = rec[23];
+		// byte b24 = rec[24]; // reserved/extra metadata
+		byte b25 = rec[25];
+
+		ve.ve.code = (VWords)(b23 & 0x3F);
+		ve.ve.display = (DsplType)((b23 >> 6) & 0x3);
+		ve.ve.vType = (KindOfWord)(b22 & 0x0F);
+
+		// Ref field depends on vType: small-range types use byte22 upper bits,
+		// larger-range types use byte25
+		if (ve.ve.vType == kADirection || ve.ve.vType == kADay) {
+			ve.ve.ref = (b22 >> 4) & 0x7;
+		} else {
+			ve.ve.ref = b25;
+		}
+
+		debugC(2, 0, "Angel: vocab[%d] = '%s' type=%d code=%d ref=%d",
+		       i, decoded.c_str(), ve.ve.vType, ve.ve.code, ve.ve.ref);
+	}
+
 	delete[] buf;
+
+	debugC(1, 0, "Angel: vocab loaded %d words into %d text blocks", _nbrVWords, curBlock);
+	for (int i = 1; i <= kNbrVBlocks; i++) {
+		if (!_vText[i].empty())
+			debugC(1, 0, "Angel: VText[%d] = %u chars", i, _vText[i].size());
+	}
+
 	return true;
 }
 
