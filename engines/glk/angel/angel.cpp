@@ -23,7 +23,11 @@
 #include "common/config-manager.h"
 #include "common/debug.h"
 #include "common/file.h"
+#include "common/system.h"
 #include "common/textconsole.h"
+#include "engines/util.h"
+#include "graphics/pixelformat.h"
+#include "image/macpaint.h"
 
 namespace Glk {
 namespace Angel {
@@ -41,6 +45,11 @@ Angel::~Angel() {
 	delete _parser;
 	delete _state;
 	delete _data;
+}
+
+void Angel::initGraphicsMode() {
+	Graphics::PixelFormat pixelFormat(2, 5, 6, 5, 0, 11, 5, 0, 0);
+	initGraphics(640, 480, &pixelFormat);
 }
 
 // ============================================================
@@ -492,12 +501,114 @@ void Angel::doTurn() {
 }
 
 // ============================================================
+// Intro image display
+// ============================================================
+
+void Angel::showIntroImage() {
+	// Try to open and display intro images before the text game begins.
+	// The Macintosh version has two image files:
+	//   StartupScreen — raw 512x342 Mac screen bitmap (Angelsoft logo)
+	//   BOOTUP        — MacPaint 2.0 file (Indiana Jones title screen)
+	//
+	// The screen is 640x480 with 15px GLK margins, giving a usable area
+	// of 610x450.  The 512x342 images are centered within that area.
+
+	static const char *startupNames[] = { "StartupScreen", "STARTUPSCREEN", nullptr };
+	static const char *bootupNames[] = { "BOOTUP", "Bootup", "bootup", nullptr };
+
+	// We need a temporary text window to receive events, since GLK requires
+	// at least one window.
+	winid_t tempWin = glk_window_open(nullptr, 0, 0, wintype_TextBuffer, 0);
+	if (!tempWin)
+		return;
+
+	for (int img = 0; img < 2 && !shouldQuit(); img++) {
+		const char **names = (img == 0) ? startupNames : bootupNames;
+
+		Common::File file;
+		bool found = false;
+		for (int i = 0; names[i] && !found; i++)
+			found = file.open(names[i]);
+
+		if (!found)
+			continue;
+
+		Image::MacPaintDecoder decoder;
+		bool decoded;
+
+		if (img == 0) {
+			// StartupScreen: raw 512x342 bitmap
+			decoded = decoder.loadRawBitmap(file, 512, 342);
+		} else {
+			// BOOTUP: MacPaint 2.0 file
+			decoded = decoder.loadStream(file);
+		}
+		file.close();
+
+		if (!decoded)
+			continue;
+
+		const Graphics::Surface *clut8 = decoder.getSurface();
+		if (!clut8)
+			continue;
+
+		// Convert CLUT8 to screen pixel format so blitting doesn't
+		// need palette lookups (Graphics::Surface carries no palette).
+		Graphics::PixelFormat screenFmt = g_system->getScreenFormat();
+		const Graphics::Palette &pal = decoder.getPalette();
+		Graphics::Surface *surface = clut8->convertTo(screenFmt, pal.data(), pal.size());
+
+		// Open a graphics window filling the entire display
+		winid_t gfxWin = glk_window_open(tempWin,
+			winmethod_Above | winmethod_Proportional, 100,
+			wintype_Graphics, 0);
+		if (!gfxWin) {
+			surface->free();
+			delete surface;
+			continue;
+		}
+
+		// Center the image within the GLK graphics window.
+		// Never scale — scaling destroys 1-bit dither patterns.
+		uint winW, winH;
+		glk_window_get_size(gfxWin, &winW, &winH);
+
+		int xOff = MAX(0, ((int)winW - surface->w) / 2);
+		int yOff = MAX(0, ((int)winH - surface->h) / 2);
+
+		glk_image_draw(gfxWin, *surface, (uint)-1, xOff, yOff);
+
+		surface->free();
+		delete surface;
+
+		// Wait for any keypress to dismiss
+		glk_request_char_event(tempWin);
+
+		event_t ev;
+		do {
+			glk_select(&ev);
+			if (ev.type == evtype_Quit)
+				break;
+		} while (ev.type != evtype_CharInput);
+
+		// Close the graphics window
+		glk_window_close(gfxWin, nullptr);
+	}
+
+	// Close the temporary text window
+	glk_window_close(tempWin, nullptr);
+}
+
+// ============================================================
 // Main entry point
 // ============================================================
 
 void Angel::runGame() {
 	debug("ANGEL_TRACE: runGame() entered");
 	warning("Angel: runGame() entered");
+
+	// Show intro images (StartupScreen + BOOTUP) if present
+	showIntroImage();
 
 	// Open the main text window
 	_mainWindow = glk_window_open(nullptr, 0, 0, wintype_TextBuffer, 1);

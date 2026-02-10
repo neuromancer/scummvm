@@ -52,6 +52,11 @@ public:
 	}
 
 	/**
+	 * Setup video mode — 512x342 original compact Macintosh screen
+	 */
+	void initGraphicsMode() override;
+
+	/**
 	 * Main game loop — called by GlkEngine::run()
 	 */
 	void runGame() override;
@@ -141,6 +146,9 @@ private:
 
 	/** Dispatch the player's command based on ThingToDo */
 	void dispatchCommand(ThingToDo action);
+
+	/** Display intro images (StartupScreen + BOOTUP) and wait for keypress */
+	void showIntroImage();
 };
 
 } // End of namespace Angel
