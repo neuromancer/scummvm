@@ -32,7 +32,7 @@ namespace Angel {
 
 VM::VM(Angel *engine, GameData *data, GameState *state)
     : _engine(engine), _data(data), _state(state), _callDepth(0),
-      _capitalizeNext(false), _suppressText(true),
+      _capitalizeNext(false), _suppressText(false),
       _entityFlag(false), _entityValue(0), _entityOp(0), _entityType(-1) {
 	memset(_callStack, 0, sizeof(_callStack));
 }
@@ -607,12 +607,10 @@ void VM::executeAction(Operation op, int ref) {
 	case kWearOp:     opWear(); break;
 	case kShedOp:     opShed(); break;
 	case kPkUpOp:
-		// In VM bytecode context (kFa dispatch), kPkUpOp controls text suppression
-		// (proc 12 in RESPOND segment). Sets seg[20].global[5] := 0 (suppress text),
-		// then conditionally enables based on game state check. During WELCOME init
-		// the condition fails, so text stays suppressed.
-		_suppressText = true;
-		debugC(kDebugScripts, "Angel VM: kPkUpOp → suppress text");
+		// Physical pickup action. In the original p-code (proc 12), this also
+		// manages text suppression via CXS 9, but our action implementations
+		// don't produce text output, so no suppression is needed.
+		opTake();
 		break;
 	case kDrpOp:      opDrp(); break;
 	case kThrowOp:    opThrow(); break;
@@ -629,13 +627,10 @@ void VM::executeAction(Operation op, int ref) {
 	case kGrantOp:    opGrant(); break;
 	case kTkOffOp:    opTkOff(); break;
 	case kPtOnOp:
-		// In VM bytecode context (kFa dispatch), kPtOnOp controls text suppression
-		// (proc 15 in RESPOND segment). Sets seg[20].global[5] := 0 first, then
-		// conditionally enables if game state check passes. During WELCOME init
-		// the condition typically fails, keeping text suppressed.
-		// TODO: implement conditional enable based on CXG 20,10 check
-		_suppressText = true;
-		debugC(kDebugScripts, "Angel VM: kPtOnOp → suppress text (conditional enable TODO)");
+		// Physical wear/put-on action. In the original p-code (proc 15), this
+		// also manages text suppression via CXS 9, but our action implementations
+		// don't produce text output, so no suppression is needed.
+		opWear();
 		break;
 	case kTossOp:     opToss(); break;
 	case kTrashOp:    opTrash(); break;
@@ -1370,9 +1365,10 @@ void VM::opEvent(int ref) {
 
 void VM::opSet(int ref) {
 	// Set xReg event timer (case 75 in kFa XJP -> L_28f3)
-	// Stream consumption: 1 nip (attrNip) + 2 getNumber (4 nips) = 5 nips total
-	// attrNip = xReg index, val2 = countdown value (x field)
-	// val1 is typically 0 for initial set
+	// P-code: CXG 18,15 + NAT_F0 53 + CXS 15 + CXS 16 + NAT_F0 58 + NAT_F0 54
+	// Stream: getNip (1) + getNumber (2) + getNumber (2) = 5 nips total
+	// (CXG 18,15 takes SLDC 0 as stack param, not a stream nip)
+	// Does NOT set seg[20].global[5] (text suppress flag)
 	int attrNip = getNip();
 	int setVal1 = getNumber();
 	int setVal2 = getNumber();
@@ -1386,9 +1382,6 @@ void VM::opSet(int ref) {
 		warning("Angel VM: opSet(ref=%d, attrNip=%d OUT OF RANGE, val1=%d, val2=%d)",
 		        ref, attrNip, setVal1, setVal2);
 	}
-
-	// Enable text display (original p-code sets seg[20].global[5] := 1)
-	_suppressText = false;
 }
 
 void VM::opSsp(int ref) {

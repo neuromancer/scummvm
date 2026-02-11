@@ -197,7 +197,9 @@ bool GameData::loadTables(Common::SeekableReadStream *stream) {
 	       _castSize, _nbrObjects, _nbrLocations, _nbrVehicles);
 
 	// Second pass: parse records
-	int personIdx = 0, objIdx = 0, locIdx = 0, vclIdx = 0, timeIdx = 0;
+	// Entity indices are 1-based (Pascal convention: kNowhere=1, kNobody=1).
+	// Index 0 in each array is unused; the first record from the file maps to index 1.
+	int personIdx = 1, objIdx = 1, locIdx = 1, vclIdx = 1, timeIdx = 0;
 
 	for (int i = 0; i < totalRecords; i++) {
 		int off = i * kRecordSize;

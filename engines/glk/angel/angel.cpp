@@ -670,8 +670,9 @@ void Angel::runGame() {
 		outLn();
 	}
 
-	// Process any timed events set up by WELCOME.
-	processTimedEvents();
+	// Ensure text stays suppressed through ENTRY (opSet does NOT enable text;
+	// text is enabled by kCapOp/kForceOp within message content).
+	_vm->setSuppressText(true);
 
 	// Execute the ENTRY event procedure (xReg[kXEntry]).
 	if (_state->_clock.xReg[kXEntry].proc > 0) {
@@ -682,20 +683,8 @@ void Angel::runGame() {
 		outLn();
 	}
 
-	// Print diagnostic info to the game window
-	{
-		char buf[256];
-		snprintf(buf, sizeof(buf), "[DIAG] location=%d", _state->_location);
-		println(buf);
-		for (int i = 0; i < 32; i++) {
-			if (_state->_clock.xReg[i].x != 0 || _state->_clock.xReg[i].proc != 0) {
-				snprintf(buf, sizeof(buf), "[DIAG] xReg[%d] x=%d proc=%d", i,
-				         _state->_clock.xReg[i].x, _state->_clock.xReg[i].proc);
-				println(buf);
-			}
-		}
-	}
-
+	// Enable text output for room description display.
+	_vm->setSuppressText(false);
 	describeLocation();
 
 	// Main game loop
