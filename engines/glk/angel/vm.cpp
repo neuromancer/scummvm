@@ -101,13 +101,6 @@ int VM::getNip() {
 	int pos = _state->_msgPos;
 	int nip = _state->_vmCurRecord.getNip(_state->_msgCursor);
 	bumpMsg();
-	// Verbose tracing for key messages
-	if (_state->_msgBase == 4098 && pos >= 92) {
-		warning("Angel VM: getNip pos=%d nip=%d", pos, nip);
-	}
-	if (_state->_msgBase < 200) {
-		warning("Angel VM: getNip base=%d pos=%d nip=%d", _state->_msgBase, pos, nip);
-	}
 	return nip;
 }
 
@@ -310,13 +303,37 @@ void VM::executeMsg() {
 
 		case kFt:
 			// Test without reference — nip + kTestOpcodeBase = Operation
+			// p-code: proc 72. For comparison tests (Less/Eq/LEq), proc 73
+			// reads two inline values via proc 58 (each reads getNumber;
+			// if 0, reads one more getNip). Total: 4-6 nips consumed.
 			{
 				int opNip = getNip();
 				int opVal = opNip + kTestOpcodeBase;
-				if (opVal < kNumOperations)
+				if (opVal == kLessOp || opVal == kEqOp || opVal == kLEqOp) {
+					// Comparison tests read two inline values (proc 58 pattern)
+					auto readCompValue = [this]() -> int {
+						int temp = getNumber();
+						if (temp == 0)
+							return getNip();
+						return 0;  // non-zero getNumber: side-effects global, returns 0
+					};
+					int val1 = readCompValue();
+					int val2 = readCompValue();
+					bool result = false;
+					if (opVal == kLessOp)
+						result = (val1 < val2);
+					else if (opVal == kEqOp)
+						result = (val1 == val2);
+					else
+						result = (val1 <= val2);
+					_state->_tfIndicator = result;
+					warning("Angel VM: kFt comparison op=%d val1=%d val2=%d result=%s",
+					        opVal, val1, val2, result ? "T" : "F");
+				} else if (opVal < kNumOperations) {
 					executeTest((Operation)opVal, 0);
-				else
+				} else {
 					warning("Angel VM: Unknown test opcode nip=%d op=%d", opNip, opVal);
+				}
 			}
 			break;
 
