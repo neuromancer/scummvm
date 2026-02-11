@@ -310,7 +310,7 @@ bool GameData::loadTables(Common::SeekableReadStream *stream) {
 			if (personIdx < kMaxCastSize + 1) {
 				Person &p = _cast[personIdx];
 				p.n = (int)RW(off + 2);
-				p.pName = (int)RW(off + 4);
+				p.pName = (int)RW(off + 4) - 1;  // VWordIndex: 1-based in file → 0-based
 				for (int s = 0; s < 4 && s < kSecretOp - kTradeOp + 1; s++)
 					p.sFun[s] = (int)RW(off + 6 + s * 2);
 				// Packed fields after carrying — parse located from bytes 22-23
@@ -347,7 +347,7 @@ bool GameData::loadTables(Common::SeekableReadStream *stream) {
 				obj.contents.setWord(0, (uint32)RW(off + 2) << 16 | RW(off + 4));
 				obj.contents.setWord(1, (uint32)RW(off + 6) << 16 | RW(off + 8));
 				obj.n = (int)RW(off + 10);
-				obj.oName = (int)RW(off + 12);
+				obj.oName = (int)RW(off + 12) - 1;  // VWordIndex: 1-based in file → 0-based
 				obj.size = (int)RW(off + 14);
 				obj.value = (int)RW(off + 16);
 				// Properties: 8 bytes as 2 x 32-bit words (big-endian)
@@ -378,7 +378,7 @@ bool GameData::loadTables(Common::SeekableReadStream *stream) {
 			if (locIdx < kMaxNbrLocations + 1) {
 				Place &place = _map[locIdx];
 				place.n = (int)RW(off + 2);
-				place.shortDscr = (int)RW(off + 4);
+				place.shortDscr = (int)RW(off + 4) - 1;  // VWordIndex: 1-based in file → 0-based
 				place.unseen = true;
 				place.view = kSunlit;  // Default to sunlit; exact parsing TBD
 				debugC(2, 0, "Angel: Map[%d]: n=%d shortDscr=%d",
@@ -403,7 +403,7 @@ bool GameData::loadTables(Common::SeekableReadStream *stream) {
 				Vehicle &vcl = _fleet[vclIdx];
 				vcl.n = (int)RW(off + 2);
 				vcl.rideProc = (int)RW(off + 4);
-				vcl.vName = (int)RW(off + 6);
+				vcl.vName = (int)RW(off + 6) - 1;  // VWordIndex: 1-based in file → 0-based
 				vcl.stopped = (int)RW(off + 16);
 				vcl.useThe = (buf[off + 18] != 0);
 				vcl.unseen = (buf[off + 19] != 0);

@@ -174,7 +174,7 @@ Common::String Angel::readLine() {
 	glk_set_window(_mainWindow);
 
 	// Prompt
-	glk_put_string("> ");
+	glk_put_string("-> ");
 
 	// Read up to 255 characters
 	char buf[256];
@@ -636,6 +636,11 @@ void Angel::runGame() {
 
 	// Show intro images (StartupScreen + BOOTUP) if present
 	//showIntroImage();
+
+	// Retro Aesthetics: override user input style to match story text.
+	// This ensures regular weight (Monaco Regular) and black background.
+	glk_stylehint_set(wintype_TextBuffer, style_Input, stylehint_Weight, 0);
+	//glk_stylehint_set(wintype_TextBuffer, style_Input, stylehint_BackColor, 0x000000);
 
 	// Open the main text window
 	_mainWindow = glk_window_open(nullptr, 0, 0, wintype_TextBuffer, 1);

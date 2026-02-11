@@ -47,6 +47,7 @@ void VM::openMsg(int addr, const char *caller) {
 	_state->_msgPos = 0;
 	_state->_msgCursor = 0;
 	_state->_eom = false;
+	_capitalizeNext = true;  // Auto-capitalize first letter of each message
 
 	// Read the first chunk at the message address
 	_state->_vmCurRecord = _data->readChunk(addr);
@@ -412,11 +413,13 @@ void VM::executeMsg() {
 				break;
 			}
 			charCount++;
-			if (_capitalizeNext) {
-				if (ch >= 'a' && ch <= 'z')
-					ch = ch - 'a' + 'A';
+			if (_capitalizeNext && ch >= 'a' && ch <= 'z') {
+				ch = ch - 'a' + 'A';
 				_capitalizeNext = false;
 			}
+			// Auto-capitalize after period (sentence boundary / abbreviations like D.C.)
+			if (ch == '.')
+				_capitalizeNext = true;
 			textOutput += ch;
 			if (textOutput.size() >= 80) {
 				warning("Angel VM text: %s", textOutput.c_str());
@@ -802,7 +805,7 @@ void VM::executeFe(Operation op, int ref) {
 		// stray nips between opcodes from leaking as visible text.
 		_engine->forceOutput();
 		_engine->outLn();
-		_capitalizeNext = false;
+		_capitalizeNext = true;  // Auto-capitalize after paragraph break
 		_suppressText = true;
 		debugC(kDebugScripts, "Angel VM: Fe kForceOp → flush output, suppress until next kCapOp");
 		break;
