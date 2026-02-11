@@ -57,6 +57,11 @@ public:
 	void initGraphicsMode() override;
 
 	/**
+	 * Create the screen
+	 */
+	Screen *createScreen() override;
+
+	/**
 	 * Main game loop — called by GlkEngine::run()
 	 */
 	void runGame() override;

@@ -29,10 +29,6 @@
 #include "glk/fonts.h"
 #include "glk/utils.h"
 
-namespace Graphics {
-class MacFontManager;
-}
-
 namespace Glk {
 
 #define FONTS_TOTAL 8
@@ -51,14 +47,15 @@ private:
 	 */
 	void loadFonts();
 
+protected:
+	Common::Array<const Graphics::Font *> _fonts;
+
 	/**
 	 * Load a single font
 	 */
-	const Graphics::Font *loadFont(FACES face, Common::Archive *archive,
+	virtual const Graphics::Font *loadFont(FACES face, Common::Archive *archive,
 		double size, double aspect, int style);
-protected:
-	Common::Array<const Graphics::Font *> _fonts;
-protected:
+
 	/**
 	 * Load the fonts
 	 */
@@ -77,7 +74,7 @@ public:
 	/**
 	 * Constructor
 	 */
-	Screen() : Graphics::Screen(), _macFontManager(nullptr) {}
+	Screen() : Graphics::Screen() {}
 
 	/**
 	 * Destructor
@@ -87,7 +84,7 @@ public:
 	/**
 	 * Initialize the screen
 	 */
-	void initialize();
+	virtual void initialize();
 
 	/**
 	 * Fills the screen with a given color
@@ -107,7 +104,7 @@ public:
 	 * @param text      The text to draw
 	 * @param spw       ??
 	 */
-	int drawString(const Point &pos, int fontIdx, uint color, const Common::String &text, int spw = 0);
+	virtual int drawString(const Point &pos, int fontIdx, uint color, const Common::String &text, int spw = 0);
 
 	/**
 	 * Draws a unicode string using the specified font at the given co-ordinates
@@ -117,7 +114,7 @@ public:
 	 * @param text      The text to draw
 	 * @param spw       ??
 	 */
-	int drawStringUni(const Point &pos, int fontIdx, uint color, const Common::U32String &text, int spw = 0);
+	virtual int drawStringUni(const Point &pos, int fontIdx, uint color, const Common::U32String &text, int spw = 0);
 
 	/**
 	 * Get the width in pixels of a string
@@ -126,7 +123,7 @@ public:
 	 * @param spw       Delta X
 	 * @returns         Width of string multiplied by GLI_SUBPIX
 	 */
-	size_t stringWidth(int fontIdx, const Common::String &text, int spw = 0);
+	virtual size_t stringWidth(int fontIdx, const Common::String &text, int spw = 0);
 
 	/**
 	 * Get the width in pixels of a unicode string
@@ -135,11 +132,7 @@ public:
 	 * @param spw       Delta X
 	 * @returns         Width of string multiplied by GLI_SUBPIX
 	 */
-	size_t stringWidthUni(int fontIdx, const Common::U32String &text, int spw = 0);
-
-private:
-	Graphics::MacFontManager *_macFontManager;
-	Common::Array<bool> _isFontOwned;
+	virtual size_t stringWidthUni(int fontIdx, const Common::U32String &text, int spw = 0);
 };
 
 } // End of namespace Glk

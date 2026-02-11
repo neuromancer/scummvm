@@ -193,10 +193,19 @@ void VM::executeMsg() {
 			_state->_eom = true;
 			break;
 		}
+		int prePos = _state->_msgPos;
 		char ch = getAChar();
 
 		if (_state->_eom)
 			break;
+
+		// Trace every control character position for alignment debugging
+		if (ch != ' ' && ch != '\0' && (ch < 'a' || ch > 'z') && (ch < '0' || ch > '9')
+		    && ch != '.' && ch != ',' && ch != '-' && ch != '?' && ch != '"'
+		    && ch != ';' && ch != '\'' && ch != '!' && ch != ':') {
+			warning("Angel VM: @pos=%d nip→ch='%c'(%d) base=%d tf=%d",
+			        prePos, ch, (int)(unsigned char)ch, _state->_msgBase, _state->_tfIndicator ? 1 : 0);
+		}
 
 		// Check for control codes
 		switch (ch) {
@@ -221,23 +230,26 @@ void VM::executeMsg() {
 			break;
 
 		case kJU:
-			// Unconditional jump: next 2 nips = forward offset
+			// Unconditional jump: next 2 nips = forward offset.
+			// Jump targets are encoded relative to the last nip of getNumber
+			// (i.e. one position before _msgPos after getNumber), so subtract 1.
 			{
 				int target = getNumber();
-				warning("Angel VM: JU target=%d from pos=%d -> pos=%d", target, _state->_msgPos, _state->_msgPos + target);
-				jump(target);
+				warning("Angel VM: JU target=%d from pos=%d -> pos=%d", target, _state->_msgPos, _state->_msgPos + target - 1);
+				jump(target - 1);
 			}
 			break;
 
 		case kJF:
-			// Jump if FALSE: next 2 nips = forward offset
+			// Jump if FALSE: next 2 nips = forward offset.
+			// Same encoding convention as kJU — subtract 1 from target.
 			{
 				int target = getNumber();
-				if (!_state->_tfIndicator) {
-					warning("Angel VM: JF target=%d tf=F from pos=%d -> pos=%d", target, _state->_msgPos, _state->_msgPos + target);
-				}
+				warning("Angel VM: JF target=%d tf=%s from pos=%d -> pos=%d",
+				        target, _state->_tfIndicator ? "T" : "F",
+				        _state->_msgPos, _state->_msgPos + target - 1);
 				if (!_state->_tfIndicator)
-					jump(target);
+					jump(target - 1);
 			}
 			break;
 

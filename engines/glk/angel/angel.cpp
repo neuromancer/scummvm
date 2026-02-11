@@ -20,6 +20,7 @@
  */
 
 #include "glk/angel/angel.h"
+#include "glk/angel/screen.h"
 #include "common/config-manager.h"
 #include "common/debug.h"
 #include "common/file.h"
@@ -52,6 +53,10 @@ Angel::~Angel() {
 void Angel::initGraphicsMode() {
 	Graphics::PixelFormat pixelFormat(2, 5, 6, 5, 0, 11, 5, 0, 0);
 	initGraphics(640, 480, &pixelFormat);
+}
+
+Screen *Angel::createScreen() {
+	return new AngelScreen();
 }
 
 // ============================================================
@@ -665,8 +670,7 @@ void Angel::runGame() {
 		outLn();
 	}
 
-	// Process timed events set up by WELCOME (e.g., xReg[22] fires msg 63
-	// which changes location from 7→6 for the pyramid interior).
+	// Process any timed events set up by WELCOME.
 	processTimedEvents();
 
 	// Execute the ENTRY event procedure (xReg[kXEntry]).

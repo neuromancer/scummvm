@@ -63,6 +63,7 @@ MODULE_OBJS := \
 	angel/game_data.o \
 	angel/game_state.o \
 	angel/parser.o \
+	angel/screen.o \
 	angel/utilities.o \
 	angel/vm.o \
 	agt/agil.o \
