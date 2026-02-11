@@ -635,7 +635,7 @@ void Angel::runGame() {
 	warning("Angel: runGame() entered");
 
 	// Show intro images (StartupScreen + BOOTUP) if present
-	showIntroImage();
+	//showIntroImage();
 
 	// Retro Aesthetics: override user input style to match story text.
 	// This ensures regular weight (Monaco Regular) and black background.

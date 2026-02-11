@@ -50,7 +50,7 @@ struct AngelDetectionEntry {
 };
 
 const AngelDetectionEntry ANGEL_GAME_ENTRIES[] = {
-	// Indiana Jones in Revenge of the Ancients (Apple Macintosh)
+	// Indiana Jones in Revenge of the Ancients
 	{
 		"indianajonesancients",
 		Common::EN_ANY,
@@ -61,6 +61,18 @@ const AngelDetectionEntry ANGEL_GAME_ENTRIES[] = {
 			{ "message",       "e4326535ee63849c94c8ea29b533d47f", 48128 },
 			{ "BOOTUP",        "89912f74d8af56c81b6b90901a018665", 15360 },
 			{ "StartupScreen", "b5e9322d3d4e2fa75a69498cf1ca6d00", 21888 },
+			{ nullptr, nullptr, 0 }
+		}
+	},
+	{
+		"indianajonesancients",
+		Common::EN_ANY,
+		Common::kPlatformDOS,
+		{
+			{ "tables",        "aca35ed9c97255d68e5b0ec623a95eab", 4096 },
+			{ "vocab",         "a35077d350e0b1bbcc6c9cd18f7e458a", 6144 },
+			{ "message",       "e4326535ee63849c94c8ea29b533d47f", 48128 },
+			{ "game.com",       "e4326535ee63849c94c8ea29b533d47f", 48128 },
 			{ nullptr, nullptr, 0 }
 		}
 	},
