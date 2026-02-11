@@ -32,11 +32,44 @@ const PlainGameDescriptor ANGEL_GAME_LIST[] = {
 	{ nullptr, nullptr }
 };
 
-const GlkDetectionEntry ANGEL_GAMES[] = {
-	// Indiana Jones in Revenge of the Ancients (Apple Macintosh)
-	// Detection is based on the "tables" data file
-	DT_ENTRY0("indianajonesancients", "aca35ed9c97255d68e5b0ec623a95eab", 4096),
+/**
+ * AngelSoft games require multiple data files. Each entry specifies
+ * MD5 and filesize for all required files.
+ */
+struct AngelGameFile {
+	const char *_filename;
+	const char *_md5;
+	size_t _filesize;
+};
 
+struct AngelDetectionEntry {
+	const char *_gameId;
+	Common::Language _language;
+	Common::Platform _platform;
+	AngelGameFile _files[6]; // Up to 5 files + null terminator
+};
+
+const AngelDetectionEntry ANGEL_GAME_ENTRIES[] = {
+	// Indiana Jones in Revenge of the Ancients (Apple Macintosh)
+	{
+		"indianajonesancients",
+		Common::EN_ANY,
+		Common::kPlatformMacintosh,
+		{
+			{ "tables",        "aca35ed9c97255d68e5b0ec623a95eab", 4096 },
+			{ "vocab",         "a35077d350e0b1bbcc6c9cd18f7e458a", 6144 },
+			{ "message",       "e4326535ee63849c94c8ea29b533d47f", 48128 },
+			{ "BOOTUP",        "89912f74d8af56c81b6b90901a018665", 15360 },
+			{ "StartupScreen", "b5e9322d3d4e2fa75a69498cf1ca6d00", 21888 },
+			{ nullptr, nullptr, 0 }
+		}
+	},
+	{ nullptr, Common::EN_ANY, Common::kPlatformUnknown, {{ nullptr, nullptr, 0 }} }
+};
+
+// Keep the single-file entry table for getDetectionEntries() compatibility
+const GlkDetectionEntry ANGEL_GAMES[] = {
+	DT_ENTRY0("indianajonesancients", "aca35ed9c97255d68e5b0ec623a95eab", 4096),
 	DT_END_MARKER
 };
 

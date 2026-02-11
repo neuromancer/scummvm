@@ -47,44 +47,61 @@ GameDescriptor AngelMetaEngine::findGame(const char *gameId) {
 }
 
 bool AngelMetaEngine::detectGames(const Common::FSList &fslist, DetectedGames &gameList) {
-	// AngelSoft games are identified by the presence of a "tables" file
-	// alongside "message" and "vocab" companion files.
-	// We key detection on the "tables" file.
+	// AngelSoft games require multiple data files. We check each known game
+	// entry against the directory contents, requiring all files to be present.
 
-	for (Common::FSList::const_iterator file = fslist.begin(); file != fslist.end(); ++file) {
-		if (file->isDirectory())
-			continue;
+	for (const AngelDetectionEntry *entry = ANGEL_GAME_ENTRIES; entry->_gameId; ++entry) {
+		// Build a map of filename -> FSNode for all required files
+		bool allFound = true;
+		Common::HashMap<Common::String, Common::FSNode> foundFiles;
 
-		Common::String filename = file->getName();
-
-		// Look for the "tables" data file (case-insensitive)
-		if (!filename.equalsIgnoreCase("tables"))
-			continue;
-
-		Common::File gameFile;
-		if (!gameFile.open(*file))
-			continue;
-
-		gameFile.seek(0);
-		Common::String md5 = Common::computeStreamMD5AsString(gameFile, 5000);
-		uint32 filesize = gameFile.size();
-
-		// Check if this matches any known game
-		const GlkDetectionEntry *p = ANGEL_GAMES;
-		while (p->_md5) {
-			if (md5 == p->_md5 || (p->_filesize == filesize && !strcmp(p->_md5, "00000000000000000000000000000000")))
+		for (const AngelGameFile *gf = entry->_files; gf->_filename; ++gf) {
+			bool fileFound = false;
+			for (Common::FSList::const_iterator file = fslist.begin(); file != fslist.end(); ++file) {
+				if (file->isDirectory())
+					continue;
+				if (file->getName().equalsIgnoreCase(gf->_filename)) {
+					foundFiles[gf->_filename] = *file;
+					fileFound = true;
+					break;
+				}
+			}
+			if (!fileFound) {
+				allFound = false;
 				break;
-			++p;
+			}
 		}
 
-		if (!p->_gameId) {
-			// Unknown AngelSoft game — use generic entry
-			const PlainGameDescriptor &desc = ANGEL_GAME_LIST[0];
-			gameList.push_back(GlkDetectedGame(desc.gameId, desc.description, filename, md5, filesize));
-		} else {
-			PlainGameDescriptor gameDesc = findGame(p->_gameId);
-			gameList.push_back(GlkDetectedGame(p->_gameId, gameDesc.description, filename, md5, filesize));
+		if (!allFound)
+			continue;
+
+		// All required files found — compute MD5s and verify all files
+		PlainGameDescriptor gameDesc = findGame(entry->_gameId);
+		Common::String primaryFile = entry->_files[0]._filename;
+
+		bool allMd5sMatch = true;
+		for (const AngelGameFile *gf = entry->_files; gf->_filename; ++gf) {
+			Common::File df;
+			if (!df.open(foundFiles[gf->_filename])) {
+				allMd5sMatch = false;
+				break;
+			}
+			Common::String fileMd5 = Common::computeStreamMD5AsString(df, 5000);
+			df.close();
+			if (gf->_md5 && fileMd5 != gf->_md5) {
+				allMd5sMatch = false;
+				break;
+			}
 		}
+
+		if (!allMd5sMatch)
+			continue;
+
+		// Known game — use constructor that does NOT set hasUnknownFiles
+		GlkDetectedGame gd(entry->_gameId, gameDesc.description, primaryFile,
+		                    entry->_language, entry->_platform);
+
+		gameList.push_back(gd);
 	}
 
 	return !gameList.empty();
