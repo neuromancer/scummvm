@@ -29,6 +29,10 @@
 #include "glk/fonts.h"
 #include "glk/utils.h"
 
+namespace Graphics {
+class MacFontManager;
+}
+
 namespace Glk {
 
 #define FONTS_TOTAL 8
@@ -73,7 +77,7 @@ public:
 	/**
 	 * Constructor
 	 */
-	Screen() : Graphics::Screen() {}
+	Screen() : Graphics::Screen(), _macFontManager(nullptr) {}
 
 	/**
 	 * Destructor
@@ -132,6 +136,10 @@ public:
 	 * @returns         Width of string multiplied by GLI_SUBPIX
 	 */
 	size_t stringWidthUni(int fontIdx, const Common::U32String &text, int spw = 0);
+
+private:
+	Graphics::MacFontManager *_macFontManager;
+	Common::Array<bool> _isFontOwned;
 };
 
 } // End of namespace Glk

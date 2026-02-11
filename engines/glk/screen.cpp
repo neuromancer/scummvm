@@ -26,6 +26,8 @@
 #include "graphics/fonts/ttf.h"
 #include "graphics/fontman.h"
 
+#include "graphics/macgui/macfontmanager.h"
+
 namespace Glk {
 
 
@@ -33,11 +35,17 @@ namespace Glk {
 #define FONTS_FILENAME "fonts.dat"
 
 Screen::~Screen() {
-	for (int idx = 0; idx < FONTS_TOTAL; ++idx)
-		delete _fonts[idx];
+	for (int idx = 0; idx < (int)_fonts.size(); ++idx) {
+		if (_isFontOwned[idx])
+			delete _fonts[idx];
+	}
+	delete _macFontManager;
 }
 
 void Screen::initialize() {
+	_macFontManager = nullptr;
+	_isFontOwned.resize(FONTS_TOTAL);
+	for (int i = 0; i < FONTS_TOTAL; ++i) _isFontOwned[i] = true;
 	loadFonts();
 
 	for (int idx = 0; idx < 2; ++idx) {
@@ -120,6 +128,17 @@ void Screen::loadFonts(Common::Archive *archive) {
 }
 
 const Graphics::Font *Screen::loadFont(FACES face, Common::Archive *archive, double size, double aspect, int style) {
+	if (g_conf->getInterpreterType() == INTERPRETER_ANGEL) {
+		if (!_macFontManager)
+			_macFontManager = new Graphics::MacFontManager(0, Common::UNK_LANG);
+
+		const Graphics::Font *font = _macFontManager->getFont(Graphics::MacFont(Graphics::kMacFontMonaco, (int)size, style));
+		if (font) {
+			_isFontOwned[face] = false;
+			return font;
+		}
+	}
+
 	Common::File *f = new Common::File();
 	const char *const FILENAMES[8] = {
 		"GoMono-Regular.ttf", "GoMono-Bold.ttf", "GoMono-Italic.ttf", "GoMono-Bold-Italic.ttf",
@@ -129,7 +148,9 @@ const Graphics::Font *Screen::loadFont(FACES face, Common::Archive *archive, dou
 	if (!f->open(FILENAMES[face], *archive))
 		error("Could not load %s from fonts file", FILENAMES[face]);
 
-	return Graphics::loadTTFFont(f, DisposeAfterUse::YES, (int)size, Graphics::kTTFSizeModeCharacter);
+	uint xdpi = (uint)(96.0 * aspect);
+	if (xdpi == 0) xdpi = 96;
+	return Graphics::loadTTFFont(f, DisposeAfterUse::YES, (int)size, Graphics::kTTFSizeModeCharacter, xdpi, 96, Graphics::kTTFRenderModeMonochrome);
 }
 
 FACES Screen::getFontId(const Common::String &name) {
@@ -158,22 +179,22 @@ Common::String Screen::getFontName(FACES font) {
 
 int Screen::drawString(const Point &pos, int fontIdx, uint color, const Common::String &text, int spw) {
 	int baseLine = (fontIdx >= PROPR) ? g_conf->_propInfo._baseLine : g_conf->_monoInfo._baseLine;
-	Point pt(pos.x / GLI_SUBPIX, pos.y - baseLine);
+	int pixelX = pos.x / GLI_SUBPIX;
 	const Graphics::Font *font = _fonts[fontIdx];
-	font->drawString(this, text, pt.x, pt.y, w - pt.x, color);
+	font->drawString(this, text, pixelX, pos.y - baseLine, w - pixelX, color);
 
-	pt.x += font->getStringWidth(text);
-	return MIN((int)pt.x, (int)w) * GLI_SUBPIX;
+	int textWidth = font->getStringWidth(text);
+	return MIN(pos.x + textWidth * GLI_SUBPIX, (int)w * GLI_SUBPIX);
 }
 
 int Screen::drawStringUni(const Point &pos, int fontIdx, uint color, const Common::U32String &text, int spw) {
 	int baseLine = (fontIdx >= PROPR) ? g_conf->_propInfo._baseLine : g_conf->_monoInfo._baseLine;
-	Point pt(pos.x / GLI_SUBPIX, pos.y - baseLine);
+	int pixelX = pos.x / GLI_SUBPIX;
 	const Graphics::Font *font = _fonts[fontIdx];
-	font->drawString(this, text, pt.x, pt.y, w - pt.x, color);
+	font->drawString(this, text, pixelX, pos.y - baseLine, w - pixelX, color);
 
-	pt.x += font->getStringWidth(text);
-	return MIN((int)pt.x, (int)w) * GLI_SUBPIX;
+	int textWidth = font->getStringWidth(text);
+	return MIN(pos.x + textWidth * GLI_SUBPIX, (int)w * GLI_SUBPIX);
 }
 
 size_t Screen::stringWidth(int fontIdx, const Common::String &text, int spw) {

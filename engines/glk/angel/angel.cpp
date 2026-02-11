@@ -645,8 +645,6 @@ void Angel::runGame() {
 		winmethod_Above | winmethod_Fixed, 1, wintype_TextGrid, 2);
 
 	// Load game data
-	println("Loading Indiana Jones in Revenge of the Ancients...");
-	println("");
 
 	if (!loadGameData()) {
 		println("Error: Could not load game data files.");
@@ -656,12 +654,6 @@ void Angel::runGame() {
 
 	// Initialize game state
 	initGame();
-
-	// Welcome message
-	println("Indiana Jones in Revenge of the Ancients");
-	println("An interactive fiction adventure by Angelsoft, Inc.");
-	println("(c) 1987 Lucasfilm Ltd.");
-	println("");
 
 	// Execute the WELCOME event procedure from the NtgrRegisters.
 	// xReg[kXWelcome] holds the proc address for the game's intro text.

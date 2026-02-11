@@ -112,6 +112,11 @@ public:
 	Conf(InterpreterType interpType);
 
 	/**
+	 * Returns the interpreter type
+	 */
+	InterpreterType getInterpreterType() const { return _interpType; }
+
+	/**
 	 * Loads the configuration from the ScummVM configuration
 	 */
 	void load();

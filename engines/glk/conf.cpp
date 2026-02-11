@@ -126,6 +126,14 @@ Conf::Conf(InterpreterType interpType) : _interpType(interpType), _graphics(true
 		_gStyles[i].bg = parseColor(G_STYLES[i].bg);
 		_gStyles[i].font = G_STYLES[i].font;
 		_gStyles[i].reverse = G_STYLES[i].reverse;
+
+		if (_interpType == INTERPRETER_ANGEL) {
+			// Force monospace for Angel
+			if (_tStyles[i].font >= PROPR)
+				_tStyles[i].font = (FACES)(_tStyles[i].font - PROPR);
+			if (_gStyles[i].font >= PROPR)
+				_gStyles[i].font = (FACES)(_gStyles[i].font - PROPR);
+		}
 	}
 
 	Common::copy(_tStyles, _tStyles + style_NUMSTYLES, _tStylesDefault);
