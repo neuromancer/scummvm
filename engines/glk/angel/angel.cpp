@@ -23,11 +23,13 @@
 #include "common/config-manager.h"
 #include "common/debug.h"
 #include "common/file.h"
+#include "common/savefile.h"
 #include "common/system.h"
 #include "common/textconsole.h"
 #include "engines/util.h"
 #include "graphics/pixelformat.h"
 #include "image/macpaint.h"
+
 
 namespace Glk {
 namespace Angel {
@@ -363,6 +365,26 @@ void Angel::tickClock() {
 	_state->_clock.tickNumber++;
 }
 
+void Angel::processTimedEvents() {
+	// Process xReg timed events: decrement active counters, fire when reaching 0.
+	// xReg[i].x > 0 → active countdown. Decrement each call.
+	// xReg[i].x == 0 → fires the event (displayMsg of proc), then stays at 0.
+	// xReg[i].x < 0 → suspended (via opSsp), skip.
+	for (int i = 0; i < 32; i++) {
+		if (_state->_clock.xReg[i].x > 0) {
+			_state->_clock.xReg[i].x--;
+			debugC(2, 0, "Angel: xReg[%d] decremented to %d (proc=%d)",
+			       i, _state->_clock.xReg[i].x, _state->_clock.xReg[i].proc);
+			if (_state->_clock.xReg[i].x == 0 && _state->_clock.xReg[i].proc > 0) {
+				warning("Angel: FIRING xReg[%d] proc=%d (loc=%d)",
+				        i, _state->_clock.xReg[i].proc, _state->_location);
+				_vm->displayMsg(_state->_clock.xReg[i].proc);
+				forceQ();
+			}
+		}
+	}
+}
+
 void Angel::runLocationScripts() {
 	// This is a placeholder — the actual scripts are dispatched
 	// via the bytecode VM based on location procedure addresses.
@@ -494,6 +516,7 @@ void Angel::doTurn() {
 	// Post-turn processing
 	_state->_moveNumber++;
 	tickClock();
+	processTimedEvents();
 	animateAll();
 
 	// Flush any remaining output
@@ -604,7 +627,6 @@ void Angel::showIntroImage() {
 // ============================================================
 
 void Angel::runGame() {
-	debug("ANGEL_TRACE: runGame() entered");
 	warning("Angel: runGame() entered");
 
 	// Show intro images (StartupScreen + BOOTUP) if present
@@ -643,20 +665,19 @@ void Angel::runGame() {
 
 	// Execute the WELCOME event procedure from the NtgrRegisters.
 	// xReg[kXWelcome] holds the proc address for the game's intro text.
-	debug("ANGEL_TRACE: about to check WELCOME, proc=%d",
-		_state->_clock.xReg[kXWelcome].proc);
 	if (_state->_clock.xReg[kXWelcome].proc > 0) {
 		warning("Angel: Executing WELCOME event at proc=%d",
 		       _state->_clock.xReg[kXWelcome].proc);
 		_vm->displayMsg(_state->_clock.xReg[kXWelcome].proc);
-		debug("ANGEL_TRACE: WELCOME displayMsg returned");
 		forceQ();
 		outLn();
 	}
 
+	// Process timed events set up by WELCOME (e.g., xReg[22] fires msg 63
+	// which changes location from 7→6 for the pyramid interior).
+	processTimedEvents();
+
 	// Execute the ENTRY event procedure (xReg[kXEntry]).
-	// This runs the location entry script, which may display narrative
-	// text and set up location state before the description.
 	if (_state->_clock.xReg[kXEntry].proc > 0) {
 		warning("Angel: Executing ENTRY event at proc=%d",
 		       _state->_clock.xReg[kXEntry].proc);
@@ -665,7 +686,20 @@ void Angel::runGame() {
 		outLn();
 	}
 
-	// Describe starting location
+	// Print diagnostic info to the game window
+	{
+		char buf[256];
+		snprintf(buf, sizeof(buf), "[DIAG] location=%d", _state->_location);
+		println(buf);
+		for (int i = 0; i < 32; i++) {
+			if (_state->_clock.xReg[i].x != 0 || _state->_clock.xReg[i].proc != 0) {
+				snprintf(buf, sizeof(buf), "[DIAG] xReg[%d] x=%d proc=%d", i,
+				         _state->_clock.xReg[i].x, _state->_clock.xReg[i].proc);
+				println(buf);
+			}
+		}
+	}
+
 	describeLocation();
 
 	// Main game loop

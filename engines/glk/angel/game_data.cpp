@@ -88,14 +88,21 @@ void GameData::initCipherTables() {
 	_yTable[46] = '+';    // Far — action with reference code
 	_yTable[47] = '\\';   // FCall — procedure call
 
-	// ---- Unused (nips 48–51) → '@' ----
-	// Already set to '@' by initialization
+	// ---- Unused (nips 48–51) ----
+	// In the original UCSD Pascal, uninitialized table entries were NUL (CHR(0)).
+	// They must NOT map to '@' (EndSym), otherwise the VM prematurely terminates
+	// messages whenever these nip values appear (375+ occurrences in game data).
+	// Map to NUL so they fall through to default text output harmlessly.
+	for (int i = 48; i < 52; i++)
+		_yTable[i] = '\0';
 
 	// ---- Digits (nips 52–61) ----
 	for (int d = 0; d < 10; d++)
 		_yTable[52 + d] = (char)('0' + d);
 
-	// ---- Unused (nips 62–63) → '@' ----
+	// ---- Unused (nips 62–63) ----
+	_yTable[62] = '\0';
+	_yTable[63] = '\0';
 
 	// Build reverse table (XTable: ASCII → nip)
 	for (int i = 0; i < 128; i++)

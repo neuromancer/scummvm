@@ -59,6 +59,38 @@ void VM::openMsg(int addr, const char *caller) {
 	_state->_msgLength = (hdr0 << 6) | hdr1;
 
 	warning("Angel VM: openMsg addr=%d hdrLen=%d caller=%s", addr, _state->_msgLength, caller);
+
+	// Dump first 16 raw nips for messages during startup for debugging
+	if (addr < 200) {
+		// Save state, read raw nips, restore state
+		int savedPos = _state->_msgPos;
+		int savedCursor = _state->_msgCursor;
+		Chunk savedChunk = _state->_vmCurRecord;
+
+		Common::String nipDump;
+		for (int d = 0; d < 16; d++) {
+			int rawNip = _state->_vmCurRecord.getNip(_state->_msgCursor);
+			char ch = _data->_yTable[rawNip];
+			char buf[32];
+			snprintf(buf, sizeof(buf), " [%d]=%d('%c')", _state->_msgPos, rawNip,
+			         (ch >= 32 && ch < 127) ? ch : '?');
+			nipDump += buf;
+			// Advance manually
+			_state->_msgPos++;
+			_state->_msgCursor++;
+			if (_state->_msgCursor >= kChunkSize) {
+				_state->_msgCursor = 0;
+				int nextAddr = _state->_msgBase + (_state->_msgPos / kChunkSize);
+				_state->_vmCurRecord = _data->readChunk(nextAddr);
+			}
+		}
+		warning("Angel VM: rawNips%s", nipDump.c_str());
+
+		// Restore state
+		_state->_msgPos = savedPos;
+		_state->_msgCursor = savedCursor;
+		_state->_vmCurRecord = savedChunk;
+	}
 }
 
 int VM::getNip() {
@@ -68,9 +100,12 @@ int VM::getNip() {
 	int pos = _state->_msgPos;
 	int nip = _state->_vmCurRecord.getNip(_state->_msgCursor);
 	bumpMsg();
-	// Verbose tracing for WELCOME message (addr 4098)
+	// Verbose tracing for key messages
 	if (_state->_msgBase == 4098 && pos >= 92) {
 		warning("Angel VM: getNip pos=%d nip=%d", pos, nip);
+	}
+	if (_state->_msgBase < 200) {
+		warning("Angel VM: getNip base=%d pos=%d nip=%d", _state->_msgBase, pos, nip);
 	}
 	return nip;
 }
@@ -81,10 +116,14 @@ char VM::getAChar() {
 	if (_state->_eom)
 		return kEndSym;
 	char ch = _data->_yTable[nip];
-	// Verbose tracing for WELCOME message (addr 4098)
+	// Verbose tracing for key messages
 	if (_state->_msgBase == 4098 && pos >= 92) {
 		warning("Angel VM: getAChar pos=%d nip=%d char=%d '%c'",
 			pos, nip, (int)ch, (ch >= 32 && ch < 127) ? ch : '?');
+	}
+	if (_state->_msgBase < 200) {
+		warning("Angel VM: getAChar base=%d pos=%d nip=%d char=%d '%c'",
+			_state->_msgBase, pos, nip, (int)ch, (ch >= 32 && ch < 127) ? ch : '?');
 	}
 	return ch;
 }
@@ -352,6 +391,10 @@ void VM::executeMsg() {
 
 		default:
 			// Regular text character — output unless suppressed
+			if (ch == '\0') {
+				// Unmapped nip value (48-51, 62-63) — skip silently
+				break;
+			}
 			if (_suppressText) {
 				debugC(kDebugScripts, "Angel VM: suppressed text char '%c' at pos=%d", ch, _state->_msgPos - 1);
 				break;
@@ -960,12 +1003,16 @@ void VM::opForce(int ref) {
 void VM::opTake() {
 	// Player takes an object
 	int obj = _state->_cur.doItToWhat;
+	warning("Angel VM: opTake/opPkUp obj=%d loc=%d", obj, _state->_location);
 	if (obj > 0 && obj <= _data->_nbrObjects) {
 		Place &loc = _data->_map[_state->_location];
 		if (loc.objects.has(obj)) {
 			loc.objects.unset(obj);
 			_state->_possessions.set(obj);
 			_state->_nbrPossessions++;
+			warning("Angel VM: opTake SUCCESS - player now has obj %d", obj);
+		} else {
+			warning("Angel VM: opTake FAIL - obj %d not at loc %d", obj, _state->_location);
 		}
 	}
 }
@@ -1139,6 +1186,7 @@ void VM::opRide() {
 
 void VM::opRLoc(int ref) {
 	// Set player location to ref
+	warning("Angel VM: opRLoc(ref=%d) loc %d→%d", ref, _state->_location, ref);
 	if (ref > 0 && ref <= _data->_nbrLocations) {
 		_state->_pprvLocation = _state->_prvLocation;
 		_state->_prvLocation = _state->_location;
@@ -1295,45 +1343,65 @@ void VM::opTick(int ref) {
 }
 
 void VM::opEvent(int ref) {
-	// Set event register: ref encodes register index and procedure addr
-	// Fe EVENT <reg> <addr>
-	int reg = ref;
+	// Set event register (case 74 in kFa XJP → L_2935)
+	// p-code: NAT_F0 57 reads getNip (register index, 1 nip),
+	//         NAT_F0 33 reads getNumber (procedure address, 2 nips),
+	//         stores addr to xReg[regIndex].proc (word[1]).
+	// Stream consumption: getNip + getNumber = 3 nips total
+	int reg = getNip();
 	int addr = getNumber();
-	if (reg >= 0 && reg < 10) {
+	warning("Angel VM: opEvent(reg=%d, addr=%d)", reg, addr);
+	if (reg >= 0 && reg < 32) {
 		_state->_clock.xReg[reg].proc = addr;
 	}
 }
 
 void VM::opSet(int ref) {
-	// Set object attribute (case 75 in kFa XJP -> L_28f3)
-	// p-code: CXG 18,15 reads 1 nip (attribute index),
-	// then NAT_F0 53 resolves it (reads 2 more getNumber values from stream),
-	// LEQS set operations, NAT_F0 58/54 apply changes and enable text display.
-	//
+	// Set xReg event timer (case 75 in kFa XJP -> L_28f3)
 	// Stream consumption: 1 nip (attrNip) + 2 getNumber (4 nips) = 5 nips total
+	// attrNip = xReg index, val2 = countdown value (x field)
+	// val1 is typically 0 for initial set
 	int attrNip = getNip();
-	int setVal1 = getNumber();  // NAT_F0 53 reads these from stream
+	int setVal1 = getNumber();
 	int setVal2 = getNumber();
 
-	// NAT_F0 58/54 apply set operations and enable text display
-	// (sets seg[20].global[5] := 1, enabling text output after init)
-	_suppressText = false;
+	// Set the xReg countdown timer
+	if (attrNip >= 0 && attrNip < 32) {
+		_state->_clock.xReg[attrNip].x = setVal2;
+		warning("Angel VM: opSet(ref=%d, xReg[%d].x=%d, val1=%d)",
+		        ref, attrNip, setVal2, setVal1);
+	} else {
+		warning("Angel VM: opSet(ref=%d, attrNip=%d OUT OF RANGE, val1=%d, val2=%d)",
+		        ref, attrNip, setVal1, setVal2);
+	}
 
-	warning("Angel VM: opSet(ref=%d, attrNip=%d, val1=%d, val2=%d) stub - text enabled",
-	        ref, attrNip, setVal1, setVal2);
+	// Enable text display (original p-code sets seg[20].global[5] := 1)
+	_suppressText = false;
 }
 
 void VM::opSsp(int ref) {
-	// Suspend a person (make them rest)
-	if (ref > 0 && ref <= _data->_castSize) {
-		_data->_cast[ref].resting = true;
+	// Suspend event timer (case 76 in kFa XJP → L_2905)
+	// p-code: NAT_F0 57 reads getNip (register index, 1 nip),
+	//         if xReg[idx].x > 0, negates it (makes negative = suspended).
+	// Stream consumption: getNip = 1 nip
+	int reg = getNip();
+	warning("Angel VM: opSsp(reg=%d)", reg);
+	if (reg >= 0 && reg < 32) {
+		if (_state->_clock.xReg[reg].x > 0)
+			_state->_clock.xReg[reg].x = -_state->_clock.xReg[reg].x;
 	}
 }
 
 void VM::opRsm(int ref) {
-	// Resume a person (make them active)
-	if (ref > 0 && ref <= _data->_castSize) {
-		_data->_cast[ref].resting = false;
+	// Resume event timer (case 77 in kFa XJP → L_291d)
+	// p-code: NAT_F0 57 reads getNip (register index, 1 nip),
+	//         if xReg[idx].x < 0, negates it (makes positive = active).
+	// Stream consumption: getNip = 1 nip
+	int reg = getNip();
+	warning("Angel VM: opRsm(reg=%d)", reg);
+	if (reg >= 0 && reg < 32) {
+		if (_state->_clock.xReg[reg].x < 0)
+			_state->_clock.xReg[reg].x = -_state->_clock.xReg[reg].x;
 	}
 }
 
@@ -1389,16 +1457,18 @@ void VM::opAttr(int ref) {
 }
 
 void VM::opAsg(int ref) {
-	// Assign xReg event register (case 83 in kFa XJP → L_2949)
-	// p-code: CPI 3,5(0,1) → flag=1 means getNumber (2 nips)
-	// UCSD p-machine param order: local[2]=last pushed=1 (the flag)
-	// Then dispatches on xReg[index] sub-field via XJP cases 0-3:
-	//   case 0: set xReg[i].proc to resolved set value
-	//   case 1: set global[3008] (vocabulary set)
-	//   case 2: set global[3010] (entity set) + derived lookups
-	//   case 3: set global[3009] (attribute set)
-	int xRegValue = getNumber();  // 2 nips: CPI 3,5 with flag=1
-	warning("Angel VM: opAsg(ref=%d, value=%d) stub - nips consumed but logic not implemented", ref, xRegValue);
+	// Assign entity reference (case 83 in kFa XJP → L_2949)
+	// Stream consumption: getNumber = 2 nips
+	// Sets the "doItToWhat" entity so subsequent opcodes (opPkUp, opPtOn)
+	// can operate on the referenced entity (e.g., giving player items 85, 28, 82).
+	int value = getNumber();
+	warning("Angel VM: opAsg(ref=%d, value=%d) → doItToWhat=%d", ref, value, value);
+
+	// Set the entity reference for subsequent action opcodes
+	_state->_cur.doItToWhat = value;
+	_entityValue = value;
+	_entityFlag = (value > 0);
+	_entityType = 0;  // Default to object type
 }
 
 void VM::opMov(int ref) {

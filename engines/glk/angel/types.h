@@ -395,7 +395,7 @@ struct TimeRecord {
 	int minute;       // 0..59
 	bool am;
 	int tickNumber;
-	Event xReg[10];   // Event registers 0..9
+	Event xReg[32];   // Event registers (game uses indices up to 25)
 
 	TimeRecord() : day(kSunday), hour(12), minute(0), am(true), tickNumber(0) {}
 };

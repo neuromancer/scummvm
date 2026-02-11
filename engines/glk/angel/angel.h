@@ -141,6 +141,9 @@ private:
 	/** Advance the game clock by one tick */
 	void tickClock();
 
+	/** Process xReg timed events — decrement active counters, fire at zero */
+	void processTimedEvents();
+
 	/** Run the move/entry scripts for the current location */
 	void runLocationScripts();
 
