@@ -795,12 +795,16 @@ void VM::executeFe(Operation op, int ref) {
 		break;
 
 	case kForceOp:
-		// Force output flush + clear flags
+		// Force output flush + paragraph break.
+		// P-code: CXG 18,9 (text flag eval) + CXG 18,7 + CXG 18,8 + CXG 18,18(0).
+		// CXG 18,9 evaluates text state; after a paragraph break, text is
+		// suppressed until the next kCapOp re-enables it. This prevents
+		// stray nips between opcodes from leaking as visible text.
 		_engine->forceOutput();
 		_engine->outLn();
 		_capitalizeNext = false;
-		_suppressText = false;
-		debugC(kDebugScripts, "Angel VM: Fe kForceOp → flush output, unsuppress");
+		_suppressText = true;
+		debugC(kDebugScripts, "Angel VM: Fe kForceOp → flush output, suppress until next kCapOp");
 		break;
 
 	case kSpkOp:
