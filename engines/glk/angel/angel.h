@@ -93,7 +93,16 @@ public:
 	/** Close off the current line and start a new one */
 	void outLn();
 
-	/** Output a single character */
+	/**
+	 * Output a single character through the PutChar state machine.
+	 *
+	 * Matches the original IOHANDLER proc 5 (CXG 18,5). The state machine:
+	 * - Defers spaces so word-wrap can act at word boundaries
+	 * - Inserts a space after sentence-ending punctuation (. ! ?)
+	 * - Capitalizes the first letter of each sentence (via state 3)
+	 * - Absorbs consecutive spaces
+	 * - Handles standalone "I" capitalization
+	 */
 	void putChar(char ch);
 
 	/** Output a word (short string, no newline) */
@@ -104,6 +113,12 @@ public:
 
 	/** Force output flush (alias for forceQ) */
 	void forceOutput();
+
+	/**
+	 * End-of-speech: flush output and set PutChar state to capitalize next.
+	 * Matches IOHANDLER proc 9 (CXG 18,9): double ForceQ + state=3.
+	 */
+	void endSpeak();
 
 	/** Return a random number in range [0, max) */
 	int getRandom(int max);
@@ -127,6 +142,22 @@ private:
 
 	winid_t _mainWindow;
 	winid_t _statusWindow;
+
+	/**
+	 * PutChar state machine state (matches IOHANDLER global[1509]).
+	 *   0: Normal text — detect punctuation for state transitions
+	 *   1: After space — defer space output until next word starts
+	 *   2: After sentence-ender (. ! ?) — next non-period char gets space
+	 *   3: Capitalize first letter of new sentence
+	 *   4: After 'i' — defer to check if standalone "I" pronoun
+	 *   5: Insert space + transition to capitalize (state 3)
+	 *   6: After comma/semicolon — transition to deferred space
+	 *   7: After colon — digits pass through, else space + capitalize
+	 */
+	int _putCharState;
+
+	/** Output a character directly to the GLK window (CPG 36 equivalent) */
+	void rawPutChar(char ch);
 
 	/** Load the three game data files (tables, vocab, message) */
 	bool loadGameData();

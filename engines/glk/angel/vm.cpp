@@ -32,7 +32,8 @@ namespace Angel {
 
 VM::VM(Angel *engine, GameData *data, GameState *state)
     : _engine(engine), _data(data), _state(state), _callDepth(0),
-      _capitalizeNext(false), _suppressText(false), _baseSuppressText(false), _cseContentDepth(0),
+      _capitalizeNext(false), _suppressText(false), _baseSuppressText(false),
+      _cseContentDepth(0),
       _entityFlag(false), _entityValue(0), _entityOp(0), _entityType(-1) {
 	memset(_callStack, 0, sizeof(_callStack));
 }
@@ -60,38 +61,6 @@ void VM::openMsg(int addr, const char *caller) {
 	_state->_msgLength = (hdr0 << 6) | hdr1;
 
 	warning("Angel VM: openMsg addr=%d hdrLen=%d caller=%s", addr, _state->_msgLength, caller);
-
-	// Dump first 16 raw nips for messages during startup for debugging
-	if (addr < 200) {
-		// Save state, read raw nips, restore state
-		int savedPos = _state->_msgPos;
-		int savedCursor = _state->_msgCursor;
-		Chunk savedChunk = _state->_vmCurRecord;
-
-		Common::String nipDump;
-		for (int d = 0; d < 16; d++) {
-			int rawNip = _state->_vmCurRecord.getNip(_state->_msgCursor);
-			char ch = _data->_yTable[rawNip];
-			char buf[32];
-			snprintf(buf, sizeof(buf), " [%d]=%d('%c')", _state->_msgPos, rawNip,
-			         (ch >= 32 && ch < 127) ? ch : '?');
-			nipDump += buf;
-			// Advance manually
-			_state->_msgPos++;
-			_state->_msgCursor++;
-			if (_state->_msgCursor >= kChunkSize) {
-				_state->_msgCursor = 0;
-				int nextAddr = _state->_msgBase + (_state->_msgPos / kChunkSize);
-				_state->_vmCurRecord = _data->readChunk(nextAddr);
-			}
-		}
-		warning("Angel VM: rawNips%s", nipDump.c_str());
-
-		// Restore state
-		_state->_msgPos = savedPos;
-		_state->_msgCursor = savedCursor;
-		_state->_vmCurRecord = savedChunk;
-	}
 }
 
 int VM::getNip() {
@@ -114,6 +83,11 @@ char VM::getAChar() {
 	if (_state->_msgBase == 4098 && pos >= 92) {
 		warning("Angel VM: getAChar pos=%d nip=%d char=%d '%c'",
 			pos, nip, (int)ch, (ch >= 32 && ch < 127) ? ch : '?');
+	}
+	// Temporary: dump all nips in location desc around exit boundary
+	if (_state->_msgBase == 4265 && pos >= 380 && pos <= 420) {
+		warning("Angel VM: DUMP base=4265 pos=%d nip=%d ch='%c'(%d)",
+			pos, nip, (ch >= 32 && ch < 127) ? ch : '?', (int)(unsigned char)ch);
 	}
 	if (_state->_msgBase < 200) {
 		warning("Angel VM: getAChar base=%d pos=%d nip=%d char=%d '%c'",
@@ -450,13 +424,14 @@ void VM::executeMsg() {
 				break;
 			}
 			charCount++;
+
+			// kCapOp-based capitalization (for proper nouns like Tepotzteco).
+			// Period-based auto-capitalize and auto-spacing after punctuation
+			// are handled by the PutChar state machine in angel.cpp.
 			if (_capitalizeNext && ch >= 'a' && ch <= 'z') {
 				ch = ch - 'a' + 'A';
 				_capitalizeNext = false;
 			}
-			// Auto-capitalize after period (sentence boundary / abbreviations like D.C.)
-			if (ch == '.')
-				_capitalizeNext = true;
 			textOutput += ch;
 			if (textOutput.size() >= 80) {
 				warning("Angel VM text: %s", textOutput.c_str());
@@ -833,35 +808,37 @@ void VM::executeEdit(Operation op, int ref) {
 void VM::executeFe(Operation op, int ref) {
 	switch (op) {
 	case kCapOp:
-		// Set capitalize-next-character flag and clear text suppression
+		// P-code: CXG 18,18(1) = PutItem(TRUE).
+		// In the original, PutItem(TRUE) reads characters and capitalizes
+		// ALL lowercase letters until EndSym. In our architecture, we set
+		// _capitalizeNext for the first letter (period-based auto-capitalize
+		// handles subsequent ones like in "D.C."). Also clear suppression.
 		_capitalizeNext = true;
 		_suppressText = false;
 		debugC(kDebugScripts, "Angel VM: Fe kCapOp → capitalize next char, unsuppress");
 		break;
 
 	case kForceOp:
-		// Force output flush + paragraph break.
-		// P-code: CXG 18,9 (text flag eval) + CXG 18,7 + CXG 18,8 + CXG 18,18(0).
-		// CXG 18,9 re-evaluates the text flag (seg[20].global[5]).
-		// During WELCOME bracket (baseSuppressText=true), this re-suppresses text
-		// to hide init code after the paragraph. During ENTRY (baseSuppressText=false),
-		// text remains visible for the next section.
+		// P-code: CXG 18,9 (EndSpeak) + CXG 18,7 (ForceQ) + CXG 18,8 (blank line) + CXG 18,18(0).
+		// EndSpeak: double ForceQ + set PutChar state=3 (capitalize first letter).
+		// CXG 18,8 outputs a blank line (only kForceOp, not kSpkOp).
+		// CXG 18,9 also re-evaluates the text flag.
+		_engine->endSpeak();
 		_engine->forceOutput();
-		_engine->outLn();
-		_capitalizeNext = true;
+		_engine->outLn();    // CXG 18,8: blank line separator
+		_capitalizeNext = false;  // PutChar state 3 handles capitalization now
 		_suppressText = _baseSuppressText;  // Re-evaluate text flag (CXG 18,9)
-		debugC(kDebugScripts, "Angel VM: Fe kForceOp → flush + newline, capitalize, suppress=%d (base)", _baseSuppressText);
+		debugC(kDebugScripts, "Angel VM: Fe kForceOp → endSpeak + blank line, suppress=%d (base)", _baseSuppressText);
 		break;
 
 	case kSpkOp:
-		// Like kForceOp but without the newline (no CXG 18,8).
-		// P-code: CXG 18,9 (text flag eval) + CXG 18,7 (flush) + CXG 18,18(0).
-		// Flushes output and capitalizes the next character. Used as a
-		// section separator before EndSym within multi-section messages
-		// (e.g., "...the legends say: [EndSym] He who holds...").
+		// P-code: CXG 18,9 (EndSpeak) + CXG 18,7 (ForceQ) + CXG 18,18(0).
+		// Same as kForceOp but WITHOUT CXG 18,8 (no blank line).
+		_engine->endSpeak();
 		_engine->forceOutput();
-		_capitalizeNext = true;
-		debugC(kDebugScripts, "Angel VM: Fe kSpkOp ref=%d → flush output, capitalize next", ref);
+		_capitalizeNext = false;  // PutChar state 3 handles capitalization now
+		_suppressText = _baseSuppressText;
+		debugC(kDebugScripts, "Angel VM: Fe kSpkOp ref=%d → endSpeak, suppress=%d", ref, _baseSuppressText);
 		break;
 
 	case kDscOp:

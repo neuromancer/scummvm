@@ -39,7 +39,8 @@ Angel::Angel(OSystem *syst, const GlkGameDescription &gameDesc)
 	: GlkAPI(syst, gameDesc),
 	  _data(nullptr), _state(nullptr), _parser(nullptr),
 	  _vm(nullptr), _utils(nullptr),
-	  _mainWindow(nullptr), _statusWindow(nullptr) {
+	  _mainWindow(nullptr), _statusWindow(nullptr),
+	  _putCharState(3) {  // Start in state 3 (capitalize first letter)
 }
 
 Angel::~Angel() {
@@ -210,7 +211,8 @@ void Angel::outLn() {
 	print("\n");
 }
 
-void Angel::putChar(char ch) {
+void Angel::rawPutChar(char ch) {
+	// Direct character output to GLK window (equivalent to CPG 36 in asglib).
 	if (_mainWindow) {
 		glk_set_window(_mainWindow);
 		char buf[2] = { ch, '\0' };
@@ -218,10 +220,181 @@ void Angel::putChar(char ch) {
 	}
 }
 
+// Helper: is ch a sentence-ending punctuation mark (. ! ?)
+static bool isSentenceEnder(char ch) {
+	return ch == '.' || ch == '!' || ch == '?';
+}
+
+// Helper: is ch a clause punctuation mark (comma, semicolon, etc.)
+// These trigger state 6 (deferred space via recursive call).
+static bool isClausePunct(char ch) {
+	return ch == ',' || ch == ';';
+}
+
+// Helper: is ch ANY punctuation that triggers state transitions in state 0
+static bool isPunctuation(char ch) {
+	return isSentenceEnder(ch) || isClausePunct(ch) || ch == ':' || ch == '"';
+}
+
+void Angel::putChar(char ch) {
+	// PutChar state machine matching IOHANDLER proc 5 (CXG 18,5).
+	// Disassembled from the asglib binary, segment 18.
+	//
+	// State transitions implement:
+	// - Deferred spaces (word-wrapping support)
+	// - Auto-spacing after sentence-ending punctuation
+	// - Auto-capitalization of sentence-initial letters
+	// - Standalone "I" pronoun capitalization
+	// - Absorption of multiple consecutive spaces
+
+	switch (_putCharState) {
+	case 0:
+		// Normal text. Space → defer (state 1). Punctuation → state transitions.
+		if (ch == ' ') {
+			_putCharState = 1;
+		} else {
+			rawPutChar(ch);
+			if (isSentenceEnder(ch)) {
+				_putCharState = 2;  // After period/!/?
+			} else if (ch == ':') {
+				_putCharState = 7;  // After colon
+			} else if (isClausePunct(ch) || ch == '"') {
+				_putCharState = 6;  // After comma/semicolon/quote
+			}
+			// else: stay in state 0
+		}
+		break;
+
+	case 1:
+		// After space (deferred). Absorb extra spaces. When a real char arrives:
+		// - Punctuation: output directly (no space before punct), transition
+		// - Regular char: output the deferred SPACE, then the char
+		if (ch == ' ') {
+			// Absorb consecutive spaces — stay in state 1
+		} else if (isPunctuation(ch)) {
+			// Punctuation after space: output punct directly, no leading space.
+			// Original p-code checks a punct set (LDC 2,20).
+			rawPutChar(ch);
+			if (ch == ',') {
+				_putCharState = 0;
+			} else {
+				_putCharState = 2;  // After sentence-ender
+			}
+		} else {
+			// Regular character: output the deferred space, then the char.
+			rawPutChar(' ');
+			if (ch == 'i') {
+				// Defer 'i' to check if standalone pronoun "I"
+				_putCharState = 4;
+			} else {
+				rawPutChar(ch);
+				_putCharState = 0;
+			}
+		}
+		break;
+
+	case 2:
+		// After sentence-ending punctuation (. ! ?).
+		// Another period → output it, stay in state 2 (ellipsis "..").
+		// Any other char → state 5 (insert space + capitalize).
+		if (ch == '.') {
+			rawPutChar('.');
+			// Stay in state 2
+		} else {
+			_putCharState = 5;
+			putChar(ch);  // Recursive: process char in state 5
+		}
+		break;
+
+	case 3:
+		// Capitalize first letter of new sentence.
+		// Set by endSpeak() (CXG 18,9) after paragraph breaks.
+		// '@' → output '@' literally, stay state 3.
+		// Space → absorb, stay state 3.
+		// Lowercase → capitalize, output, state 0.
+		// Other → output as-is, state 0.
+		if (ch == '@') {
+			rawPutChar('@');
+			// Stay in state 3
+		} else if (ch == ' ') {
+			// Absorb spaces at start of sentence — stay state 3
+		} else {
+			if (ch >= 'a' && ch <= 'z') {
+				ch = ch - 32;  // Capitalize
+			}
+			rawPutChar(ch);
+			_putCharState = 0;
+		}
+		break;
+
+	case 4:
+		// After 'i' (deferred from state 1). Check if standalone "I".
+		// Space → was standalone "I": output 'I', state 1 (defer new space).
+		// Non-space → was part of word: output 'i', state 0, reprocess char.
+		if (ch == ' ') {
+			rawPutChar('I');  // Capitalize standalone "I"
+			_putCharState = 1;
+		} else {
+			rawPutChar('i');  // Part of a word, keep lowercase
+			_putCharState = 0;
+			putChar(ch);  // Recursive: reprocess char in state 0
+		}
+		break;
+
+	case 5:
+		// Insert space before next word (after sentence-ending punct).
+		// Then capitalize (state 3) via recursive call.
+		rawPutChar(' ');
+		_putCharState = 3;
+		putChar(ch);  // Recursive: process char in state 3
+		break;
+
+	case 6:
+		// After comma/semicolon/closing-quote.
+		// Quote → output space + quote, state 0.
+		// Other → transition to state 1 (deferred space), reprocess.
+		if (ch == '"') {
+			_putCharState = 0;
+			rawPutChar(' ');
+			rawPutChar('"');
+		} else {
+			_putCharState = 1;
+			putChar(ch);  // Recursive: process char in state 1
+		}
+		break;
+
+	case 7:
+		// After colon.
+		// Digit → output directly, state 0 (e.g., "12:00").
+		// Quote → output quote, stay state 7(?), or go to state 5.
+		// Other → state 5 (insert space + capitalize), reprocess.
+		if (ch >= '0' && ch <= '9') {
+			rawPutChar(ch);
+			_putCharState = 0;
+		} else {
+			_putCharState = 5;
+			if (ch == '"') {
+				rawPutChar('"');
+			} else {
+				putChar(ch);  // Recursive: process char in state 5
+			}
+		}
+		break;
+
+	default:
+		// Fallback: output directly
+		rawPutChar(ch);
+		_putCharState = 0;
+		break;
+	}
+}
+
 void Angel::putWord(const char *word) {
-	if (_mainWindow) {
-		glk_set_window(_mainWindow);
-		glk_put_string(word);
+	// Output a word character by character through the state machine.
+	if (word) {
+		for (int i = 0; word[i]; i++) {
+			putChar(word[i]);
+		}
 	}
 }
 
@@ -231,6 +404,15 @@ void Angel::newLine() {
 
 void Angel::forceOutput() {
 	forceQ();
+}
+
+void Angel::endSpeak() {
+	// CXG 18,9 (proc 9): ForceQ + ForceQ + set PutChar state to 3.
+	// "Force the output queue and generate a blank line to differentiate
+	// one unit of textual output from another."
+	forceQ();
+	forceQ();
+	_putCharState = 3;  // Capitalize first letter of next sentence
 }
 
 int Angel::getRandom(int max) {
