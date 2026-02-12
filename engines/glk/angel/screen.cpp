@@ -45,6 +45,19 @@ void AngelScreen::initialize() {
 	for (int i = 0; i < FONTS_TOTAL; ++i)
 		_isFontOwned[i] = true;
 
+	// Match original compact Macintosh 512x342 screen layout.
+	// Size 11 uses the fonts.dat scalable font (full glyph coverage).
+	// Center a 512-pixel-wide text area inside our 640x480 screen,
+	// giving ~60 chars/line — close to the original Mac's ~58.
+	g_conf->_monoInfo._size = 11;
+	g_conf->_propInfo._size = 11;
+	g_conf->_tMarginX = 64;       // (640 - 512) / 2
+	g_conf->_propInfo._dashes = 0;          // no typographic dash replacement
+	g_conf->_propInfo._quotes = 0;          // no smart quote replacement
+	g_conf->_propInfo._morePrompt = "(MORE)";
+	g_conf->_propInfo._moreFont = MONOR;    // same font as game text
+	g_conf->_propInfo._moreAlign = 2;       // right-aligned
+
 	Screen::initialize();
 }
 

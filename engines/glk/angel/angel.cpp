@@ -737,6 +737,27 @@ void Angel::dispatchCommand(ThingToDo action) {
 void Angel::doTurn() {
 	putStatus();
 
+	// Output centered dash separator before prompt (matches IOHANDLER proc 4).
+	// Original: (screenWidth - 10) / 2 spaces, then 10 dashes, then newline.
+	forceQ();
+	outLn();  // blank line before separator
+
+	uint winW = 0, winH = 0;
+	if (_mainWindow)
+		glk_window_get_size(_mainWindow, &winW, &winH);
+	if (winW < 10)
+		winW = 60;  // fallback
+	debugC(5, 0, "Angel: window size %u x %u chars", winW, winH);
+
+	int pad = ((int)winW - 10) / 2;
+	Common::String sep;
+	for (int i = 0; i < pad; i++)
+		sep += ' ';
+	for (int i = 0; i < 10; i++)
+		sep += '-';
+	print(sep);
+	outLn();
+
 	// Read and parse player input
 	Common::String input = readLine();
 	if (input.empty() || !_state->_stillPlaying)
