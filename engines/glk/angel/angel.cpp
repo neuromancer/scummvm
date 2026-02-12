@@ -654,21 +654,25 @@ void Angel::dispatchCommand(ThingToDo action) {
 		println("Save/restore is handled through the ScummVM menu.");
 		return;
 	}
-	// Dispatch to the default response script.
-	//
-	// In the original AngelSoft engine, the RESPOND p-code segment maintains
-	// CmdEntry tables (seg[17].global[3045] for locations, [3020] for objects)
-	// populated during initialization.  These map entity indices to response
-	// script message addresses.  The response script is SEPARATE from the
-	// description script (entity.n).
-	//
-	// The default response script at addr 6660 handles generic verb responses
-	// ("speaking in tongues won't help", "is not here", "is locked", etc.)
-	// via CSE blocks and test opcodes.  Location-specific responses would
-	// be stored in CmdEntry but for now we use the default for all.
-	//
-	// TODO: Extract per-entity response addresses from the DATA segment
-	// (CmdEntry tables) for location-specific responses.
+	// Handle movement commands directly.
+	if (action == kAMove || action == kATrip) {
+		int dest = _state->_cur.whereTo;
+		if (dest > kNowhere && dest <= _data->_nbrLocations) {
+			debugC(1, 0, "Angel: move to location %d", dest);
+			_utils->changeLocation(dest);
+			outLn();
+			describeLocation();
+		} else {
+			// Dead end — dispatch location script for "you can't go that way".
+			int scriptAddr = _data->_map[_state->_location].n;
+			debugC(1, 0, "Angel: dead end, dispatch loc script addr=%d", scriptAddr);
+			_vm->displayMsg(scriptAddr);
+			forceQ();
+		}
+		return;
+	}
+
+	// Dispatch to the default response script for non-movement commands.
 	static const int kDefaultResponseAddr = 6660;
 	int scriptAddr = kDefaultResponseAddr;
 
@@ -677,16 +681,6 @@ void Angel::dispatchCommand(ThingToDo action) {
 
 	_vm->displayMsg(scriptAddr);
 	forceQ();
-
-	// Post-script: handle movement if the parser indicated a direction.
-	if (action == kAMove || action == kATrip) {
-		int dest = _state->_cur.whereTo;
-		if (dest > 0 && dest <= _data->_nbrLocations) {
-			_utils->changeLocation(dest);
-			outLn();
-			describeLocation();
-		}
-	}
 }
 
 void Angel::doTurn() {

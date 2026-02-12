@@ -369,20 +369,34 @@ bool GameData::loadTables(Common::SeekableReadStream *stream) {
 		}
 
 		case kMapEntry: {
-			// Place layout (36 bytes):
+			// Place PACKED RECORD layout (36 bytes):
 			//   0-1:   disc (2)
 			//   2-3:   n (description key, big-endian)
 			//   4-5:   shortDscr (VWordIndex)
-			//   6+:    packed navigation/flags (nextPlace, traffic, curb, etc.)
-			//   34-35: packed flags including view/unseen
+			//   6-11:  nextPlace[0..5] — PACKED ARRAY[MotionSpec] OF LocRef
+			//          3 big-endian words, each packing 2 LocRefs (7 bits each),
+			//          LSB-first: bits 0-6 = first dir, bits 7-13 = second dir.
+			//   12+:   traffic, curb, accessLock, mustHave, fogPath, view, flags
 			if (locIdx < kMaxNbrLocations + 1) {
 				Place &place = _map[locIdx];
 				place.n = (int)RW(off + 2);
 				place.shortDscr = (int)RW(off + 4) - 1;  // VWordIndex: 1-based in file → 0-based
+
+				// Decode nextPlace from 3 packed words (bytes 6-11).
+				for (int d = 0; d < 3; d++) {
+					uint16 w = RW(off + 6 + d * 2);
+					place.nextPlace[d * 2]     = w & 0x7F;         // bits 0-6
+					place.nextPlace[d * 2 + 1] = (w >> 7) & 0x7F;  // bits 7-13
+				}
+
 				place.unseen = true;
 				place.view = kSunlit;  // Default to sunlit; exact parsing TBD
-				debugC(2, 0, "Angel: Map[%d]: n=%d shortDscr=%d",
-				       locIdx, place.n, place.shortDscr);
+
+				debugC(2, 0, "Angel: Map[%d]: n=%d shortDscr=%d exits=[%d,%d,%d,%d,%d,%d]",
+				       locIdx, place.n, place.shortDscr,
+				       place.nextPlace[0], place.nextPlace[1],
+				       place.nextPlace[2], place.nextPlace[3],
+				       place.nextPlace[4], place.nextPlace[5]);
 			}
 			locIdx++;
 			break;
