@@ -696,12 +696,11 @@ void Angel::runGame() {
 	_vm->setSuppressText(false);
 	describeLocation();
 
-	// Fire any timer=1 timed events set during WELCOME (e.g., xReg[22]
-	// with proc=63 which displays the "central chamber" narrative text).
-	// describeLocation's msg may end with kForceOp (suppress=true), so
-	// re-enable text before firing events.
-	_vm->setSuppressText(false);
-	processTimedEvents();
+	// Timer events (e.g., xReg[22] countdown=1) set during WELCOME will
+	// fire naturally during the first doTurn() via processTimedEvents().
+	// Don't call processTimedEvents() here — firing timers before the
+	// first player turn produces premature text (e.g., msg 63's person
+	// check "R.P." before the game state is ready for it).
 
 	// Main game loop
 	while (_state->_stillPlaying && !shouldQuit()) {

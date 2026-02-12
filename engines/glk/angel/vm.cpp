@@ -522,8 +522,11 @@ void VM::executeCase() {
 		break;
 
 	default:
-		warning("Angel VM: Unknown case type %d", caseType);
-		break;
+		warning("Angel VM: Unknown case type %d — skipping entire CSE block", caseType);
+		if (_state->_msgPos < endPos) {
+			jumpTo(endPos);
+		}
+		return;
 	}
 
 	warning("Angel VM: CSE type=%d nbrCases=%d matchValue=%d matchRef=%d totalSize=%d endPos=%d pos=%d",
