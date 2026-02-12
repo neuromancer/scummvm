@@ -667,9 +667,11 @@ void Angel::runGame() {
 
 	// Execute the WELCOME event procedure from the NtgrRegisters.
 	// xReg[kXWelcome] holds the proc address for the game's intro text.
-	// baseSuppressText=true so kForceOp re-evaluates to "suppress" after
-	// each paragraph (hiding init code). kCapOp unsuppresses for each paragraph.
-	_vm->setSuppressText(true);
+	// Set baseSuppressText=true so kForceOp re-evaluates to "suppress"
+	// after each paragraph (hiding init code garbage). But keep
+	// _suppressText=false so the initial text ("With the whine of
+	// bullets...") before the first kForceOp is visible.
+	_vm->setBaseSuppressText(true);
 	if (_state->_clock.xReg[kXWelcome].proc > 0) {
 		warning("Angel: Executing WELCOME event at proc=%d",
 		       _state->_clock.xReg[kXWelcome].proc);
@@ -678,8 +680,8 @@ void Angel::runGame() {
 		outLn();
 	}
 
-	// Keep text suppressed through ENTRY (opSet does NOT enable text;
-	// text is enabled by kCapOp/kForceOp within message content).
+	// Suppress text for ENTRY — ENTRY's content should not be displayed.
+	_vm->setSuppressText(true);
 
 	// Execute the ENTRY event procedure (xReg[kXEntry]).
 	if (_state->_clock.xReg[kXEntry].proc > 0) {

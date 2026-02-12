@@ -74,6 +74,7 @@ public:
 	void displayMsg(int addr);
 
 	void setSuppressText(bool suppress) { _suppressText = suppress; _baseSuppressText = suppress; }
+	void setBaseSuppressText(bool suppress) { _baseSuppressText = suppress; }
 
 	/** Get the next decoded character from the message stream */
 	char getAChar();
