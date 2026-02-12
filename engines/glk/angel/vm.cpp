@@ -132,6 +132,25 @@ void VM::displayMsg(int addr) {
 	warning("Angel VM: displayMsg(%d) returned", addr);
 }
 
+void VM::dumpNipsAt(int addr, int startPos, int count) {
+	// Debug: dump nips at a given position within a message
+	openMsg(addr, "dumpNips");
+	jumpTo(startPos);
+	Common::String nips, chars;
+	for (int i = 0; i < count && !_state->_eom; i++) {
+		int nip = getNip();
+		char ch = _data->_yTable[nip];
+		nips += Common::String::format("%d ", nip);
+		if (ch >= 32 && ch < 127)
+			chars += ch;
+		else
+			chars += Common::String::format("[%d]", (int)(unsigned char)ch);
+	}
+	warning("Angel VM: dumpNips addr=%d pos=%d: nips=%s", addr, startPos, nips.c_str());
+	warning("Angel VM: dumpNips chars=%s", chars.c_str());
+	_state->_eom = true;
+}
+
 void VM::executeMsg() {
 	debugC(kDebugScripts, "Angel VM: executeMsg starting, msgBase=%d msgLength=%d", _state->_msgBase, _state->_msgLength);
 	int charCount = 0;
@@ -303,10 +322,29 @@ void VM::executeMsg() {
 					_state->_tfIndicator = result;
 					warning("Angel VM: kFt comparison op=%d val1=%d val2=%d result=%s",
 					        opVal, val1, val2, result ? "T" : "F");
-				} else if (opVal < kNumOperations) {
-					executeTest((Operation)opVal, 0);
 				} else {
-					warning("Angel VM: Unknown test opcode nip=%d op=%d", opNip, opVal);
+					// Proc 72 preamble: some tests read getNumber (2 nips)
+					// into local[1] before dispatch (set membership check).
+					// Others read getNip via their own handler code.
+					int ref = 0;
+					switch (opVal) {
+					// Tests that read getNumber via proc 72 preamble (use SLDL 1)
+					case kOpenedOp: case kCvrdOp: case kBoxOp: case kHereOp:
+					case kHPassOp: case kWordOp: case kSynOp: case kNewOp:
+						ref = getNumber();
+						break;
+					// Tests that read getNip via their own handler (CXG 18,15)
+					case kWearsOp: case kRandOp: case kCarryOp:
+						ref = getNip();
+						break;
+					default:
+						break;
+					}
+					if (opVal < kNumOperations) {
+						executeTest((Operation)opVal, ref);
+					} else {
+						warning("Angel VM: Unknown test opcode nip=%d op=%d", opNip, opVal);
+					}
 				}
 			}
 			break;
@@ -432,28 +470,32 @@ void VM::executeMsg() {
 }
 
 void VM::executeCase() {
-	// CSE interleaved content format (from proc 103 / proc 5 disassembly):
+	// CSE interleaved content format (verified from proc 103 p-code + empirical data):
+	//
+	// Header:
 	//   type: getNip (KindOfCase: 0=Random, 1=Word, 2=Syn, 3=Ref)
-	//   [matchRef: getNumber — only for RefCase]
+	//   [matchRef: getNip + 135 — only for RefCase]
 	//   nbrCases: getNip
 	//   totalSize: getNumber (nips from here to end of CSE block)
-	//   entries: nbrCases × [val: getNip, skip: getNumber, content...]
 	//
-	// Interleaved model: each entry's content is inline after its header.
-	// When NOT matched: jump(skip) to skip over the content to next entry.
-	// When matched: don't jump — return and let executeMsg process the content.
-	// val == 0 is a special "default" that always matches.
+	// Entries (non-random): nbrCases × [val: getNumber, skip: getNumber, content...]
+	// Entries (random):     nbrCases × [skip: getNumber, content...]
+	//
+	// Content is skip-1 nips, ending with EndSym. Offsets are 1-based.
+	// For non-random: val=0 is unconditional default (always matches).
+	//
+	// Match flow (proc 103 p-code at L_331f):
+	//   Matched: NAT_F1 8 skips past getNumber+jump → skip NOT consumed in loop.
+	//   Epilogue (L_332d): 2×CXG 18,12 consume skip nips, NAT_F0 66 executes content.
+	//   Unmatched: skip=getNumber, CXG 18,16(skip) jumps past content (1-based).
 
 	int caseType = getNip();
 	KindOfCase kind = (KindOfCase)caseType;
 
-	// For RefCase, read the match reference from the stream.
-	// proc 103 p-code: NAT_F0 32(0, 135) + NAT_F0 35 reads 2 nips (getNumber).
-	// Empirically verified: getNumber() gives matchRef=131, nbrCases=11, totalSize=2434
-	// which align with 11 EndSym boundaries in the raw nip data.
+	// RefCase: matchRef = getNip + 135 (proc 103 at L_31BF: NAT_F0 32(0,135))
 	int matchRef = 0;
 	if (kind == kRefCase) {
-		matchRef = getNumber();
+		matchRef = getNip() + kFeOpcodeBase;
 	}
 
 	int nbrCases = getNip();
@@ -481,83 +523,71 @@ void VM::executeCase() {
 		break;
 
 	default:
-		warning("Angel VM: Unknown case type %d — skipping entire CSE block", caseType);
-		if (_state->_msgPos < endPos) {
-			jumpTo(endPos);
-		}
+		warning("Angel VM: Unknown CSE type %d", caseType);
+		jumpTo(endPos);
 		return;
 	}
 
-	warning("Angel VM: CSE type=%d nbrCases=%d matchValue=%d matchRef=%d totalSize=%d endPos=%d pos=%d",
-	        caseType, nbrCases, matchValue, matchRef, totalSize, endPos, _state->_msgPos);
+	debugC(kDebugScripts, "Angel VM: CSE type=%d nbrCases=%d matchValue=%d matchRef=%d totalSize=%d",
+	       caseType, nbrCases, matchValue, matchRef, totalSize);
 
-	// Iterate through entries with interleaved content.
-	// Entry format: val=getNip (1 nip), skip=getNumber (2 nips), then inline content.
-	// Empirically verified against raw game data: val=getNip produces coherent case
-	// values (0-54) and readable text content. val=getNumber produces garbage (3456+).
-	// Note: p-code shows CPI 3,5(0,1) for val which nominally means getNumber, but
-	// the game data is authoritative — likely a platform-specific parameter convention.
 	bool matched = false;
 	for (int i = 0; i < nbrCases && !matched; i++) {
-		int caseValue = getNip();     // val is getNip (1 nip) — empirically verified
-		int skip = getNumber();       // skip is getNumber (2 nips)
-
-		warning("Angel VM: CSE entry[%d] val=%d skip=%d pos=%d", i, caseValue, skip, _state->_msgPos);
+		// RandomCase entries: no val, just skip + content.
+		// Non-random entries: val=getNumber, skip + content.
+		int caseValue = 0;
+		if (kind != kRandomCase) {
+			caseValue = getNumber();
+		}
 
 		bool isMatch;
 		if (kind == kRandomCase) {
 			isMatch = (i == matchValue);
 		} else if (caseValue == 0) {
-			isMatch = true;  // val=0 is unconditional default (proc 103 p-code)
+			isMatch = true;  // val=0 is unconditional default (proc 103 at L_31B2)
 		} else {
+			// TODO: implement entity table lookup matching for Word/Syn/Ref cases.
+			// Proc 103 uses DIVI-based categorization on entity table fields.
+			// For now, simple equality (non-default entries won't match yet).
 			isMatch = (caseValue == matchValue);
 		}
 
 		if (isMatch) {
 			matched = true;
-			int contentEndPos = _state->_msgPos + skip;
-			warning("Angel VM: CSE MATCHED entry %d (val=%d), content at pos=%d skip=%d contentEnd=%d",
-			        i, caseValue, _state->_msgPos, skip, contentEndPos);
 
-			// Process the matched case's content inline by calling executeMsg()
-			// in a loop. The content may contain internal EndSym markers that
-			// separate sub-blocks (e.g., kFe kCapOp + letter + EndSym patterns
-			// within "Tepotzteco"). These are sub-block separators, NOT message
-			// terminators. The original p-code (proc 103 epilogue) handles this
-			// via NAT_F0 66 which processes content as an inline call — EndSym
-			// returns from that call, not from the outer message loop.
-			//
-			// We do NOT push a CallFrame here. Instead we call executeMsg()
-			// repeatedly until all `skip` nips of content are consumed.
-			int safety = 0;
+			// Matched: consume skip's 2 nips (value discarded).
+			// Proc 103 epilogue (L_332d): 2×CXG 18,12 consume skip before content.
+			getNumber();
+
+			debugC(kDebugScripts, "Angel VM: CSE matched entry[%d] val=%d at pos=%d",
+			       i, caseValue, _state->_msgPos);
+
+			// Execute content until EndSym (proc 66 loop).
+			// EndSym at _cseContentDepth > 0 sets _eom, terminating executeMsg.
 			_cseContentDepth++;
-			while (_state->_msgPos < contentEndPos && _state->_stillPlaying && safety < 200) {
-				_state->_eom = false;
+			int safety = 0;
+			while (!_state->_eom && _state->_stillPlaying && safety < 500) {
 				executeMsg();
 				safety++;
 			}
 			_cseContentDepth--;
 
-			// After content, skip remaining CSE entries by jumping to endPos
-			if (_state->_msgPos < endPos) {
-				warning("Angel VM: CSE epilogue: jumping from pos=%d to endPos=%d", _state->_msgPos, endPos);
+			// Jump to endPos to skip remaining entries (proc 103 at L_3338)
+			if (_state->_msgPos < endPos)
 				jumpTo(endPos);
-			}
-			// Reset EOM — there may be more message content after the CSE block
 			_state->_eom = false;
 		} else {
-			// Skip over this entry's inline content
-			warning("Angel VM: CSE skip entry %d, jump(%d) from pos=%d", i, skip, _state->_msgPos);
-			jump(skip);
+			// Unmatched: read skip, jump past content (1-based offset).
+			// Proc 103 at L_3324: skip=getNumber, CXG 18,16(skip) = jump(skip-1).
+			int skip = getNumber();
+			jump(skip - 1);
 		}
 	}
 
 	if (!matched) {
-		// No match found — skip to end of CSE block
-		warning("Angel VM: CSE no match, jumping to endPos=%d from pos=%d", endPos, _state->_msgPos);
-		if (_state->_msgPos < endPos) {
-			jump(endPos - _state->_msgPos);
-		}
+		debugC(kDebugScripts, "Angel VM: CSE no match, skipping to endPos=%d", endPos);
+		if (_state->_msgPos < endPos)
+			jumpTo(endPos);
 	}
 }
 
@@ -1383,13 +1413,12 @@ void VM::opSet(int ref) {
 	// Set xReg event timer (case 75 in kFa XJP -> L_28f3)
 	// P-code: CXG 18,15 + NAT_F0 53 + CXS 15 + CXS 16 + NAT_F0 58 + NAT_F0 54
 	// Stream: getNip (1) + getNumber (2) + getNumber (2) = 5 nips total
-	// (CXG 18,15 takes SLDC 0 as stack param, not a stream nip)
-	// Does NOT set seg[20].global[5] (text suppress flag)
+	// val1 = unknown param (observed as 0), val2 = countdown timer value
+	// opEvent sets .proc separately; opSet only sets .x countdown
 	int attrNip = getNip();
 	int setVal1 = getNumber();
 	int setVal2 = getNumber();
 
-	// Set the xReg countdown timer
 	if (attrNip >= 0 && attrNip < 32) {
 		_state->_clock.xReg[attrNip].x = setVal2;
 		warning("Angel VM: opSet(ref=%d, xReg[%d].x=%d, val1=%d)",

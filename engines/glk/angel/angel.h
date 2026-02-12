@@ -148,6 +148,10 @@ private:
 	winid_t _mainWindow;
 	winid_t _statusWindow;
 
+	/** Debug input replay: lines read from ANGEL_INPUT file */
+	Common::Array<Common::String> _debugInputLines;
+	uint _debugInputPos;
+
 	/**
 	 * PutChar state machine state (matches IOHANDLER global[1509]).
 	 *   0: Normal text — detect punctuation for state transitions

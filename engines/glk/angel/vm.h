@@ -73,6 +73,9 @@ public:
 	 */
 	void displayMsg(int addr);
 
+	/** Debug: dump raw nips starting at a given position within a message */
+	void dumpNipsAt(int addr, int startPos, int count);
+
 	void setSuppressText(bool suppress) { _suppressText = suppress; _baseSuppressText = suppress; }
 	void setBaseSuppressText(bool suppress) { _baseSuppressText = suppress; }
 

@@ -42,7 +42,8 @@ Angel::Angel(OSystem *syst, const GlkGameDescription &gameDesc)
 	  _mainWindow(nullptr), _statusWindow(nullptr),
 	  _putCharState(3),   // Start in state 3 (capitalize first letter)
 	  _lineDirty(false),
-	  _needsSeparator(false) {
+	  _needsSeparator(false),
+	  _debugInputPos(0) {
 }
 
 Angel::~Angel() {
@@ -181,7 +182,17 @@ Common::String Angel::readLine() {
 	// Prompt
 	glk_put_string("-> ");
 
-	// Read up to 255 characters
+	// Debug replay: return next line from ANGEL_INPUT file.
+	if (_debugInputPos < _debugInputLines.size()) {
+		Common::String line = _debugInputLines[_debugInputPos++];
+		// Echo the scripted input so the window shows a real session.
+		glk_put_string(line.c_str());
+		glk_put_char('\n');
+		warning("Angel: debug input [%u]: '%s'", _debugInputPos - 1, line.c_str());
+		return line;
+	}
+
+	// Normal GLK input
 	char buf[256];
 	memset(buf, 0, sizeof(buf));
 
@@ -643,40 +654,29 @@ void Angel::dispatchCommand(ThingToDo action) {
 		println("Save/restore is handled through the ScummVM menu.");
 		return;
 	}
-	if (action == kNothing) {
-		debugC(1, 0, "Angel: unrecognized command, no dispatch");
-		return;
-	}
+	// Dispatch to the default response script.
+	//
+	// In the original AngelSoft engine, the RESPOND p-code segment maintains
+	// CmdEntry tables (seg[17].global[3045] for locations, [3020] for objects)
+	// populated during initialization.  These map entity indices to response
+	// script message addresses.  The response script is SEPARATE from the
+	// description script (entity.n).
+	//
+	// The default response script at addr 6660 handles generic verb responses
+	// ("speaking in tongues won't help", "is not here", "is locked", etc.)
+	// via CSE blocks and test opcodes.  Location-specific responses would
+	// be stored in CmdEntry but for now we use the default for all.
+	//
+	// TODO: Extract per-entity response addresses from the DATA segment
+	// (CmdEntry tables) for location-specific responses.
+	static const int kDefaultResponseAddr = 6660;
+	int scriptAddr = kDefaultResponseAddr;
 
-	// Dispatch to the appropriate entity's response script.
-	// In AngelSoft, each entity's description message (at entity.n) contains
-	// both text AND response opcodes (CSE, Ft, Ftr, Fa, Fe, JF, JU, FCall).
-	// The script tests the current verb/state and produces the appropriate
-	// response.  The original RESPOND proc 1 looks up the target entity
-	// based on the parsed command, then calls displayMsg(entity.n).
-	int scriptAddr = 0;
+	debugC(1, 0, "Angel: dispatch response addr=%d (action=%d, loc=%d, verb=%d)",
+	       scriptAddr, (int)action, _state->_location, _state->_verb);
 
-	// Object-specific commands: use the target object's script.
-	if (_state->_cur.doItToWhat > 0 && _state->_cur.doItToWhat <= _data->_nbrObjects) {
-		scriptAddr = _data->_props[_state->_cur.doItToWhat].n;
-		debugC(1, 0, "Angel: dispatch to object[%d].n=%d", _state->_cur.doItToWhat, scriptAddr);
-	}
-	// Person-specific commands: use the target person's script.
-	else if (_state->_cur.personNamed > 0 && _state->_cur.personNamed <= _data->_castSize) {
-		scriptAddr = _data->_cast[_state->_cur.personNamed].n;
-		debugC(1, 0, "Angel: dispatch to person[%d].n=%d", _state->_cur.personNamed, scriptAddr);
-	}
-
-	// Fallback: use the current location's script.
-	if (scriptAddr <= 0 && _state->_location > 0 && _state->_location <= _data->_nbrLocations) {
-		scriptAddr = _data->_map[_state->_location].n;
-		debugC(1, 0, "Angel: dispatch to location[%d].n=%d", _state->_location, scriptAddr);
-	}
-
-	if (scriptAddr > 0) {
-		_vm->displayMsg(scriptAddr);
-		forceQ();
-	}
+	_vm->displayMsg(scriptAddr);
+	forceQ();
 
 	// Post-script: handle movement if the parser indicated a direction.
 	if (action == kAMove || action == kATrip) {
@@ -862,8 +862,23 @@ void Angel::runGame() {
 	_statusWindow = glk_window_open(_mainWindow,
 		winmethod_Above | winmethod_Fixed, 1, wintype_TextGrid, 2);
 
-	// Load game data
+	// Debug: load scripted input from ANGEL_INPUT file (one command per line).
+	// If present, readLine() returns lines from this file instead of GLK input.
+	{
+		Common::File inputFile;
+		if (gDebugLevel > 1 && inputFile.open("ANGEL_INPUT")) {
+			while (!inputFile.eos()) {
+				Common::String line = inputFile.readLine();
+				if (!inputFile.eos() || !line.empty())
+					_debugInputLines.push_back(line);
+			}
+			inputFile.close();
+			warning("Angel: loaded %u debug input lines from ANGEL_INPUT",
+			        _debugInputLines.size());
+		}
+	}
 
+	// Load game data
 	if (!loadGameData()) {
 		println("Error: Could not load game data files.");
 		println("Make sure 'tables', 'vocab', and 'message' are in the game directory.");
