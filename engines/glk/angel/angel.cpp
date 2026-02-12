@@ -667,6 +667,9 @@ void Angel::runGame() {
 
 	// Execute the WELCOME event procedure from the NtgrRegisters.
 	// xReg[kXWelcome] holds the proc address for the game's intro text.
+	// baseSuppressText=true so kForceOp re-evaluates to "suppress" after
+	// each paragraph (hiding init code). kCapOp unsuppresses for each paragraph.
+	_vm->setSuppressText(true);
 	if (_state->_clock.xReg[kXWelcome].proc > 0) {
 		warning("Angel: Executing WELCOME event at proc=%d",
 		       _state->_clock.xReg[kXWelcome].proc);
@@ -675,9 +678,8 @@ void Angel::runGame() {
 		outLn();
 	}
 
-	// Ensure text stays suppressed through ENTRY (opSet does NOT enable text;
+	// Keep text suppressed through ENTRY (opSet does NOT enable text;
 	// text is enabled by kCapOp/kForceOp within message content).
-	_vm->setSuppressText(true);
 
 	// Execute the ENTRY event procedure (xReg[kXEntry]).
 	if (_state->_clock.xReg[kXEntry].proc > 0) {
@@ -691,6 +693,13 @@ void Angel::runGame() {
 	// Enable text output for room description display.
 	_vm->setSuppressText(false);
 	describeLocation();
+
+	// Fire any timer=1 timed events set during WELCOME (e.g., xReg[22]
+	// with proc=63 which displays the "central chamber" narrative text).
+	// describeLocation's msg may end with kForceOp (suppress=true), so
+	// re-enable text before firing events.
+	_vm->setSuppressText(false);
+	processTimedEvents();
 
 	// Main game loop
 	while (_state->_stillPlaying && !shouldQuit()) {

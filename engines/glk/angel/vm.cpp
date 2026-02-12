@@ -32,7 +32,7 @@ namespace Angel {
 
 VM::VM(Angel *engine, GameData *data, GameState *state)
     : _engine(engine), _data(data), _state(state), _callDepth(0),
-      _capitalizeNext(false), _suppressText(false),
+      _capitalizeNext(false), _suppressText(false), _baseSuppressText(false), _cseContentDepth(0),
       _entityFlag(false), _entityValue(0), _entityOp(0), _entityType(-1) {
 	memset(_callStack, 0, sizeof(_callStack));
 }
@@ -208,18 +208,33 @@ void VM::executeMsg() {
 			if (_callDepth > 0) {
 				_callDepth--;
 				CallFrame &frame = _callStack[_callDepth];
-				warning("Angel VM: EndSym at pos=%d base=%d depth=%d → restore base=%d pos=%d cursor=%d",
+				warning("Angel VM: EndSym at pos=%d base=%d depth=%d → restore base=%d pos=%d cursor=%d suppress=%d",
 				        _state->_msgPos, _state->_msgBase, _callDepth + 1,
-				        frame.base, frame.pos, frame.cursor);
+				        frame.base, frame.pos, frame.cursor, frame.suppressText ? 1 : 0);
 				_state->_msgBase = frame.base;
 				_state->_msgPos = frame.pos;
 				_state->_msgCursor = frame.cursor;
 				_state->_msgLength = frame.length;
+				_suppressText = frame.suppressText;
 				_state->_vmCurRecord = _data->readChunk(
 					_state->_msgBase + (_state->_msgPos / kChunkSize));
-			} else {
-				warning("Angel VM: EndSym at pos=%d base=%d depth=0 → EOM", _state->_msgPos, _state->_msgBase);
+			} else if (_cseContentDepth > 0) {
+				// Inside CSE case content — EndSym terminates this case's content.
+				// executeCase's while loop will handle position management.
+				warning("Angel VM: EndSym in CSE content at pos=%d base=%d cseDepth=%d → EOM",
+				        _state->_msgPos, _state->_msgBase, _cseContentDepth);
 				_state->_eom = true;
+			} else if (_state->_msgPos >= _state->_msgLength + 2) {
+				// True end of message — position is at or past the content boundary
+				warning("Angel VM: EndSym at pos=%d base=%d depth=0 → EOM (len+2=%d)",
+				        _state->_msgPos, _state->_msgBase, _state->_msgLength + 2);
+				_state->_eom = true;
+			} else {
+				// Section break within message — EndSym within content bounds
+				// is a paragraph/section separator, not a message terminator.
+				// Continue processing the next section without state changes.
+				warning("Angel VM: EndSym section break at pos=%d base=%d (len+2=%d)",
+				        _state->_msgPos, _state->_msgBase, _state->_msgLength + 2);
 			}
 			break;
 
@@ -313,9 +328,10 @@ void VM::executeMsg() {
 					// Comparison tests read two inline values (proc 58 pattern)
 					auto readCompValue = [this]() -> int {
 						int temp = getNumber();
-						if (temp == 0)
+						if (temp == 0) {
 							return getNip();
-						return 0;  // non-zero getNumber: side-effects global, returns 0
+						}
+						return getEntityFieldValue(temp);
 					};
 					int val1 = readCompValue();
 					int val2 = readCompValue();
@@ -401,17 +417,21 @@ void VM::executeMsg() {
 			break;
 
 		case kFCall:
-			// Procedure call
+			// Procedure call — called message inherits current suppress state.
+			// The p-code treats FCall as a subroutine call within the same
+			// execution context: suppress is NOT cleared, so text suppression
+			// (e.g., from kForceOp during WELCOME) carries into the called msg.
 			{
 				int addr = getNumber();
-				warning("Angel VM: FCall addr=%d depth=%d returnBase=%d returnPos=%d",
-				        addr, _callDepth, _state->_msgBase, _state->_msgPos);
+				warning("Angel VM: FCall addr=%d depth=%d returnBase=%d returnPos=%d suppress=%d",
+				        addr, _callDepth, _state->_msgBase, _state->_msgPos, _suppressText ? 1 : 0);
 				if (_callDepth < kMaxCallDepth) {
 					CallFrame &frame = _callStack[_callDepth++];
 					frame.base = _state->_msgBase;
 					frame.pos = _state->_msgPos;
 					frame.cursor = _state->_msgCursor;
 					frame.length = _state->_msgLength;
+					frame.suppressText = _suppressText;
 					openMsg(addr, "FCall");
 				} else {
 					warning("Angel VM: Call stack overflow");
@@ -548,11 +568,13 @@ void VM::executeCase() {
 			// We do NOT push a CallFrame here. Instead we call executeMsg()
 			// repeatedly until all `skip` nips of content are consumed.
 			int safety = 0;
+			_cseContentDepth++;
 			while (_state->_msgPos < contentEndPos && _state->_stillPlaying && safety < 200) {
 				_state->_eom = false;
 				executeMsg();
 				safety++;
 			}
+			_cseContentDepth--;
 
 			// After content, skip remaining CSE entries by jumping to endPos
 			if (_state->_msgPos < endPos) {
@@ -817,20 +839,26 @@ void VM::executeFe(Operation op, int ref) {
 	case kForceOp:
 		// Force output flush + paragraph break.
 		// P-code: CXG 18,9 (text flag eval) + CXG 18,7 + CXG 18,8 + CXG 18,18(0).
-		// CXG 18,9 evaluates text state; after a paragraph break, text is
-		// suppressed until the next kCapOp re-enables it. This prevents
-		// stray nips between opcodes from leaking as visible text.
+		// CXG 18,9 re-evaluates the text flag (seg[20].global[5]).
+		// During WELCOME bracket (baseSuppressText=true), this re-suppresses text
+		// to hide init code after the paragraph. During ENTRY (baseSuppressText=false),
+		// text remains visible for the next section.
 		_engine->forceOutput();
 		_engine->outLn();
-		_capitalizeNext = true;  // Auto-capitalize after paragraph break
-		_suppressText = true;
-		debugC(kDebugScripts, "Angel VM: Fe kForceOp → flush output, suppress until next kCapOp");
+		_capitalizeNext = true;
+		_suppressText = _baseSuppressText;  // Re-evaluate text flag (CXG 18,9)
+		debugC(kDebugScripts, "Angel VM: Fe kForceOp → flush + newline, capitalize, suppress=%d (base)", _baseSuppressText);
 		break;
 
 	case kSpkOp:
-		// Like kForceOp but without the newline
-		_capitalizeNext = false;
-		debugC(kDebugScripts, "Angel VM: Fe kSpkOp ref=%d", ref);
+		// Like kForceOp but without the newline (no CXG 18,8).
+		// P-code: CXG 18,9 (text flag eval) + CXG 18,7 (flush) + CXG 18,18(0).
+		// Flushes output and capitalizes the next character. Used as a
+		// section separator before EndSym within multi-section messages
+		// (e.g., "...the legends say: [EndSym] He who holds...").
+		_engine->forceOutput();
+		_capitalizeNext = true;
+		debugC(kDebugScripts, "Angel VM: Fe kSpkOp ref=%d → flush output, capitalize next", ref);
 		break;
 
 	case kDscOp:
@@ -2067,6 +2095,64 @@ void VM::resolveEntity(int op) {
 
 	warning("Angel VM: resolveEntity op=%d → flag=%d value=%d type=%d",
 	        op, _entityFlag ? 1 : 0, _entityValue, _entityType);
+}
+
+int VM::getEntityFieldValue(int address) {
+	// UCSD Pascal data-segment address layout:
+	// Each entity array has a base address and fixed record size (in words).
+	// address = BASE + (entityIndex - 1) * recordSize + fieldOffset
+	//
+	// Place record: 31 words (BASE_MAP = 296)
+	//   0:n  1:shortDscr  2-7:nextPlace[0..5]  8-13:traffic[0..5]
+	//   14:curb  15:accessLock  16:mustHave  17:fogPath
+	//   18-19:people(2w)  20-23:objects(4w)  24:view
+	//   25:useThe  26:foggy  27:itsADoor  28:itsOpen  29:itsLocked  30:unseen
+
+	static const int BASE_MAP = 296;
+	static const int RSIZE_PLACE = 31;
+	int mapEnd = BASE_MAP + _data->_nbrLocations * RSIZE_PLACE;
+
+	if (address >= BASE_MAP && address < mapEnd) {
+		int rel = address - BASE_MAP;
+		int idx = rel / RSIZE_PLACE + 1;  // 1-based entity index
+		int fld = rel % RSIZE_PLACE;
+
+		if (idx < 1 || idx > _data->_nbrLocations) {
+			warning("Angel VM: getEntityFieldValue: Place[%d] out of range", idx);
+			return 0;
+		}
+
+		const Place &p = _data->_map[idx];
+		switch (fld) {
+		case 0:  return p.n;
+		case 1:  return p.shortDscr;
+		case 2: case 3: case 4: case 5: case 6: case 7:
+			return p.nextPlace[fld - 2];
+		case 8: case 9: case 10: case 11: case 12: case 13:
+			return p.traffic[fld - 8] ? 1 : 0;
+		case 14: return 0;  // curb (DirSet) — TODO
+		case 15: return p.accessLock;
+		case 16: return p.mustHave;
+		case 17: return p.fogPath;
+		case 18: case 19: return 0;  // people (PersonSet) — TODO
+		case 20: case 21: case 22: case 23: return 0;  // objects (ObjSet) — TODO
+		case 24: return (int)p.view;
+		case 25: return p.useThe ? 1 : 0;
+		case 26: return p.foggy ? 1 : 0;
+		case 27: return p.itsADoor ? 1 : 0;
+		case 28: return p.itsOpen ? 1 : 0;
+		case 29: return p.itsLocked ? 1 : 0;
+		case 30: return p.unseen ? 1 : 0;
+		default:
+			warning("Angel VM: getEntityFieldValue: Place field %d unknown", fld);
+			return 0;
+		}
+	}
+
+	// TODO: Object, Person, Vehicle entity ranges
+	warning("Angel VM: getEntityFieldValue: address %d not in known range (mapRange=%d-%d)",
+	        address, BASE_MAP, mapEnd - 1);
+	return 0;
 }
 
 } // End of namespace Angel

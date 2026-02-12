@@ -73,7 +73,7 @@ public:
 	 */
 	void displayMsg(int addr);
 
-	void setSuppressText(bool suppress) { _suppressText = suppress; }
+	void setSuppressText(bool suppress) { _suppressText = suppress; _baseSuppressText = suppress; }
 
 	/** Get the next decoded character from the message stream */
 	char getAChar();
@@ -101,13 +101,16 @@ private:
 		int pos;
 		int cursor;
 		int length;
+		bool suppressText;
 	};
 	static const int kMaxCallDepth = 32;
 	CallFrame _callStack[kMaxCallDepth];
 	int _callDepth;
 
 	bool _capitalizeNext;    // Set by kCapOp via kFe, capitalizes next text char
-	bool _suppressText;      // Text output suppression (set during init opcodes)
+	bool _suppressText;      // Text output suppression (active state)
+	bool _baseSuppressText;  // Base suppress level set by angel.cpp (CXG 18,9 re-eval)
+	int _cseContentDepth;    // >0 when inside CSE case content (EndSym = case end)
 
 	// Entity context — set by resolveEntity() (NAT_F0 35 / proc 35 equivalent).
 	// The kFtr/kFar handlers read a ref nip (getNip()+135), then call
@@ -274,6 +277,13 @@ private:
 
 	/** Resolve entity context (proc 35 equivalent) for kFtr/kFar ref operations */
 	void resolveEntity(int op);
+
+	/**
+	 * Resolve a UCSD Pascal data-segment address to an entity field value.
+	 * Used by readCompValue in kFt comparison handlers.
+	 * The address encodes BASE + (entityIndex-1)*recordSize + fieldOffset.
+	 */
+	int getEntityFieldValue(int address);
 };
 
 } // End of namespace Angel
