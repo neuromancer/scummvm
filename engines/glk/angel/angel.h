@@ -93,6 +93,11 @@ public:
 	/** Close off the current line and start a new one */
 	void outLn();
 
+	/** Handle EndSym section break — produces blank line if text was flushed
+	 *  but no blank line was already emitted (matches original behavior where
+	 *  kSpkOp+EndSym produces a blank line, but kForceOp+EndSym doesn't double). */
+	void sectionBreak();
+
 	/**
 	 * Output a single character through the PutChar state machine.
 	 *
@@ -155,6 +160,16 @@ private:
 	 *   7: After colon — digits pass through, else space + capitalize
 	 */
 	int _putCharState;
+
+	/** True if any visible characters have been output on the current line.
+	 *  ForceQ only outputs a newline when this is true (matching original). */
+	bool _lineDirty;
+
+	/** True when visible text has been output since the last blank line.
+	 *  Used by section separators in describeLocation to produce exactly
+	 *  one blank line between sections (matching original's CPG 28 pattern).
+	 *  Set by rawPutChar; cleared by outLn. */
+	bool _needsSeparator;
 
 	/** Output a character directly to the GLK window (CPG 36 equivalent) */
 	void rawPutChar(char ch);

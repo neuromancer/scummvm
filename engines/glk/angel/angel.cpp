@@ -40,7 +40,9 @@ Angel::Angel(OSystem *syst, const GlkGameDescription &gameDesc)
 	  _data(nullptr), _state(nullptr), _parser(nullptr),
 	  _vm(nullptr), _utils(nullptr),
 	  _mainWindow(nullptr), _statusWindow(nullptr),
-	  _putCharState(3) {  // Start in state 3 (capitalize first letter)
+	  _putCharState(3),   // Start in state 3 (capitalize first letter)
+	  _lineDirty(false),
+	  _needsSeparator(false) {
 }
 
 Angel::~Angel() {
@@ -199,16 +201,55 @@ Common::String Angel::readLine() {
 }
 
 void Angel::forceQ() {
-	// Flush output queue to screen
+	// Matches IOHANDLER proc 7 (CXG 18,7).
+	// Original: "if there is any text in the current line, force the queue
+	// out to the screen."  ForceQ also adjusts PutChar state (at 0x04D9).
+
+	// Flush legacy queue (from print-based output).
 	if (_state->_q > 0) {
 		Common::String queued(_state->_msgQ, _state->_q);
 		print(queued);
 		_state->_q = 0;
 	}
+
+	// End the current line only if there's visible content on it.
+	// This matches the original where ForceQ appends CRChar to the queue
+	// before flushing, but only when Q > 0.
+	if (_lineDirty) {
+		print("\n");
+		_lineDirty = false;
+	}
+
+	// Adjust PutChar state (proc 7, 0x04D9-0x04F8):
+	//   state == 3 → keep 3
+	//   state in {5, 6} → set 3
+	//   else → set 1
+	if (_putCharState != 3) {
+		if (_putCharState == 5 || _putCharState == 6) {
+			_putCharState = 3;
+		} else {
+			_putCharState = 1;
+		}
+	}
 }
 
 void Angel::outLn() {
 	print("\n");
+	_needsSeparator = false;  // Blank line produced — no more separator needed
+}
+
+void Angel::sectionBreak() {
+	// EndSym section break within a message. Produces a blank line only when:
+	//   1. The current line has been flushed (_lineDirty == false), meaning
+	//      the cursor is at the start of a new line (e.g., after endSpeak/kSpkOp).
+	//   2. Visible text was output since the last blank line (_needsSeparator == true).
+	// This matches the original behavior:
+	//   - kSpkOp + EndSym → endSpeak flushes line, then EndSym adds blank line.
+	//   - kForceOp + EndSym → kForceOp's outLn clears _needsSeparator, EndSym is no-op.
+	//   - mid-word EndSym (e.g., "E"[EndSym]"arth's") → _lineDirty is true, no blank line.
+	if (_needsSeparator && !_lineDirty) {
+		outLn();
+	}
 }
 
 void Angel::rawPutChar(char ch) {
@@ -217,6 +258,8 @@ void Angel::rawPutChar(char ch) {
 		glk_set_window(_mainWindow);
 		char buf[2] = { ch, '\0' };
 		glk_put_string(buf);
+		_lineDirty = true;
+		_needsSeparator = true;  // Visible text → separator needed before next section
 	}
 }
 
@@ -482,14 +525,19 @@ void Angel::describeLocation() {
 		return;
 	}
 
-	// Display the location description via VM
+	// Display the location description via VM.
+	// Messages handle their own paragraph breaks via kForceOp.
+	// We just forceQ after to end any remaining text on the line.
+	// Section separators (outLn) match original's CPG 28 pattern in proc 27:
+	// each display section is preceded by a blank-line separator (if needed).
 	if (here.n > 0) {
+		if (_needsSeparator)
+			outLn();
 		_vm->displayMsg(here.n);
 		forceQ();
-		outLn();
 	}
 
-	// List visible objects
+	// List visible objects — separator before first object (matches CPG 28 at 0x1063)
 	warning("Angel describeLocation: checking %d objects at loc %d", _data->_nbrObjects, _state->_location);
 	const ObjSet &objs = here.objects;
 	for (int obj = 1; obj <= _data->_nbrObjects; obj++) {
@@ -497,15 +545,16 @@ void Angel::describeLocation() {
 			warning("Angel describeLocation: obj %d at loc, unseen=%d n=%d", obj, _data->_props[obj].unseen ? 1 : 0, _data->_props[obj].n);
 			if (!_data->_props[obj].unseen) {
 				if (_data->_props[obj].n > 0) {
+					if (_needsSeparator)
+						outLn();
 					_vm->displayMsg(_data->_props[obj].n);
 					forceQ();
-					outLn();
 				}
 			}
 		}
 	}
 
-	// List visible people
+	// List visible people — separator before first person (matches CPG 28 at 0x10E3)
 	warning("Angel describeLocation: checking %d people at loc %d", _data->_castSize, _state->_location);
 	const PersonSet &people = here.people;
 	for (int p = 1; p <= _data->_castSize; p++) {
@@ -513,9 +562,10 @@ void Angel::describeLocation() {
 			warning("Angel describeLocation: person %d at loc, unseen=%d n=%d located=%d", p, _data->_cast[p].unseen ? 1 : 0, _data->_cast[p].n, _data->_cast[p].located);
 			if (!_data->_cast[p].unseen && _data->_cast[p].located == _state->_location) {
 				if (_data->_cast[p].n > 0) {
+					if (_needsSeparator)
+						outLn();
 					_vm->displayMsg(_data->_cast[p].n);
 					forceQ();
-					outLn();
 				}
 			}
 		}
@@ -858,8 +908,9 @@ void Angel::runGame() {
 		warning("Angel: Executing WELCOME event at proc=%d",
 		       _state->_clock.xReg[kXWelcome].proc);
 		_vm->displayMsg(_state->_clock.xReg[kXWelcome].proc);
+		// The WELCOME message ends with kForceOp which handles its own
+		// paragraph break (EndSpeak + outLn). Just flush any remnants.
 		forceQ();
-		outLn();
 	}
 
 	// Suppress text for ENTRY — ENTRY's content should not be displayed.
@@ -871,7 +922,6 @@ void Angel::runGame() {
 		       _state->_clock.xReg[kXEntry].proc);
 		_vm->displayMsg(_state->_clock.xReg[kXEntry].proc);
 		forceQ();
-		outLn();
 	}
 
 	// Enable text output for room description display.

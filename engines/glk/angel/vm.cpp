@@ -67,33 +67,16 @@ int VM::getNip() {
 	if (_state->_eom)
 		return 0;
 
-	int pos = _state->_msgPos;
 	int nip = _state->_vmCurRecord.getNip(_state->_msgCursor);
 	bumpMsg();
 	return nip;
 }
 
 char VM::getAChar() {
-	int pos = _state->_msgPos;
 	int nip = getNip();
 	if (_state->_eom)
 		return kEndSym;
-	char ch = _data->_yTable[nip];
-	// Verbose tracing for key messages
-	if (_state->_msgBase == 4098 && pos >= 92) {
-		warning("Angel VM: getAChar pos=%d nip=%d char=%d '%c'",
-			pos, nip, (int)ch, (ch >= 32 && ch < 127) ? ch : '?');
-	}
-	// Temporary: dump all nips in location desc around exit boundary
-	if (_state->_msgBase == 4265 && pos >= 380 && pos <= 420) {
-		warning("Angel VM: DUMP base=4265 pos=%d nip=%d ch='%c'(%d)",
-			pos, nip, (ch >= 32 && ch < 127) ? ch : '?', (int)(unsigned char)ch);
-	}
-	if (_state->_msgBase < 200) {
-		warning("Angel VM: getAChar base=%d pos=%d nip=%d char=%d '%c'",
-			_state->_msgBase, pos, nip, (int)ch, (ch >= 32 && ch < 127) ? ch : '?');
-	}
-	return ch;
+	return _data->_yTable[nip];
 }
 
 int VM::getNumber() {
@@ -206,9 +189,10 @@ void VM::executeMsg() {
 			} else {
 				// Section break within message — EndSym within content bounds
 				// is a paragraph/section separator, not a message terminator.
-				// Continue processing the next section without state changes.
-				warning("Angel VM: EndSym section break at pos=%d base=%d (len+2=%d)",
-				        _state->_msgPos, _state->_msgBase, _state->_msgLength + 2);
+				// In the original VM, section breaks after a line flush
+				// (after kSpkOp's endSpeak) produce a blank line separator.
+				// Mid-text section breaks (e.g., "E"[EndSym]"arth's") are transparent.
+				_engine->sectionBreak();
 			}
 			break;
 
