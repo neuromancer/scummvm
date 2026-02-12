@@ -151,6 +151,8 @@ void Angel::initGame() {
 	_utils = new Utilities(this, _data, _state);
 
 	_state->_stillPlaying = true;
+
+	debugC(1, 0, "Angel: robotAddr=%d (tables), location=%d", _state->_robotAddr, _state->_location);
 }
 
 // ============================================================
@@ -629,108 +631,61 @@ void Angel::runLocationScripts() {
 }
 
 void Angel::dispatchCommand(ThingToDo action) {
-	switch (action) {
-	case kGiveUp:
+	// Engine-level commands handled directly (not by the game script).
+	if (action == kGiveUp) {
 		println("Are you sure you want to quit? (Y/N)");
-		{
-			Common::String answer = readLine();
-			if (!answer.empty() && (answer[0] == 'Y' || answer[0] == 'y'))
-				_state->_stillPlaying = false;
-		}
-		break;
-
-	case kSaveGame:
+		Common::String answer = readLine();
+		if (!answer.empty() && (answer[0] == 'Y' || answer[0] == 'y'))
+			_state->_stillPlaying = false;
+		return;
+	}
+	if (action == kSaveGame) {
 		println("Save/restore is handled through the ScummVM menu.");
-		break;
+		return;
+	}
+	if (action == kNothing) {
+		debugC(1, 0, "Angel: unrecognized command, no dispatch");
+		return;
+	}
 
-	case kAMove:
-	case kATrip: {
+	// Dispatch to the appropriate entity's response script.
+	// In AngelSoft, each entity's description message (at entity.n) contains
+	// both text AND response opcodes (CSE, Ft, Ftr, Fa, Fe, JF, JU, FCall).
+	// The script tests the current verb/state and produces the appropriate
+	// response.  The original RESPOND proc 1 looks up the target entity
+	// based on the parsed command, then calls displayMsg(entity.n).
+	int scriptAddr = 0;
+
+	// Object-specific commands: use the target object's script.
+	if (_state->_cur.doItToWhat > 0 && _state->_cur.doItToWhat <= _data->_nbrObjects) {
+		scriptAddr = _data->_props[_state->_cur.doItToWhat].n;
+		debugC(1, 0, "Angel: dispatch to object[%d].n=%d", _state->_cur.doItToWhat, scriptAddr);
+	}
+	// Person-specific commands: use the target person's script.
+	else if (_state->_cur.personNamed > 0 && _state->_cur.personNamed <= _data->_castSize) {
+		scriptAddr = _data->_cast[_state->_cur.personNamed].n;
+		debugC(1, 0, "Angel: dispatch to person[%d].n=%d", _state->_cur.personNamed, scriptAddr);
+	}
+
+	// Fallback: use the current location's script.
+	if (scriptAddr <= 0 && _state->_location > 0 && _state->_location <= _data->_nbrLocations) {
+		scriptAddr = _data->_map[_state->_location].n;
+		debugC(1, 0, "Angel: dispatch to location[%d].n=%d", _state->_location, scriptAddr);
+	}
+
+	if (scriptAddr > 0) {
+		_vm->displayMsg(scriptAddr);
+		forceQ();
+	}
+
+	// Post-script: handle movement if the parser indicated a direction.
+	if (action == kAMove || action == kATrip) {
 		int dest = _state->_cur.whereTo;
-		if (dest <= 0 || dest > _data->_nbrLocations) {
-			println("You can't go that way.");
-		} else {
+		if (dest > 0 && dest <= _data->_nbrLocations) {
 			_utils->changeLocation(dest);
 			outLn();
 			describeLocation();
 		}
-		break;
-	}
-
-	case kAnAction:
-		// Dispatch to appropriate action script via VM
-		if (_state->_verb > 0 && _state->_verb <= _data->_nbrVWords) {
-			const VECore &ve = _data->_vocab[_state->_verb].ve;
-			if (ve.ref > 0) {
-				_vm->displayMsg(ve.ref);
-				forceQ();
-			} else {
-				println("Nothing happens.");
-			}
-		} else {
-			println("I don't understand that action.");
-		}
-		break;
-
-	case kAQuery:
-		println("I don't know the answer to that.");
-		break;
-
-	case kAnOffer:
-		println("Nobody seems interested in trading right now.");
-		break;
-
-	case kANod:
-		if (_state->_cur.personNamed > 0) {
-			println("Hello.");
-		} else {
-			println("Talking to yourself?");
-		}
-		break;
-
-	case kInventory: {
-		bool hasAny = false;
-		for (int obj = 1; obj <= _data->_nbrObjects; obj++) {
-			if (_state->_possessions.has(obj)) {
-				if (!hasAny) {
-					println("You are carrying:");
-					hasAny = true;
-				}
-				if (_data->_props[obj].oName > 0) {
-					// Extract and print the object name
-					Common::String name = _parser->getWordName(_data->_props[obj].oName);
-					if (!name.empty()) {
-						print("  ");
-						println(name);
-					}
-				}
-			}
-		}
-		if (!hasAny)
-			println("You are empty-handed.");
-		break;
-	}
-
-	case kATour:
-		println("The tour continues...");
-		break;
-
-	case kARubout:
-		_state->_nbrOffenses++;
-		if (_state->_nbrOffenses >= 3) {
-			println("Your language has offended me deeply. Goodbye.");
-			_state->_stillPlaying = false;
-		} else {
-			println("Please watch your language.");
-		}
-		break;
-
-	case kNothing:
-		println("I don't understand. Try rephrasing that.");
-		break;
-
-	default:
-		println("I'm not sure what you mean.");
-		break;
 	}
 }
 
