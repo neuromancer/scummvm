@@ -658,10 +658,30 @@ void Angel::dispatchCommand(ThingToDo action) {
 	if (action == kAMove || action == kATrip) {
 		int dest = _state->_cur.whereTo;
 		if (dest > kNowhere && dest <= _data->_nbrLocations) {
-			debugC(1, 0, "Angel: move to location %d", dest);
-			_utils->changeLocation(dest);
-			outLn();
-			describeLocation();
+			debugC(1, 0, "Angel: move from loc %d to loc %d", _state->_location, dest);
+
+			// Set target so kTargOp returns the destination.
+			_state->_placeNamed = dest;
+
+			// Dispatch the MOVE event BEFORE changing location.
+			// The script checks current location (kLocOp) vs target (kTargOp)
+			// to handle traps, special events, etc. It may end the game
+			// (e.g. south trapdoor) or redirect movement.
+			int moveProc = _state->_clock.xReg[kXMove].proc;
+			if (moveProc > 0) {
+				debugC(1, 0, "Angel: MOVE event proc=%d at loc=%d target=%d",
+				       moveProc, _state->_location, dest);
+				_vm->setSuppressText(false);
+				_vm->displayMsg(moveProc);
+				forceQ();
+			}
+
+			// Actually move (if the event didn't end the game).
+			if (_state->_stillPlaying) {
+				_utils->changeLocation(dest);
+				outLn();
+				describeLocation();
+			}
 		} else {
 			// Dead end — dispatch location script for "you can't go that way".
 			int scriptAddr = _data->_map[_state->_location].n;
