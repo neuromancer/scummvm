@@ -359,21 +359,6 @@ void Area::draw(Freescape::Renderer *gfx, uint32 animationTicks, Math::Vector3d 
 					result == 0x0A || result == 0x22 || result == 0x28 || result == 0x2A)
 					keepOrder = true; // A before B
 
-				if (result == 0) {
-					bool aInFront = minA.z() < 0;
-					bool bInFront = minB.z() < 0;
-					// if signs differ that means one object is positive in the z axis i.e. not visible in the camera
-					if (aInFront != bInFront) {
-						// one is visible, one is behind us.
-						// we want the one behind the camera (positive Z) to be drawn first
-						// so the visible object draws on top of it
-						// the one with the larger Z (positive) should come first
-						if (minA.z() > minB.z()) {
-							keepOrder = true;
-						}
-					}
-				}
-
 				if (!keepOrder) {
 					// Swap objects (L9d2c_flip_objects_loop)
 					_sortedObjects[j] = b;
