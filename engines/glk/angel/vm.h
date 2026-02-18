@@ -120,6 +120,11 @@ private:
 	bool _respondMode;       // In respond mode: kRoleOp skips description → response section
 	int _cseContentDepth;    // >0 when inside CSE case content (EndSym = case end)
 
+	// Comparison field address — P-code RESPOND global[8].
+	// Set by proc 58 (readCompValue) when getNumber() != 0: stores (value+1).
+	// Used as a side-effect address reference for entity field comparisons.
+	int _compFieldAddr;
+
 	// Entity context — set by resolveEntity() (NAT_F0 35 / proc 35 equivalent).
 	// The kFtr/kFar handlers read a ref nip (getNip()+135), then call
 	// resolveEntity() which sets these variables based on the ref operation.

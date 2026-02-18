@@ -34,6 +34,7 @@ VM::VM(Angel *engine, GameData *data, GameState *state)
     : _engine(engine), _data(data), _state(state), _callDepth(0),
       _capitalizeNext(false), _suppressText(false), _baseSuppressText(false),
       _descriptionOnly(false), _respondMode(false), _cseContentDepth(0),
+      _compFieldAddr(0),
       _entityFlag(false), _entityValue(0), _entityOp(0), _entityType(-1) {
 	memset(_callStack, 0, sizeof(_callStack));
 }
@@ -358,6 +359,9 @@ void VM::executeMsg() {
 				int opVal = opNip + kTestOpcodeBase;
 				if (opVal == kLessOp || opVal == kEqOp || opVal == kLEqOp) {
 					// Comparison tests read two inline values (proc 58 pattern)
+					// P-code proc 58: calls getNumber(). If 0, reads getNip() literal.
+					// If non-zero, stores (value+1) in global[8] via SRO 8 and
+					// returns 0 — does NOT resolve the address to a field value.
 					auto readCompValue = [this]() -> int {
 						int temp = getNumber();
 						if (temp == 0) {
@@ -365,11 +369,12 @@ void VM::executeMsg() {
 							debugC(kDebugScripts, "Angel VM: readCompValue: literal getNip=%d", lit);
 							return lit;
 						}
-						// P-code proc 58 does INCR before SRO g[8], so addr = temp+1
-						int resolved = getEntityFieldValue(temp + 1);
-						debugC(kDebugScripts, "Angel VM: readCompValue: getNumber=%d addr=%d resolved=%d",
-						        temp, temp + 1, resolved);
-						return resolved;
+						// P-code proc 58: SRO 8 stores (temp+1) in global[8],
+						// then returns 0 as the comparison value.
+						_compFieldAddr = temp + 1;
+						debugC(kDebugScripts, "Angel VM: readCompValue: addr ref getNumber=%d, stored _compFieldAddr=%d, returning 0",
+						        temp, _compFieldAddr);
+						return 0;
 					};
 					int val1 = readCompValue();
 					int val2 = readCompValue();
@@ -592,7 +597,13 @@ void VM::executeCase() {
 	//   Epilogue (L_332d): 2×CXG 18,12 consume skip nips, NAT_F0 66 executes content.
 	//   Unmatched: skip=getNumber, CXG 18,16(skip) jumps past content (1-based).
 
+	// P-code proc 103 at 0x3148: XJP dispatches on case 0..3 only.
+	// Values outside that range indicate stream misalignment.
 	int caseType = getNip();
+	if (caseType < 0 || caseType > kRefCase) {
+		warning("Angel VM: executeCase: invalid caseType %d (expected 0-3), stream misaligned", caseType);
+		return;
+	}
 	KindOfCase kind = (KindOfCase)caseType;
 
 	// RefCase: matchRef = getNip + 135 (proc 103 at L_31BF: NAT_F0 32(0,135))
