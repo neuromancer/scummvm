@@ -351,26 +351,42 @@ bool GameData::loadTables(Common::SeekableReadStream *stream) {
 			//   35:    unseen (boolean)
 			if (objIdx < kMaxNbrObjects + 1) {
 				Object &obj = _props[objIdx];
-				// Contents: 8 bytes as 2 x 32-bit words (big-endian)
+				// Object is a PACKED RECORD. Fields are bit-packed into words:
+				//   w1-w4  (off+2):  Contents ObjSet (64 bits, 4 words)
+				//   w5     (off+10): n Natural (full word)
+				//   w6     (off+12): OName(9 bits) + Size(4 bits) + 3 unused
+				//   w7     (off+14): Value(4 bits) + 12 unused
+				//   w8-w11 (off+16): Properties SET OF OProp (64 bits, 4 words)
+				//   w12    (off+24): State(4) + InOrOn(6) + KindOfThing(3) +
+				//                    UseThe(1) + LitUp(1) + ItsOpen(1)
+				//   w13    (off+26): ItsLocked(1) + Unseen(1) + padding
 				obj.contents.setWord(0, (uint32)RW(off + 2) << 16 | RW(off + 4));
 				obj.contents.setWord(1, (uint32)RW(off + 6) << 16 | RW(off + 8));
 				obj.n = (int)RW(off + 10);
-				obj.oName = (int)RW(off + 12) - 1;  // VWordIndex: 1-based in file → 0-based
-				obj.size = (int)RW(off + 14);
-				obj.value = (int)RW(off + 16);
-				// Properties: 8 bytes as 2 x 32-bit words (big-endian)
-				obj.properties.setWord(0, (uint32)RW(off + 18) << 16 | RW(off + 20));
-				obj.properties.setWord(1, (uint32)RW(off + 22) << 16 | RW(off + 24));
-				obj.state = (int)RW(off + 26);
-				obj.inOrOn = (int)RW(off + 28);
-				obj.kindOfThing = (ObjType)buf[off + 30];
-				obj.useThe = (buf[off + 31] != 0);
-				obj.litUp = (buf[off + 32] != 0);
-				obj.itsOpen = (buf[off + 33] != 0);
-				obj.itsLocked = (buf[off + 34] != 0);
-				obj.unseen = (buf[off + 35] != 0);
-				debugC(2, kDebugScripts, "Angel: Object[%d]: n=%d oName=%d size=%d val=%d state=%d kind=%d",
-				       objIdx, obj.n, obj.oName, obj.size, obj.value, obj.state, obj.kindOfThing);
+
+				uint16 w6 = RW(off + 12);
+				obj.oName = (int)(w6 & 0x1FF) - 1;  // 9-bit VWordIndex, 1-based → 0-based
+				obj.size = (int)((w6 >> 9) & 0xF);
+
+				obj.value = (int)(RW(off + 14) & 0xF);
+
+				obj.properties.setWord(0, (uint32)RW(off + 16) << 16 | RW(off + 18));
+				obj.properties.setWord(1, (uint32)RW(off + 20) << 16 | RW(off + 22));
+
+				uint16 w12 = RW(off + 24);
+				obj.state = (int)(w12 & 0xF);
+				obj.inOrOn = (int)((w12 >> 4) & 0x3F);
+				obj.kindOfThing = (ObjType)((w12 >> 10) & 0x7);
+				obj.useThe = ((w12 >> 13) & 1) != 0;
+				obj.litUp = ((w12 >> 14) & 1) != 0;
+				obj.itsOpen = ((w12 >> 15) & 1) != 0;
+
+				uint16 w13 = RW(off + 26);
+				obj.itsLocked = (w13 & 1) != 0;
+				obj.unseen = ((w13 >> 1) & 1) != 0;
+
+				debugC(2, kDebugScripts, "Angel: Object[%d]: n=%d oName=%d size=%d val=%d state=%d kind=%d useThe=%d",
+				       objIdx, obj.n, obj.oName, obj.size, obj.value, obj.state, obj.kindOfThing, obj.useThe);
 			}
 			objIdx++;
 			break;
@@ -552,12 +568,38 @@ bool GameData::loadVocab(Common::SeekableReadStream *stream) {
 		ve.ve.display = (DsplType)((b23 >> 6) & 0x3);
 		ve.ve.vType = (KindOfWord)(b22 & 0x0F);
 
-		// Ref field depends on vType: small-range types use byte22 upper bits,
-		// larger-range types use byte25
-		if (ve.ve.vType == kADirection || ve.ve.vType == kADay) {
+		// VECore is a PACKED RECORD with a variant field after VType.
+		// VType ends at bit 11 of word 0, leaving 4 bits (12-15).
+		// Small variants (≤4 bits) are packed in word 0 upper bits.
+		// Large variants (>4 bits) start at bit 0 of word 1.
+		uint16 word1_be = (b24 << 8) | b25;
+		switch (ve.ve.vType) {
+		case kAnObject:     // ObjRef 1..63 → 6 bits in word 1
+			ve.ve.ref = word1_be & 0x3F;
+			break;
+		case kAPerson:      // PersonRef 1..31 → 5 bits in word 1
+			ve.ve.ref = word1_be & 0x1F;
+			break;
+		case kALocation:    // LocRef 1..119 → 7 bits in word 1
+		case kABuilding:    // Also LocRef
+			ve.ve.ref = word1_be & 0x7F;
+			break;
+		case kAVehicle:     // VehicleRef 1..15 → 4 bits in word 0 upper
+			ve.ve.ref = (b22 >> 4) & 0xF;
+			break;
+		case kADirection:   // MotionSpec 0..5 → 3 bits in word 0 upper
+		case kADay:         // DayOfWeek 0..6 → 3 bits in word 0 upper
 			ve.ve.ref = (b22 >> 4) & 0x7;
-		} else {
-			ve.ve.ref = b25;
+			break;
+		case kAVerb:        // OProp 0..63 → 6 bits in word 1
+			ve.ve.ref = word1_be & 0x3F;
+			break;
+		case kAnOther:      // OtherCount 1..119 → 7 bits in word 1
+			ve.ve.ref = word1_be & 0x7F;
+			break;
+		default:            // APronoun, APreposition: no variant data
+			ve.ve.ref = 0;
+			break;
 		}
 
 		debugC(2, kDebugScripts, "Angel: vocab[%d] = '%s' type=%d code=%d ref=%d",

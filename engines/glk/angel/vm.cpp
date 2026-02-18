@@ -497,6 +497,11 @@ void VM::executeMsg() {
 						ref = getRefValue((Operation)refOp);
 					else
 						warning("Angel VM: Fer ref out of range nip=%d refOp=%d", refNip, refOp);
+				} else {
+					// For kInvOp, proc 101 doesn't resolve a ref — proc 102
+					// reads the next nip as the inventory set type. Since our
+					// kFer handler already consumed it as refNip, pass it through.
+					ref = refNip;
 				}
 				debugC(kDebugScripts, "Angel VM: kFer opNip=%d op=%d refNip=%d refOp=%d ref=%d",
 				        opNip, opVal, refNip, refOp, ref);
@@ -1063,10 +1068,54 @@ void VM::executeFe(Operation op, int ref) {
 		}
 		break;
 
-	case kInvOp:
-		// Inventory display — no extra nips via kFe
-		debugC(kDebugScripts, "Angel VM: Fe kInvOp (stub)");
+	case kInvOp: {
+		// Inventory item listing — P-code proc 102.
+		// ref = set type nip (consumed by kFer handler as refNip).
+		// P-code: CPI 3,32(0,87) computes 87 + nip for XJP dispatch:
+		//   case 129 (nip 42): carried in hands = possessions \ wearing
+		//   case 117 (nip 30): worn on person = wearing set
+		int setCase = 87 + ref;
+		debugC(kDebugScripts, "Angel VM: Fe kInvOp ref=%d setCase=%d", ref, setCase);
+
+		Common::Array<int> items;
+		for (int obj = 1; obj <= _data->_nbrObjects; obj++) {
+			if (setCase == 129) {
+				// Carried in hands: possessions but NOT wearing
+				if (_state->_possessions.has(obj) && !_state->_wearing.has(obj))
+					items.push_back(obj);
+			} else if (setCase == 117) {
+				// Worn on person: wearing set
+				if (_state->_wearing.has(obj))
+					items.push_back(obj);
+			}
+		}
+
+		// Set truth flag for JF branching: true if any items found.
+		_state->_tfIndicator = !items.empty();
+		debugC(kDebugScripts, "Angel VM: Fe kInvOp setCase=%d found %u items, tf=%d",
+		       setCase, items.size(), _state->_tfIndicator ? 1 : 0);
+
+		// Format and display item list (proc 63 equivalent).
+		// Output: "the X, the Y and the Z"
+		if (!_suppressText && !items.empty()) {
+			for (uint i = 0; i < items.size(); i++) {
+				Common::String name = _engine->parser()->getWordName(
+					_data->_props[items[i]].oName);
+				if (name.empty())
+					continue;
+
+				if (i == 0) {
+					_engine->putWord("the ");
+				} else if (i == items.size() - 1) {
+					_engine->putWord(" and the ");
+				} else {
+					_engine->putWord(", the ");
+				}
+				_engine->putWord(name.c_str());
+			}
+		}
 		break;
+	}
 
 	case kTimeOp:
 		// Display current time
@@ -1249,19 +1298,17 @@ void VM::opForce(int ref) {
 }
 
 void VM::opTake() {
-	// Player takes an object
+	// Player takes an object — adds to possessions.
+	// The script is responsible for testing preconditions (kHereOp etc.)
+	// via kFt/JF before calling this action. We just execute the state change.
 	int obj = _state->_cur.doItToWhat;
 	debugC(kDebugScripts, "Angel VM: opTake/opPkUp obj=%d loc=%d", obj, _state->_location);
 	if (obj > 0 && obj <= _data->_nbrObjects) {
-		Place &loc = _data->_map[_state->_location];
-		if (loc.objects.has(obj)) {
-			loc.objects.unset(obj);
-			_state->_possessions.set(obj);
-			_state->_nbrPossessions++;
-			debugC(kDebugScripts, "Angel VM: opTake SUCCESS - player now has obj %d", obj);
-		} else {
-			debugC(kDebugScripts, "Angel VM: opTake FAIL - obj %d not at loc %d", obj, _state->_location);
-		}
+		// Remove from location if present
+		_data->_map[_state->_location].objects.unset(obj);
+		_state->_possessions.set(obj);
+		_state->_nbrPossessions++;
+		debugC(kDebugScripts, "Angel VM: opTake SUCCESS - player now has obj %d", obj);
 	}
 }
 
@@ -1772,15 +1819,39 @@ void VM::opAsg(int ref) {
 		}
 		debugC(kDebugScripts, "Angel VM: opAsg kFar ref=%d type=%d value=%d", ref, _entityType, value);
 	} else {
-		// kFa path — read vocab index from stream.
-		// TODO: proper vocab table lookup (VECore[0]/56 → type, extract value).
-		// For now, use getNumber directly as object value (works for objects).
-		int value = getNumber();
-		_state->_cur.doItToWhat = value;
-		_entityValue = value;
-		_entityFlag = (value > 0);
-		_entityType = 0;
-		debugC(kDebugScripts, "Angel VM: opAsg kFa value=%d → doItToWhat=%d", value, value);
+		// kFa path — read 1-based VWordIndex from stream, resolve via VECore.
+		// P-code proc 84: getNumber → vocab index, Vocab[index].VECore → type + value.
+		int rawIdx = getNumber();
+		int vocabIdx = rawIdx - 1;  // 1-based VWordIndex → 0-based
+		if (vocabIdx >= 0 && vocabIdx <= _data->_nbrVWords) {
+			const VECore &ve = _data->_vocab[vocabIdx].ve;
+			int entityRef = ve.ref;
+			int entityType = (int)ve.vType;
+			switch (entityType) {
+			case 0:  // AnObject
+				_state->_cur.doItToWhat = entityRef;
+				break;
+			case 1:  // APerson
+				_state->_cur.personNamed = entityRef;
+				break;
+			case 2:  // ALocation
+			case 4:  // ABuilding (also LocRef)
+				_state->_placeNamed = entityRef;
+				break;
+			case 3:  // AVehicle
+				_state->_cab = entityRef;
+				break;
+			default:
+				break;
+			}
+			_entityValue = entityRef;
+			_entityFlag = (entityRef > 0);
+			_entityType = entityType;
+			debugC(kDebugScripts, "Angel VM: opAsg kFa vocabIdx=%d type=%d ref=%d",
+			       vocabIdx, entityType, entityRef);
+		} else {
+			warning("Angel VM: opAsg kFa invalid vocabIdx=%d (raw=%d)", vocabIdx, rawIdx);
+		}
 	}
 }
 

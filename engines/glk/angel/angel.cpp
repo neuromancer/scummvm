@@ -765,17 +765,51 @@ void Angel::dispatchCommand(ThingToDo action) {
 		}
 	}
 
-	// Dispatch response script for non-movement commands.
-	if (_state->_stillPlaying && action != kAMove && action != kATrip) {
-		static const int kDefaultResponseAddr = 6660;
-		int scriptAddr = kDefaultResponseAddr;
-
-		debugC(1, kDebugScripts, "Angel: dispatch response addr=%d (action=%d, loc=%d, verb=%d)",
-		       scriptAddr, (int)action, _state->_location, _state->_verb);
-
+	// Inventory command: dispatch to the inventory message (addr 2496).
+	// RESPOND proc 1 XJP case 8 (kInventory) → CPL 2 with addr 2496.
+	// Message contains Fer kInvOp opcodes for dynamic item listing.
+	if (_state->_stillPlaying && action == kInventory) {
+		static const int kInventoryMsgAddr = 2496;
+		debugC(1, kDebugScripts, "Angel: inventory dispatch addr=%d", kInventoryMsgAddr);
 		_vm->setSuppressText(false);
-		_vm->displayMsg(scriptAddr);
+		_vm->displayMsg(kInventoryMsgAddr);
 		forceQ();
+		return;
+	}
+
+	// Dispatch response script for non-movement commands.
+	// RESPOND proc 1 flow:
+	//   1. CPL 19 (set computation) → populates CmdEntry
+	//   2. If g[3090] (entity resolved) → dispatch CmdEntry[1]
+	//   3. Else → dispatch seg[21].global[4] (= msg 3, the default response)
+	if (_state->_stillPlaying && action != kAMove && action != kATrip) {
+		int scriptAddr = 0;
+
+		// Entity-specific dispatch: when an entity was targeted,
+		// run its .n script for the response.
+		if (_state->_cur.doItToWhat > 0 && _state->_cur.doItToWhat <= _data->_nbrObjects) {
+			scriptAddr = _data->_props[_state->_cur.doItToWhat].n;
+			debugC(1, kDebugScripts, "Angel: object dispatch obj=%d addr=%d",
+			       _state->_cur.doItToWhat, scriptAddr);
+		} else if (_state->_cur.personNamed > 0 && _state->_cur.personNamed <= _data->_castSize) {
+			scriptAddr = _data->_cast[_state->_cur.personNamed].n;
+			debugC(1, kDebugScripts, "Angel: person dispatch person=%d addr=%d",
+			       _state->_cur.personNamed, scriptAddr);
+		} else {
+			// Default: dispatch current location's script.
+			scriptAddr = _data->_map[_state->_location].n;
+			debugC(1, kDebugScripts, "Angel: location dispatch loc=%d addr=%d",
+			       _state->_location, scriptAddr);
+		}
+
+		if (scriptAddr > 0) {
+			debugC(1, kDebugScripts, "Angel: dispatch response addr=%d (action=%d, loc=%d, verb=%d)",
+			       scriptAddr, (int)action, _state->_location, _state->_verb);
+
+			_vm->setSuppressText(false);
+			_vm->displayMsg(scriptAddr);
+			forceQ();
+		}
 	}
 }
 
