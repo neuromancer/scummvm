@@ -78,6 +78,7 @@ public:
 
 	void setSuppressText(bool suppress) { _suppressText = suppress; _baseSuppressText = suppress; }
 	void setBaseSuppressText(bool suppress) { _baseSuppressText = suppress; }
+	void setRespondMode(bool respond) { _respondMode = respond; }
 
 	/** Get the next decoded character from the message stream */
 	char getAChar();
@@ -116,6 +117,7 @@ private:
 	bool _suppressText;      // Text output suppression (active state)
 	bool _baseSuppressText;  // Base suppress level set by angel.cpp (CXG 18,9 re-eval)
 	bool _descriptionOnly;   // Stop at first EndSym section break (for entity descriptions)
+	bool _respondMode;       // In respond mode: kRoleOp skips description → response section
 	int _cseContentDepth;    // >0 when inside CSE case content (EndSym = case end)
 
 	// Entity context — set by resolveEntity() (NAT_F0 35 / proc 35 equivalent).

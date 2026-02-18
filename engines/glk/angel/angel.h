@@ -175,6 +175,9 @@ private:
 	 *  Set by rawPutChar; cleared by outLn. */
 	bool _needsSeparator;
 
+	/** Temporary debug: accumulate actual screen output for line-based logging */
+	Common::String _screenLine;
+
 	/** Output a character directly to the GLK window (CPG 36 equivalent) */
 	void rawPutChar(char ch);
 

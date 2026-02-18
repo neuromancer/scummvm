@@ -33,7 +33,7 @@ namespace Angel {
 VM::VM(Angel *engine, GameData *data, GameState *state)
     : _engine(engine), _data(data), _state(state), _callDepth(0),
       _capitalizeNext(false), _suppressText(false), _baseSuppressText(false),
-      _descriptionOnly(false), _cseContentDepth(0),
+      _descriptionOnly(false), _respondMode(false), _cseContentDepth(0),
       _entityFlag(false), _entityValue(0), _entityOp(0), _entityType(-1) {
 	memset(_callStack, 0, sizeof(_callStack));
 }
@@ -139,6 +139,7 @@ void VM::displayMsg(int addr, bool descriptionOnly) {
 	bool savedEom = _state->_eom;
 	int savedCallDepth = _callDepth;
 	bool savedDescOnly = _descriptionOnly;
+	bool savedRespondMode = _respondMode;
 	Chunk savedRecord = _state->_vmCurRecord;
 	CallFrame savedCallStack[kMaxCallDepth];
 	if (savedCallDepth > 0)
@@ -146,6 +147,7 @@ void VM::displayMsg(int addr, bool descriptionOnly) {
 
 	_callDepth = 0;
 	_descriptionOnly = descriptionOnly;
+
 	openMsg(addr, "displayMsg");
 	executeMsg();
 
@@ -157,6 +159,7 @@ void VM::displayMsg(int addr, bool descriptionOnly) {
 	_state->_eom = savedEom;
 	_callDepth = savedCallDepth;
 	_descriptionOnly = savedDescOnly;
+	_respondMode = savedRespondMode;
 	_state->_vmCurRecord = savedRecord;
 	if (savedCallDepth > 0)
 		memcpy(_callStack, savedCallStack, savedCallDepth * sizeof(CallFrame));
@@ -395,15 +398,28 @@ void VM::executeMsg() {
 					switch (opVal) {
 					// Arithmetic edit ops — no preamble data consumed
 					case kIncrOp: case kDecrOp: case kAddOp: case kSubOp:
-					// Parameterless boolean tests — no inline data
-					// (confirmed from Pascal source: FUNCTION DeadEnd: BOOLEAN etc.)
-					case kDEndOp:
+					// Parameterless boolean tests — no inline data.
+					// These test global game state without a ref parameter.
+					case kDarkOp: case kLitOp: case kFogOp:
+					case kDEndOp: case kAskOp: case kTailOp: case kOnTourOp:
+					// Tests that check entity context (set by kFtr), not inline ref
+					case kLampOp: case kCorpseOp: case kLqdOp:
+					case kVKeyOp: case kAnyOp: case kIsOp:
+					// State query tests — use current location/entity context
+					case kOwnsOp: case kCanOp:
+					case kOnOp: case kInOp: case kFullOp:
+					case kLockedOp: case kClosedOp: case kSupOp: case kVslOp:
+					case kDoorOp: case kHiddenOp: case kStuffOp:
+					case kHasOp: case kKeyOp: case kCantOp:
+					case kHoldsOp: case kFairOp:
 						break;
 					// Tests that read getNip via their own handler (CXG 18,15)
 					case kWearsOp: case kRandOp: case kCarryOp:
 						ref = getNip();
 						break;
-					// Tests that read getNumber (2 nips) in proc 72 preamble
+					// Tests that read getNumber (2 nips) in proc 72 preamble:
+					// kOpenedOp, kCvrdOp, kBoxOp, kHereOp, kHPassOp,
+					// kWordOp, kSynOp, kNewOp
 					default:
 						ref = getNumber();
 						break;
@@ -461,20 +477,24 @@ void VM::executeMsg() {
 		case kFer:
 			// Fer (display/reference op with ref) — nip + kFeOpcodeBase = Operation
 			// From proc 101 disassembly: reads op nip + 135, then ref nip + 135
-			// (resolved via getRefValue). kInvOp skips the ref read.
+			// (resolved via getRefValue). Always reads both nips.
 			{
 				int opNip = getNip();
 				int opVal = opNip + kFeOpcodeBase;
+				// Always read the reference nip — proc 101 reads both nips
+				// unconditionally. Some ops (like kInvOp) ignore the ref value,
+				// but the nip must still be consumed to keep stream aligned.
+				int refNip = getNip();
+				int refOp = refNip + kFeOpcodeBase;
 				int ref = 0;
 				if (opVal != kInvOp) {
-					// Read reference as getNip() + kFeOpcodeBase → resolve via getRefValue
-					int refNip = getNip();
-					int refOp = refNip + kFeOpcodeBase;
 					if (refOp < kNumOperations)
 						ref = getRefValue((Operation)refOp);
 					else
 						warning("Angel VM: Fer ref out of range nip=%d refOp=%d", refNip, refOp);
 				}
+				debugC(kDebugScripts, "Angel VM: kFer opNip=%d op=%d refNip=%d refOp=%d ref=%d",
+				        opNip, opVal, refNip, refOp, ref);
 				if (opVal < kNumOperations)
 					executeFe((Operation)opVal, ref);
 				else
@@ -1039,7 +1059,7 @@ void VM::executeFe(Operation op, int ref) {
 
 	case kTimeOp:
 		// Display current time
-		{
+		if (!_suppressText) {
 			char timeBuf[32];
 			snprintf(timeBuf, sizeof(timeBuf), "%d:%02d %s",
 			         _state->_clock.hour, _state->_clock.minute,
@@ -1071,14 +1091,29 @@ void VM::executeFe(Operation op, int ref) {
 		// Role display (proc 97): describes entities at current location.
 		// P-code: CXG 18,9 (endSpeak) + CXG 18,7 (forceQ) + CPI 4,3 (read param).
 		// The inline parameter is an entity type/index consumed from the stream.
-		// In the original VM, proc 97 iterates through entities at the current
-		// location and displays their descriptions (if unseen).
-		// For now, we just consume the stream data and do text formatting.
-		// Entity display is handled by describeLocation() in angel.cpp.
+		//
+		// Entity messages have two sections: [description] @ [response logic].
+		// In describe mode: execute description, EndSym stops at section break.
+		// In respond mode: skip description section, execute response logic.
 		int roleParam = getNip();
 		_engine->endSpeak();
 		_engine->forceQ();
-		debugC(kDebugScripts, "Angel VM: Fe kRoleOp ref=%d param=%d (endSpeak+forceQ)", ref, roleParam);
+
+		if (_respondMode) {
+			// Skip forward past the next EndSym to reach the response section.
+			// Scan nips until we find EndSym (kEndSym = '@' = 64 in yTable).
+			debugC(kDebugScripts, "Angel VM: Fe kRoleOp ref=%d param=%d RESPOND → skipping to response section", ref, roleParam);
+			int safety = 0;
+			while (!_state->_eom && safety < 5000) {
+				char ch = getAChar();
+				if (ch == kEndSym)
+					break;
+				safety++;
+			}
+			// Now positioned after the EndSym — response logic follows.
+		} else {
+			debugC(kDebugScripts, "Angel VM: Fe kRoleOp ref=%d param=%d (endSpeak+forceQ)", ref, roleParam);
+		}
 		break;
 	}
 
@@ -1130,12 +1165,15 @@ void VM::executeFe(Operation op, int ref) {
 					break; // types 5-10 (verb, day, etc.): no display
 				}
 				if (!name.empty()) {
-					if (useThe)
-						_engine->putWord("the ");
-					for (uint i = 0; i < name.size(); i++)
-						_engine->putChar(name[i]);
-					debugC(kDebugScripts, "Angel VM: Fe ref-value op %d → displayed '%s%s'",
-					        (int)op, useThe ? "the " : "", name.c_str());
+					if (!_suppressText) {
+						if (useThe)
+							_engine->putWord("the ");
+						for (uint i = 0; i < name.size(); i++)
+							_engine->putChar(name[i]);
+					}
+					debugC(kDebugScripts, "Angel VM: Fe ref-value op %d → %s '%s%s'",
+					        (int)op, _suppressText ? "suppressed" : "displayed",
+					        useThe ? "the " : "", name.c_str());
 				} else {
 					int nameIdx = 0;
 					if (_entityType == 0 && _entityValue > 0 && _entityValue <= _data->_nbrObjects)
@@ -2104,6 +2142,10 @@ bool VM::testSyn(int ref) {
 	if (_entityType < 0) {
 		// kFt path: no fresh entity context. Use ref directly.
 		if (ref > 0 && ref <= _data->_nbrVWords) {
+			debugC(kDebugScripts, "Angel VM: testSyn fallback: vocab[%d].vType=%d .ref=%d direction=%d verb=%d verbRef=%d",
+			       ref, _data->_vocab[ref].ve.vType, _data->_vocab[ref].ve.ref,
+			       _state->_direction, _state->_verb,
+			       (_state->_verb > 0 && _state->_verb <= _data->_nbrVWords) ? _data->_vocab[_state->_verb].ve.ref : -1);
 			// Direction words: check if ref word's direction matches player direction
 			if (_data->_vocab[ref].ve.vType == kADirection)
 				return _data->_vocab[ref].ve.ref == _state->_direction;

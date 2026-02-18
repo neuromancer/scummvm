@@ -164,6 +164,11 @@ void Angel::print(const Common::String &text) {
 	if (_mainWindow) {
 		glk_set_window(_mainWindow);
 		glk_put_string(text.c_str());
+		// Flush screen line log on newline
+		if (text.contains('\n') && !_screenLine.empty()) {
+			debugC(kDebugScripts, "Angel SCREEN: %s", _screenLine.c_str());
+			_screenLine.clear();
+		}
 	}
 }
 
@@ -272,6 +277,7 @@ void Angel::rawPutChar(char ch) {
 		glk_put_string(buf);
 		_lineDirty = true;
 		_needsSeparator = true;  // Visible text → separator needed before next section
+		_screenLine += ch;
 	}
 }
 
@@ -585,22 +591,11 @@ void Angel::describeLocation() {
 		}
 	}
 
-	// List people at this location using Person.located field.
-	// Original P-code (proc 97) sets personNamed via CXG 17,6 before dispatch.
-	debugC(2, kDebugScripts, "Angel describeLocation: checking %d people at loc %d", _data->_castSize, _state->_location);
-	for (int p = 1; p <= _data->_castSize; p++) {
-		if (_data->_cast[p].located == _state->_location) {
-			debugC(2, kDebugScripts, "Angel describeLocation: person %d at loc, unseen=%d n=%d located=%d", p, _data->_cast[p].unseen ? 1 : 0, _data->_cast[p].n, _data->_cast[p].located);
-			if (_data->_cast[p].n > 0) {
-				if (_needsSeparator)
-					outLn();
-				_state->_cur.personNamed = p;
-				_vm->displayMsg(_data->_cast[p].n, true);
-				forceQ();
-				_data->_cast[p].unseen = false;
-			}
-		}
-	}
+	// People at this location are NOT listed in describeLocation.
+	// In the original game, person descriptions appear through timed
+	// events (xReg) or explicit player commands, not during room entry
+	// or the look command. The DOS reference confirms this behavior.
+	debugC(2, kDebugScripts, "Angel describeLocation: checking %d people at loc %d (display via events only)", _data->_castSize, _state->_location);
 
 	// Restore verb/entity context
 	_state->_verb = savedVerb;
@@ -680,6 +675,7 @@ void Angel::dispatchCommand(ThingToDo action) {
 
 	// Movement destination for kAMove/kATrip.
 	int moveDest = kNowhere;
+	int locBefore = _state->_location;  // Capture before any events fire
 	if (action == kAMove || action == kATrip) {
 		moveDest = _state->_cur.whereTo;
 		debugC(1, kDebugScripts, "Angel: dispatchCommand move: loc=%d dest=%d dir=%d verb=%d cmdEntry[1]=%d",
@@ -720,6 +716,55 @@ void Angel::dispatchCommand(ThingToDo action) {
 		}
 	}
 
+	// Handle movement results.
+	// In the original RESPOND proc 1, a default response script (seg[21].global[4])
+	// handles movement validation. For dead ends, it dispatches a RandomCSE at
+	// message addr 424 with variants like "You can't go that way."
+	// For valid destinations, the default movement performs the relocation.
+	if (_state->_stillPlaying && (action == kAMove || action == kATrip)) {
+		static const int kDeadEndMsgAddr = 424;
+
+		if (moveDest <= kNowhere) {
+			// Dead end — no valid exit in this direction.
+			debugC(1, kDebugScripts, "Angel: dead end dir=%d — displaying msg %d",
+			       _state->_direction, kDeadEndMsgAddr);
+			_vm->setSuppressText(false);
+			_vm->displayMsg(kDeadEndMsgAddr);
+			forceQ();
+		} else if (_state->_location == locBefore) {
+			// Valid destination and no script has moved us yet — default move.
+			debugC(1, kDebugScripts, "Angel: default move loc %d -> %d dir=%d",
+			       _state->_location, moveDest, _state->_direction);
+			_state->_pprvLocation = _state->_prvLocation;
+			_state->_prvLocation = _state->_location;
+			_state->_prvDirection = _state->_direction;
+			_state->_location = moveDest;
+			_state->_trail.set(moveDest);
+		}
+
+		// Post-move: if location changed, handle entry events and description.
+		if (_state->_location != locBefore && _state->_stillPlaying) {
+			debugC(1, kDebugScripts, "Angel: moved from loc %d to loc %d",
+			       locBefore, _state->_location);
+			_utils->changeLocation(_state->_location);
+
+			// Fire ENTRY event after location change.
+			if (_state->_clock.xReg[kXEntry].proc > 0) {
+				_vm->setSuppressText(true);
+				debugC(1, kDebugScripts, "Angel: ENTRY event at new loc=%d proc=%d",
+				       _state->_location, _state->_clock.xReg[kXEntry].proc);
+				_vm->displayMsg(_state->_clock.xReg[kXEntry].proc);
+				forceQ();
+				_vm->setSuppressText(false);
+			}
+
+			if (_state->_stillPlaying) {
+				outLn();
+				describeLocation();
+			}
+		}
+	}
+
 	// Dispatch response script for non-movement commands.
 	if (_state->_stillPlaying && action != kAMove && action != kATrip) {
 		static const int kDefaultResponseAddr = 6660;
@@ -731,30 +776,6 @@ void Angel::dispatchCommand(ThingToDo action) {
 		_vm->setSuppressText(false);
 		_vm->displayMsg(scriptAddr);
 		forceQ();
-	}
-
-	// For movement commands: actually move if the script didn't end the game.
-	if (moveDest > kNowhere && moveDest <= _data->_nbrLocations &&
-	    _state->_stillPlaying) {
-		debugC(1, kDebugScripts, "Angel: move from loc %d to loc %d", _state->_location, moveDest);
-		_utils->changeLocation(moveDest);
-
-		// Fire ENTRY event after each location change (xReg[kXEntry]).
-		// The ENTRY script handles location-specific entry logic (traps, etc.).
-		// Text is suppressed — ENTRY content should not be displayed directly.
-		if (_state->_clock.xReg[kXEntry].proc > 0) {
-			_vm->setSuppressText(true);
-			debugC(1, kDebugScripts, "Angel: ENTRY event at new loc=%d proc=%d",
-			       _state->_location, _state->_clock.xReg[kXEntry].proc);
-			_vm->displayMsg(_state->_clock.xReg[kXEntry].proc);
-			forceQ();
-			_vm->setSuppressText(false);
-		}
-
-		if (_state->_stillPlaying) {
-			outLn();
-			describeLocation();
-		}
 	}
 }
 
