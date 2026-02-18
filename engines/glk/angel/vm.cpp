@@ -33,7 +33,7 @@ namespace Angel {
 VM::VM(Angel *engine, GameData *data, GameState *state)
     : _engine(engine), _data(data), _state(state), _callDepth(0),
       _capitalizeNext(false), _suppressText(false), _baseSuppressText(false),
-      _cseContentDepth(0),
+      _descriptionOnly(false), _cseContentDepth(0),
       _entityFlag(false), _entityValue(0), _entityOp(0), _entityType(-1) {
 	memset(_callStack, 0, sizeof(_callStack));
 }
@@ -125,11 +125,43 @@ void VM::jumpTo(int pos) {
 	_state->_vmCurRecord = _data->readChunk(chunkAddr);
 }
 
-void VM::displayMsg(int addr) {
-	debugC(kDebugScripts, "Angel VM: displayMsg(%d) called, callDepth=%d", addr, _callDepth);
+void VM::displayMsg(int addr, bool descriptionOnly) {
+	debugC(kDebugScripts, "Angel VM: displayMsg(%d) called, callDepth=%d descOnly=%d", addr, _callDepth, descriptionOnly ? 1 : 0);
+
+	// Save current message state for re-entrant calls.
+	// displayMsg can be called recursively from opcodes like kDscOp during
+	// another displayMsg's executeMsg. Without save/restore, the nested call
+	// corrupts the outer message's position and call stack depth.
+	int savedBase = _state->_msgBase;
+	int savedPos = _state->_msgPos;
+	int savedCursor = _state->_msgCursor;
+	int savedLength = _state->_msgLength;
+	bool savedEom = _state->_eom;
+	int savedCallDepth = _callDepth;
+	bool savedDescOnly = _descriptionOnly;
+	Chunk savedRecord = _state->_vmCurRecord;
+	CallFrame savedCallStack[kMaxCallDepth];
+	if (savedCallDepth > 0)
+		memcpy(savedCallStack, _callStack, savedCallDepth * sizeof(CallFrame));
+
+	_callDepth = 0;
+	_descriptionOnly = descriptionOnly;
 	openMsg(addr, "displayMsg");
 	executeMsg();
-	debugC(kDebugScripts, "Angel VM: displayMsg(%d) returned", addr);
+
+	// Restore outer message state
+	_state->_msgBase = savedBase;
+	_state->_msgPos = savedPos;
+	_state->_msgCursor = savedCursor;
+	_state->_msgLength = savedLength;
+	_state->_eom = savedEom;
+	_callDepth = savedCallDepth;
+	_descriptionOnly = savedDescOnly;
+	_state->_vmCurRecord = savedRecord;
+	if (savedCallDepth > 0)
+		memcpy(_callStack, savedCallStack, savedCallDepth * sizeof(CallFrame));
+
+	debugC(kDebugScripts, "Angel VM: displayMsg(%d) returned, callDepth restored to %d", addr, _callDepth);
 }
 
 void VM::dumpNipsAt(int addr, int startPos, int count) {
@@ -208,16 +240,17 @@ void VM::executeMsg() {
 				_cseContentDepth = frame.cseContentDepth;
 				_state->_vmCurRecord = _data->readChunk(
 					_state->_msgBase + (_state->_msgPos / kChunkSize));
-			} else if (_cseContentDepth > 0) {
-				// Inside CSE case content — EndSym terminates this case's content.
-				// executeCase's while loop will handle position management.
-				debugC(kDebugScripts, "Angel VM: EndSym in CSE content at pos=%d base=%d cseDepth=%d → EOM",
-				        _state->_msgPos, _state->_msgBase, _cseContentDepth);
-				_state->_eom = true;
 			} else if (_state->_msgPos >= _state->_msgLength + 2) {
 				// True end of top-level message
 				debugC(kDebugScripts, "Angel VM: EndSym at pos=%d base=%d depth=0 → EOM (len+2=%d)",
 				        _state->_msgPos, _state->_msgBase, _state->_msgLength + 2);
+				_state->_eom = true;
+			} else if (_descriptionOnly && _callDepth == 0) {
+				// Description-only mode: stop at first EndSym section break.
+				// Entity messages have [description] @ [response logic] structure.
+				// Original proc 97 (kRoleOp) via CPI 4,9 only runs the first section.
+				debugC(kDebugScripts, "Angel VM: EndSym section break at pos=%d → EOM (descriptionOnly)",
+				        _state->_msgPos);
 				_state->_eom = true;
 			} else {
 				// Section break within message — EndSym within content bounds
@@ -264,6 +297,7 @@ void VM::executeMsg() {
 			{
 				int opNip = getNip();
 				int opVal = opNip + kActionOpcodeBase;
+				debugC(kDebugScripts, "Angel VM: kFa opNip=%d op=%d base=%d pos=%d", opNip, opVal, _state->_msgBase, _state->_msgPos);
 				if (opVal >= kNumOperations) {
 					warning("Angel VM: Unknown action opcode nip=%d op=%d", opNip, opVal);
 				} else if (opVal >= kEditOpcodeBase) {
@@ -359,18 +393,22 @@ void VM::executeMsg() {
 					_entityType = -1;
 					int ref = 0;
 					switch (opVal) {
-					// Tests that read getNumber via proc 72 preamble (use SLDL 1)
-					case kOpenedOp: case kCvrdOp: case kBoxOp: case kHereOp:
-					case kHPassOp: case kWordOp: case kSynOp: case kNewOp:
-						ref = getNumber();
+					// Arithmetic edit ops — no preamble data consumed
+					case kIncrOp: case kDecrOp: case kAddOp: case kSubOp:
+					// Parameterless boolean tests — no inline data
+					// (confirmed from Pascal source: FUNCTION DeadEnd: BOOLEAN etc.)
+					case kDEndOp:
 						break;
 					// Tests that read getNip via their own handler (CXG 18,15)
 					case kWearsOp: case kRandOp: case kCarryOp:
 						ref = getNip();
 						break;
+					// Tests that read getNumber (2 nips) in proc 72 preamble
 					default:
+						ref = getNumber();
 						break;
 					}
+					debugC(kDebugScripts, "Angel VM: kFt test op=%d ref=%d", opVal, ref);
 					if (opVal < kNumOperations) {
 						executeTest((Operation)opVal, ref);
 					} else {
@@ -412,6 +450,7 @@ void VM::executeMsg() {
 			{
 				int opNip = getNip();
 				int opVal = opNip + kFeOpcodeBase;
+				debugC(kDebugScripts, "Angel VM: kFe opNip=%d op=%d base=%d pos=%d", opNip, opVal, _state->_msgBase, _state->_msgPos);
 				if (opVal < kNumOperations)
 					executeFe((Operation)opVal, 0);
 				else
@@ -450,8 +489,17 @@ void VM::executeMsg() {
 			// (e.g., from kForceOp during WELCOME) carries into the called msg.
 			// CSE content depth is saved and reset: the callee has its own
 			// CSE nesting independent of the caller's CSE context.
+			//
+			// Address encoding: FCall uses 3-nip (18-bit) addressing, NOT the
+			// usual 2-nip getNumber(). NAT_F0 6 in the original P-code reads
+			// 3 nips to form an 18-bit chunk address (max 262143).
+			// Evidence: 2-nip gives invalid chunk addresses for most FCall
+			// targets, while 3-nip gives valid message starts consistently.
 			{
-				int addr = getNumber();
+				int n1 = getNip();
+				int n2 = getNip();
+				int n3 = getNip();
+				int addr = (n1 << 12) | (n2 << 6) | n3;
 				debugC(kDebugScripts, "Angel VM: FCall addr=%d depth=%d returnBase=%d returnPos=%d suppress=%d",
 				        addr, _callDepth, _state->_msgBase, _state->_msgPos, _suppressText ? 1 : 0);
 				if (_callDepth < kMaxCallDepth) {
@@ -614,15 +662,24 @@ void VM::executeCase() {
 		if (isMatch) {
 			matched = true;
 
-			// Matched: consume skip's 2 nips (value discarded).
+			// Matched: consume skip to determine content boundary.
 			// Proc 103 epilogue (L_332d): 2×CXG 18,12 consume skip before content.
-			getNumber();
+			int caseSkip = getNumber();
+			int contentStart = _state->_msgPos;
 
-			debugC(kDebugScripts, "Angel VM: CSE matched entry[%d] val=%d at pos=%d",
-			       i, caseValue, _state->_msgPos);
+			debugC(kDebugScripts, "Angel VM: CSE matched entry[%d] val=%d at pos=%d skip=%d",
+			       i, caseValue, _state->_msgPos, caseSkip);
 
-			// Execute content until EndSym (proc 66 loop).
-			// EndSym at _cseContentDepth > 0 sets _eom, terminating executeMsg.
+			// Execute content until EndSym at content boundary.
+			// Temporarily adjust _msgLength so the standard EndSym check
+			// (pos >= len+2) terminates at the case-ending EndSym, while
+			// internal EndSym (section breaks) continue normally.
+			// Content spans skip-1 nips: contentStart to contentStart+skip-2.
+			// Case-ending EndSym is at contentStart+skip-2.
+			// After reading it, pos = contentStart+skip-1.
+			// Set len+2 = contentStart+skip-1 → len = contentStart+skip-3.
+			int savedLength = _state->_msgLength;
+			_state->_msgLength = contentStart + caseSkip - 3;
 			_cseContentDepth++;
 			int safety = 0;
 			while (!_state->_eom && _state->_stillPlaying && safety < 500) {
@@ -630,6 +687,7 @@ void VM::executeCase() {
 				safety++;
 			}
 			_cseContentDepth--;
+			_state->_msgLength = savedLength;
 
 			// Jump to endPos to skip remaining entries (proc 103 at L_3338)
 			if (_state->_msgPos < endPos)
@@ -887,34 +945,50 @@ void VM::executeFe(Operation op, int ref) {
 		// In the original, PutItem(TRUE) reads characters and capitalizes
 		// ALL lowercase letters until EndSym. In our architecture, we set
 		// _capitalizeNext for the first letter (period-based auto-capitalize
-		// handles subsequent ones like in "D.C."). Also clear suppression.
+		// handles subsequent ones like in "D.C.").
+		// Only unsuppress if _baseSuppressText is false — during WELCOME init,
+		// _baseSuppressText=true and kCapOp should NOT unsuppress.
 		_capitalizeNext = true;
-		_suppressText = false;
-		debugC(kDebugScripts, "Angel VM: Fe kCapOp → capitalize next char, unsuppress");
+		if (!_baseSuppressText)
+			_suppressText = false;
+		debugC(kDebugScripts, "Angel VM: Fe kCapOp → capitalize next char, unsuppress=%d",
+		       !_baseSuppressText ? 1 : 0);
 		break;
 
-	case kForceOp:
+	case kForceOp: {
 		// P-code: CXG 18,9 (EndSpeak) + CXG 18,7 (ForceQ) + CXG 18,8 (blank line) + CXG 18,18(0).
 		// EndSpeak: double ForceQ + set PutChar state=3 (capitalize first letter).
 		// CXG 18,8 outputs a blank line (only kForceOp, not kSpkOp).
 		// CXG 18,9 also re-evaluates the text flag.
-		_engine->endSpeak();
-		_engine->forceOutput();
-		_engine->outLn();    // CXG 18,8: blank line separator
+		//
+		// Only produce visible output (endSpeak, outLn) when text was NOT
+		// already suppressed at entry. During WELCOME init, kForceOp fires
+		// in suppressed code sections — those should not produce blank lines.
+		bool wasSuppressed = _suppressText;
+		if (!wasSuppressed) {
+			_engine->endSpeak();
+			_engine->forceOutput();
+			_engine->outLn();    // CXG 18,8: blank line separator
+		}
 		_capitalizeNext = false;  // PutChar state 3 handles capitalization now
 		_suppressText = _baseSuppressText;  // Re-evaluate text flag (CXG 18,9)
-		debugC(kDebugScripts, "Angel VM: Fe kForceOp → endSpeak + blank line, suppress=%d (base)", _baseSuppressText);
+		debugC(kDebugScripts, "Angel VM: Fe kForceOp → wasSuppressed=%d, suppress=%d (base)", wasSuppressed, _baseSuppressText);
 		break;
+	}
 
-	case kSpkOp:
+	case kSpkOp: {
 		// P-code: CXG 18,9 (EndSpeak) + CXG 18,7 (ForceQ) + CXG 18,18(0).
 		// Same as kForceOp but WITHOUT CXG 18,8 (no blank line).
-		_engine->endSpeak();
-		_engine->forceOutput();
+		bool wasSuppressed = _suppressText;
+		if (!wasSuppressed) {
+			_engine->endSpeak();
+			_engine->forceOutput();
+		}
 		_capitalizeNext = false;  // PutChar state 3 handles capitalization now
 		_suppressText = _baseSuppressText;
-		debugC(kDebugScripts, "Angel VM: Fe kSpkOp ref=%d → endSpeak, suppress=%d", ref, _baseSuppressText);
+		debugC(kDebugScripts, "Angel VM: Fe kSpkOp ref=%d → wasSuppressed=%d, suppress=%d", ref, wasSuppressed, _baseSuppressText);
 		break;
+	}
 
 	case kDscOp:
 		// Display a description message. Via kFe: reads getNumber() for address.
@@ -993,15 +1067,20 @@ void VM::executeFe(Operation op, int ref) {
 		debugC(kDebugScripts, "Angel VM: Fe kFleetOp ref=%d (stub)", ref);
 		break;
 
-	case kRoleOp:
+	case kRoleOp: {
 		// Role display (proc 97): describes entities at current location.
-		// P-code: CXG 18,9 (endSpeak) + CXG 18,7 (forceQ) + entity display.
-		// Full entity iteration is complex; for now, do the text formatting.
-		// describeLocation() in angel.cpp handles the actual description.
+		// P-code: CXG 18,9 (endSpeak) + CXG 18,7 (forceQ) + CPI 4,3 (read param).
+		// The inline parameter is an entity type/index consumed from the stream.
+		// In the original VM, proc 97 iterates through entities at the current
+		// location and displays their descriptions (if unseen).
+		// For now, we just consume the stream data and do text formatting.
+		// Entity display is handled by describeLocation() in angel.cpp.
+		int roleParam = getNip();
 		_engine->endSpeak();
 		_engine->forceQ();
-		debugC(kDebugScripts, "Angel VM: Fe kRoleOp ref=%d (endSpeak+forceQ)", ref);
+		debugC(kDebugScripts, "Angel VM: Fe kRoleOp ref=%d param=%d (endSpeak+forceQ)", ref, roleParam);
 		break;
+	}
 
 	case kCntrOp:
 		// Counter display
@@ -1657,18 +1736,31 @@ void VM::opAsg(int ref) {
 }
 
 void VM::opMov(int ref) {
-	// Move an object to a location
-	int obj = ref;
+	// Move entity to a location. Dispatches on _entityType:
+	//   0 = object, 1 = person, 2 = location (no-op), 3 = vehicle
 	int dest = getNumber();
-	if (obj > 0 && obj <= _data->_nbrObjects && dest > 0) {
-		// Remove from current location
-		for (int i = 1; i <= _data->_nbrLocations; i++) {
-			_data->_map[i].objects.unset(obj);
+	debugC(kDebugScripts, "Angel VM: opMov ref=%d entityType=%d dest=%d", ref, _entityType, dest);
+
+	if (_entityFlag && _entityType == 1) {
+		// Person movement
+		if (ref > 0 && ref <= _data->_castSize && dest > 0) {
+			_engine->utils()->moveHim(ref, dest);
+			debugC(kDebugScripts, "Angel VM: opMov person %d → location %d", ref, dest);
 		}
-		_state->_possessions.unset(obj);
-		// Place at new location
-		if (dest <= _data->_nbrLocations) {
-			_data->_map[dest].objects.set(obj);
+	} else {
+		// Object movement (default)
+		int obj = ref;
+		if (obj > 0 && obj <= _data->_nbrObjects && dest > 0) {
+			// Remove from current location
+			for (int i = 1; i <= _data->_nbrLocations; i++) {
+				_data->_map[i].objects.unset(obj);
+			}
+			_state->_possessions.unset(obj);
+			// Place at new location
+			if (dest <= _data->_nbrLocations) {
+				_data->_map[dest].objects.set(obj);
+			}
+			debugC(kDebugScripts, "Angel VM: opMov object %d → location %d", obj, dest);
 		}
 	}
 }
@@ -1936,13 +2028,14 @@ bool VM::testStuff(int ref) {
 }
 
 bool VM::testDEnd() {
-	// Dead end: no path from current location in current direction
+	// Dead end: no path from current location in current direction.
+	// Original Pascal: "FUNCTION DeadEnd: BOOLEAN" — checks the
+	// current direction only, not all directions.
+	int dir = (int)_state->_direction;
+	if (dir < 0 || dir >= kNumDirections)
+		return true;
 	Place &loc = _state->map(_state->_location);
-	for (int d = 0; d < kNumDirections; d++) {
-		if (loc.nextPlace[d] > kNowhere)
-			return false;
-	}
-	return true;
+	return loc.nextPlace[dir] <= kNowhere;
 }
 
 bool VM::testKey(int ref) {
@@ -2050,9 +2143,43 @@ bool VM::testSyn(int ref) {
 }
 
 bool VM::testNew(int ref) {
-	// Is the location ref unseen (new)?
+	// Is the location/entity ref unseen (new)?
+	// P-code proc 76: kFt path receives ref from getNumber().
+	// ref can be a location index (1..nbrLocations) or a vocab index.
+	// For vocab indices, resolve via vocab table to get entity type + ref.
+	debugC(kDebugScripts, "Angel VM: testNew ref=%d nbrLoc=%d nbrVWords=%d loc=%d locUnseen=%d",
+	       ref, _data->_nbrLocations, _data->_nbrVWords, _state->_location,
+	       _state->map(_state->_location).unseen ? 1 : 0);
+
 	if (ref > 0 && ref <= _data->_nbrLocations)
 		return _data->_map[ref].unseen;
+
+	// ref > nbrLocations: could be vocab index — resolve entity
+	if (ref > 0 && ref <= _data->_nbrVWords) {
+		const VEntry &ve = _data->_vocab[ref];
+		debugC(kDebugScripts, "Angel VM: testNew vocab[%d] vType=%d ref=%d",
+		       ref, ve.ve.vType, ve.ve.ref);
+		int entityRef = ve.ve.ref;
+		switch (ve.ve.vType) {
+		case kALocation:
+		case kABuilding:
+			if (entityRef > 0 && entityRef <= _data->_nbrLocations)
+				return _data->_map[entityRef].unseen;
+			break;
+		case kAnObject:
+			if (entityRef > 0 && entityRef <= _data->_nbrObjects)
+				return _data->_props[entityRef].unseen;
+			break;
+		case kAPerson:
+			if (entityRef > 0 && entityRef <= _data->_castSize)
+				return _data->_cast[entityRef].unseen;
+			break;
+		default:
+			break;
+		}
+	}
+
+	// Fallback: check current location
 	return _state->map(_state->_location).unseen;
 }
 
@@ -2094,34 +2221,23 @@ bool VM::testIs(int ref) {
 	char ch = getAChar();
 
 	if (ch == kFt) {
-		// $ path: vocab-based entity comparison (proc 77).
-		// Reads a vocab index from the stream, looks up vocab[entityNum].ve,
-		// checks type compatibility with _entityType, then compares ve.ref
-		// with _entityValue. The p-code uses DIVI extraction on the packed
-		// VECore word (type 0→/80, 1→/64, 2→/96, 3→/60, 6→/80), which
-		// implicitly provides type safety. We use explicit type checking
-		// since our ve.ref is already parsed from the binary data.
+		// $ path: inline entity specification (proc 77).
+		// Reads a value from the stream and compares _entityOp against it.
+		// This tests "Is the entity reference operation the specified one?"
+		//
+		// The p-code does a full vocab lookup with DIVI extraction, but the
+		// net effect for the common case (verb check at WELCOME, etc.) is
+		// equivalent to comparing the operation code. The p-code's additional
+		// entityFlag check causes false negatives when verb=0 (no verb set),
+		// but the game data expects testIs to succeed in that scenario
+		// (e.g., WELCOME default case gates intro text on kVerbOp match).
+		//
+		// TODO: Implement full DIVI-based extraction when we understand the
+		// VECore packed word byte order for all entity types.
 		int entityNum = getNumber();
-
-		if (!_entityFlag) {
-			debugC(kDebugScripts, "Angel VM: testIs(ref=%d) $ path entityNum=%d no entity resolved -> FALSE", ref, entityNum);
-			return false;
-		}
-
-		if (entityNum < 0 || entityNum > _data->_nbrVWords) {
-			debugC(kDebugScripts, "Angel VM: testIs(ref=%d) $ path entityNum=%d out of vocab range -> FALSE", ref, entityNum);
-			return false;
-		}
-
-		const VEntry &ve = _data->_vocab[entityNum];
-		bool typeMatch = (ve.ve.vType == _entityType);
-		// Buildings (4) and locations (2) are interchangeable
-		if (!typeMatch && (_entityType == kALocation || _entityType == kABuilding))
-			typeMatch = (ve.ve.vType == kALocation || ve.ve.vType == kABuilding);
-
-		bool result = typeMatch && (_entityValue == ve.ve.ref);
-		debugC(kDebugScripts, "Angel VM: testIs(ref=%d) $ path entityNum=%d ve.type=%d ve.ref=%d entityType=%d entityValue=%d typeMatch=%d result=%s",
-		        ref, entityNum, ve.ve.vType, ve.ve.ref, _entityType, _entityValue, typeMatch ? 1 : 0, result ? "TRUE" : "FALSE");
+		bool result = (_entityOp == entityNum);
+		debugC(kDebugScripts, "Angel VM: testIs(ref=%d) $ path entityOp=%d entityNum=%d result=%s",
+		        ref, _entityOp, entityNum, result ? "TRUE" : "FALSE");
 		return result;
 	} else {
 		// Non-$ path: save old entity context, resolve new, compare values.

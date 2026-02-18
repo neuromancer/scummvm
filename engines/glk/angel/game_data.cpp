@@ -314,12 +314,19 @@ bool GameData::loadTables(Common::SeekableReadStream *stream) {
 				p.pName = (int)RW(off + 4) - 1;  // VWordIndex: 1-based in file → 0-based
 				for (int s = 0; s < 4 && s < kSecretOp - kTradeOp + 1; s++)
 					p.sFun[s] = (int)RW(off + 6 + s * 2);
-				// Packed fields after carrying — parse located from bytes 22-23
-				p.located = (int)RW(off + 22);
-				p.unseen = (p.n > 0);  // Visible if has description
+				// Packed fields after carrying (PACKED RECORD, offset 22):
+				// Word at offset 22 contains packed subrange fields.
+				// Bits 1-7 = Located (LocRef, 7 bits).
+				// Bit 0 is the last bit of the previous packed field (Carrying ObjSet).
+				// Verified by cross-referencing with Place.People sets:
+				//   Person[6] (Marion) >> 1 = 7, Location 7 People bit 6 set ✓
+				//   Person[2] (Benito) >> 1 = 10, Location 10 People bit 2 set ✓
+				uint16 packedWord = RW(off + 22);
+				p.located = (packedWord >> 1) & 0x7F;
+				p.unseen = (p.n > 0);  // Entities with descriptions start unseen
 				p.resting = false;
-				debugC(2, kDebugScripts, "Angel: Person[%d]: n=%d pName=%d located=%d",
-				       personIdx, p.n, p.pName, p.located);
+				debugC(2, kDebugScripts, "Angel: Person[%d]: n=%d pName=%d located=%d (raw=0x%04X)",
+				       personIdx, p.n, p.pName, p.located, packedWord);
 			}
 			personIdx++;
 			break;

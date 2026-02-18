@@ -162,7 +162,6 @@ void Angel::initGame() {
 
 void Angel::print(const Common::String &text) {
 	if (_mainWindow) {
-		debug("ANGEL_TEXT: \"%s\"", text.c_str());
 		glk_set_window(_mainWindow);
 		glk_put_string(text.c_str());
 	}
@@ -555,39 +554,58 @@ void Angel::describeLocation() {
 		forceQ();
 	}
 
-	// List visible objects — separator before first object (matches CPG 28 at 0x1063)
+	// Mark location as seen BEFORE entity display (no longer "new" for testNew).
+	// Entity messages test location.unseen to control description vs response.
+	_data->_map[_state->_location].unseen = false;
+
+	// Entity display: save and restore verb/entity context.
+	// Original kRoleOp (proc 97) runs within a clean description context.
+	// Entity messages test the verb for command response dispatch — with
+	// verb=0, those tests fail and only description text is produced.
+	int savedVerb = _state->_verb;
+	int savedDoItToWhat = _state->_cur.doItToWhat;
+	int savedPersonNamed = _state->_cur.personNamed;
+	_state->_verb = 0;
+
+	// List visible objects at this location.
+	// Original P-code (proc 97) sets doItToWhat before dispatching each object.
 	debugC(2, kDebugScripts, "Angel describeLocation: checking %d objects at loc %d", _data->_nbrObjects, _state->_location);
 	const ObjSet &objs = here.objects;
 	for (int obj = 1; obj <= _data->_nbrObjects; obj++) {
 		if (objs.has(obj)) {
 			debugC(2, kDebugScripts, "Angel describeLocation: obj %d at loc, unseen=%d n=%d", obj, _data->_props[obj].unseen ? 1 : 0, _data->_props[obj].n);
-			if (!_data->_props[obj].unseen) {
-				if (_data->_props[obj].n > 0) {
-					if (_needsSeparator)
-						outLn();
-					_vm->displayMsg(_data->_props[obj].n);
-					forceQ();
-				}
+			if (_data->_props[obj].n > 0) {
+				if (_needsSeparator)
+					outLn();
+				_state->_cur.doItToWhat = obj;
+				_vm->displayMsg(_data->_props[obj].n, true);
+				forceQ();
+				_data->_props[obj].unseen = false;
 			}
 		}
 	}
 
-	// List visible people — separator before first person (matches CPG 28 at 0x10E3)
+	// List people at this location using Person.located field.
+	// Original P-code (proc 97) sets personNamed via CXG 17,6 before dispatch.
 	debugC(2, kDebugScripts, "Angel describeLocation: checking %d people at loc %d", _data->_castSize, _state->_location);
-	const PersonSet &people = here.people;
 	for (int p = 1; p <= _data->_castSize; p++) {
-		if (people.has(p)) {
+		if (_data->_cast[p].located == _state->_location) {
 			debugC(2, kDebugScripts, "Angel describeLocation: person %d at loc, unseen=%d n=%d located=%d", p, _data->_cast[p].unseen ? 1 : 0, _data->_cast[p].n, _data->_cast[p].located);
-			if (!_data->_cast[p].unseen && _data->_cast[p].located == _state->_location) {
-				if (_data->_cast[p].n > 0) {
-					if (_needsSeparator)
-						outLn();
-					_vm->displayMsg(_data->_cast[p].n);
-					forceQ();
-				}
+			if (_data->_cast[p].n > 0) {
+				if (_needsSeparator)
+					outLn();
+				_state->_cur.personNamed = p;
+				_vm->displayMsg(_data->_cast[p].n, true);
+				forceQ();
+				_data->_cast[p].unseen = false;
 			}
 		}
 	}
+
+	// Restore verb/entity context
+	_state->_verb = savedVerb;
+	_state->_cur.doItToWhat = savedDoItToWhat;
+	_state->_cur.personNamed = savedPersonNamed;
 	debugC(2, kDebugScripts, "Angel describeLocation: done");
 }
 
