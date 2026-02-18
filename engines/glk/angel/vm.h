@@ -106,6 +106,7 @@ private:
 		int cursor;
 		int length;
 		bool suppressText;
+		int cseContentDepth;
 	};
 	static const int kMaxCallDepth = 32;
 	CallFrame _callStack[kMaxCallDepth];
@@ -222,7 +223,7 @@ private:
 	void opAttr(int ref);
 	void opAsg(int ref);
 	void opMov(int ref);
-	void opRst(int ref);
+	void opRst(int refOp);
 
 	// Arithmetic edits
 	void opIncr(int ref);
@@ -231,6 +232,9 @@ private:
 	void opSub(int ref);
 
 	// ---- Test implementations ----
+	/** Check if location is adjacent to current location (FUNCTION Local) */
+	bool isLocal(int locRef);
+
 	bool testHere(int ref);
 	bool testOwns(int ref);
 	bool testWears(int ref);

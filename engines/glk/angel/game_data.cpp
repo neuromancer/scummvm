@@ -20,6 +20,7 @@
  */
 
 #include "glk/angel/game_data.h"
+#include "glk/glk.h"
 #include "common/debug.h"
 #include "common/textconsole.h"
 
@@ -168,7 +169,7 @@ bool GameData::loadTables(Common::SeekableReadStream *stream) {
 
 	int fileSize = stream->size();
 	int totalRecords = fileSize / kRecordSize;
-	debugC(1, 0, "Angel: tables file size=%d bytes, %d records", fileSize, totalRecords);
+	debugC(1, kDebugScripts, "Angel: tables file size=%d bytes, %d records", fileSize, totalRecords);
 
 	byte *buf = new byte[fileSize];
 	stream->read(buf, fileSize);
@@ -193,7 +194,7 @@ bool GameData::loadTables(Common::SeekableReadStream *stream) {
 	_nbrLocations = nLoc;
 	_nbrVehicles = nVcl;
 
-	debugC(1, 0, "Angel: tables: %d persons, %d objects, %d locations, %d vehicles",
+	debugC(1, kDebugScripts, "Angel: tables: %d persons, %d objects, %d locations, %d vehicles",
 	       _castSize, _nbrObjects, _nbrLocations, _nbrVehicles);
 
 	// Second pass: parse records
@@ -226,7 +227,7 @@ bool GameData::loadTables(Common::SeekableReadStream *stream) {
 			_initGeneral.civilianTime = (buf[off + 34] != 0);
 			_initGeneral.completeGame = (buf[off + 35] != 0);
 
-			debugC(1, 0, "Angel: MscEntry: location=%d direction=%d nbrPoss=%d",
+			debugC(1, kDebugScripts, "Angel: MscEntry: location=%d direction=%d nbrPoss=%d",
 			       _initGeneral.location, _initGeneral.direction,
 			       _initGeneral.nbrPossessions);
 			break;
@@ -258,7 +259,7 @@ bool GameData::loadTables(Common::SeekableReadStream *stream) {
 		case kComEntry: {
 			// ComRecord — layout is not fully determined yet.
 			// Parse what we can.
-			debugC(1, 0, "Angel: ComEntry at rec %d (parsing deferred)", i);
+			debugC(1, kDebugScripts, "Angel: ComEntry at rec %d (parsing deferred)", i);
 			break;
 		}
 
@@ -278,7 +279,7 @@ bool GameData::loadTables(Common::SeekableReadStream *stream) {
 				_initTime.minute = (int)RW(off + 6);
 				_initTime.am = (RW(off + 8) != 0);
 				_initTime.tickNumber = (int)RW(off + 10);
-				debugC(1, 0, "Angel: TimeEntry[%d]: clock day=%d %d:%02d %s",
+				debugC(1, kDebugScripts, "Angel: TimeEntry[%d]: clock day=%d %d:%02d %s",
 				       timeIdx, _initTime.day, _initTime.hour,
 				       _initTime.minute, _initTime.am ? "AM" : "PM");
 			} else if (timeIdx == 2) {
@@ -288,7 +289,7 @@ bool GameData::loadTables(Common::SeekableReadStream *stream) {
 					_initTime.xReg[e].x = (int)RW(off + 12 + e * 4);
 					_initTime.xReg[e].proc = (int)RW(off + 12 + e * 4 + 2);
 					if (_initTime.xReg[e].proc > 0) {
-						debugC(1, 0, "Angel: xReg[%d] x=%d proc=%d",
+						debugC(1, kDebugScripts, "Angel: xReg[%d] x=%d proc=%d",
 						       e, _initTime.xReg[e].x,
 						       _initTime.xReg[e].proc);
 					}
@@ -317,7 +318,7 @@ bool GameData::loadTables(Common::SeekableReadStream *stream) {
 				p.located = (int)RW(off + 22);
 				p.unseen = (p.n > 0);  // Visible if has description
 				p.resting = false;
-				debugC(2, 0, "Angel: Person[%d]: n=%d pName=%d located=%d",
+				debugC(2, kDebugScripts, "Angel: Person[%d]: n=%d pName=%d located=%d",
 				       personIdx, p.n, p.pName, p.located);
 			}
 			personIdx++;
@@ -361,7 +362,7 @@ bool GameData::loadTables(Common::SeekableReadStream *stream) {
 				obj.itsOpen = (buf[off + 33] != 0);
 				obj.itsLocked = (buf[off + 34] != 0);
 				obj.unseen = (buf[off + 35] != 0);
-				debugC(2, 0, "Angel: Object[%d]: n=%d oName=%d size=%d val=%d state=%d kind=%d",
+				debugC(2, kDebugScripts, "Angel: Object[%d]: n=%d oName=%d size=%d val=%d state=%d kind=%d",
 				       objIdx, obj.n, obj.oName, obj.size, obj.value, obj.state, obj.kindOfThing);
 			}
 			objIdx++;
@@ -390,9 +391,17 @@ bool GameData::loadTables(Common::SeekableReadStream *stream) {
 				}
 
 				place.unseen = true;
+				place.useThe = true;   // All 68 locations use NoCaps display → "the [name]"
 				place.view = kSunlit;  // Default to sunlit; exact parsing TBD
 
-				debugC(2, 0, "Angel: Map[%d]: n=%d shortDscr=%d exits=[%d,%d,%d,%d,%d,%d]",
+				if (locIdx == 7) {
+					// Dump raw bytes for location 7 to verify nextPlace parsing
+					debugC(2, kDebugScripts, "Angel: Map[7] raw bytes: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x",
+					       buf[off], buf[off+1], buf[off+2], buf[off+3],
+					       buf[off+4], buf[off+5], buf[off+6], buf[off+7],
+					       buf[off+8], buf[off+9], buf[off+10], buf[off+11]);
+				}
+				debugC(2, kDebugScripts, "Angel: Map[%d]: n=%d shortDscr=%d exits=[N=%d,S=%d,E=%d,W=%d,U=%d,D=%d]",
 				       locIdx, place.n, place.shortDscr,
 				       place.nextPlace[0], place.nextPlace[1],
 				       place.nextPlace[2], place.nextPlace[3],
@@ -421,7 +430,7 @@ bool GameData::loadTables(Common::SeekableReadStream *stream) {
 				vcl.stopped = (int)RW(off + 16);
 				vcl.useThe = (buf[off + 18] != 0);
 				vcl.unseen = (buf[off + 19] != 0);
-				debugC(2, 0, "Angel: Vehicle[%d]: n=%d vName=%d stopped=%d",
+				debugC(2, kDebugScripts, "Angel: Vehicle[%d]: n=%d vName=%d stopped=%d",
 				       vclIdx, vcl.n, vcl.vName, vcl.stopped);
 			}
 			vclIdx++;
@@ -438,7 +447,7 @@ bool GameData::loadTables(Common::SeekableReadStream *stream) {
 
 	delete[] buf;
 
-	warning("Angel: Tables loaded. Starting location=%d, WELCOME proc=%d",
+	debugC(1, kDebugScripts, "Angel: Tables loaded. Starting location=%d, WELCOME proc=%d",
 	       _initGeneral.location, _initTime.xReg[kXWelcome].proc);
 	return true;
 }
@@ -464,7 +473,7 @@ bool GameData::loadVocab(Common::SeekableReadStream *stream) {
 	 */
 
 	int fileSize = stream->size();
-	debugC(1, 0, "Angel: vocab file size = %d bytes", fileSize);
+	debugC(1, kDebugScripts, "Angel: vocab file size = %d bytes", fileSize);
 
 	byte *buf = new byte[fileSize];
 	stream->read(buf, fileSize);
@@ -474,7 +483,7 @@ bool GameData::loadVocab(Common::SeekableReadStream *stream) {
 	if (_nbrVWords > kMaxNbrVWords)
 		_nbrVWords = kMaxNbrVWords;
 
-	debugC(1, 0, "Angel: vocab loading %d entries", _nbrVWords);
+	debugC(1, kDebugScripts, "Angel: vocab loading %d entries", _nbrVWords);
 
 	// Initialize VText blocks
 	int curBlock = 1;
@@ -525,8 +534,12 @@ bool GameData::loadVocab(Common::SeekableReadStream *stream) {
 		// --- Decode VECore (bytes 22-25) ---
 		byte b22 = rec[22];
 		byte b23 = rec[23];
-		// byte b24 = rec[24]; // reserved/extra metadata
+		byte b24 = rec[24];
 		byte b25 = rec[25];
+
+		// Store raw packed words for testIs $ path (proc 77 uses DIVI on these)
+		ve.ve.raw0 = (b22 << 8) | b23;
+		ve.ve.raw1 = (b24 << 8) | b25;
 
 		ve.ve.code = (VWords)(b23 & 0x3F);
 		ve.ve.display = (DsplType)((b23 >> 6) & 0x3);
@@ -540,16 +553,30 @@ bool GameData::loadVocab(Common::SeekableReadStream *stream) {
 			ve.ve.ref = b25;
 		}
 
-		debugC(2, 0, "Angel: vocab[%d] = '%s' type=%d code=%d ref=%d",
+		debugC(2, kDebugScripts, "Angel: vocab[%d] = '%s' type=%d code=%d ref=%d",
 		       i, decoded.c_str(), ve.ve.vType, ve.ve.code, ve.ve.ref);
+
+		// Debug: test VECore DIVI extraction for known entries
+		if (ve.ve.vType == kAVerb || ve.ve.ref == 67 || i == 137) {
+			uint16 be0 = (b22 << 8) | b23;
+			uint16 be1 = (b24 << 8) | b25;
+			uint16 le0 = (b23 << 8) | b22;
+			uint16 le1 = (b25 << 8) | b24;
+			debugC(2, kDebugScripts, "Angel: vocab[%d] bytes=[%02x,%02x,%02x,%02x] BE[%04x,%04x] LE[%04x,%04x] "
+			       "BE0/56=%d LE0/56=%d BE1/80=%d LE1/80=%d BE1/96=%d LE1/96=%d "
+			       "type=%d code=%d ref=%d",
+			       i, b22, b23, b24, b25, be0, be1, le0, le1,
+			       be0/56, le0/56, be1/80, le1/80, be1/96, le1/96,
+			       ve.ve.vType, ve.ve.code, ve.ve.ref);
+		}
 	}
 
 	delete[] buf;
 
-	debugC(1, 0, "Angel: vocab loaded %d words into %d text blocks", _nbrVWords, curBlock);
+	debugC(1, kDebugScripts, "Angel: vocab loaded %d words into %d text blocks", _nbrVWords, curBlock);
 	for (int i = 1; i <= kNbrVBlocks; i++) {
 		if (!_vText[i].empty())
-			debugC(1, 0, "Angel: VText[%d] = %u chars", i, _vText[i].size());
+			debugC(1, kDebugScripts, "Angel: VText[%d] = %u chars", i, _vText[i].size());
 	}
 
 	return true;
@@ -559,8 +586,8 @@ bool GameData::initMessageVM(Common::SeekableReadStream *stream) {
 	_messageFile = stream;
 
 	int fileSize = stream->size();
-	debugC(1, 0, "Angel: message file size = %d bytes", fileSize);
-	debugC(1, 0, "Angel: message file pages = %d (of max %d)",
+	debugC(1, kDebugScripts, "Angel: message file size = %d bytes", fileSize);
+	debugC(1, kDebugScripts, "Angel: message file pages = %d (of max %d)",
 	       (fileSize + kPageSize - 1) / kPageSize, kVMPCapacity);
 
 	// Initialize VM page cache

@@ -117,7 +117,8 @@ public:
 	VSet _pfxWords;
 	int _dayWords[kNumDays];
 	int _otherPerson;                            // PersonRef
-	int _placeNamed;                             // LocRef
+	int _placeNamed;                             // LocRef - 1st place mentioned by parser
+	int _target;                                 // LocRef - MOVE destination (global[3010])
 	int _thing;                                  // ObjRef
 	int _cab;                                    // VehicleRef
 	int _lastMove;                               // Move# for last location change
@@ -129,6 +130,14 @@ public:
 	ThingToDo _thisAction[kNumVWords];           // Verb → Action mapping
 	VWordSet _cueWords;                          // Prepositions
 	int _newArrival;                             // PersonRef
+
+	// ---- Command dispatch (RESPOND CmdEntry) ----
+	// CmdEntry[0..9] stores message addresses for command response dispatch.
+	// Populated by opSet in entity scripts. CmdEntry[1] = direction response.
+	// P-code proc 53: nips 6..15 → CmdEntry[0..9] (g[3045]).
+	static const int kMaxCmdEntries = 10;
+	int _cmdEntry[kMaxCmdEntries];
+
 	Determiner _curBase;                         // Copy prepared by parser
 	PropSet _active;                             // Union of all props in scope
 

@@ -20,6 +20,7 @@
  */
 
 #include "glk/angel/game_state.h"
+#include "glk/glk.h"
 #include "common/debug.h"
 
 namespace Glk {
@@ -37,7 +38,7 @@ GameState::GameState() : _data(nullptr), _location(kNowhere), _direction(kNorth)
                          _pursuer(0), _atTheHelm(false),
                          _dspTime(false), _dspDay(false), _dspMove(false),
                          _dspScore(false), _probPickUp(0),
-                         _otherPerson(0), _placeNamed(0), _thing(0), _cab(0),
+                         _otherPerson(0), _placeNamed(0), _target(0), _thing(0), _cab(0),
                          _lastMove(0), _seed(0.0), _whatNext(kNothing), _verb(0),
                          _newArrival(0),
                          _thingBase(0), _actualPerson(0), _heCursed(false),
@@ -49,6 +50,7 @@ GameState::GameState() : _data(nullptr), _location(kNowhere), _direction(kNorth)
 	memset(_msgQ, 0, sizeof(_msgQ));
 	memset(_dayWords, 0, sizeof(_dayWords));
 	memset(_thisAction, 0, sizeof(_thisAction));
+	memset(_cmdEntry, 0, sizeof(_cmdEntry));
 }
 
 void GameState::initFromData(GameData *data) {
@@ -207,7 +209,7 @@ void GameState::recomputeSets() {
 		_data->_map[loc].people.clear();
 	for (int p = 1; p <= _data->_castSize; p++) {
 		int loc = _data->_cast[p].located;
-		warning("Angel: Person[%d] located=%d", p, loc);
+		debugC(2, kDebugScripts, "Angel: Person[%d] located=%d", p, loc);
 		if (loc > 0 && loc <= _data->_nbrLocations)
 			_data->_map[loc].people.set(p);
 	}

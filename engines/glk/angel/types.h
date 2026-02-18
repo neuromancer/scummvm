@@ -361,7 +361,12 @@ struct VECore {
 	// Variant fields (union)
 	int ref;              // ObjX / PersonX / LocX / VclX / DirX / OtherX / VerbX / DayX
 
-	VECore() : code(kNotAVWord), display(kNoCaps), vType(kAnObject), ref(0) {}
+	// Raw packed words from file (big-endian) for testIs $ path.
+	// P-code proc 77 uses DIVI on these raw words to extract entity refs.
+	uint16 raw0;          // VECore word 0: (byte22 << 8) | byte23
+	uint16 raw1;          // VECore word 1: (byte24 << 8) | byte25
+
+	VECore() : code(kNotAVWord), display(kNoCaps), vType(kAnObject), ref(0), raw0(0), raw1(0) {}
 };
 
 /** Vocabulary table entry (in-memory) */

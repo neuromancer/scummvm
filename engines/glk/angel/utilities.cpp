@@ -184,7 +184,7 @@ Common::String Utilities::putVWord() const {
 
 void Utilities::changeLocation(int locRef) {
 	if (locRef < 1 || locRef > _data->_nbrLocations) {
-		debugC(1, 0, "Angel: changeLocation(%d) — invalid location", locRef);
+		debugC(1, kDebugScripts, "Angel: changeLocation(%d) — invalid location", locRef);
 		return;
 	}
 
@@ -192,13 +192,13 @@ void Utilities::changeLocation(int locRef) {
 
 	// Check access locks
 	if (dest.accessLock > 0 && !_state->_capabilities.has(dest.accessLock)) {
-		debugC(2, 0, "Angel: changeLocation(%d) — locked (access %d)", locRef, dest.accessLock);
+		debugC(2, kDebugScripts, "Angel: changeLocation(%d) — locked (access %d)", locRef, dest.accessLock);
 		return;
 	}
 
 	// Check required object
 	if (dest.mustHave > 0 && !_state->_possessions.has(dest.mustHave)) {
-		debugC(2, 0, "Angel: changeLocation(%d) — missing required object %d", locRef, dest.mustHave);
+		debugC(2, kDebugScripts, "Angel: changeLocation(%d) — missing required object %d", locRef, dest.mustHave);
 		return;
 	}
 

@@ -131,8 +131,8 @@ bool Angel::loadGameData() {
 		return false;
 	}
 
-	warning("Angel: Game data loaded successfully");
-	warning("  Locations: %d, Objects: %d, Cast: %d, Vehicles: %d, Vocab: %d",
+	debugC(1, kDebugScripts, "Angel: Game data loaded successfully");
+	debugC(1, kDebugScripts, "  Locations: %d, Objects: %d, Cast: %d, Vehicles: %d, Vocab: %d",
 	       _data->_nbrLocations, _data->_nbrObjects, _data->_castSize,
 	       _data->_nbrVehicles, _data->_nbrVWords);
 
@@ -153,7 +153,7 @@ void Angel::initGame() {
 
 	_state->_stillPlaying = true;
 
-	debugC(1, 0, "Angel: robotAddr=%d (tables), location=%d", _state->_robotAddr, _state->_location);
+	debugC(1, kDebugScripts, "Angel: robotAddr=%d (tables), location=%d", _state->_robotAddr, _state->_location);
 }
 
 // ============================================================
@@ -188,7 +188,7 @@ Common::String Angel::readLine() {
 		// Echo the scripted input so the window shows a real session.
 		glk_put_string(line.c_str());
 		glk_put_char('\n');
-		warning("Angel: debug input [%u]: '%s'", _debugInputPos - 1, line.c_str());
+		debugC(1, kDebugScripts, "Angel: debug input [%u]: '%s'", _debugInputPos - 1, line.c_str());
 		return line;
 	}
 
@@ -538,6 +538,11 @@ void Angel::describeLocation() {
 		return;
 	}
 
+	// Clear CmdEntry before running location script (RESPOND re-initializes each time).
+	// The location script's opSet calls populate CmdEntry with dispatch addresses
+	// for direction-specific responses (e.g., CmdEntry[1] = trapdoor at addr 277).
+	memset(_state->_cmdEntry, 0, sizeof(_state->_cmdEntry));
+
 	// Display the location description via VM.
 	// Messages handle their own paragraph breaks via kForceOp.
 	// We just forceQ after to end any remaining text on the line.
@@ -551,11 +556,11 @@ void Angel::describeLocation() {
 	}
 
 	// List visible objects — separator before first object (matches CPG 28 at 0x1063)
-	warning("Angel describeLocation: checking %d objects at loc %d", _data->_nbrObjects, _state->_location);
+	debugC(2, kDebugScripts, "Angel describeLocation: checking %d objects at loc %d", _data->_nbrObjects, _state->_location);
 	const ObjSet &objs = here.objects;
 	for (int obj = 1; obj <= _data->_nbrObjects; obj++) {
 		if (objs.has(obj)) {
-			warning("Angel describeLocation: obj %d at loc, unseen=%d n=%d", obj, _data->_props[obj].unseen ? 1 : 0, _data->_props[obj].n);
+			debugC(2, kDebugScripts, "Angel describeLocation: obj %d at loc, unseen=%d n=%d", obj, _data->_props[obj].unseen ? 1 : 0, _data->_props[obj].n);
 			if (!_data->_props[obj].unseen) {
 				if (_data->_props[obj].n > 0) {
 					if (_needsSeparator)
@@ -568,11 +573,11 @@ void Angel::describeLocation() {
 	}
 
 	// List visible people — separator before first person (matches CPG 28 at 0x10E3)
-	warning("Angel describeLocation: checking %d people at loc %d", _data->_castSize, _state->_location);
+	debugC(2, kDebugScripts, "Angel describeLocation: checking %d people at loc %d", _data->_castSize, _state->_location);
 	const PersonSet &people = here.people;
 	for (int p = 1; p <= _data->_castSize; p++) {
 		if (people.has(p)) {
-			warning("Angel describeLocation: person %d at loc, unseen=%d n=%d located=%d", p, _data->_cast[p].unseen ? 1 : 0, _data->_cast[p].n, _data->_cast[p].located);
+			debugC(2, kDebugScripts, "Angel describeLocation: person %d at loc, unseen=%d n=%d located=%d", p, _data->_cast[p].unseen ? 1 : 0, _data->_cast[p].n, _data->_cast[p].located);
 			if (!_data->_cast[p].unseen && _data->_cast[p].located == _state->_location) {
 				if (_data->_cast[p].n > 0) {
 					if (_needsSeparator)
@@ -583,7 +588,7 @@ void Angel::describeLocation() {
 			}
 		}
 	}
-	warning("Angel describeLocation: done");
+	debugC(2, kDebugScripts, "Angel describeLocation: done");
 }
 
 void Angel::animateAll() {
@@ -623,11 +628,11 @@ void Angel::processTimedEvents() {
 	for (int i = 0; i < 32; i++) {
 		if (_state->_clock.xReg[i].x > 0) {
 			_state->_clock.xReg[i].x--;
-			debugC(2, 0, "Angel: xReg[%d] decremented to %d (proc=%d)",
+			debugC(2, kDebugScripts, "Angel: xReg[%d] decremented to %d (proc=%d)",
 			       i, _state->_clock.xReg[i].x, _state->_clock.xReg[i].proc);
 			if (_state->_clock.xReg[i].x == 0 && _state->_clock.xReg[i].proc > 0) {
-				warning("Angel: FIRING xReg[%d] proc=%d (loc=%d)",
-				        i, _state->_clock.xReg[i].proc, _state->_location);
+				debugC(1, kDebugScripts, "Angel: FIRING xReg[%d] proc=%d (loc=%d)",
+				       i, _state->_clock.xReg[i].proc, _state->_location);
 				_vm->displayMsg(_state->_clock.xReg[i].proc);
 				forceQ();
 			}
@@ -654,53 +659,85 @@ void Angel::dispatchCommand(ThingToDo action) {
 		println("Save/restore is handled through the ScummVM menu.");
 		return;
 	}
-	// Handle movement commands directly.
+
+	// Movement destination for kAMove/kATrip.
+	int moveDest = kNowhere;
 	if (action == kAMove || action == kATrip) {
-		int dest = _state->_cur.whereTo;
-		if (dest > kNowhere && dest <= _data->_nbrLocations) {
-			debugC(1, 0, "Angel: move from loc %d to loc %d", _state->_location, dest);
-
+		moveDest = _state->_cur.whereTo;
+		debugC(1, kDebugScripts, "Angel: dispatchCommand move: loc=%d dest=%d dir=%d verb=%d cmdEntry[1]=%d",
+		       _state->_location, moveDest, _state->_direction, _state->_verb, _state->_cmdEntry[1]);
+		if (moveDest > kNowhere && moveDest <= _data->_nbrLocations) {
 			// Set target so kTargOp returns the destination.
-			_state->_placeNamed = dest;
-
-			// Dispatch the MOVE event BEFORE changing location.
-			// The script checks current location (kLocOp) vs target (kTargOp)
-			// to handle traps, special events, etc. It may end the game
-			// (e.g. south trapdoor) or redirect movement.
-			int moveProc = _state->_clock.xReg[kXMove].proc;
-			if (moveProc > 0) {
-				debugC(1, 0, "Angel: MOVE event proc=%d at loc=%d target=%d",
-				       moveProc, _state->_location, dest);
-				_vm->setSuppressText(false);
-				_vm->displayMsg(moveProc);
-				forceQ();
-			}
-
-			// Actually move (if the event didn't end the game).
-			if (_state->_stillPlaying) {
-				_utils->changeLocation(dest);
-				outLn();
-				describeLocation();
-			}
-		} else {
-			// Dead end — dispatch location script for "you can't go that way".
-			int scriptAddr = _data->_map[_state->_location].n;
-			debugC(1, 0, "Angel: dead end, dispatch loc script addr=%d", scriptAddr);
-			_vm->displayMsg(scriptAddr);
-			forceQ();
+			_state->_target = moveDest;
+			_state->_placeNamed = moveDest;
 		}
-		return;
 	}
 
-	// Dispatch to the default response script for non-movement commands.
-	static const int kDefaultResponseAddr = 6660;
-	int scriptAddr = kDefaultResponseAddr;
+	// Dispatch the MOVE event for valid movement commands.
+	// The MOVE script fires BEFORE changeLocation — it checks current location
+	// (kLocOp) vs target (kTargOp) to handle traps, special events, etc.
+	if (moveDest > kNowhere && moveDest <= _data->_nbrLocations) {
+		int moveProc = _state->_clock.xReg[kXMove].proc;
+		if (moveProc > 0) {
+			debugC(1, kDebugScripts, "Angel: MOVE event proc=%d at loc=%d target=%d",
+			       moveProc, _state->_location, moveDest);
+			_vm->setSuppressText(false);
+			_vm->displayMsg(moveProc);
+			forceQ();
+		}
+	}
 
-	debugC(1, 0, "Angel: dispatch response addr=%d (action=%d, loc=%d, verb=%d)",
-	       scriptAddr, (int)action, _state->_location, _state->_verb);
+	// Dispatch CmdEntry[1] for direction commands (RESPOND proc 1 at L_3430).
+	// CmdEntry is populated by opSet in the location's description script.
+	// CmdEntry[1] holds the message address for direction-specific responses
+	// (e.g., trapdoor at addr 277 for "south" at location 7).
+	if (_state->_stillPlaying && (action == kAMove || action == kATrip)) {
+		int cmdAddr = _state->_cmdEntry[1];
+		if (cmdAddr > 0) {
+			debugC(1, kDebugScripts, "Angel: CmdEntry[1] dispatch addr=%d loc=%d target=%d",
+			       cmdAddr, _state->_location, moveDest);
+			_vm->setSuppressText(false);
+			_vm->displayMsg(cmdAddr);
+			forceQ();
+		}
+	}
 
-	_vm->displayMsg(scriptAddr);
-	forceQ();
+	// Dispatch response script for non-movement commands.
+	if (_state->_stillPlaying && action != kAMove && action != kATrip) {
+		static const int kDefaultResponseAddr = 6660;
+		int scriptAddr = kDefaultResponseAddr;
+
+		debugC(1, kDebugScripts, "Angel: dispatch response addr=%d (action=%d, loc=%d, verb=%d)",
+		       scriptAddr, (int)action, _state->_location, _state->_verb);
+
+		_vm->setSuppressText(false);
+		_vm->displayMsg(scriptAddr);
+		forceQ();
+	}
+
+	// For movement commands: actually move if the script didn't end the game.
+	if (moveDest > kNowhere && moveDest <= _data->_nbrLocations &&
+	    _state->_stillPlaying) {
+		debugC(1, kDebugScripts, "Angel: move from loc %d to loc %d", _state->_location, moveDest);
+		_utils->changeLocation(moveDest);
+
+		// Fire ENTRY event after each location change (xReg[kXEntry]).
+		// The ENTRY script handles location-specific entry logic (traps, etc.).
+		// Text is suppressed — ENTRY content should not be displayed directly.
+		if (_state->_clock.xReg[kXEntry].proc > 0) {
+			_vm->setSuppressText(true);
+			debugC(1, kDebugScripts, "Angel: ENTRY event at new loc=%d proc=%d",
+			       _state->_location, _state->_clock.xReg[kXEntry].proc);
+			_vm->displayMsg(_state->_clock.xReg[kXEntry].proc);
+			forceQ();
+			_vm->setSuppressText(false);
+		}
+
+		if (_state->_stillPlaying) {
+			outLn();
+			describeLocation();
+		}
+	}
 }
 
 void Angel::doTurn() {
@@ -716,7 +753,7 @@ void Angel::doTurn() {
 		glk_window_get_size(_mainWindow, &winW, &winH);
 	if (winW < 10)
 		winW = 60;  // fallback
-	debugC(5, 0, "Angel: window size %u x %u chars", winW, winH);
+	debugC(5, kDebugScripts, "Angel: window size %u x %u chars", winW, winH);
 
 	int pad = ((int)winW - 10) / 2;
 	Common::String sep;
@@ -734,7 +771,7 @@ void Angel::doTurn() {
 
 	ThingToDo action = _parser->parse(input);
 
-	debugC(1, 0, "Angel: parsed command → ThingToDo=%d verb=%d",
+	debugC(1, kDebugScripts, "Angel: parsed command → ThingToDo=%d verb=%d",
 	       (int)action, _state->_verb);
 
 	// Execute the command
@@ -854,7 +891,7 @@ void Angel::showIntroImage() {
 // ============================================================
 
 void Angel::runGame() {
-	warning("Angel: runGame() entered");
+	debugC(1, kDebugScripts, "Angel: runGame() entered");
 
 	// Show intro images (StartupScreen + BOOTUP) if present
 	//showIntroImage();
@@ -887,8 +924,8 @@ void Angel::runGame() {
 					_debugInputLines.push_back(line);
 			}
 			inputFile.close();
-			warning("Angel: loaded %u debug input lines from ANGEL_INPUT",
-			        _debugInputLines.size());
+			debugC(1, kDebugScripts, "Angel: loaded %u debug input lines from ANGEL_INPUT",
+			       _debugInputLines.size());
 		}
 	}
 
@@ -910,7 +947,7 @@ void Angel::runGame() {
 	// bullets...") before the first kForceOp is visible.
 	_vm->setBaseSuppressText(true);
 	if (_state->_clock.xReg[kXWelcome].proc > 0) {
-		warning("Angel: Executing WELCOME event at proc=%d",
+		debugC(1, kDebugScripts, "Angel: Executing WELCOME event at proc=%d",
 		       _state->_clock.xReg[kXWelcome].proc);
 		_vm->displayMsg(_state->_clock.xReg[kXWelcome].proc);
 		// The WELCOME message ends with kForceOp which handles its own
@@ -923,7 +960,7 @@ void Angel::runGame() {
 
 	// Execute the ENTRY event procedure (xReg[kXEntry]).
 	if (_state->_clock.xReg[kXEntry].proc > 0) {
-		warning("Angel: Executing ENTRY event at proc=%d",
+		debugC(1, kDebugScripts, "Angel: Executing ENTRY event at proc=%d",
 		       _state->_clock.xReg[kXEntry].proc);
 		_vm->displayMsg(_state->_clock.xReg[kXEntry].proc);
 		forceQ();

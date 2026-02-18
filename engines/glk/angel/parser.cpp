@@ -41,6 +41,7 @@
  */
 
 #include "glk/angel/parser.h"
+#include "glk/glk.h"
 #include "common/debug.h"
 #include "common/textconsole.h"
 
@@ -511,6 +512,10 @@ ThingToDo Parser::classify() {
 	if (verbIdx >= 0) {
 		_state->_verb = _tokens[verbIdx].vocabIndex;
 		verbCode = _tokens[verbIdx].code;
+	} else if (dirIdx >= 0) {
+		// Direction-only commands (e.g. "south"): set _verb to the direction
+		// word's vocab index so MOVE scripts can test the verb via testSyn.
+		_state->_verb = _tokens[dirIdx].vocabIndex;
 	}
 
 	// ---- Resolve objects ----
@@ -662,7 +667,7 @@ ThingToDo Parser::parse(const Common::String &input) {
 		return kNothing;
 	}
 
-	debugC(2, 0, "Angel parser: %d token(s) from \"%s\"",
+	debugC(2, kDebugScripts, "Angel parser: %d token(s) from \"%s\"",
 	       (int)_tokens.size(), input.c_str());
 
 	// Step 2 — Vocabulary lookup for every token
@@ -672,11 +677,11 @@ ThingToDo Parser::parse(const Common::String &input) {
 	for (uint i = 0; i < _tokens.size(); i++) {
 		const Token &t = _tokens[i];
 		if (t.vocabIndex >= 0) {
-			debugC(2, 0, "  token[%d] \"%s\" → vocab %d kind=%d code=%d ref=%d",
+			debugC(2, kDebugScripts, "  token[%d] \"%s\" → vocab %d kind=%d code=%d ref=%d",
 			       i, t.word.c_str(), t.vocabIndex, (int)t.kind,
 			       (int)t.code, t.ref);
 		} else {
-			debugC(2, 0, "  token[%d] \"%s\" → unknown", i, t.word.c_str());
+			debugC(2, kDebugScripts, "  token[%d] \"%s\" → unknown", i, t.word.c_str());
 		}
 	}
 
@@ -685,7 +690,7 @@ ThingToDo Parser::parse(const Common::String &input) {
 	_state->_whatNext = result;
 	_state->_curBase = _state->_cur;
 
-	debugC(2, 0, "Angel parser: whatNext = %d, verb idx = %d, "
+	debugC(2, kDebugScripts, "Angel parser: whatNext = %d, verb idx = %d, "
 	       "obj = %d, person = %d, vehicle = %d, dest = %d",
 	       (int)result, _state->_verb,
 	       _state->_cur.doItToWhat, _state->_cur.personNamed,

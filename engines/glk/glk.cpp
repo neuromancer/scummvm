@@ -153,12 +153,16 @@ Common::Error GlkEngine::run() {
 
 bool GlkEngine::canLoadGameStateCurrently(Common::U32String *msg) {
 	// Only allow savegames by default when sub-engines are waiting for a line
+	if (!_windows)
+		return false;
 	Window *win = _windows->getFocusWindow();
 	return win && (win->_lineRequest || win->_lineRequestUni);
 }
 
 bool GlkEngine::canSaveGameStateCurrently(Common::U32String *msg) {
 	// Only allow savegames by default when sub-engines are waiting for a line
+	if (!_windows)
+		return false;
 	Window *win = _windows->getFocusWindow();
 	return win && (win->_lineRequest || win->_lineRequestUni);
 }
