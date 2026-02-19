@@ -238,12 +238,11 @@ void VM::executeMsg() {
 			}
 		}
 
-		// Trace every control character position for alignment debugging
-		if (ch != ' ' && ch != '\0' && (ch < 'a' || ch > 'z') && (ch < '0' || ch > '9')
-		    && ch != '.' && ch != ',' && ch != '-' && ch != '?' && ch != '"'
-		    && ch != ';' && ch != '\'' && ch != '!' && ch != ':') {
-			debugC(kDebugScripts, "Angel VM: @pos=%d nip→ch='%c'(%d) base=%d tf=%d",
-			        prePos, ch, (int)(unsigned char)ch, _state->_msgBase, _state->_tfIndicator ? 1 : 0);
+		// Trace every character position for alignment debugging (MSG30 only)
+		if (_state->_msgBase == 30 || _state->_msgBase == 29 || _state->_msgBase == 3836) {
+			debugC(kDebugScripts, "Angel VM: TRACE @pos=%d ch='%c'(%d) base=%d tf=%d suppress=%d",
+			        prePos, (ch >= 32 && ch < 127) ? ch : '?', (int)(unsigned char)ch,
+			        _state->_msgBase, _state->_tfIndicator ? 1 : 0, _suppressText ? 1 : 0);
 		}
 
 		// Check for control codes
@@ -302,23 +301,30 @@ void VM::executeMsg() {
 			// Unconditional jump: next 2 nips = forward offset.
 			// Jump targets are encoded relative to the last nip of getNumber
 			// (i.e. one position before _msgPos after getNumber), so subtract 1.
+			// P-code: CXG 18,16 performs the jump and resets tf=TRUE as a side
+			// effect, enabling text output in the destination code section.
 			{
 				int target = getNumber();
 				debugC(kDebugScripts, "Angel VM: JU target=%d from pos=%d -> pos=%d", target, _state->_msgPos, _state->_msgPos + target - 1);
 				jump(target - 1);
+				_state->_tfIndicator = true;
 			}
 			break;
 
 		case kJF:
 			// Jump if FALSE: next 2 nips = forward offset.
 			// Same encoding convention as kJU — subtract 1 from target.
+			// When jumping (tf=FALSE), CXG 18,16 resets tf=TRUE so that
+			// text in the ELSE block is visible after a failed comparison.
 			{
 				int target = getNumber();
 				debugC(kDebugScripts, "Angel VM: JF target=%d tf=%s from pos=%d -> pos=%d",
 				        target, _state->_tfIndicator ? "T" : "F",
 				        _state->_msgPos, _state->_msgPos + target - 1);
-				if (!_state->_tfIndicator)
+				if (!_state->_tfIndicator) {
 					jump(target - 1);
+					_state->_tfIndicator = true;
+				}
 			}
 			break;
 
@@ -351,10 +357,13 @@ void VM::executeMsg() {
 			break;
 
 		case kFar:
-			// Action with reference — p-code (proc 93):
-			//   NAT_F0 32(0, 50)  → getNip + kActionOpcodeBase (1 nip for action opcode)
-			//   NAT_F0 32(0, 135) → getNip + kFeOpcodeBase (1 nip for ref operation)
-			//   NAT_F0 35         → entity resolution (sets context)
+			// Action with reference — p-code proc 93.
+			// Stream: opNip(1) + refNip(1), then:
+			//   For edit ops 78-86 (kSwOp..kRstOp): XJP dispatch, each case reads
+			//     its own inline data (CXS 12 discriminator nip + optional CXS 10).
+			//   For ALL other ops: fallback reads CXS12(1 nip) + CXS10(2 nips) = 3 nips.
+			//   The fallback does NOT execute the action — it returns dispatch info
+			//   to the caller, which our architecture doesn't use.
 			{
 				int opNip = getNip();
 				int refNip = getNip();
@@ -367,17 +376,85 @@ void VM::executeMsg() {
 				int opVal = opNip + kActionOpcodeBase;
 				debugC(kDebugScripts, "Angel VM: kFar opNip=%d op=%d refNip=%d refOp=%d ref=%d entityFlag=%d entityValue=%d",
 				        opNip, opVal, refNip, refOp, ref, _entityFlag ? 1 : 0, _entityValue);
-				if (opVal >= kNumOperations) {
-					warning("Angel VM: Unknown action+ref opcode nip=%d op=%d", opNip, opVal);
-				} else if (opVal == kRstOp) {
-					// opRst needs the ref OPERATION code (not resolved value)
-					// to determine which game state variable to reset.
-					// P-code proc 94 dispatches on intermediate[3][11] = refOp.
-					opRst(refOp);
-				} else if (opVal >= kEditOpcodeBase) {
-					executeEdit((Operation)opVal, ref);
+
+				if (opVal >= (int)kSwOp && opVal <= (int)kRstOp) {
+					// Edit opcodes 78-86: handled by kFar's own XJP dispatch (L_2b3e).
+					// Each case reads its own inline data — NOT a uniform discriminator.
+					switch ((Operation)opVal) {
+					case kSwOp: {
+						// L_2aa5: CXS 11 (getNip) + compare with 143.
+						// If match: toggle global[3043]. If not: CXS 10 + NAT_F0 47.
+						int val = getNip();  // CXS 11
+						if (val == 143) {
+							debugC(kDebugScripts, "Angel VM: kFar kSwOp toggle (stub)");
+						} else {
+							getNumber();  // CXS 10: skip 2 nips
+							debugC(kDebugScripts, "Angel VM: kFar kSwOp fallback val=%d (stub)", val);
+						}
+						break;
+					}
+					case kAttrOp: {
+						// L_2abd: CXS 12 (1 nip) + compare with 1.
+						// Both branches: CXS 10 + NAT_F0 51/52.
+						int discrim = getNip();  // CXS 12
+						int val = getNumber();   // CXS 10
+						debugC(kDebugScripts, "Angel VM: kFar kAttrOp discrim=%d val=%d (stub)", discrim, val);
+						break;
+					}
+					case kAsgOp: {
+						// L_2ace: CXS 12 (1 nip discriminator). L_2b2f XJP case 0-3:
+						// Each case reads CXS 10 (getNumber) and stores in a state var.
+						// If discrim > 3: XJP default → no CXS 10, use resolved entity.
+						int discrim = getNip();  // CXS 12
+						if (discrim >= 0 && discrim <= 3) {
+							int val = getNumber();  // CXS 10
+							debugC(kDebugScripts, "Angel VM: kFar kAsgOp discrim=%d val=%d (stream)", discrim, val);
+							switch (discrim) {
+							case 0: _state->_cur.doItToWhat = val; break;
+							case 1: _state->_cur.personNamed = val; break;
+							case 2: _state->_placeNamed = val; break;
+							case 3: _state->_cab = val; break;
+							}
+						} else {
+							// Use resolved entity context (no additional stream reads)
+							if (_entityFlag) {
+								switch (_entityType) {
+								case 0: _state->_cur.doItToWhat = _entityValue; break;
+								case 1: _state->_cur.personNamed = _entityValue; break;
+								case 2: _state->_placeNamed = _entityValue; break;
+								case 3: _state->_cab = _entityValue; break;
+								}
+							}
+							debugC(kDebugScripts, "Angel VM: kFar kAsgOp discrim=%d (entity: type=%d val=%d)",
+							       discrim, _entityType, _entityValue);
+						}
+						break;
+					}
+					case kMovOp: {
+						// L_2b34: CXS 10 (getNumber) + NAT_F0 48.
+						// No CXS 12 prefix — reads 2 nips directly.
+						int val = getNumber();  // CXS 10
+						debugC(kDebugScripts, "Angel VM: kFar kMovOp val=%d (stub)", val);
+						break;
+					}
+					case kRstOp:
+						// L_2b3a: CPL 94 (proc 94). No stream reads at all.
+						opRst(refOp);
+						break;
+					default:
+						// Cases 79 (kAdvOp), 80 (kRecedeOp), 81 (kChzOp),
+						// 85 (kPrintOp) → L_2b41 → return (no-op, 0 stream reads).
+						debugC(kDebugScripts, "Angel VM: kFar edit op=%d (no-op)", opVal);
+						break;
+					}
 				} else {
-					executeAction((Operation)opVal, ref);
+					// Fallback path (L_2b43): opcodes outside 78-86.
+					// P-code reads CXS 12(1 nip) + CXS 10(2 nips) = 3 nips,
+					// returns dispatch info without executing the action.
+					int fallbackNip = getNip();    // CXS 12
+					int fallbackVal = getNumber(); // CXS 10
+					debugC(kDebugScripts, "Angel VM: kFar fallback op=%d nip=%d val=%d (skipped)",
+					       opVal, fallbackNip, fallbackVal);
 				}
 			}
 			break;
@@ -391,20 +468,24 @@ void VM::executeMsg() {
 				int opNip = getNip();
 				int opVal = opNip + kTestOpcodeBase;
 				if (opVal == kLessOp || opVal == kEqOp || opVal == kLEqOp) {
-					// Comparison tests read two inline values (proc 58 pattern)
-					// P-code proc 58: reads getNip (1 nip) FIRST, then branches:
-					//   nip != 0 → field address: stores nip+1 in global[8], returns 0 (1 nip total)
-					//   nip == 0 → literal: reads getNumber (2 more nips), returns value (3 nips total)
+					// Comparison tests read two inline values (proc 58 pattern).
+					// P-code proc 58: CXG 18,15 reads getNumber (2 nips).
+					// If non-zero: field path — stores value+1 in global[8], returns 0.
+					// If zero: literal path — NAT_F0 6 reads getNip (1 nip), returns it.
+					// Total: field = 2 nips, literal = 3 nips.
 					auto readCompValue = [this]() -> int {
-						int nip = getNip();
-						if (nip == 0) {
-							int value = getNumber();
-							debugC(kDebugScripts, "Angel VM: readCompValue: literal getNumber=%d", value);
-							return value;
+						int startPos = _state->_msgPos;
+						int temp = getNumber();
+						if (temp == 0) {
+							int litPos = _state->_msgPos;
+							int lit = getNip();
+							debugC(kDebugScripts, "Angel VM: readCompValue: literal getNip=%d (getNum@%d=0, nip@%d=%d)",
+							        lit, startPos, litPos, lit);
+							return lit;
 						}
-						_compFieldAddr = nip + 1;
-						debugC(kDebugScripts, "Angel VM: readCompValue: field nip=%d, stored _compFieldAddr=%d, returning 0",
-						        nip, _compFieldAddr);
+						_compFieldAddr = temp + 1;
+						debugC(kDebugScripts, "Angel VM: readCompValue: field ref=%d @pos=%d, stored _compFieldAddr=%d, returning 0",
+						        temp, startPos, _compFieldAddr);
 						return 0;
 					};
 					int val1 = readCompValue();
@@ -497,7 +578,7 @@ void VM::executeMsg() {
 				int opVal = opNip + kFeOpcodeBase;
 				debugC(kDebugScripts, "Angel VM: kFe opNip=%d op=%d base=%d pos=%d", opNip, opVal, _state->_msgBase, _state->_msgPos);
 				if (opVal < kNumOperations)
-					executeFe((Operation)opVal, 0);
+					executeFe((Operation)opVal, 0, true);
 				else
 					warning("Angel VM: Unknown Fe opcode nip=%d op=%d", opNip, opVal);
 			}
@@ -530,7 +611,7 @@ void VM::executeMsg() {
 				debugC(kDebugScripts, "Angel VM: kFer opNip=%d op=%d refNip=%d refOp=%d ref=%d",
 				        opNip, opVal, refNip, refOp, ref);
 				if (opVal < kNumOperations)
-					executeFe((Operation)opVal, ref);
+					executeFe((Operation)opVal, ref, false);
 				else
 					warning("Angel VM: Unknown Fer opcode nip=%d op=%d", opNip, opVal);
 			}
@@ -686,8 +767,24 @@ void VM::executeCase() {
 		return;
 	}
 
-	debugC(kDebugScripts, "Angel VM: CSE type=%d nbrCases=%d matchValue=%d matchRef=%d totalSize=%d",
-	       caseType, nbrCases, matchValue, matchRef, totalSize);
+	debugC(kDebugScripts, "Angel VM: CSE type=%d nbrCases=%d matchValue=%d matchRef=%d totalSize=%d pos=%d base=%d",
+	       caseType, nbrCases, matchValue, matchRef, totalSize, _state->_msgPos, _state->_msgBase);
+
+	// CSE entry debug for broken messages
+	if (_state->_msgBase == 30 || _state->_msgBase == 29 || _state->_msgBase == 3836) {
+		int savedPos = _state->_msgPos;
+		int savedCursor = _state->_msgCursor;
+		Common::String nipStr;
+		for (int d = 0; d < 20 && !_state->_eom; d++) {
+			int rawNip = getNip();
+			nipStr += Common::String::format("%d ", rawNip);
+		}
+		debugC(kDebugScripts, "Angel VM: CSE@%d entry nips: %s", savedPos, nipStr.c_str());
+		_state->_msgPos = savedPos;
+		_state->_msgCursor = savedCursor;
+		_state->_vmCurRecord = _data->readChunk(
+			_state->_msgBase + (_state->_msgPos / kChunkSize));
+	}
 
 	bool matched = false;
 	for (int i = 0; i < nbrCases && !matched; i++) {
@@ -955,10 +1052,7 @@ void VM::executeTest(Operation op, int ref) {
 		break;
 	}
 
-	// P-code proc 76: kNewOp (case 128) does NOT set seg[20].global[5].
-	// kNewOp leaves tf unchanged so JF doesn't jump and text flows through.
-	if (op != kNewOp)
-		_state->_tfIndicator = result;
+	_state->_tfIndicator = result;
 }
 
 // ============================================================
@@ -1014,7 +1108,7 @@ void VM::executeEdit(Operation op, int ref) {
 //   163 kForceOp → CXG 18,9 + CXG 18,7 + CXG 18,8 + CXG 18,18(0)
 //   164 kSpkOp   → same as kForceOp but no CXG 18,8
 
-void VM::executeFe(Operation op, int ref) {
+void VM::executeFe(Operation op, int ref, bool fromFe) {
 	switch (op) {
 	case kCapOp:
 		// P-code: CXG 18,18(1) = PutItem(TRUE).
@@ -1068,13 +1162,13 @@ void VM::executeFe(Operation op, int ref) {
 
 	case kDscOp:
 		// Display a description message. Via kFe: reads getNumber() for address.
-		// Via kFer: uses ref as address.
+		// Via kFer: uses ref as address (even if ref=0, do NOT read from stream).
 		// Uses descriptionOnly mode: stops at first EndSym section break,
 		// displaying only the description section (not command response scripts).
 		// Original P-code CPL 100 likewise only runs the description section.
 		{
 			int addr = ref;
-			if (ref == 0) {
+			if (fromFe) {
 				// kFe path: read address from stream (CPI 3,5(0,1) = getNumber)
 				addr = getNumber();
 			}
@@ -1089,7 +1183,7 @@ void VM::executeFe(Operation op, int ref) {
 		// Via kFer: uses ref.
 		{
 			int target = ref;
-			if (ref == 0) {
+			if (fromFe) {
 				// kFe path: read from stream
 				target = getNumber();
 			}
@@ -1102,7 +1196,7 @@ void VM::executeFe(Operation op, int ref) {
 		// Print a numbered message (same as action kPrintOp)
 		{
 			int addr = ref;
-			if (ref == 0) {
+			if (fromFe) {
 				addr = getNumber();
 			}
 			debugC(kDebugScripts, "Angel VM: Fe kPrintOp addr=%d", addr);

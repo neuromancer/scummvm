@@ -156,8 +156,10 @@ private:
 	/** Execute an edit opcode (via Fa/Far edit range) */
 	void executeEdit(Operation op, int ref);
 
-	/** Execute an Fe/Fer opcode (base 135, reference/display ops) */
-	void executeFe(Operation op, int ref);
+	/** Execute an Fe/Fer opcode (base 135, reference/display ops).
+	 *  fromFe=true means called from kFe (may read inline data from stream).
+	 *  fromFe=false means called from kFer (ref is fully resolved, no stream reads). */
+	void executeFe(Operation op, int ref, bool fromFe);
 
 	// ---- Action implementations ----
 	void opPrint(int ref);
