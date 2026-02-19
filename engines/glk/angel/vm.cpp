@@ -392,25 +392,19 @@ void VM::executeMsg() {
 				int opVal = opNip + kTestOpcodeBase;
 				if (opVal == kLessOp || opVal == kEqOp || opVal == kLEqOp) {
 					// Comparison tests read two inline values (proc 58 pattern)
-					// P-code proc 58: calls getNumber(). If 0, reads getNip() literal.
-					// If non-zero, stores (value+1) in global[8] via SRO 8 and
-					// P-code proc 58: reads getNumber (2 nips via CXG 18,15).
-					// If result != 0: stores result+1 in global[8] (field addr), returns 0.
-					// If result == 0: reads getNip as literal value.
-					// Total: 2 nips for field refs, 3 nips for literals.
+					// P-code proc 58: reads getNip (1 nip) FIRST, then branches:
+					//   nip != 0 → field address: stores nip+1 in global[8], returns 0 (1 nip total)
+					//   nip == 0 → literal: reads getNumber (2 more nips), returns value (3 nips total)
 					auto readCompValue = [this]() -> int {
-						int temp = getNumber();
-						if (temp == 0) {
-							int lit = getNip();
-							debugC(kDebugScripts, "Angel VM: readCompValue: literal getNip=%d", lit);
-							return lit;
+						int nip = getNip();
+						if (nip == 0) {
+							int value = getNumber();
+							debugC(kDebugScripts, "Angel VM: readCompValue: literal getNumber=%d", value);
+							return value;
 						}
-						// P-code proc 58 (SRO interpretation): stores temp+1
-						// in global[8] and returns 0. The field address is
-						// used by later operations, not the comparison itself.
-						_compFieldAddr = temp + 1;
-						debugC(kDebugScripts, "Angel VM: readCompValue: field ref=%d, stored _compFieldAddr=%d, returning 0",
-						        temp, _compFieldAddr);
+						_compFieldAddr = nip + 1;
+						debugC(kDebugScripts, "Angel VM: readCompValue: field nip=%d, stored _compFieldAddr=%d, returning 0",
+						        nip, _compFieldAddr);
 						return 0;
 					};
 					int val1 = readCompValue();
@@ -1075,6 +1069,9 @@ void VM::executeFe(Operation op, int ref) {
 	case kDscOp:
 		// Display a description message. Via kFe: reads getNumber() for address.
 		// Via kFer: uses ref as address.
+		// Uses descriptionOnly mode: stops at first EndSym section break,
+		// displaying only the description section (not command response scripts).
+		// Original P-code CPL 100 likewise only runs the description section.
 		{
 			int addr = ref;
 			if (ref == 0) {
@@ -1083,7 +1080,7 @@ void VM::executeFe(Operation op, int ref) {
 			}
 			debugC(kDebugScripts, "Angel VM: Fe kDscOp addr=%d ref=%d", addr, ref);
 			if (addr > 0)
-				displayMsg(addr);
+				displayMsg(addr, true);
 		}
 		break;
 
@@ -2099,18 +2096,39 @@ bool VM::testFull(int ref) {
 }
 
 bool VM::testLocked(int ref) {
+	// kFtr path with location entity: check location's itsLocked
+	if (_entityType == kALocation || _entityType == kABuilding) {
+		if (ref > 0 && ref <= _data->_nbrLocations)
+			return _data->_map[ref].itsLocked;
+		return false;
+	}
+	// kFt path or object entity
 	if (ref > 0 && ref <= _data->_nbrObjects)
 		return _data->_props[ref].itsLocked;
 	return false;
 }
 
 bool VM::testOpened(int ref) {
+	// kFtr path with location entity: check if door and open
+	if (_entityType == kALocation || _entityType == kABuilding) {
+		if (ref > 0 && ref <= _data->_nbrLocations)
+			return _data->_map[ref].itsADoor && _data->_map[ref].itsOpen;
+		return false;
+	}
+	// kFt path or object entity
 	if (ref > 0 && ref <= _data->_nbrObjects)
 		return _data->_props[ref].itsOpen;
 	return false;
 }
 
 bool VM::testClosed(int ref) {
+	// kFtr path with location entity: check if door and closed
+	if (_entityType == kALocation || _entityType == kABuilding) {
+		if (ref > 0 && ref <= _data->_nbrLocations)
+			return _data->_map[ref].itsADoor && !_data->_map[ref].itsOpen;
+		return false;
+	}
+	// kFt path or object entity
 	if (ref > 0 && ref <= _data->_nbrObjects)
 		return !_data->_props[ref].itsOpen;
 	return false;
