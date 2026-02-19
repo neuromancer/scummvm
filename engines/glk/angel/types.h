@@ -48,6 +48,7 @@ static const int kMaxNbrLocations = 119;    // Max locations in game map
 static const int kMaxNbrAnOther = 119;      // Max "other" words
 static const int kMaxNbrVehicles = 15;      // Max vehicles in fleet
 static const int kMaxNbrVWords = 319;       // Max entries in vocabulary table
+static const int kLibraryWordCount = 89;    // ASG library words before game vocab in entity table
 static const int kMaxNbrProperties = 63;    // Max properties (verbs)
 static const int kNbrLocked = 6;            // Locked locations + 1
 static const int kNbrStops = 5;             // Stops on a bus route

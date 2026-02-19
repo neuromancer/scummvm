@@ -46,7 +46,9 @@ GameState::GameState() : _data(nullptr), _location(kNowhere), _direction(kNorth)
                          _eom(false), _eoCom(false), _aQuestion(false),
                          _msgCursor(0), _msgPos(0), _msgBase(0), _msgLength(0),
                          _msgLoc(0), _msgNext(0), _printSw(false), _q(0),
-                         _tfIndicator(false) {
+                         _tfIndicator(false),
+                         _recallDoItToWhat(0), _recallThing(0),
+                         _recallPersonNamed(0), _recallCab(0), _recallTarget(0) {
 	memset(_msgQ, 0, sizeof(_msgQ));
 	memset(_dayWords, 0, sizeof(_dayWords));
 	memset(_thisAction, 0, sizeof(_thisAction));
@@ -187,6 +189,16 @@ void GameState::initFromData(GameData *data) {
 	_cueWords.set(kVIn);
 
 	recomputeSets();
+
+	// Snapshot recall registers (seg[19].g[223..229]).
+	// P-code INITIALI copies the same source to both state vars and recall
+	// regs.  They are never updated during gameplay — opRst always restores
+	// to these game-start values.
+	_recallDoItToWhat = _cur.doItToWhat;
+	_recallTarget = _target;
+	_recallCab = _cab;
+	_recallPersonNamed = _cur.personNamed;
+	_recallThing = _thing;
 }
 
 void GameState::reset() {

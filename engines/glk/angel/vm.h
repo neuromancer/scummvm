@@ -242,6 +242,17 @@ private:
 	void opAdd(int ref);
 	void opSub(int ref);
 
+	// ---- Entity table helpers ----
+	/**
+	 * Convert an entity table index (from message stream getNumber()) to a
+	 * vocab file index.  The ASG runtime's entity table includes library
+	 * words (standard verbs, prepositions, etc.) before game-specific vocab.
+	 * Entity numbers 1..kLibraryWordCount are library words (no vocab entry).
+	 * Entity numbers kLibraryWordCount+1..N map to vocab[entityNum - kLibraryWordCount - 1].
+	 * Returns -1 if the entity number is out of game vocab range.
+	 */
+	int entityToVocabIdx(int entityNum) const;
+
 	// ---- Test implementations ----
 	/** Check if location is adjacent to current location (FUNCTION Local) */
 	bool isLocal(int locRef);

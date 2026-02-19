@@ -680,31 +680,36 @@ void Angel::dispatchCommand(ThingToDo action) {
 		moveDest = _state->_cur.whereTo;
 		debugC(1, kDebugScripts, "Angel: dispatchCommand move: loc=%d dest=%d dir=%d verb=%d cmdEntry[1]=%d",
 		       _state->_location, moveDest, _state->_direction, _state->_verb, _state->_cmdEntry[1]);
-		if (moveDest > kNowhere && moveDest <= _data->_nbrLocations) {
-			// Set target so kTargOp returns the destination.
-			_state->_target = moveDest;
-			_state->_placeNamed = moveDest;
-		}
+		// Set target so kTargOp returns the destination — even for kNowhere,
+		// because the MOVE script checks kTargOp to decide traps vs dead-ends.
+		_state->_target = moveDest;
+		_state->_placeNamed = moveDest;
 	}
 
-	// Dispatch the MOVE event for valid movement commands.
+	// Dispatch the MOVE event for ALL movement commands (including kNowhere).
 	// The MOVE script fires BEFORE changeLocation — it checks current location
 	// (kLocOp) vs target (kTargOp) to handle traps, special events, etc.
-	if (moveDest > kNowhere && moveDest <= _data->_nbrLocations) {
+	// The script itself decides whether to allow movement, block it, or kill
+	// the player (e.g., trapdoor when going south/east from location 7).
+	if (_state->_stillPlaying && (action == kAMove || action == kATrip)) {
 		int moveProc = _state->_clock.xReg[kXMove].proc;
 		if (moveProc > 0) {
 			debugC(1, kDebugScripts, "Angel: MOVE event proc=%d at loc=%d target=%d",
 			       moveProc, _state->_location, moveDest);
 			_vm->setSuppressText(false);
+			_vm->setRespondMode(true);
 			_vm->displayMsg(moveProc);
+			_vm->setRespondMode(false);
 			forceQ();
 		}
 	}
 
-	// Dispatch CmdEntry[1] for direction commands (RESPOND proc 1 at L_3430).
-	// CmdEntry is populated by opSet in the location's description script.
-	// CmdEntry[1] holds the message address for direction-specific responses
-	// (e.g., trapdoor at addr 277 for "south" at location 7).
+	// Dispatch CmdEntry[1] OR location default response for movement commands.
+	// RESPOND proc 1 at L_3430:
+	//   if g[3090] (entity matched) → dispatch CmdEntry[1]
+	//   else → dispatch seg[21].global[4] (= map[loc].n, location default)
+	// For bare direction commands like "south", g[3090] = 0 so the location
+	// default response runs.  This is where traps and dead-end handling live.
 	if (_state->_stillPlaying && (action == kAMove || action == kATrip)) {
 		int cmdAddr = _state->_cmdEntry[1];
 		if (cmdAddr > 0) {
@@ -713,27 +718,29 @@ void Angel::dispatchCommand(ThingToDo action) {
 			_vm->setSuppressText(false);
 			_vm->displayMsg(cmdAddr);
 			forceQ();
+		} else {
+			// No entity match — dispatch location default response.
+			// This script handles movement validation: dead-ends, traps,
+			// and valid exits (via kMovOp or other state changes).
+			int locDefault = _data->_map[_state->_location].n;
+			if (locDefault > 0) {
+				debugC(1, kDebugScripts, "Angel: location default dispatch addr=%d loc=%d target=%d",
+				       locDefault, _state->_location, moveDest);
+				_vm->setSuppressText(false);
+				_vm->setRespondMode(true);
+				_vm->displayMsg(locDefault);
+				_vm->setRespondMode(false);
+				forceQ();
+			}
 		}
 	}
 
-	// Handle movement results.
-	// In the original RESPOND proc 1, a default response script (seg[21].global[4])
-	// handles movement validation. For dead ends, it dispatches a RandomCSE at
-	// message addr 424 with variants like "You can't go that way."
-	// For valid destinations, the default movement performs the relocation.
+	// Fallback movement handling — if the location script didn't change
+	// location (e.g. script lacks movement logic), do it in C++.
 	if (_state->_stillPlaying && (action == kAMove || action == kATrip)) {
-		static const int kDeadEndMsgAddr = 424;
-
-		if (moveDest <= kNowhere) {
-			// Dead end — no valid exit in this direction.
-			debugC(1, kDebugScripts, "Angel: dead end dir=%d — displaying msg %d",
-			       _state->_direction, kDeadEndMsgAddr);
-			_vm->setSuppressText(false);
-			_vm->displayMsg(kDeadEndMsgAddr);
-			forceQ();
-		} else if (_state->_location == locBefore) {
-			// Valid destination and no script has moved us yet — default move.
-			debugC(1, kDebugScripts, "Angel: default move loc %d -> %d dir=%d",
+		if (_state->_location == locBefore && moveDest > kNowhere) {
+			// Valid destination but script didn't move us — default move.
+			debugC(1, kDebugScripts, "Angel: fallback move loc %d -> %d dir=%d",
 			       _state->_location, moveDest, _state->_direction);
 			_state->_pprvLocation = _state->_prvLocation;
 			_state->_prvLocation = _state->_location;

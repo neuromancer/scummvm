@@ -177,6 +177,15 @@ public:
 	// VM result
 	bool _tfIndicator;                           // TRUE/FALSE result of test
 
+	// ---- Recall registers (seg[19].g[223..229]) ----
+	// Initialized once at game start, never updated.  opRst restores
+	// the corresponding state variable to its recall value.
+	int _recallDoItToWhat;                       // seg[19].g[223] → _cur.doItToWhat
+	int _recallThing;                            // seg[19].g[226] → _thing
+	int _recallPersonNamed;                      // seg[19].g[227] → _cur.personNamed
+	int _recallCab;                              // seg[19].g[228] → _cab
+	int _recallTarget;                           // seg[19].g[229] → _target
+
 	GameState();
 
 	/** Initialize state from loaded game data */
