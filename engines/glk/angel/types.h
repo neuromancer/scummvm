@@ -105,6 +105,7 @@ static const char kFe = '%';              // Editing function
 static const char kFer = '=';             // Edit with reference code
 static const char kFCall = '\\';          // Procedure Call
 static const char kEndSym = '@';          // Message terminator
+static const char kDisplayDelim = '#';    // Display boundary marker (nip 34, no-op)
 
 // ============================================================
 // Enumerations

@@ -605,19 +605,6 @@ bool GameData::loadVocab(Common::SeekableReadStream *stream) {
 		debugC(2, kDebugScripts, "Angel: vocab[%d] = '%s' type=%d code=%d ref=%d",
 		       i, decoded.c_str(), ve.ve.vType, ve.ve.code, ve.ve.ref);
 
-		// Debug: test VECore DIVI extraction for known entries
-		if (ve.ve.vType == kAVerb || ve.ve.ref == 67 || i == 137) {
-			uint16 be0 = (b22 << 8) | b23;
-			uint16 be1 = (b24 << 8) | b25;
-			uint16 le0 = (b23 << 8) | b22;
-			uint16 le1 = (b25 << 8) | b24;
-			debugC(2, kDebugScripts, "Angel: vocab[%d] bytes=[%02x,%02x,%02x,%02x] BE[%04x,%04x] LE[%04x,%04x] "
-			       "BE0/56=%d LE0/56=%d BE1/80=%d LE1/80=%d BE1/96=%d LE1/96=%d "
-			       "type=%d code=%d ref=%d",
-			       i, b22, b23, b24, b25, be0, be1, le0, le1,
-			       be0/56, le0/56, be1/80, le1/80, be1/96, le1/96,
-			       ve.ve.vType, ve.ve.code, ve.ve.ref);
-		}
 	}
 
 	delete[] buf;

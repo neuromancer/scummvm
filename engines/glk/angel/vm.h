@@ -134,6 +134,7 @@ private:
 	int _entityValue;        // intermediate[N][10] — resolved entity value
 	int _entityOp;           // intermediate[N][11] — raw operation enum
 	int _entityType;         // intermediate[N][12] — entity type (0-6)
+	bool _entityContextFresh; // True when kFar/kFtr just set entity context
 
 	/** Advance to the next nip, handling chunk boundaries */
 	void bumpMsg();

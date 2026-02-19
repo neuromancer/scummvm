@@ -35,7 +35,8 @@ VM::VM(Angel *engine, GameData *data, GameState *state)
       _capitalizeNext(false), _suppressText(false), _baseSuppressText(false),
       _descriptionOnly(false), _respondMode(false), _cseContentDepth(0),
       _compFieldAddr(0),
-      _entityFlag(false), _entityValue(0), _entityOp(0), _entityType(-1) {
+      _entityFlag(false), _entityValue(0), _entityOp(0), _entityType(-1),
+      _entityContextFresh(false) {
 	memset(_callStack, 0, sizeof(_callStack));
 }
 
@@ -148,6 +149,7 @@ void VM::displayMsg(int addr, bool descriptionOnly) {
 
 	_callDepth = 0;
 	_descriptionOnly = descriptionOnly;
+	_state->_tfIndicator = true;  // No test has run yet; JF should not jump
 
 	openMsg(addr, "displayMsg");
 	executeMsg();
@@ -204,6 +206,37 @@ void VM::executeMsg() {
 
 		if (_state->_eom)
 			break;
+
+		// P-code proc 66 loop condition: pos <= len+2. When a JU jumps
+		// to the end of the message, pos advances past len+2 after reading
+		// one more nip, and the loop exits. Without this check, execution
+		// continues reading nips from the next message in the file.
+		if (_state->_msgPos > _state->_msgLength + 2) {
+			if (_callDepth > 0) {
+				// Return from FCall (same as EndSym at message end)
+				_callDepth--;
+				CallFrame &frame = _callStack[_callDepth];
+				debugC(kDebugScripts, "Angel VM: boundary exit pos=%d > len+2=%d depth=%d → restore base=%d pos=%d",
+				        _state->_msgPos, _state->_msgLength + 2, _callDepth + 1,
+				        frame.base, frame.pos);
+				_state->_msgBase = frame.base;
+				_state->_msgPos = frame.pos;
+				_state->_msgCursor = frame.cursor;
+				_state->_msgLength = frame.length;
+				_suppressText = frame.suppressText;
+				_cseContentDepth = frame.cseContentDepth;
+				_state->_vmCurRecord = _data->readChunk(
+					_state->_msgBase + (_state->_msgPos / kChunkSize));
+				// Discard the stale character read from the child message
+				// and re-read from the restored parent context.
+				continue;
+			} else {
+				debugC(kDebugScripts, "Angel VM: executeMsg pos=%d > len+2=%d, ending message",
+				        _state->_msgPos, _state->_msgLength + 2);
+				_state->_eom = true;
+				break;
+			}
+		}
 
 		// Trace every control character position for alignment debugging
 		if (ch != ' ' && ch != '\0' && (ch < 'a' || ch > 'z') && (ch < '0' || ch > '9')
@@ -361,7 +394,10 @@ void VM::executeMsg() {
 					// Comparison tests read two inline values (proc 58 pattern)
 					// P-code proc 58: calls getNumber(). If 0, reads getNip() literal.
 					// If non-zero, stores (value+1) in global[8] via SRO 8 and
-					// returns 0 — does NOT resolve the address to a field value.
+					// P-code proc 58: reads getNumber (2 nips via CXG 18,15).
+					// If result != 0: stores result+1 in global[8] (field addr), returns 0.
+					// If result == 0: reads getNip as literal value.
+					// Total: 2 nips for field refs, 3 nips for literals.
 					auto readCompValue = [this]() -> int {
 						int temp = getNumber();
 						if (temp == 0) {
@@ -369,10 +405,11 @@ void VM::executeMsg() {
 							debugC(kDebugScripts, "Angel VM: readCompValue: literal getNip=%d", lit);
 							return lit;
 						}
-						// P-code proc 58: SRO 8 stores (temp+1) in global[8],
-						// then returns 0 as the comparison value.
+						// P-code proc 58 (SRO interpretation): stores temp+1
+						// in global[8] and returns 0. The field address is
+						// used by later operations, not the comparison itself.
 						_compFieldAddr = temp + 1;
-						debugC(kDebugScripts, "Angel VM: readCompValue: addr ref getNumber=%d, stored _compFieldAddr=%d, returning 0",
+						debugC(kDebugScripts, "Angel VM: readCompValue: field ref=%d, stored _compFieldAddr=%d, returning 0",
 						        temp, _compFieldAddr);
 						return 0;
 					};
@@ -392,39 +429,32 @@ void VM::executeMsg() {
 					// Proc 72 preamble: some tests read getNumber (2 nips)
 					// into local[1] before dispatch (set membership check).
 					// Others read getNip via their own handler code.
-					// Reset entity context: kFt (proc 72) doesn't call
-					// resolveEntity, so _entityType/_entityValue are stale from
-					// a previous kFtr/kFar. In the p-code, entity context is in
-					// intermediate frames at different lexical levels — kFar
-					// writes to a different frame than kFt reads. Reset to -1
-					// so testHere/testSyn fall back to ref-based behavior.
 					_entityType = -1;
 					int ref = 0;
 					switch (opVal) {
 					// Arithmetic edit ops — no preamble data consumed
 					case kIncrOp: case kDecrOp: case kAddOp: case kSubOp:
-					// Parameterless boolean tests — no inline data.
-					// These test global game state without a ref parameter.
-					case kDarkOp: case kLitOp: case kFogOp:
-					case kDEndOp: case kAskOp: case kTailOp: case kOnTourOp:
-					// Tests that check entity context (set by kFtr), not inline ref
-					case kLampOp: case kCorpseOp: case kLqdOp:
-					case kVKeyOp: case kAnyOp: case kIsOp:
-					// State query tests — use current location/entity context
-					case kOwnsOp: case kCanOp:
-					case kOnOp: case kInOp: case kFullOp:
-					case kLockedOp: case kClosedOp: case kSupOp: case kVslOp:
-					case kDoorOp: case kHiddenOp: case kStuffOp:
-					case kHasOp: case kKeyOp: case kCantOp:
-					case kHoldsOp: case kFairOp:
+					// No-op tests in kFt context (handler = RPU in P-code)
+					case kSupOp: case kVslOp: case kLampOp:
+					case kDoorOp: case kLqdOp: case kAnyOp: case kIsOp:
+					// Tests using game-state locals (not preamble local[1])
+					case kFullOp: case kStuffOp: case kFairOp:
+					// Tests with no inline data
+					case kDEndOp: case kAskOp: case kCantOp:
+					case kTailOp: case kOnTourOp:
 						break;
-					// Tests that read getNip via their own handler (CXG 18,15)
+					// Tests that read getNip (1 nip) via handler code
 					case kWearsOp: case kRandOp: case kCarryOp:
+					case kHiddenOp: case kHasOp: case kVKeyOp: case kHoldsOp:
 						ref = getNip();
 						break;
-					// Tests that read getNumber (2 nips) in proc 72 preamble:
-					// kOpenedOp, kCvrdOp, kBoxOp, kHereOp, kHPassOp,
-					// kWordOp, kSynOp, kNewOp
+					// Tests that read getNumber (2 nips) — either in proc 72
+					// preamble (stored in local[1]) or in handler (proc 74/75):
+					// Preamble: kDarkOp, kLitOp, kFogOp, kOwnsOp, kCanOp,
+					//   kOnOp, kInOp, kCvrdOp, kCorpseOp, kKeyOp, kHPassOp,
+					//   kWordOp, kSynOp, kNewOp, kBoxOp
+					// Handler: kLockedOp, kOpenedOp, kClosedOp (proc 74),
+					//   kHereOp (proc 75)
 					default:
 						ref = getNumber();
 						break;
@@ -512,6 +542,14 @@ void VM::executeMsg() {
 			}
 			break;
 
+		case kDisplayDelim:
+			// Display boundary marker (nip 34, '#'): no-op control code.
+			// Appears as a section/display boundary in the message stream.
+			// The original P-code treats this as a control character (nip 34
+			// is between EndSym=33 and the punctuation range 35+).
+			debugC(kDebugScripts, "Angel VM: kDisplayDelim at pos=%d (no-op)", _state->_msgPos - 1);
+			break;
+
 		case kFCall:
 			// Procedure call — called message inherits current suppress state.
 			// The p-code treats FCall as a subroutine call within the same
@@ -554,8 +592,13 @@ void VM::executeMsg() {
 				// Unmapped nip value (48-51, 62-63) — skip silently
 				break;
 			}
-			if (_suppressText) {
-				debugC(kDebugScripts, "Angel VM: suppressed text char '%c' at pos=%d", ch, _state->_msgPos - 1);
+			if (_suppressText || !_state->_tfIndicator) {
+				// Two-level text suppression:
+				// 1. _suppressText: high-level (angel.cpp for ENTRY/WELCOME)
+				// 2. _tfIndicator: test-level (seg[20].global[5]). In the
+				//    P-code, putChar (CXG 18,5) gates on the text flag.
+				//    Opcodes like kIsOp set tf=FALSE → text suppressed.
+				//    Opcodes like kNewOp do NOT set tf → text flows.
 				break;
 			}
 			charCount++;
@@ -918,7 +961,10 @@ void VM::executeTest(Operation op, int ref) {
 		break;
 	}
 
-	_state->_tfIndicator = result;
+	// P-code proc 76: kNewOp (case 128) does NOT set seg[20].global[5].
+	// kNewOp leaves tf unchanged so JF doesn't jump and text flows through.
+	if (op != kNewOp)
+		_state->_tfIndicator = result;
 }
 
 // ============================================================
@@ -1775,7 +1821,11 @@ void VM::opChz(int ref) {
 }
 
 void VM::opAttr(int ref) {
-	debugC(kDebugScripts, "Angel VM: opAttr(%d) not implemented", ref);
+	// Set entity attribute (case 82 in kFa XJP).
+	// P-code: reads getNumber (2 nips) for attribute parameter.
+	// TODO: implement actual attribute setting (e.g., person.unseen = false).
+	int param = getNumber();
+	debugC(kDebugScripts, "Angel VM: opAttr(%d) param=%d (stub — nips consumed)", ref, param);
 }
 
 void VM::opAsg(int ref) {
@@ -1971,42 +2021,41 @@ bool VM::isLocal(int locRef) {
 }
 
 bool VM::testHere(int ref) {
-	// P-code proc 75: dispatches on _entityType via XJP (cases 0-6).
+	// P-code proc 75: reads getNumber from the stream as a vocab index,
+	// looks up VECore to extract entity type (via DIVI 56) and entity ref
+	// (via type-specific DIVI), then checks presence at current location.
 	//
-	// When called from kFtr: entity context is fresh (resolveEntity was just called).
-	//   Uses _entityType/_entityValue for type-specific checks.
-	// When called from kFt: entity context is stale (_entityType == -1 after reset).
-	//   Falls back to ref-based check (ref = getNumber from stream).
+	// In our implementation, the kFt handler already read getNumber and
+	// passes it as ref. We treat ref as a vocab index and look up the
+	// entity type and ref from the VECore, matching the P-code behavior.
 	debugC(kDebugScripts, "Angel VM: testHere ref=%d loc=%d entityType=%d entityValue=%d",
 	        ref, _state->_location, _entityType, _entityValue);
 
-	if (_entityType < 0) {
-		// kFt path: no fresh entity context. Use ref directly.
-		// Check if ref is present as an object or person at current location.
-		Place &loc = _state->map(_state->_location);
-		if (ref > 0 && ref <= _data->_nbrObjects && loc.objects.has(ref))
-			return true;
-		if (ref > 0 && ref <= _data->_castSize && loc.people.has(ref))
-			return true;
+	// Look up vocab entry for ref to get entity type and ref.
+	// P-code proc 75 always does its own vocab lookup regardless of kFt/kFtr context.
+	if (ref < 0 || ref > kMaxNbrVWords) {
+		debugC(kDebugScripts, "Angel VM: testHere ref=%d out of vocab range -> FALSE", ref);
 		return false;
 	}
 
-	// kFtr path: entity context is fresh from resolveEntity.
-	switch (_entityType) {
-	case kAnObject: {  // 0 — object: check if at current location
-		Place &loc = _state->map(_state->_location);
-		return loc.objects.has(_entityValue);
-	}
-	case kAPerson: {   // 1 — person: check if at current location
-		Place &loc = _state->map(_state->_location);
-		return loc.people.has(_entityValue);
-	}
-	case kALocation:   // 2 — location: adjacency check
-	case kABuilding:   // 4 — building: same as location
-		return isLocal(_entityValue);
-	case kAVehicle:    // 3 — vehicle: at current location check
-		return (_state->_cab == _entityValue);
-	default:           // 5 (direction), 6 (verb): false
+	int vType = _data->_vocab[ref].ve.vType;
+	int entityRef = _data->_vocab[ref].ve.ref;
+	Place &loc = _state->map(_state->_location);
+
+	debugC(kDebugScripts, "Angel VM: testHere vocab[%d] vType=%d entityRef=%d loc=%d",
+	        ref, vType, entityRef, _state->_location);
+
+	switch (vType) {
+	case kAnObject:  // 0 — object: check if at current location
+		return loc.objects.has(entityRef);
+	case kAPerson:   // 1 — person: check if at current location
+		return loc.people.has(entityRef);
+	case kALocation: // 2 — location: adjacency check
+	case kABuilding: // 4 — building: same as location
+		return isLocal(entityRef);
+	case kAVehicle:  // 3 — vehicle: check cab
+		return (_state->_cab == entityRef);
+	default:         // 5 (direction), 6 (verb): false
 		return false;
 	}
 }
@@ -2346,22 +2395,49 @@ bool VM::testIs(int ref) {
 
 	if (ch == kFt) {
 		// $ path: inline entity specification (proc 77).
-		// Reads a value from the stream and compares _entityOp against it.
-		// This tests "Is the entity reference operation the specified one?"
-		//
-		// The p-code does a full vocab lookup with DIVI extraction, but the
-		// net effect for the common case (verb check at WELCOME, etc.) is
-		// equivalent to comparing the operation code. The p-code's additional
-		// entityFlag check causes false negatives when verb=0 (no verb set),
-		// but the game data expects testIs to succeed in that scenario
-		// (e.g., WELCOME default case gates intro text on kVerbOp match).
-		//
-		// TODO: Implement full DIVI-based extraction when we understand the
-		// VECore packed word byte order for all entity types.
+		// P-code reads getNumber() as a vocab index, looks up the vocab
+		// entry's VECore, and extracts an entity reference via MODI/DIVI
+		// on the packed word (the result equals ve.ref since all entity
+		// refs are below their type's modulus). Then compares against
+		// _entityValue from the kFtr resolution.
 		int entityNum = getNumber();
-		bool result = (_entityOp == entityNum);
-		debugC(kDebugScripts, "Angel VM: testIs(ref=%d) $ path entityOp=%d entityNum=%d result=%s",
-		        ref, _entityOp, entityNum, result ? "TRUE" : "FALSE");
+
+		if (!_entityFlag) {
+			// When entityFlag is false (e.g., no verb entered during WELCOME),
+			// the P-code resolveEntity returned no valid entity. Fall back to
+			// comparing the raw operation code against the stream value.
+			// This handles WELCOME's default case where kVerbOp (137) matches
+			// entityNum=137, gating the intro text display.
+			bool result = (_entityOp == entityNum);
+			debugC(kDebugScripts, "Angel VM: testIs(ref=%d) $ path entityNum=%d entityFlag=false entityOp=%d -> %s",
+			        ref, entityNum, _entityOp, result ? "TRUE" : "FALSE");
+			return result;
+		}
+
+		if (entityNum < 0 || entityNum > kMaxNbrVWords) {
+			debugC(kDebugScripts, "Angel VM: testIs(ref=%d) $ path entityNum=%d out of range -> FALSE", ref, entityNum);
+			return false;
+		}
+
+		// Use the already-decoded ve.ref from the vocab entry.
+		// The P-code extracts this via MODI on the VECore packed word,
+		// which is equivalent to ve.ref for all in-range entity refs.
+		int extractedRef = _data->_vocab[entityNum].ve.ref;
+		bool result = (_entityValue == extractedRef);
+		debugC(kDebugScripts, "Angel VM: testIs(ref=%d) $ path entityValue=%d vocRef=%d (vocIdx=%d vType=%d) -> %s",
+		        ref, _entityValue, extractedRef, entityNum,
+		        _data->_vocab[entityNum].ve.vType,
+		        result ? "TRUE" : "FALSE");
+
+		// For locations (case 2), P-code also checks adjacency if direct
+		// comparison failed (isLocal check at 0x1b7e in proc 77).
+		if (!result && _entityType == 2) {
+			result = isLocal(extractedRef);
+			if (result) {
+				debugC(kDebugScripts, "Angel VM: testIs $ path location isLocal(%d) -> TRUE", extractedRef);
+			}
+		}
+
 		return result;
 	} else {
 		// Non-$ path: save old entity context, resolve new, compare values.
