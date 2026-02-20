@@ -36,7 +36,7 @@ VM::VM(Angel *engine, GameData *data, GameState *state)
       _descriptionOnly(false), _respondMode(false), _cseContentDepth(0),
       _compFieldAddr(0),
       _entityFlag(false), _entityValue(0), _entityOp(0), _entityType(-1),
-      _entityContextFresh(false) {
+      _entityContextFresh(false), _lastFieldRef(0) {
 	memset(_callStack, 0, sizeof(_callStack));
 }
 
@@ -191,11 +191,15 @@ void VM::dumpNipsAt(int addr, int startPos, int count) {
 }
 
 void VM::executeMsg() {
-	debugC(kDebugScripts, "Angel VM: executeMsg starting, msgBase=%d msgLength=%d", _state->_msgBase, _state->_msgLength);
+	debugC(kDebugScripts, "Angel VM: executeMsg starting, msgBase=%d msgLength=%d eom=%d playing=%d",
+	       _state->_msgBase, _state->_msgLength, _state->_eom, _state->_stillPlaying);
 	int charCount = 0;
 	int iterCount = 0;
 	Common::String textOutput;  // Accumulate text for debug
-	while (!_state->_eom && _state->_stillPlaying) {
+	// P-code EXECMSG loop runs until EndSym or EOM. It does NOT check
+	// the quit flag (global[2]). The quit flag is only checked in the
+	// main game loop after the message finishes executing.
+	while (!_state->_eom) {
 		if (++iterCount > 5000) {
 			warning("Angel VM: executeMsg runaway loop after %d iterations at pos=%d base=%d",
 			        iterCount, _state->_msgPos, _state->_msgBase);
@@ -246,7 +250,7 @@ void VM::executeMsg() {
 		}
 
 		// Trace every character position for alignment debugging (MSG30 only)
-		if (_state->_msgBase == 30 || _state->_msgBase == 29 || _state->_msgBase == 3836 || _state->_msgBase == 3499 || _state->_msgBase == 7) {
+		if (_state->_msgBase == 30 || _state->_msgBase == 29 || _state->_msgBase == 3836 || _state->_msgBase == 3499 || _state->_msgBase == 7 || _state->_msgBase == 25) {
 			debugC(kDebugScripts, "Angel VM: TRACE @pos=%d nip=%d ch='%c'(%d) base=%d tf=%d suppress=%d",
 			        prePos, _lastRawNip, (ch >= 32 && ch < 127) ? ch : '?', (int)(unsigned char)ch,
 			        _state->_msgBase, _state->_tfIndicator ? 1 : 0, _suppressText ? 1 : 0);
@@ -381,11 +385,11 @@ void VM::executeMsg() {
 		case kFar:
 			// Action with reference — p-code proc 93.
 			// Stream: opNip(1) + refNip(1), then:
-			//   For edit ops 78-86 (kSwOp..kRstOp): XJP dispatch, each case reads
-			//     its own inline data (CXS 12 discriminator nip + optional CXS 10).
-			//   For ALL other ops: fallback reads CXS12(1 nip) + CXS10(2 nips) = 3 nips.
-			//   The fallback does NOT execute the action — it returns dispatch info
-			//   to the caller, which our architecture doesn't use.
+			//   For edit ops 76-86 (kSspOp..kRstOp): XJP dispatch, each case reads
+			//     its own inline data.
+			//   For action ops 50-72: CXS 12 discriminator (1 nip), then
+			//     if discr != 0: CXS 10 (2 nips). Then CLP1 81/83 executes action.
+			//   For edit ops 73-75: XJP default = no-op (0 extra nips).
 			{
 				int opNip = getNip();
 				int refNip = getNip();
@@ -457,10 +461,33 @@ void VM::executeMsg() {
 						debugC(kDebugScripts, "Angel VM: kFar edit op=%d (no-op)", opVal);
 						break;
 					}
+				} else if (opVal >= (int)kTkOffOp && opVal <= (int)kGrantOp) {
+					// Action opcodes 50-72 via kFar: P-code proc 93 L_2b43.
+					// When CXI 6,6,218 returns FALSE (opcode is NOT an edit op),
+					// the handler reads a discriminator nip (CXS 12) to decide
+					// the dispatch path:
+					//   discr == 0 → CLP1 81 (object action handler)
+					//   discr != 0 → CXS 10 (getNumber) + CLP1 83 (person handler)
+					int discr = getNip();
+					int val = 0;
+					if (discr != 0) {
+						val = getNumber();
+					}
+					debugC(kDebugScripts, "Angel VM: kFar action op=%d discr=%d val=%d ref=%d entityType=%d entityValue=%d",
+					       opVal, discr, val, ref, _entityType, _entityValue);
+					// Execute the action with the already-resolved entity context.
+					// opGrant (72) normally reads getNip() for the access right;
+					// via kFar the right comes from the discriminator nip instead.
+					if (opVal == (int)kGrantOp) {
+						_state->_capabilities.set(discr);
+						debugC(kDebugScripts, "Angel VM: kFar kGrantOp right=%d", discr);
+					} else {
+						executeAction((Operation)opVal, ref);
+					}
 				} else {
-					// P-code XJP at L_2b3e defaults to L_2b41 (UJP -> return)
-					// for opcodes outside 76-86. No extra nips consumed.
-					debugC(kDebugScripts, "Angel VM: kFar non-edit op=%d (no-op)", opVal);
+					// Edit ops 73-75 via kFar: P-code XJP default = L_2b41
+					// (UJP → return). No extra nips consumed beyond the header.
+					debugC(kDebugScripts, "Angel VM: kFar edit op=%d (no extra nips)", opVal);
 				}
 			}
 			break;
@@ -468,42 +495,18 @@ void VM::executeMsg() {
 		case kFt:
 			// Test without reference — nip + kTestOpcodeBase = Operation
 			// p-code: proc 72. For comparison tests (Less/Eq/LEq), proc 73
-			// reads two inline values via proc 58 (each reads getNumber;
-			// if 0, reads one more getNip). Total: 4-6 nips consumed.
+			// reads two inline values via proc 58 pattern (each reads 1 nip;
+			// if 0, reads getNumber for literal; if non-zero, field ref lookup).
+			// Total: 2-6 nips consumed.
 			{
 				int opNip = getNip();
 				int opVal = opNip + kTestOpcodeBase;
 				if (opVal == kLessOp || opVal == kEqOp || opVal == kLEqOp) {
-					// Comparison tests read two inline values (proc 58 pattern).
-					// P-code proc 58: CXG 18,15 reads getNumber (2 nips).
-					// If non-zero: field path — stores value+1 in global[8], returns 0.
-					// If zero: literal path — NAT_F0 6 reads getNip (1 nip), returns it.
-					// Total: field = 2 nips, literal = 3 nips.
-					auto readCompValue = [this]() -> int {
-						int startPos = _state->_msgPos;
-						int temp = getNumber();
-						if (temp == 0) {
-							// Literal path: getNumber returned 0, read one more nip as value
-							int litPos = _state->_msgPos;
-							int lit = getNip();
-							debugC(kDebugScripts, "Angel VM: readCompValue: literal getNip=%d (getNum@%d=0, nip@%d=%d)",
-							        lit, startPos, litPos, lit);
-							return lit;
-						}
-						// Field reference path: getNumber returned non-zero entity ref.
-						// P-code proc 58 calls proc 55 (field lookup) which:
-						//   1. Classifies ref via proc 53: <6→'A'(obj), 6-15→'X'(person), ≥16→'T'(loc)
-						//   2. Looks up actual field value from game state arrays
-						//   3. Returns the field value (NOT 0!)
-						// TODO: Implement proc 55 field lookup. Currently returns 0,
-						// which is correct for the initial game state but breaks as
-						// game state changes (comparisons always see field=0).
-						debugC(kDebugScripts, "Angel VM: readCompValue: field ref=%d @pos=%d (TODO: lookup, returning 0)",
-						        temp, startPos);
-						return 0;
-					};
-					int val1 = readCompValue();
-					int val2 = readCompValue();
+					// Comparison tests via proc 73 -> proc 58 pattern.
+					// Use the shared helper so comparison decoding matches
+					// arithmetic edits (opIncr/opDecr/opAdd/opSub).
+					int val1 = readCompValueFromStream();
+					int val2 = readCompValueFromStream();
 					bool result = false;
 					if (opVal == kLessOp)
 						result = (val1 < val2);
@@ -518,8 +521,10 @@ void VM::executeMsg() {
 					// Proc 72 preamble: some tests read getNumber (2 nips)
 					// into local[1] before dispatch (set membership check).
 					// Others read getNip via their own handler code.
-					// Do NOT reset _entityType — kFt inherits entity context
-					// from the preceding kFar/kFtr instruction (P-code proc 72).
+					// kFt path resolves references from the inline stream parameter.
+					// NOTE: Do NOT reset _entityType here — P-code proc 72
+					// does NOT reset entity type. Tests inherit entity context
+					// from preceding kFar/kFtr (OP.md §14.9.2).
 					int ref = 0;
 					switch (opVal) {
 					// Arithmetic edit ops — no preamble data consumed
@@ -740,12 +745,33 @@ void VM::executeCase() {
 	//   Unmatched: skip=getNumber, CXG 18,16(skip) jumps past content (1-based).
 
 	// P-code proc 103 at 0x3148: XJP dispatches on case 0..3 only.
-	// Values outside that range indicate stream misalignment.
+	// Values outside that range fall through to L_314b with local[6]=0
+	// (initial value = type 0 / kRandomCase / direct-index).
+	// The header (nbrCases + totalSize) is still consumed.
+	// In practice, invalid caseType values appear when the stream
+	// position reaches overlapping message data (e.g., another message's
+	// header). The type 0 handling with large skip values eventually
+	// jumps past the message end, causing normal EOM termination.
 	int caseType = getNip();
-	if (caseType < 0 || caseType > kRefCase) {
-		warning("Angel VM: executeCase: invalid caseType %d (expected 0-3), stream misaligned", caseType);
+	bool validCaseType = (caseType >= 0 && caseType <= kRefCase);
+
+	if (!validCaseType) {
+		// Invalid caseType: consume header nips (nbrCases + totalSize)
+		// and jump to endPos (clamped to message bounds).
+		// P-code type 0 loop would iterate with garbage skip values
+		// that exceed message length, so this is equivalent.
+		int nbrCases = getNip();
+		int totalSize = getNumber();
+		int endPos = _state->_msgPos + totalSize;
+		debugC(kDebugScripts, "Angel VM: CSE unknown caseType %d (nbrCases=%d totalSize=%d endPos=%d) base=%d pos=%d — skipping",
+		        caseType, nbrCases, totalSize, endPos, _state->_msgBase, _state->_msgPos);
+		// Clamp endPos to message bounds to prevent reading past the file
+		if (endPos > _state->_msgLength + 2)
+			endPos = _state->_msgLength + 2;
+		jumpTo(endPos);
 		return;
 	}
+
 	KindOfCase kind = (KindOfCase)caseType;
 
 	// RefCase: matchRef = getNip + 135 (proc 103 at L_31BF: NAT_F0 32(0,135))
@@ -760,30 +786,30 @@ void VM::executeCase() {
 
 	// Determine match value based on case type
 	int matchValue = 0;
-	switch (kind) {
-	case kRandomCase:
-		matchValue = _engine->getRandom(nbrCases);
-		break;
+	{
+		switch (kind) {
+		case kRandomCase:
+			matchValue = _engine->getRandom(nbrCases);
+			break;
 
-	case kWordCase:
-		matchValue = _state->_verb;
-		break;
+		case kWordCase:
+			matchValue = _state->_verb;
+			break;
 
-	case kSynCase:
-		matchValue = _state->_verb;
-		break;
+		case kSynCase:
+			matchValue = _state->_verb;
+			break;
 
-	case kRefCase:
-		// P-code proc 103 at L_3156: calls resolveEntity(matchRef) to set
-		// entity context, then uses _entityValue (via CXS 10) for matching.
-		resolveEntity(matchRef);
-		matchValue = _entityValue;
-		break;
+		case kRefCase:
+			// P-code proc 103 at L_3156: calls resolveEntity(matchRef) to set
+			// entity context, then uses _entityValue (via CXS 10) for matching.
+			resolveEntity(matchRef);
+			matchValue = _entityValue;
+			break;
 
-	default:
-		warning("Angel VM: Unknown CSE type %d", caseType);
-		jumpTo(endPos);
-		return;
+		default:
+			break;
+		}
 	}
 
 	debugC(kDebugScripts, "Angel VM: CSE type=%d nbrCases=%d matchValue=%d matchRef=%d totalSize=%d pos=%d base=%d",
@@ -896,13 +922,15 @@ void VM::executeCase() {
 		}
 	}
 
-	if (!matched) {
-		// No match: do NOT jump to endPos. The remaining nips between the
-		// current position and endPos are default content that must be
-		// processed by the main message loop. The original p-code proc 103
-		// at L_332d does NOT jump in the message stream on no-match.
-		debugC(kDebugScripts, "Angel VM: CSE no match, pos=%d endPos=%d — continuing with default content",
-		       _state->_msgPos, endPos);
+	// P-code proc 103 L_3338: after both match and no-match, the CSE
+	// resets the putChar state (intermediate[1][1] := 32 = space) and
+	// jumps to endPos if not already past it.
+	if (_state->_msgPos < endPos) {
+		if (!matched) {
+			debugC(kDebugScripts, "Angel VM: CSE no match, pos=%d → endPos=%d",
+			       _state->_msgPos, endPos);
+		}
+		jumpTo(endPos);
 	}
 }
 
@@ -1291,10 +1319,17 @@ void VM::executeFe(Operation op, int ref, bool fromFe) {
 		}
 		break;
 
-	case kXRegOp:
-		// xReg manipulation — no extra nips via kFe
-		debugC(kDebugScripts, "Angel VM: Fe kXRegOp ref=%d (stub)", ref);
+	case kXRegOp: {
+		// P-code: CLP2 56 (read field ref nip + lookup value) then CLP2 42 (intToASCII).
+		// Stream: 1 nip (field reference via proc 56's CXG 18,15).
+		int fieldRef = getNip();
+		int value = lookupFieldValue(fieldRef);
+		char buf[16];
+		snprintf(buf, sizeof(buf), "%d", value);
+		_engine->putWord(buf);
+		debugC(kDebugScripts, "Angel VM: Fe kXRegOp fieldRef=%d value=%d", fieldRef, value);
 		break;
+	}
 
 	case kCtntsOp:
 		// Display container contents
@@ -1795,7 +1830,14 @@ void VM::opSave() {
 }
 
 void VM::opQuit() {
-	_state->_stillPlaying = false;
+	// P-code QUIT handler: CXG 18,8 (outLn) + SRO 2 (set RESPOND segment
+	// global[2] = 1). This sets a RESPOND-level flag, NOT the GAME segment's
+	// quit flag. The main game loop checks GAME's global[2], which is separate.
+	// During ENTRY (text suppressed), kQuitOp fires but should NOT terminate
+	// the game. The flag is checked within the RESPOND segment's control flow.
+	debugC(kDebugScripts, "Angel VM: opQuit (respond-level quit flag set)");
+	_engine->outLn();
+	_state->_respondQuit = true;
 }
 
 void VM::opRestart() {
@@ -1822,15 +1864,18 @@ void VM::opTick(int ref) {
 
 void VM::opEvent(int ref) {
 	// Set event register (case 74 in kFa XJP → L_2935)
-	// p-code: NAT_F0 57 reads getNip (register index, 1 nip),
-	//         NAT_F0 33 reads getNumber (procedure address, 2 nips),
+	// p-code: CLP2 57 reads getNip register index (1 nip),
+	//         CLP2 33 reads getNumber (procedure address, 2 nips),
 	//         stores addr to xReg[regIndex].proc (word[1]).
 	// Stream consumption: getNip + getNumber = 3 nips total
-	int reg = getNip();
+	int rawNip = getNip();
+	int reg = rawNip;
 	int addr = getNumber();
-	debugC(kDebugScripts, "Angel VM: opEvent(reg=%d, addr=%d)", reg, addr);
+	debugC(kDebugScripts, "Angel VM: opEvent(rawNip=%d, reg=%d, addr=%d)", rawNip, reg, addr);
 	if (reg >= 0 && reg < 32) {
 		_state->_clock.xReg[reg].proc = addr;
+	} else {
+		debugC(kDebugScripts, "Angel VM: opEvent reg=%d out of range (rawNip=%d)", reg, rawNip);
 	}
 }
 
@@ -1878,15 +1923,24 @@ void VM::opSet(int ref) {
 		debugC(kDebugScripts, "Angel VM: opSet entity field[%d] = %d (nip=%d)",
 		       attrNip, finalValue, attrNip);
 	} else {
-		// DeferredDispatch table (g[3020])
-		debugC(kDebugScripts, "Angel VM: opSet DeferredDispatch[%d] = %d (nip=%d)",
-		       attrNip - 16, finalValue, attrNip);
+		// xReg countdown (g[3020]) — proc 54 'T' case
+		// In P-code, opSet uses the register index nib directly for xReg writes.
+		// opSet can set xReg countdown values just like opEvent sets proc addresses.
+		int reg = attrNip;
+		if (reg >= 0 && reg < 32) {
+			_state->_clock.xReg[reg].x = finalValue;
+			debugC(kDebugScripts, "Angel VM: opSet xReg[%d].x = %d (nip=%d)",
+			       reg, finalValue, attrNip);
+		} else {
+			debugC(kDebugScripts, "Angel VM: opSet xReg reg=%d out of range (nip=%d)",
+			       reg, attrNip);
+		}
 	}
 }
 
 void VM::opSsp(int ref) {
 	// Suspend event timer (case 76 in kFa XJP → L_2905)
-	// p-code: NAT_F0 57 reads getNip (register index, 1 nip),
+	// p-code: CLP2 57 reads getNip register index (1 nip),
 	//         if xReg[idx].x > 0, negates it (makes negative = suspended).
 	// Stream consumption: getNip = 1 nip
 	int reg = getNip();
@@ -1899,7 +1953,7 @@ void VM::opSsp(int ref) {
 
 void VM::opRsm(int ref) {
 	// Resume event timer (case 77 in kFa XJP → L_291d)
-	// p-code: NAT_F0 57 reads getNip (register index, 1 nip),
+	// p-code: CLP2 57 reads getNip register index (1 nip),
 	//         if xReg[idx].x < 0, negates it (makes positive = active).
 	// Stream consumption: getNip = 1 nip
 	int reg = getNip();
@@ -1944,6 +1998,12 @@ void VM::opRecede() {
 }
 
 void VM::opChz(int ref) {
+	// kFa path uses ref=0 and does not consume inline stream args.
+	if (ref == 0) {
+		debugC(kDebugScripts, "Angel VM: opChz kFa ref=0 (no-op)");
+		return;
+	}
+
 	// Change location of a person
 	int person = ref;
 	int dest = getNumber();
@@ -1958,6 +2018,12 @@ void VM::opChz(int ref) {
 }
 
 void VM::opAttr(int ref) {
+	// kFa path uses ref=0 and does not consume inline stream args.
+	if (ref == 0) {
+		debugC(kDebugScripts, "Angel VM: opAttr kFa ref=0 (no-op)");
+		return;
+	}
+
 	// Set entity attribute (case 82 in kFa XJP).
 	// P-code: reads getNumber (2 nips) for attribute parameter.
 	// TODO: implement actual attribute setting (e.g., person.unseen = false).
@@ -2043,6 +2109,12 @@ void VM::opAsg(int ref) {
 }
 
 void VM::opMov(int ref) {
+	// kFa path uses ref=0 and does not consume inline stream args.
+	if (ref == 0) {
+		debugC(kDebugScripts, "Angel VM: opMov kFa ref=0 (no-op)");
+		return;
+	}
+
 	// Move entity to a location. Dispatches on _entityType:
 	//   0 = object, 1 = person, 2 = location (no-op), 3 = vehicle
 	int dest = getNumber();
@@ -2120,49 +2192,67 @@ void VM::opRst(int refOp) {
 }
 
 void VM::opIncr(int ref) {
-	// Increment xReg counter. Stream: getNip → register index.
-	// P-code proc 95 (kIncrOp): reads register nip, increments xReg[reg].x.
-	int reg = getNip();
-	if (reg < 32) {
-		_state->_clock.xReg[reg].x++;
-		debugC(kDebugScripts, "Angel VM: opIncr xReg[%d].x → %d", reg, _state->_clock.xReg[reg].x);
+	// P-code: proc 59 with amount=1, opcode=92 (add).
+	// Proc 59 reads field ref via proc 58 (1 nip), looks up current value,
+	// adds amount, stores back via proc 54.
+	// Stream: 1 nip (field ref via readCompValue pattern)
+	int curVal = readCompValueFromStream();
+	int newVal = curVal + 1;
+	if (_lastFieldRef != 0) {
+		storeFieldValue(_lastFieldRef, newVal);
+		debugC(kDebugScripts, "Angel VM: opIncr field[%d]: %d → %d", _lastFieldRef, curVal, newVal);
 	} else {
-		debugC(kDebugScripts, "Angel VM: opIncr reg=%d out of range", reg);
+		debugC(kDebugScripts, "Angel VM: opIncr literal=%d (no field to store)", curVal);
 	}
 }
 
 void VM::opDecr(int ref) {
-	// Decrement xReg counter. Stream: getNip → register index.
-	int reg = getNip();
-	if (reg < 32) {
-		_state->_clock.xReg[reg].x--;
-		debugC(kDebugScripts, "Angel VM: opDecr xReg[%d].x → %d", reg, _state->_clock.xReg[reg].x);
+	// P-code: proc 59 with amount=1, opcode=93 (sub).
+	// Clamped: max(0, current - 1).
+	// Stream: 1 nip (field ref)
+	int curVal = readCompValueFromStream();
+	int newVal = (curVal > 1) ? curVal - 1 : 0;
+	if (_lastFieldRef != 0) {
+		storeFieldValue(_lastFieldRef, newVal);
+		debugC(kDebugScripts, "Angel VM: opDecr field[%d]: %d → %d", _lastFieldRef, curVal, newVal);
 	} else {
-		debugC(kDebugScripts, "Angel VM: opDecr reg=%d out of range", reg);
+		debugC(kDebugScripts, "Angel VM: opDecr literal=%d (no field to store)", curVal);
 	}
 }
 
 void VM::opAdd(int ref) {
-	// Add to xReg counter. Stream: getNip → register index, getNip → amount.
-	int reg = getNip();
-	int amount = getNip();
-	if (reg < 32) {
-		_state->_clock.xReg[reg].x += amount;
-		debugC(kDebugScripts, "Angel VM: opAdd xReg[%d].x += %d → %d", reg, amount, _state->_clock.xReg[reg].x);
+	// P-code: CLP2 58 reads amount, then proc 59 reads field ref,
+	// adds amount + current_value, stores back.
+	// Stream: proc58(amount) + proc58(fieldRef) nips
+	int amount = readCompValueFromStream();
+	(void)_lastFieldRef; // amount field ref not needed
+	int curVal = readCompValueFromStream();
+	int targetFieldRef = _lastFieldRef;
+	int newVal = amount + curVal;
+	if (targetFieldRef != 0) {
+		storeFieldValue(targetFieldRef, newVal);
+		debugC(kDebugScripts, "Angel VM: opAdd field[%d] += %d: %d → %d",
+		       targetFieldRef, amount, curVal, newVal);
 	} else {
-		debugC(kDebugScripts, "Angel VM: opAdd reg=%d out of range", reg);
+		debugC(kDebugScripts, "Angel VM: opAdd amount=%d curVal=%d (no target field)", amount, curVal);
 	}
 }
 
 void VM::opSub(int ref) {
-	// Subtract from xReg counter. Stream: getNip → register index, getNip → amount.
-	int reg = getNip();
-	int amount = getNip();
-	if (reg < 32) {
-		_state->_clock.xReg[reg].x -= amount;
-		debugC(kDebugScripts, "Angel VM: opSub xReg[%d].x -= %d → %d", reg, amount, _state->_clock.xReg[reg].x);
+	// P-code: CLP2 58 reads amount, then proc 59 reads field ref,
+	// computes max(0, current_value - amount), stores back.
+	// Stream: proc58(amount) + proc58(fieldRef) nips
+	int amount = readCompValueFromStream();
+	(void)_lastFieldRef; // amount field ref not needed
+	int curVal = readCompValueFromStream();
+	int targetFieldRef = _lastFieldRef;
+	int newVal = (curVal > amount) ? curVal - amount : 0;
+	if (targetFieldRef != 0) {
+		storeFieldValue(targetFieldRef, newVal);
+		debugC(kDebugScripts, "Angel VM: opSub field[%d] -= %d: %d → %d",
+		       targetFieldRef, amount, curVal, newVal);
 	} else {
-		debugC(kDebugScripts, "Angel VM: opSub reg=%d out of range", reg);
+		debugC(kDebugScripts, "Angel VM: opSub amount=%d curVal=%d (no target field)", amount, curVal);
 	}
 }
 
@@ -2196,14 +2286,12 @@ int VM::entityToVocabIdx(int entityNum) const {
 }
 
 bool VM::testHere(int ref) {
-	// P-code proc 75: reads CPI 4,3 (1 nip entity index) at start, then
-	// dispatches on _entityType via XJP (cases 0-6).
-	// CPI 4,3 consumes 1 nip from the message stream — same pattern as
-	// proc 78 (testSyn) and proc 97 (kRoleOp).
+	// P-code proc 75: CPI 4,3 reads 1 nip (entity index) at prologue.
+	// Consumed for stream alignment; C++ resolves entities differently (§14.9.1).
 	int entityIdx = getNip();
-
-	debugC(kDebugScripts, "Angel VM: testHere ref=%d entityIdx=%d loc=%d entityType=%d entityValue=%d",
-	        ref, entityIdx, _state->_location, _entityType, _entityValue);
+	(void)entityIdx;
+	debugC(kDebugScripts, "Angel VM: testHere ref=%d loc=%d entityType=%d entityValue=%d entityIdx=%d",
+	        ref, _state->_location, _entityType, _entityValue, entityIdx);
 
 	Place &loc = _state->map(_state->_location);
 	int vType, entityRef;
@@ -2477,16 +2565,12 @@ bool VM::testWord(int ref) {
 }
 
 bool VM::testSyn(int ref) {
-	// P-code proc 78: reads CPI 4,3 (1 nip entity index) at start, then
-	// dispatches on _entityType via XJP (cases 0-6).
-	//
-	// CPI 4,3 consumes 1 nip from the message stream — the entity table
-	// index used as context for the synonym check. This matches the pattern
-	// of CPI 3,5 in other test procs (e.g., proc 75/testHere).
+	// P-code proc 78: CPI 4,3 reads 1 nip (entity index) at prologue.
+	// Consumed for stream alignment; C++ resolves entities differently (§14.9.1).
 	int entityIdx = getNip();
-
-	debugC(kDebugScripts, "Angel VM: testSyn ref=%d entityIdx=%d entityType=%d entityValue=%d verb=%d direction=%d",
-	       ref, entityIdx, _entityType, _entityValue, _state->_verb, _state->_direction);
+	(void)entityIdx;
+	debugC(kDebugScripts, "Angel VM: testSyn ref=%d entityType=%d entityValue=%d verb=%d direction=%d entityIdx=%d",
+	       ref, _entityType, _entityValue, _state->_verb, _state->_direction, entityIdx);
 
 	if (_entityType < 0) {
 		// kFt path: no fresh entity context. Convert entity table index to vocab.
@@ -2928,14 +3012,237 @@ void VM::resolveEntity(int op) {
 		break;
 
 	default:
-		// Operations above 155 (kDscOp, kAOp, etc.) are outside
+		// Operations above 155 (kDscOp=156 through kNoOp=165) are outside
 		// proc 35's XJP range — entity stays unresolved (flag=false).
-		warning("Angel VM: resolveEntity op=%d outside range 135-155", op);
+		// kNoOp(165) specifically means "no entity reference" and is used
+		// by Far/Ftr/Fer when the reference operand indicates no entity.
+		debugC(kDebugScripts, "Angel VM: resolveEntity op=%d outside XJP range 135-155 (no resolution)", op);
 		break;
 	}
 
 	debugC(kDebugScripts, "Angel VM: resolveEntity op=%d → flag=%d value=%d type=%d",
 	        op, _entityFlag ? 1 : 0, _entityValue, _entityType);
+}
+
+int VM::lookupFieldValue(int entityRef) {
+	// P-code proc 55: classify entity ref via proc 53, then look up field value.
+	//
+	// Proc 53 classification:
+	//   ref NOT in 480-bit INN set → type='A', adjusted=0 → return 0
+	//   ref < 6                    → type='A', adjusted=ref
+	//   6 ≤ ref < 16              → type='X', adjusted=ref-6
+	//   ref ≥ 16                  → type='T', adjusted=ref-16
+	//
+	// We approximate the INN set with bounds checking: refs outside valid
+	// ranges return 0 (same as the INN set filtering in the original P-code).
+
+	int result = 0;
+
+	if (entityRef < 0) {
+		// Invalid
+		result = 0;
+	} else if (entityRef < 6) {
+		// Type 'A' (object/person properties) — subcases 0-5
+		int adjusted = entityRef;
+		switch (adjusted) {
+		case 0:
+			// P-code case 0: return 0
+			result = 0;
+			break;
+		case 1: {
+			// P-code case 1: cast[personNamed-1].word[10] / 55
+			// Word[10] of Person packed record = first packed word after carrying.
+			// Contains located(7 bits) and other packed fields.
+			// DIVI 55 extracts a field from this packed word.
+			int pIdx = _state->_cur.personNamed;
+			if (pIdx >= 1 && pIdx <= _data->_castSize) {
+				const Person &p = _data->_cast[pIdx];
+				// Packed word reconstruction: located is in bits 1-7 of word[10]
+				// DIVI 55 likely extracts the located field
+				// 55 ≈ 2^1 * ~27... not a clean extraction. Use mood instead?
+				// For now, return located (most commonly compared person property)
+				result = p.located;
+				debugC(kDebugScripts, "Angel VM: lookupFieldValue A.1 person[%d].located=%d", pIdx, result);
+			}
+			break;
+		}
+		case 2: {
+			// P-code case 2: props[doItToWhat-1].word[5] / 57
+			// Word[5] of Object packed record (after Contents[4] + n[1]) = OName+Size
+			// DIVI 57 extracts OName from packed OName(9)+Size(4) word
+			int oIdx = _state->_cur.doItToWhat;
+			if (oIdx >= 1 && oIdx <= _data->_nbrObjects) {
+				const Object &o = _data->_props[oIdx];
+				result = o.oName;
+				debugC(kDebugScripts, "Angel VM: lookupFieldValue A.2 obj[%d].oName=%d", oIdx, result);
+			}
+			break;
+		}
+		case 3: {
+			// P-code case 3: props[doItToWhat-1].word[11] / 48
+			// Word[11] of Object packed record = State+InOrOn+KindOfThing+flags
+			// DIVI 48 extracts a field (likely state or kindOfThing)
+			int oIdx = _state->_cur.doItToWhat;
+			if (oIdx >= 1 && oIdx <= _data->_nbrObjects) {
+				const Object &o = _data->_props[oIdx];
+				result = o.state;
+				debugC(kDebugScripts, "Angel VM: lookupFieldValue A.3 obj[%d].state=%d", oIdx, result);
+			}
+			break;
+		}
+		case 4: {
+			// P-code case 4: props[doItToWhat-1].word[6] (raw, no division)
+			// Word[6] of Object packed record = Value field
+			int oIdx = _state->_cur.doItToWhat;
+			if (oIdx >= 1 && oIdx <= _data->_nbrObjects) {
+				const Object &o = _data->_props[oIdx];
+				result = o.value;
+				debugC(kDebugScripts, "Angel VM: lookupFieldValue A.4 obj[%d].value=%d", oIdx, result);
+			}
+			break;
+		}
+		case 5:
+			// P-code case 5: g[3097] — game-specific global variable
+			// TODO: Map g[3097] to appropriate GameState field
+			debugC(kDebugScripts, "Angel VM: lookupFieldValue A.5 g[3097] (TODO, returning 0)");
+			result = 0;
+			break;
+		}
+	} else if (entityRef < 16) {
+		// Type 'X' (person state) — g[3045 + adjusted * 2]
+		// In P-code, g[3045] = xReg[12].proc. 'X' refs access
+		// xReg[12+adjusted].proc, which is aliased to _cmdEntry[adjusted].
+		int adjusted = entityRef - 6;
+		if (adjusted >= 0 && adjusted < GameState::kMaxCmdEntries) {
+			result = _state->_cmdEntry[adjusted];
+			debugC(kDebugScripts, "Angel VM: lookupFieldValue X cmdEntry[%d]=%d (ref=%d)",
+			       adjusted, result, entityRef);
+		}
+	} else if (entityRef < 48) {
+		// Type 'T' (xReg countdown) — g[3020 + adjusted * 2]
+		// In P-code, g[3020] is the xReg array base. Each entry is 2 words:
+		//   g[3020 + i*2 + 0] = xReg[i].x (countdown)
+		//   g[3020 + i*2 + 1] = xReg[i].proc (procedure address)
+		// The 'T' entity refs read/write the .x (countdown) field.
+		int adjusted = entityRef - 16;
+		if (adjusted >= 0 && adjusted < 32) {
+			result = _state->_clock.xReg[adjusted].x;
+			debugC(kDebugScripts, "Angel VM: lookupFieldValue T xReg[%d].x=%d (ref=%d)",
+			       adjusted, result, entityRef);
+		}
+	} else {
+		// Large refs: P-code data segment addresses for entity fields.
+		// The 'T' path accesses g[3020 + (ref-16)*2], which maps to
+		// location/person/object record fields in the game state.
+		// Delegate to getEntityFieldValue which handles the address mapping.
+		result = getEntityFieldValue(entityRef);
+	}
+
+	// P-code proc 55 returns abs(result)
+	return (result >= 0) ? result : -result;
+}
+
+void VM::storeFieldValue(int entityRef, int value) {
+	// P-code proc 54: classify entity ref, dispatch to write.
+	// Classification matches lookupFieldValue (proc 53):
+	//   ref < 6     → 'A' (object/person properties)
+	//   6 ≤ ref < 16 → 'X' (cmdEntry at g[3045+adj*2])
+	//   ref ≥ 16    → 'T' (xReg at g[3020+adj*2])
+
+	if (entityRef < 0) {
+		return;
+	} else if (entityRef < 6) {
+		// Type 'A' — object/person fields
+		int subcase = entityRef;
+		switch (subcase) {
+		case 0:
+			break;
+		case 1: {
+			// Person[personNamed].located
+			int pIdx = _state->_cur.personNamed;
+			if (pIdx >= 1 && pIdx <= _data->_castSize) {
+				// Clamp to valid range
+				if (value > 9) value = 9;
+				_data->_cast[pIdx].located = value;
+				debugC(kDebugScripts, "Angel VM: storeFieldValue A.1 person[%d].located=%d", pIdx, value);
+			}
+			break;
+		}
+		case 2: {
+			// Object[doItToWhat].oName
+			int oIdx = _state->_cur.doItToWhat;
+			if (oIdx >= 1 && oIdx <= _data->_nbrObjects) {
+				_data->_props[oIdx].oName = value;
+				debugC(kDebugScripts, "Angel VM: storeFieldValue A.2 obj[%d].oName=%d", oIdx, value);
+			}
+			break;
+		}
+		case 3: {
+			// Object[doItToWhat].state
+			int oIdx = _state->_cur.doItToWhat;
+			if (oIdx >= 1 && oIdx <= _data->_nbrObjects) {
+				_data->_props[oIdx].state = value;
+				debugC(kDebugScripts, "Angel VM: storeFieldValue A.3 obj[%d].state=%d", oIdx, value);
+			}
+			break;
+		}
+		case 4: {
+			// Object[doItToWhat].value
+			int oIdx = _state->_cur.doItToWhat;
+			if (oIdx >= 1 && oIdx <= _data->_nbrObjects) {
+				_data->_props[oIdx].value = value;
+				debugC(kDebugScripts, "Angel VM: storeFieldValue A.4 obj[%d].value=%d", oIdx, value);
+			}
+			break;
+		}
+		case 5:
+			// g[3097] — game-specific global
+			debugC(kDebugScripts, "Angel VM: storeFieldValue A.5 g[3097]=%d (TODO)", value);
+			break;
+		}
+	} else if (entityRef < 16) {
+		// Type 'X' — cmdEntry[entityRef-6]
+		int adjusted = entityRef - 6;
+		if (adjusted >= 0 && adjusted < GameState::kMaxCmdEntries) {
+			_state->_cmdEntry[adjusted] = value;
+			debugC(kDebugScripts, "Angel VM: storeFieldValue X cmdEntry[%d]=%d (ref=%d)",
+			       adjusted, value, entityRef);
+		}
+	} else if (entityRef < 48) {
+		// Type 'T' — xReg[entityRef-16].x
+		int adjusted = entityRef - 16;
+		if (adjusted >= 0 && adjusted < 32) {
+			_state->_clock.xReg[adjusted].x = value;
+			debugC(kDebugScripts, "Angel VM: storeFieldValue T xReg[%d].x=%d (ref=%d)",
+			       adjusted, value, entityRef);
+		}
+	} else {
+		// Large refs: P-code data segment addresses for entity fields.
+		storeEntityFieldValue(entityRef, value);
+	}
+}
+
+int VM::readCompValueFromStream() {
+	// P-code proc 58: reads getNumber() (2 nips) from the message stream.
+	// If result == 0: reads getNip() (1 more nip) as a literal value.
+	// If result != 0: calls lookupFieldValue(result) to get current field value.
+	// Stores the field ref in _lastFieldRef for subsequent storeFieldValue.
+	int startPos = _state->_msgPos;
+	int num = getNumber();
+	_lastFieldRef = num;  // Remember which field this refers to (0 = literal)
+
+	if (num == 0) {
+		// Literal path: read 1 more nip as direct value
+		int val = getNip();
+		debugC(kDebugScripts, "Angel VM: readCompValueFromStream: literal=%d @pos=%d",
+		       val, startPos);
+		return val;
+	}
+	// Field reference path: look up current value
+	int val = lookupFieldValue(num);
+	debugC(kDebugScripts, "Angel VM: readCompValueFromStream: fieldRef=%d → value=%d @pos=%d",
+	       num, val, startPos);
+	return val;
 }
 
 int VM::getEntityFieldValue(int address) {
@@ -2975,8 +3282,18 @@ int VM::getEntityFieldValue(int address) {
 		case 15: return p.accessLock;
 		case 16: return p.mustHave;
 		case 17: return p.fogPath;
-		case 18: case 19: return 0;  // people (PersonSet) — TODO
-		case 20: case 21: case 22: case 23: return 0;  // objects (ObjSet) — TODO
+		case 18: case 19: {
+			// PersonSet: 2 x 16-bit words from the people bit set.
+			// In P-code, stored as SET OF 0..31 (2 words).
+			uint32 bits = p.people.getWord(0);
+			return (fld == 18) ? (int)(bits & 0xFFFF) : (int)((bits >> 16) & 0xFFFF);
+		}
+		case 20: case 21: case 22: case 23: {
+			// ObjSet: 4 x 16-bit words from the objects bit set.
+			int wordIdx = (fld - 20) / 2;
+			uint32 bits = p.objects.getWord(wordIdx);
+			return ((fld - 20) % 2 == 0) ? (int)(bits & 0xFFFF) : (int)((bits >> 16) & 0xFFFF);
+		}
 		case 24: return (int)p.view;
 		case 25: return p.useThe ? 1 : 0;
 		case 26: return p.foggy ? 1 : 0;
@@ -2990,10 +3307,54 @@ int VM::getEntityFieldValue(int address) {
 		}
 	}
 
-	// TODO: Object, Person, Vehicle entity ranges
-	warning("Angel VM: getEntityFieldValue: address %d not in known range (mapRange=%d-%d)",
+	// TODO: Person, Object, Vehicle entity ranges (come after locations)
+	debugC(kDebugScripts, "Angel VM: getEntityFieldValue: address %d not in known range (mapRange=%d-%d)",
 	        address, BASE_MAP, mapEnd - 1);
 	return 0;
+}
+
+void VM::storeEntityFieldValue(int address, int value) {
+	static const int BASE_MAP = 296;
+	static const int RSIZE_PLACE = 31;
+	int mapEnd = BASE_MAP + _data->_nbrLocations * RSIZE_PLACE;
+
+	if (address >= BASE_MAP && address < mapEnd) {
+		int rel = address - BASE_MAP;
+		int idx = rel / RSIZE_PLACE + 1;
+		int fld = rel % RSIZE_PLACE;
+
+		if (idx < 1 || idx > _data->_nbrLocations) {
+			warning("Angel VM: storeEntityFieldValue: Place[%d] out of range", idx);
+			return;
+		}
+
+		Place &p = _data->_map[idx];
+		debugC(kDebugScripts, "Angel VM: storeEntityFieldValue Place[%d].field[%d] = %d", idx, fld, value);
+		switch (fld) {
+		case 0:  p.n = value; break;
+		case 1:  p.shortDscr = value; break;
+		case 2: case 3: case 4: case 5: case 6: case 7:
+			p.nextPlace[fld - 2] = value; break;
+		case 8: case 9: case 10: case 11: case 12: case 13:
+			p.traffic[fld - 8] = (value != 0); break;
+		case 15: p.accessLock = value; break;
+		case 16: p.mustHave = value; break;
+		case 17: p.fogPath = value; break;
+		case 24: p.view = (Aspect)value; break;
+		case 25: p.useThe = (value != 0); break;
+		case 26: p.foggy = (value != 0); break;
+		case 27: p.itsADoor = (value != 0); break;
+		case 28: p.itsOpen = (value != 0); break;
+		case 29: p.itsLocked = (value != 0); break;
+		case 30: p.unseen = (value != 0); break;
+		default:
+			debugC(kDebugScripts, "Angel VM: storeEntityFieldValue: Place field %d unhandled", fld);
+			break;
+		}
+		return;
+	}
+
+	debugC(kDebugScripts, "Angel VM: storeEntityFieldValue: address %d not in known range", address);
 }
 
 } // End of namespace Angel

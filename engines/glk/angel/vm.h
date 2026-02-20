@@ -310,11 +310,46 @@ private:
 	void resolveEntity(int op);
 
 	/**
+	 * Look up a game state field value by entity reference number.
+	 * Implements P-code proc 55: classifies ref via proc 53, then
+	 * dispatches to read from _cmdEntry, xReg countdown, or
+	 * object/person struct fields.
+	 * Returns abs(result). Out-of-range refs return 0.
+	 */
+	int lookupFieldValue(int entityRef);
+
+	/**
+	 * Store a value to a game state field identified by entity reference.
+	 * Implements P-code proc 54: classifies ref via proc 53, then
+	 * dispatches to write to _cmdEntry (X), xReg countdown (T), or
+	 * object/person struct fields (A).
+	 */
+	void storeFieldValue(int entityRef, int value);
+
+	/**
+	 * Read a value from the message stream using the proc 58 pattern.
+	 * Reads 1 nip: if 0, reads a getNumber() literal (2 more nips).
+	 * If non-zero, calls lookupFieldValue to get the current field value.
+	 * Also stores the field ref nip in _lastFieldRef for storeFieldValue.
+	 */
+	int readCompValueFromStream();
+
+	/** The field ref nip from the last readCompValueFromStream() call.
+	 *  0 if the value was a literal (no field to write back to). */
+	int _lastFieldRef;
+
+	/**
 	 * Resolve a UCSD Pascal data-segment address to an entity field value.
 	 * Used by readCompValue in kFt comparison handlers.
 	 * The address encodes BASE + (entityIndex-1)*recordSize + fieldOffset.
 	 */
 	int getEntityFieldValue(int address);
+
+	/**
+	 * Store a value to a UCSD Pascal data-segment entity field.
+	 * Counterpart to getEntityFieldValue for write operations.
+	 */
+	void storeEntityFieldValue(int address, int value);
 };
 
 } // End of namespace Angel

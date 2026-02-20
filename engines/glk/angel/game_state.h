@@ -89,6 +89,7 @@ public:
 	bool _completeGame;
 	int _tourPoint;                              // LocRef
 	bool _stillPlaying;
+	bool _respondQuit;                           // RESPOND segment's quit flag (SRO 2)
 	int _robotAddr;
 
 	// ---- Communication record state ----

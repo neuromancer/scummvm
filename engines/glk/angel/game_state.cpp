@@ -113,6 +113,7 @@ void GameState::initFromData(GameData *data) {
 	// sets x to a non-zero value so subsequent WELCOME events show different text.
 
 	_stillPlaying = true;
+	_respondQuit = false;
 	_moveNumber = 0;
 
 	// Initialize verb → action mapping
