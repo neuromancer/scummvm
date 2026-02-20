@@ -114,6 +114,7 @@ private:
 	int _callDepth;
 
 	bool _capitalizeNext;    // Set by kCapOp via kFe, capitalizes next text char
+	int _lastRawNip;         // Last raw nip value before yTable translation
 	bool _suppressText;      // Text output suppression (active state)
 	bool _baseSuppressText;  // Base suppress level set by angel.cpp (CXG 18,9 re-eval)
 	bool _descriptionOnly;   // Stop at first EndSym section break (for entity descriptions)

@@ -32,7 +32,7 @@ namespace Angel {
 
 VM::VM(Angel *engine, GameData *data, GameState *state)
     : _engine(engine), _data(data), _state(state), _callDepth(0),
-      _capitalizeNext(false), _suppressText(false), _baseSuppressText(false),
+      _capitalizeNext(false), _lastRawNip(0), _suppressText(false), _baseSuppressText(false),
       _descriptionOnly(false), _respondMode(false), _cseContentDepth(0),
       _compFieldAddr(0),
       _entityFlag(false), _entityValue(0), _entityOp(0), _entityType(-1),
@@ -78,6 +78,7 @@ char VM::getAChar() {
 	int nip = getNip();
 	if (_state->_eom)
 		return kEndSym;
+	_lastRawNip = nip;
 	return _data->_yTable[nip];
 }
 
@@ -245,9 +246,9 @@ void VM::executeMsg() {
 		}
 
 		// Trace every character position for alignment debugging (MSG30 only)
-		if (_state->_msgBase == 30 || _state->_msgBase == 29 || _state->_msgBase == 3836 || _state->_msgBase == 3499) {
-			debugC(kDebugScripts, "Angel VM: TRACE @pos=%d ch='%c'(%d) base=%d tf=%d suppress=%d",
-			        prePos, (ch >= 32 && ch < 127) ? ch : '?', (int)(unsigned char)ch,
+		if (_state->_msgBase == 30 || _state->_msgBase == 29 || _state->_msgBase == 3836 || _state->_msgBase == 3499 || _state->_msgBase == 7) {
+			debugC(kDebugScripts, "Angel VM: TRACE @pos=%d nip=%d ch='%c'(%d) base=%d tf=%d suppress=%d",
+			        prePos, _lastRawNip, (ch >= 32 && ch < 127) ? ch : '?', (int)(unsigned char)ch,
 			        _state->_msgBase, _state->_tfIndicator ? 1 : 0, _suppressText ? 1 : 0);
 		}
 
@@ -398,10 +399,16 @@ void VM::executeMsg() {
 				debugC(kDebugScripts, "Angel VM: kFar opNip=%d op=%d refNip=%d refOp=%d ref=%d entityFlag=%d entityValue=%d",
 				        opNip, opVal, refNip, refOp, ref, _entityFlag ? 1 : 0, _entityValue);
 
-				if (opVal >= (int)kSwOp && opVal <= (int)kRstOp) {
-					// Edit opcodes 78-86: handled by kFar's own XJP dispatch (L_2b3e).
+				if (opVal >= (int)kSspOp && opVal <= (int)kRstOp) {
+					// Opcodes 76-86: handled by kFar's own XJP dispatch (L_2b3e).
 					// Each case reads its own inline data — NOT a uniform discriminator.
 					switch ((Operation)opVal) {
+					case kSspOp:
+						opSsp(ref);
+						break;
+					case kRsmOp:
+						opRsm(ref);
+						break;
 					case kSwOp: {
 						// L_2aa5: CXS 11 = _entityOp, compare with 143.
 						// If match: toggle global[3043]. If not: CXS 10 (_entityValue) + NAT_F0 47.
@@ -451,14 +458,9 @@ void VM::executeMsg() {
 						break;
 					}
 				} else {
-					// Fallback path (L_2b43): opcodes outside 78-86.
-					// P-code reads CXS 12 (getNip, 1 nip) + CXS 10 (getNumber, 2 nips)
-					// = 3 nips consumed. The values are returned to the caller but
-					// proc 66 discards them — the reads are for stream alignment only.
-					int discr = getNip();
-					int val = getNumber();
-					debugC(kDebugScripts, "Angel VM: kFar fallback op=%d discr=%d val=%d (consumed 3 nips)",
-					       opVal, discr, val);
+					// P-code XJP at L_2b3e defaults to L_2b41 (UJP -> return)
+					// for opcodes outside 76-86. No extra nips consumed.
+					debugC(kDebugScripts, "Angel VM: kFar non-edit op=%d (no-op)", opVal);
 				}
 			}
 			break;
@@ -481,15 +483,23 @@ void VM::executeMsg() {
 						int startPos = _state->_msgPos;
 						int temp = getNumber();
 						if (temp == 0) {
+							// Literal path: getNumber returned 0, read one more nip as value
 							int litPos = _state->_msgPos;
 							int lit = getNip();
 							debugC(kDebugScripts, "Angel VM: readCompValue: literal getNip=%d (getNum@%d=0, nip@%d=%d)",
 							        lit, startPos, litPos, lit);
 							return lit;
 						}
-						_compFieldAddr = temp + 1;
-						debugC(kDebugScripts, "Angel VM: readCompValue: field ref=%d @pos=%d, stored _compFieldAddr=%d, returning 0",
-						        temp, startPos, _compFieldAddr);
+						// Field reference path: getNumber returned non-zero entity ref.
+						// P-code proc 58 calls proc 55 (field lookup) which:
+						//   1. Classifies ref via proc 53: <6→'A'(obj), 6-15→'X'(person), ≥16→'T'(loc)
+						//   2. Looks up actual field value from game state arrays
+						//   3. Returns the field value (NOT 0!)
+						// TODO: Implement proc 55 field lookup. Currently returns 0,
+						// which is correct for the initial game state but breaks as
+						// game state changes (comparisons always see field=0).
+						debugC(kDebugScripts, "Angel VM: readCompValue: field ref=%d @pos=%d (TODO: lookup, returning 0)",
+						        temp, startPos);
 						return 0;
 					};
 					int val1 = readCompValue();
@@ -508,7 +518,8 @@ void VM::executeMsg() {
 					// Proc 72 preamble: some tests read getNumber (2 nips)
 					// into local[1] before dispatch (set membership check).
 					// Others read getNip via their own handler code.
-					_entityType = -1;
+					// Do NOT reset _entityType — kFt inherits entity context
+					// from the preceding kFar/kFtr instruction (P-code proc 72).
 					int ref = 0;
 					switch (opVal) {
 					// Arithmetic edit ops — no preamble data consumed
@@ -1776,7 +1787,11 @@ void VM::opPourIt() {
 }
 
 void VM::opSave() {
-	_engine->saveGame();
+	// In the P-code, kSaveOp sets seg[19].g[161] = 1 (death flag).
+	// This signals the game loop that the player has died.
+	// It does NOT perform a save operation.
+	debugC(kDebugScripts, "Angel VM: opSave → death flag set");
+	_state->_stillPlaying = false;
 }
 
 void VM::opQuit() {
@@ -2181,11 +2196,14 @@ int VM::entityToVocabIdx(int entityNum) const {
 }
 
 bool VM::testHere(int ref) {
-	// P-code proc 75: in kFt path, ref is an entity table index from
-	// getNumber(); in kFtr path, ref is a direct entity ref and
-	// _entityType/_entityValue are already set by resolveEntity.
-	debugC(kDebugScripts, "Angel VM: testHere ref=%d loc=%d entityType=%d entityValue=%d",
-	        ref, _state->_location, _entityType, _entityValue);
+	// P-code proc 75: reads CPI 4,3 (1 nip entity index) at start, then
+	// dispatches on _entityType via XJP (cases 0-6).
+	// CPI 4,3 consumes 1 nip from the message stream — same pattern as
+	// proc 78 (testSyn) and proc 97 (kRoleOp).
+	int entityIdx = getNip();
+
+	debugC(kDebugScripts, "Angel VM: testHere ref=%d entityIdx=%d loc=%d entityType=%d entityValue=%d",
+	        ref, entityIdx, _state->_location, _entityType, _entityValue);
 
 	Place &loc = _state->map(_state->_location);
 	int vType, entityRef;
@@ -2459,14 +2477,16 @@ bool VM::testWord(int ref) {
 }
 
 bool VM::testSyn(int ref) {
-	// P-code proc 78: dispatches on _entityType via XJP (cases 0-6).
-	// Tests if the current entity is a "synonym" of the reference word.
+	// P-code proc 78: reads CPI 4,3 (1 nip entity index) at start, then
+	// dispatches on _entityType via XJP (cases 0-6).
 	//
-	// When called from kFtr: entity context is fresh. Use _entityType dispatch.
-	// When called from kFt: entity context is stale (_entityType == -1).
-	//   Fall back to ref-based behavior (direction/verb synonym check).
-	debugC(kDebugScripts, "Angel VM: testSyn ref=%d entityType=%d entityValue=%d verb=%d direction=%d",
-	       ref, _entityType, _entityValue, _state->_verb, _state->_direction);
+	// CPI 4,3 consumes 1 nip from the message stream — the entity table
+	// index used as context for the synonym check. This matches the pattern
+	// of CPI 3,5 in other test procs (e.g., proc 75/testHere).
+	int entityIdx = getNip();
+
+	debugC(kDebugScripts, "Angel VM: testSyn ref=%d entityIdx=%d entityType=%d entityValue=%d verb=%d direction=%d",
+	       ref, entityIdx, _entityType, _entityValue, _state->_verb, _state->_direction);
 
 	if (_entityType < 0) {
 		// kFt path: no fresh entity context. Convert entity table index to vocab.
