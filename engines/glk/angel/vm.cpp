@@ -84,9 +84,21 @@ char VM::getAChar() {
 
 int VM::getNumber() {
 	// Read a 12-bit number from 2 nips (big-endian)
+	// This is CXS 10 = IOHANDLER seg 18 proc 10.
 	int hi = getNip();
 	int lo = getNip();
 	return (hi << 6) | lo;
+}
+
+int VM::getNumber18() {
+	// Read an 18-bit number from 3 nips (big-endian).
+	// This is RESPOND proc 6 (via proc 33): proc5(flag=1)*64 + getNip.
+	// Used by kEventOp and kSetOp (proc 58 literal path).
+	// Different from getNumber() which only reads 2 nips (12-bit).
+	int n1 = getNip();
+	int n2 = getNip();
+	int n3 = getNip();
+	return (n1 << 12) | (n2 << 6) | n3;
 }
 
 void VM::bumpMsg() {
@@ -762,7 +774,7 @@ void VM::executeCase() {
 		// that exceed message length, so this is equivalent.
 		int nbrCases = getNip();
 		int totalSize = getNumber();
-		int endPos = _state->_msgPos + totalSize;
+		int endPos = _state->_msgPos + totalSize - 1;
 		debugC(kDebugScripts, "Angel VM: CSE unknown caseType %d (nbrCases=%d totalSize=%d endPos=%d) base=%d pos=%d — skipping",
 		        caseType, nbrCases, totalSize, endPos, _state->_msgBase, _state->_msgPos);
 		// Clamp endPos to message bounds to prevent reading past the file
@@ -782,7 +794,7 @@ void VM::executeCase() {
 
 	int nbrCases = getNip();
 	int totalSize = getNumber();
-	int endPos = _state->_msgPos + totalSize;
+	int endPos = _state->_msgPos + totalSize - 1;
 
 	// Determine match value based on case type
 	int matchValue = 0;
@@ -1864,13 +1876,13 @@ void VM::opTick(int ref) {
 
 void VM::opEvent(int ref) {
 	// Set event register (case 74 in kFa XJP → L_2935)
-	// p-code: CLP2 57 reads getNip register index (1 nip),
-	//         CLP2 33 reads getNumber (procedure address, 2 nips),
-	//         stores addr to xReg[regIndex].proc (word[1]).
-	// Stream consumption: getNip + getNumber = 3 nips total
+	// P-code: CLP2 57 reads getNip - 16 for register index (1 nip),
+	//         CLP2 33 reads getNumber18 (procedure address, 3 nips).
+	//         Stores addr to xReg[regIndex].proc (word[1]).
+	// Stream consumption: getNip(1) + getNumber18(3) = 4 nips total
 	int rawNip = getNip();
-	int reg = rawNip;
-	int addr = getNumber();
+	int reg = rawNip - 16;  // proc 57: getNip - 16
+	int addr = getNumber18();  // proc 33 → proc 6: 3-nip 18-bit address
 	debugC(kDebugScripts, "Angel VM: opEvent(rawNip=%d, reg=%d, addr=%d)", rawNip, reg, addr);
 	if (reg >= 0 && reg < 32) {
 		_state->_clock.xReg[reg].proc = addr;
@@ -1881,56 +1893,62 @@ void VM::opEvent(int ref) {
 
 void VM::opSet(int ref) {
 	// Set dispatch table entry (case 75 in kFa XJP → L_28f3)
-	// P-code: CXG 18,15 (getNip) + proc 53 (categorize) +
-	//         CXS 15 + CXS 16 (getNumber) + proc 58 (store) + proc 54 (dispatch)
-	// Stream: getNip (1) + getNumber (2) + proc58 (1-2) = 4-5 nips total
+	// P-code flow:
+	//   1. CXG 18,15 → getNip (attrNip)                    (1 nip)
+	//   2. CLP2 53   → categorize(attrNip)                  (0 nips)
+	//   3. CXS 15    → getNip (skip value)                   (1 nip)
+	//   4. CXS 16    → CXG 18,16(skip) = jump(skip-1)       (0 nips from stream)
+	//   5. CLP2 58   → proc 58 readCompValue:               (1 or 4 nips)
+	//        getNip(1): if 0 → getNumber18(3), else field ref(0)
+	//   6. CLP2 54   → dispatch stores result                (0 nips)
 	//
-	// Proc 53 categorizes the nip value into table + index:
+	// When skip=0, CXG 18,16(0) = jump(-1) backs up 1 position.
+	// This causes proc 58 to re-read the same 0 nip as its literal flag,
+	// saving 1 nip in the common case (the 0 serves as both skip AND flag).
+	//
+	// Proc 53 categorizes attrNip:
 	//   nip  0..5  → entity field write (case 'A'), index = nip
-	//   nip  6..15 → CmdEntry[nip-6] (case 'X', g[3045])
-	//   nip 16+    → DeferredDispatch[nip-16] (case 'T', g[3020])
+	//   nip  6..15 → CmdEntry[nip-6] (case 'X')
+	//   nip 16+    → xReg[nip-16] (case 'T')
 	int attrNip = getNip();
-	int value = getNumber();
 
-	// Proc 58 pattern: reads additional value from stream.
-	// If first nip is 0, reads a second nip as literal value.
-	// If non-zero, stores nip+1 in g[8] (entity field ref) and returns 0.
+	// CXS 15 + CXS 16: read skip value, then adjust position
+	int cxs15val = getNip();
+	jump(cxs15val - 1);  // CXG 18,16(skip): when 0, backs up to re-read as p58 flag
+
+	// Proc 58 (readCompValue): getNip first, then branch
 	int p58nip = getNip();
 	int storeValue;
 	if (p58nip == 0) {
-		storeValue = getNip();
+		// Literal value: proc 6 reads 3 nips (18-bit)
+		storeValue = getNumber18();
 	} else {
-		// Non-zero: the p-code stores p58nip+1 in global[8]
-		// and the dispatch value becomes 0
+		// Field reference: proc 55 lookup (0 more nips)
 		storeValue = 0;
 	}
 
-	// The value actually stored comes from proc 58 result, not getNumber.
-	// getNumber feeds into the categorization/context, storeValue is stored.
-	// For cases where storeValue is 0 and value is meaningful, use value.
-	int finalValue = (storeValue != 0) ? storeValue : value;
+	debugC(kDebugScripts, "Angel VM: opSet attrNip=%d cxs15=%d p58=%d val=%d",
+	       attrNip, cxs15val, p58nip, storeValue);
 
 	if (attrNip >= 6 && attrNip < 16) {
 		// CmdEntry: dispatch addresses for command responses
 		int idx = attrNip - 6;
 		if (idx < GameState::kMaxCmdEntries) {
-			_state->_cmdEntry[idx] = finalValue;
-			debugC(kDebugScripts, "Angel VM: opSet CmdEntry[%d] = %d (nip=%d)",
-			       idx, finalValue, attrNip);
+			_state->_cmdEntry[idx] = storeValue;
+			debugC(kDebugScripts, "Angel VM: opSet CmdEntry[%d] = %d",
+			       idx, storeValue);
 		}
 	} else if (attrNip < 6) {
 		// Entity field write — sub-dispatch in proc 54 case 'A'
-		debugC(kDebugScripts, "Angel VM: opSet entity field[%d] = %d (nip=%d)",
-		       attrNip, finalValue, attrNip);
+		debugC(kDebugScripts, "Angel VM: opSet entity field[%d] = %d",
+		       attrNip, storeValue);
 	} else {
 		// xReg countdown (g[3020]) — proc 54 'T' case
-		// In P-code, opSet uses the register index nib directly for xReg writes.
-		// opSet can set xReg countdown values just like opEvent sets proc addresses.
-		int reg = attrNip;
+		int reg = attrNip - 16;  // proc 53: nip - 16 for xReg index
 		if (reg >= 0 && reg < 32) {
-			_state->_clock.xReg[reg].x = finalValue;
+			_state->_clock.xReg[reg].x = storeValue;
 			debugC(kDebugScripts, "Angel VM: opSet xReg[%d].x = %d (nip=%d)",
-			       reg, finalValue, attrNip);
+			       reg, storeValue, attrNip);
 		} else {
 			debugC(kDebugScripts, "Angel VM: opSet xReg reg=%d out of range (nip=%d)",
 			       reg, attrNip);
@@ -1940,11 +1958,12 @@ void VM::opSet(int ref) {
 
 void VM::opSsp(int ref) {
 	// Suspend event timer (case 76 in kFa XJP → L_2905)
-	// p-code: CLP2 57 reads getNip register index (1 nip),
+	// P-code: CLP2 57 reads getNip - 16 for register index (1 nip),
 	//         if xReg[idx].x > 0, negates it (makes negative = suspended).
 	// Stream consumption: getNip = 1 nip
-	int reg = getNip();
-	debugC(kDebugScripts, "Angel VM: opSsp(reg=%d)", reg);
+	int rawNip = getNip();
+	int reg = rawNip - 16;  // proc 57: getNip - 16
+	debugC(kDebugScripts, "Angel VM: opSsp(rawNip=%d, reg=%d)", rawNip, reg);
 	if (reg >= 0 && reg < 32) {
 		if (_state->_clock.xReg[reg].x > 0)
 			_state->_clock.xReg[reg].x = -_state->_clock.xReg[reg].x;
@@ -1953,11 +1972,12 @@ void VM::opSsp(int ref) {
 
 void VM::opRsm(int ref) {
 	// Resume event timer (case 77 in kFa XJP → L_291d)
-	// p-code: CLP2 57 reads getNip register index (1 nip),
+	// P-code: CLP2 57 reads getNip - 16 for register index (1 nip),
 	//         if xReg[idx].x < 0, negates it (makes positive = active).
 	// Stream consumption: getNip = 1 nip
-	int reg = getNip();
-	debugC(kDebugScripts, "Angel VM: opRsm(reg=%d)", reg);
+	int rawNip = getNip();
+	int reg = rawNip - 16;  // proc 57: getNip - 16
+	debugC(kDebugScripts, "Angel VM: opRsm(rawNip=%d, reg=%d)", rawNip, reg);
 	if (reg >= 0 && reg < 32) {
 		if (_state->_clock.xReg[reg].x < 0)
 			_state->_clock.xReg[reg].x = -_state->_clock.xReg[reg].x;
@@ -3223,22 +3243,24 @@ void VM::storeFieldValue(int entityRef, int value) {
 }
 
 int VM::readCompValueFromStream() {
-	// P-code proc 58: reads getNumber() (2 nips) from the message stream.
-	// If result == 0: reads getNip() (1 more nip) as a literal value.
+	// P-code proc 58: reads getNip (1 nip) from the message stream.
+	// If result == 0: reads getNumber18() (3 more nips) as a literal value.
 	// If result != 0: calls lookupFieldValue(result) to get current field value.
 	// Stores the field ref in _lastFieldRef for subsequent storeFieldValue.
+	//
+	// Total nip consumption: 1 nip (literal=0: +3 = 4 total; field ref: 1 total)
 	int startPos = _state->_msgPos;
-	int num = getNumber();
+	int num = getNip();
 	_lastFieldRef = num;  // Remember which field this refers to (0 = literal)
 
 	if (num == 0) {
-		// Literal path: read 1 more nip as direct value
-		int val = getNip();
+		// Literal path: proc 6 reads 3 nips (18-bit value)
+		int val = getNumber18();
 		debugC(kDebugScripts, "Angel VM: readCompValueFromStream: literal=%d @pos=%d",
 		       val, startPos);
 		return val;
 	}
-	// Field reference path: look up current value
+	// Field reference path: look up current value (0 more nips)
 	int val = lookupFieldValue(num);
 	debugC(kDebugScripts, "Angel VM: readCompValueFromStream: fieldRef=%d → value=%d @pos=%d",
 	       num, val, startPos);

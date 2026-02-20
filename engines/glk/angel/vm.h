@@ -89,6 +89,9 @@ public:
 	/** Read a multi-nip integer value (2 nips = 12 bits) */
 	int getNumber();
 
+	/** Read an 18-bit value from 3 nips (used by RESPOND proc 6/33) */
+	int getNumber18();
+
 	/** Jump forward by a relative offset within the current message (for JU/JF) */
 	void jump(int offset);
 
@@ -122,7 +125,7 @@ private:
 	int _cseContentDepth;    // >0 when inside CSE case content (EndSym = case end)
 
 	// Comparison field address — P-code RESPOND global[8].
-	// Set by proc 58 (readCompValue) when getNumber() != 0: stores (value+1).
+	// Set by proc 58 (readCompValue) when getNip() != 0: stores field ref.
 	// Used as a side-effect address reference for entity field comparisons.
 	int _compFieldAddr;
 
@@ -328,7 +331,7 @@ private:
 
 	/**
 	 * Read a value from the message stream using the proc 58 pattern.
-	 * Reads 1 nip: if 0, reads a getNumber() literal (2 more nips).
+	 * Reads 1 nip: if 0, reads getNumber18() literal (3 more nips = 18-bit).
 	 * If non-zero, calls lookupFieldValue to get the current field value.
 	 * Also stores the field ref nip in _lastFieldRef for storeFieldValue.
 	 */
