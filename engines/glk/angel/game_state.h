@@ -132,12 +132,14 @@ public:
 	VWordSet _cueWords;                          // Prepositions
 	int _newArrival;                             // PersonRef
 
-	// ---- Command dispatch (RESPOND CmdEntry) ----
-	// CmdEntry[0..9] stores message addresses for command response dispatch.
-	// Populated by opSet in entity scripts. CmdEntry[1] = direction response.
-	// P-code proc 53: nips 6..15 → CmdEntry[0..9] (g[3045]).
+	// ---- Command dispatch (CmdEntry at g[3045]) ----
+	// g[3045] stores 2-word records: {flag (word 0), addr (word 1)}.
+	// _cmdEntry[i] = word 1 (message address for dispatch, read via SIND 1).
+	// _cmdFlag[i]  = word 0 (state/type flag, read via SIND 0 = lookupFieldValue 'X').
+	// Entry 2 flag = 1 for movement commands (checked by location scripts via ref=8).
 	static const int kMaxCmdEntries = 10;
 	int _cmdEntry[kMaxCmdEntries];
+	int _cmdFlag[kMaxCmdEntries];
 
 	Determiner _curBase;                         // Copy prepared by parser
 	PropSet _active;                             // Union of all props in scope

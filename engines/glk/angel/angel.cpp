@@ -301,6 +301,12 @@ void Angel::putChar(char ch) {
 	// PutChar state machine matching IOHANDLER proc 5 (CXG 18,5).
 	// Disassembled from the asglib binary, segment 18.
 	//
+	// P-code putChar checks seg[20].global[5] (text flag) first and returns
+	// immediately if false.  This suppresses ALL output (including entity
+	// names via Fe) when the text flag is off — e.g. after testNew fails.
+	if (!_state->_tfIndicator)
+		return;
+
 	// State transitions implement:
 	// - Deferred spaces (word-wrapping support)
 	// - Auto-spacing after sentence-ending punctuation
@@ -677,6 +683,17 @@ void Angel::runLocationScripts() {
 }
 
 void Angel::dispatchCommand(ThingToDo action) {
+	// Clear command flags each turn (word 0 of CmdEntry records at g[3045]).
+	// These are set per-command and read by location scripts via lookupFieldValue 'X'.
+	memset(_state->_cmdFlag, 0, sizeof(_state->_cmdFlag));
+
+	// Set CmdEntry flag[2] for movement commands.
+	// Location scripts check ref=8 (cmdFlag[2]) == 1 to detect movement
+	// and dispatch direction-specific responses (kMovOp, return messages, etc.).
+	if (action == kAMove || action == kATrip) {
+		_state->_cmdFlag[2] = 1;
+	}
+
 	// Engine-level commands handled directly (not by the game script).
 	if (action == kGiveUp) {
 		println("Are you sure you want to quit? (Y/N)");
@@ -707,49 +724,52 @@ void Angel::dispatchCommand(ThingToDo action) {
 	// It fires through processTimedEvents() when its countdown reaches 0.
 	// WELCOME sets xReg[4].x = 4, so the MOVE event first fires on Move 4.
 
-	// Dispatch CmdEntry[1] OR location default response for movement commands.
-	// RESPOND proc 1 at L_3430:
-	//   if g[3090] (entity matched) → dispatch CmdEntry[1]
-	//   else → dispatch seg[21].global[4] (= map[loc].n, location default)
-	// For bare direction commands like "south", g[3090] = 0 so the location
-	// default response runs.  This is where traps and dead-end handling live.
+	// Dispatch movement commands.
+	// P-code RESPOND proc 1 flow for kAMove:
+	//   1. CPL 19 (entity matching) → populates CmdEntry, sets g[3090]
+	//   2. If g[3090]: dispatch CmdEntry[1] → proc 2
+	//   3. Else: dispatch location default → proc 2 (text suppressed)
+	//   4. proc 2: CXG 18,10 runs the message, then calls proc 66 if not handled
+	//   5. proc 66 case '^': default move via proc 5 + CXG 18,16
+	//
+	// For simple movements (no entity handler), we skip the location message
+	// entirely and go straight to the fallback move.  The location message
+	// runs during describeLocation with text visible; during movement dispatch,
+	// the P-code suppresses its text via the persisted text flag state.
+	// Skipping it avoids the text flag management complexity while producing
+	// correct output: no source-room text, just the destination description.
 	if (_state->_stillPlaying && (action == kAMove || action == kATrip)) {
 		int cmdAddr = _state->_cmdEntry[1];
 		if (cmdAddr > 0) {
+			// Entity-specific command handler (traps, special moves).
 			debugC(1, kDebugScripts, "Angel: CmdEntry[1] dispatch addr=%d loc=%d target=%d",
 			       cmdAddr, _state->_location, moveDest);
 			_vm->setSuppressText(false);
 			_vm->displayMsg(cmdAddr);
 			forceQ();
-		} else {
-			// No entity match — dispatch location default response.
-			// This script handles movement validation: dead-ends, traps,
-			// and valid exits (via kMovOp or other state changes).
-			int locDefault = _data->_map[_state->_location].n;
-			if (locDefault > 0) {
-				debugC(1, kDebugScripts, "Angel: location default dispatch addr=%d loc=%d target=%d",
-				       locDefault, _state->_location, moveDest);
+		}
+
+		// Default movement: change location or report dead end.
+		// P-code RESPOND proc 66 case '^': compute destination, change location.
+		if (_state->_location == locBefore) {
+			if (moveDest > kNowhere) {
+				debugC(1, kDebugScripts, "Angel: default move loc %d -> %d dir=%d",
+				       _state->_location, moveDest, _state->_direction);
+				_state->_pprvLocation = _state->_prvLocation;
+				_state->_prvLocation = _state->_location;
+				_state->_prvDirection = _state->_direction;
+				_state->_location = moveDest;
+				_state->_trail.set(moveDest);
+			} else {
+				// Dead end — dispatch dead-end message (separate from location msg).
+				// P-code uses addr 424: RandomCSE with dead-end messages.
+				static const int kDeadEndMsgAddr = 424;
+				debugC(1, kDebugScripts, "Angel: dead end at loc=%d dir=%d, dispatching addr=%d",
+				       _state->_location, _state->_direction, kDeadEndMsgAddr);
 				_vm->setSuppressText(false);
-				_vm->setRespondMode(true);
-				_vm->displayMsg(locDefault);
-				_vm->setRespondMode(false);
+				_vm->displayMsg(kDeadEndMsgAddr);
 				forceQ();
 			}
-		}
-	}
-
-	// Fallback movement handling — if the location script didn't change
-	// location (e.g. script lacks movement logic), do it in C++.
-	if (_state->_stillPlaying && (action == kAMove || action == kATrip)) {
-		if (_state->_location == locBefore && moveDest > kNowhere) {
-			// Valid destination but script didn't move us — default move.
-			debugC(1, kDebugScripts, "Angel: fallback move loc %d -> %d dir=%d",
-			       _state->_location, moveDest, _state->_direction);
-			_state->_pprvLocation = _state->_prvLocation;
-			_state->_prvLocation = _state->_location;
-			_state->_prvDirection = _state->_direction;
-			_state->_location = moveDest;
-			_state->_trail.set(moveDest);
 		}
 
 		// Post-move: if location changed, handle entry events and description.
@@ -793,11 +813,10 @@ void Angel::dispatchCommand(ThingToDo action) {
 	//   2. If g[3090] (entity resolved) → dispatch CmdEntry[1]
 	//   3. Else → dispatch seg[21].global[4] (= msg 3, the default response)
 	if (_state->_stillPlaying && action != kAMove && action != kATrip) {
-		// "look" re-describes the current location: reset the unseen flag
-		// so testNew returns true and the full description displays.
-		if (_state->_codeSet.has(kVLook)) {
-			_state->map(_state->_location).unseen = true;
-		}
+		// LOOK dispatches the location message with the default text flag (TRUE).
+		// testNew returns FALSE for visited locations — the message shows the
+		// revisit description (shorter, no first-visit intro) naturally.
+		// We do NOT reset unseen — that would incorrectly show first-visit text.
 
 		int scriptAddr = 0;
 

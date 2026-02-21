@@ -53,6 +53,7 @@ GameState::GameState() : _data(nullptr), _location(kNowhere), _direction(kNorth)
 	memset(_dayWords, 0, sizeof(_dayWords));
 	memset(_thisAction, 0, sizeof(_thisAction));
 	memset(_cmdEntry, 0, sizeof(_cmdEntry));
+	memset(_cmdFlag, 0, sizeof(_cmdFlag));
 }
 
 void GameState::initFromData(GameData *data) {

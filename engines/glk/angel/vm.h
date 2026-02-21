@@ -123,6 +123,9 @@ private:
 	bool _descriptionOnly;   // Stop at first EndSym section break (for entity descriptions)
 	bool _respondMode;       // In respond mode: kRoleOp skips description → response section
 	int _cseContentDepth;    // >0 when inside CSE case content (EndSym = case end)
+	bool _lastTestResult;    // Result of last test operation (for JF branching).
+	                         // Separate from _tfIndicator: kNewOp sets _lastTestResult
+	                         // but NOT _tfIndicator (P-code proc 76 doesn't write global[5]).
 
 	// Comparison field address — P-code RESPOND global[8].
 	// Set by proc 58 (readCompValue) when getNip() != 0: stores field ref.

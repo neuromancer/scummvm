@@ -34,7 +34,7 @@ VM::VM(Angel *engine, GameData *data, GameState *state)
     : _engine(engine), _data(data), _state(state), _callDepth(0),
       _capitalizeNext(false), _lastRawNip(0), _suppressText(false), _baseSuppressText(false),
       _descriptionOnly(false), _respondMode(false), _cseContentDepth(0),
-      _compFieldAddr(0),
+      _lastTestResult(true), _compFieldAddr(0),
       _entityFlag(false), _entityValue(0), _entityOp(0), _entityType(-1),
       _entityContextFresh(false), _lastFieldRef(0) {
 	memset(_callStack, 0, sizeof(_callStack));
@@ -162,9 +162,11 @@ void VM::displayMsg(int addr, bool descriptionOnly) {
 
 	_callDepth = 0;
 	_descriptionOnly = descriptionOnly;
-	_state->_tfIndicator = true;  // No test has run yet; JF should not jump
+	_state->_tfIndicator = true;  // No test has run yet; text should be visible
+	_lastTestResult = true;
 
 	openMsg(addr, "displayMsg");
+
 	executeMsg();
 
 	// Restore outer message state
@@ -343,25 +345,31 @@ void VM::executeMsg() {
 				debugC(kDebugScripts, "Angel VM: JU target=%d from pos=%d -> pos=%d", target, _state->_msgPos, _state->_msgPos + target - 1);
 				jump(target - 1);
 				_state->_tfIndicator = true;
+				_lastTestResult = true;
 			}
 			break;
 
 		case kJF:
 			// Jump if FALSE: next 2 nips = forward offset.
 			// Same encoding convention as kJU — subtract 1 from target.
-			// When jumping (tf=FALSE), CXG 18,16 resets tf=TRUE so that
-			// text in the ELSE block is visible after a failed comparison.
+			//
+			// P-code uses the UCSD boolean stack (test result), NOT seg[20].global[5]
+			// (text flag), for the branch decision.  We use _lastTestResult for this
+			// (set by all tests), keeping _tfIndicator solely as the text output gate.
+			//
+			// When jumping (test=FALSE), CXG 18,16 resets seg[20].global[5]=TRUE
+			// so that text in the ELSE block is visible after a failed test.
+			// Without this reset, a failed kEqOp (which sets tf=FALSE) would
+			// suppress all text after the JF, including the ELSE branch.
 			{
 				int target = getNumber();
-				debugC(kDebugScripts, "Angel VM: JF target=%d tf=%s from pos=%d -> pos=%d",
-				        target, _state->_tfIndicator ? "T" : "F",
+				debugC(kDebugScripts, "Angel VM: JF target=%d testResult=%s tf=%s from pos=%d -> pos=%d",
+				        target, _lastTestResult ? "T" : "F",
+				        _state->_tfIndicator ? "T" : "F",
 				        _state->_msgPos, _state->_msgPos + target - 1);
-				if (!_state->_tfIndicator) {
+				if (!_lastTestResult) {
 					jump(target - 1);
-					// P-code JF handler calls CXG 18,16 to perform the jump.
-					// Do NOT reset _tfIndicator here — the test result must
-					// persist so downstream JF checks work correctly (e.g.,
-					// kDEndOp dead-end detection in FCall 3499).
+					_state->_tfIndicator = true;
 				}
 			}
 			break;
@@ -526,6 +534,7 @@ void VM::executeMsg() {
 						result = (val1 == val2);
 					else
 						result = (val1 <= val2);
+					_lastTestResult = result;
 					_state->_tfIndicator = result;
 					debugC(kDebugScripts, "Angel VM: kFt comparison op=%d val1=%d val2=%d result=%s",
 					        opVal, val1, val2, result ? "T" : "F");
@@ -690,6 +699,7 @@ void VM::executeMsg() {
 					// NAT_F0 6. NAT_F0 9 resets the text flag (seg[20].global[5])
 					// to TRUE, enabling text output in the called message.
 					_state->_tfIndicator = true;
+					_lastTestResult = true;
 					openMsg(addr, "FCall");
 				} else {
 					warning("Angel VM: Call stack overflow");
@@ -1118,7 +1128,14 @@ void VM::executeTest(Operation op, int ref) {
 		break;
 	}
 
-	_state->_tfIndicator = result;
+	// All tests set _lastTestResult for JF branching (UCSD boolean stack).
+	_lastTestResult = result;
+
+	// kNewOp does NOT set the text flag (seg[20].global[5]) — P-code proc 76
+	// only stores the result to global[5] for kIsOp (case 130), not kNewOp (128).
+	// All other tests DO set the text flag.
+	if (op != kNewOp)
+		_state->_tfIndicator = result;
 }
 
 // ============================================================
@@ -3129,13 +3146,16 @@ int VM::lookupFieldValue(int entityRef) {
 			break;
 		}
 	} else if (entityRef < 16) {
-		// Type 'X' (person state) — g[3045 + adjusted * 2]
-		// In P-code, g[3045] = xReg[12].proc. 'X' refs access
-		// xReg[12+adjusted].proc, which is aliased to _cmdEntry[adjusted].
+		// Type 'X' — g[3045 + adjusted * 2], SIND 0 reads word 0
+		// g[3045] is the CmdEntry array base (separate from xReg at g[3020]).
+		// Each entry is 2 words: {flag (word 0), addr (word 1)}.
+		// Dispatch (SIND 1) reads word 1 = _cmdEntry[adj] (the message address).
+		// LookupFieldValue (SIND 0) reads word 0 = _cmdFlag[adj] (state/type flag).
+		// For ref=8 (adjusted=2): _cmdFlag[2] = 1 for movement commands.
 		int adjusted = entityRef - 6;
 		if (adjusted >= 0 && adjusted < GameState::kMaxCmdEntries) {
-			result = _state->_cmdEntry[adjusted];
-			debugC(kDebugScripts, "Angel VM: lookupFieldValue X cmdEntry[%d]=%d (ref=%d)",
+			result = _state->_cmdFlag[adjusted];
+			debugC(kDebugScripts, "Angel VM: lookupFieldValue X cmdFlag[%d]=%d (ref=%d)",
 			       adjusted, result, entityRef);
 		}
 	} else if (entityRef < 48) {
@@ -3221,11 +3241,11 @@ void VM::storeFieldValue(int entityRef, int value) {
 			break;
 		}
 	} else if (entityRef < 16) {
-		// Type 'X' — cmdEntry[entityRef-6]
+		// Type 'X' — cmdFlag[entityRef-6] (word 0 of CmdEntry records at g[3045])
 		int adjusted = entityRef - 6;
 		if (adjusted >= 0 && adjusted < GameState::kMaxCmdEntries) {
-			_state->_cmdEntry[adjusted] = value;
-			debugC(kDebugScripts, "Angel VM: storeFieldValue X cmdEntry[%d]=%d (ref=%d)",
+			_state->_cmdFlag[adjusted] = value;
+			debugC(kDebugScripts, "Angel VM: storeFieldValue X cmdFlag[%d]=%d (ref=%d)",
 			       adjusted, value, entityRef);
 		}
 	} else if (entityRef < 48) {
