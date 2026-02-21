@@ -703,23 +703,9 @@ void Angel::dispatchCommand(ThingToDo action) {
 		_state->_placeNamed = moveDest;
 	}
 
-	// Dispatch the MOVE event for ALL movement commands (including kNowhere).
-	// The MOVE script fires BEFORE changeLocation — it checks current location
-	// (kLocOp) vs target (kTargOp) to handle traps, special events, etc.
-	// The script itself decides whether to allow movement, block it, or kill
-	// the player (e.g., trapdoor when going south/east from location 7).
-	if (_state->_stillPlaying && (action == kAMove || action == kATrip)) {
-		int moveProc = _state->_clock.xReg[kXMove].proc;
-		if (moveProc > 0) {
-			debugC(1, kDebugScripts, "Angel: MOVE event proc=%d at loc=%d target=%d",
-			       moveProc, _state->_location, moveDest);
-			_vm->setSuppressText(false);
-			_vm->setRespondMode(true);
-			_vm->displayMsg(moveProc);
-			_vm->setRespondMode(false);
-			forceQ();
-		}
-	}
+	// NOTE: The MOVE event (xReg[kXMove]) is NOT dispatched directly here.
+	// It fires through processTimedEvents() when its countdown reaches 0.
+	// WELCOME sets xReg[4].x = 4, so the MOVE event first fires on Move 4.
 
 	// Dispatch CmdEntry[1] OR location default response for movement commands.
 	// RESPOND proc 1 at L_3430:
