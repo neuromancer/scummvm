@@ -537,11 +537,12 @@ void Angel::putStatus() {
 // Game loop
 // ============================================================
 
-void Angel::describeLocation() {
+void Angel::describeLocation(bool fromMovement, int /*sourceLocation*/) {
 	const Place &here = _state->map(_state->_location);
-	
-	debug("Angel describeLocation: loc=%d, here.n=%d, here.view=%d", 
-		_state->_location, here.n, (int)here.view);
+
+	debug("Angel describeLocation: loc=%d, here.n=%d, here.view=%d fromMove=%d unseen=%d",
+		_state->_location, here.n, (int)here.view, fromMovement ? 1 : 0,
+		here.unseen ? 1 : 0);
 
 	// Check darkness
 	if (here.view == kDark && _state->_lightSources.isEmpty()) {
@@ -554,11 +555,21 @@ void Angel::describeLocation() {
 	// for direction-specific responses (e.g., CmdEntry[1] = trapdoor at addr 277).
 	memset(_state->_cmdEntry, 0, sizeof(_state->_cmdEntry));
 
-	// Display the location description via VM.
-	// Messages handle their own paragraph breaks via kForceOp.
-	// We just forceQ after to end any remaining text on the line.
-	// Section separators (outLn) match original's CPG 28 pattern in proc 27:
-	// each display section is preceded by a blank-line separator (if needed).
+	// P-code RESPOND proc 10 displays Place.n for the location description.
+	// The message script itself contains kNewOp/kEqOp tests that produce
+	// different text variants for first visit vs. return visit and for
+	// movement vs. LOOK commands (gated by cmdFlag[2]).
+	//
+	// On return visit to a visited location, the message produces a condensed
+	// description (e.g., "The central chamber is a vast, shadowy space..."
+	// without first-visit-only elements).
+
+	// Set cmdFlag[2]=1 for movement commands. Location messages check this
+	// (via kEqOp) to select between full and condensed description variants.
+	if (fromMovement) {
+		_state->_cmdFlag[2] = 1;
+	}
+
 	if (here.n > 0) {
 		if (_needsSeparator)
 			outLn();
@@ -566,9 +577,16 @@ void Angel::describeLocation() {
 		forceQ();
 	}
 
-	// Mark location as seen BEFORE entity display (no longer "new" for testNew).
-	// Entity messages test location.unseen to control description vs response.
+	// Mark location as seen.
 	_data->_map[_state->_location].unseen = false;
+
+	listLocationEntities();
+
+	debugC(2, kDebugScripts, "Angel describeLocation: done");
+}
+
+void Angel::listLocationEntities() {
+	const Place &here = _state->map(_state->_location);
 
 	// Entity display: save and restore verb/entity context.
 	// Original kRoleOp (proc 97) runs within a clean description context.
@@ -581,11 +599,11 @@ void Angel::describeLocation() {
 
 	// List visible objects at this location.
 	// Original P-code (proc 97) sets doItToWhat before dispatching each object.
-	debugC(2, kDebugScripts, "Angel describeLocation: checking %d objects at loc %d", _data->_nbrObjects, _state->_location);
+	debugC(2, kDebugScripts, "Angel listLocationEntities: checking %d objects at loc %d", _data->_nbrObjects, _state->_location);
 	const ObjSet &objs = here.objects;
 	for (int obj = 1; obj <= _data->_nbrObjects; obj++) {
 		if (objs.has(obj)) {
-			debugC(2, kDebugScripts, "Angel describeLocation: obj %d at loc, unseen=%d n=%d", obj, _data->_props[obj].unseen ? 1 : 0, _data->_props[obj].n);
+			debugC(2, kDebugScripts, "Angel listLocationEntities: obj %d at loc, unseen=%d n=%d", obj, _data->_props[obj].unseen ? 1 : 0, _data->_props[obj].n);
 			if (_data->_props[obj].n > 0) {
 				if (_needsSeparator)
 					outLn();
@@ -601,13 +619,12 @@ void Angel::describeLocation() {
 	// In the original game, person descriptions appear through timed
 	// events (xReg) or explicit player commands, not during room entry
 	// or the look command. The DOS reference confirms this behavior.
-	debugC(2, kDebugScripts, "Angel describeLocation: checking %d people at loc %d (display via events only)", _data->_castSize, _state->_location);
+	debugC(2, kDebugScripts, "Angel listLocationEntities: checking %d people at loc %d (display via events only)", _data->_castSize, _state->_location);
 
 	// Restore verb/entity context
 	_state->_verb = savedVerb;
 	_state->_cur.doItToWhat = savedDoItToWhat;
 	_state->_cur.personNamed = savedPersonNamed;
-	debugC(2, kDebugScripts, "Angel describeLocation: done");
 }
 
 void Angel::animateAll() {
@@ -687,12 +704,13 @@ void Angel::dispatchCommand(ThingToDo action) {
 	// These are set per-command and read by location scripts via lookupFieldValue 'X'.
 	memset(_state->_cmdFlag, 0, sizeof(_state->_cmdFlag));
 
-	// Set CmdEntry flag[2] for movement commands.
-	// Location scripts check ref=8 (cmdFlag[2]) == 1 to detect movement
-	// and dispatch direction-specific responses (kMovOp, return messages, etc.).
-	if (action == kAMove || action == kATrip) {
-		_state->_cmdFlag[2] = 1;
-	}
+	// NOTE: cmdFlag[2] is NOT explicitly set here for movement commands.
+	// In the P-code, cmdFlag is only populated by opSet instructions within
+	// location messages (during describeLocation). The message's kEqOp tests
+	// check cmdFlag[2]==1 to select description variants (e.g., "tunnel leads
+	// into the darkness" for movement vs "carved stone panel" for non-movement).
+	// Setting it here would persist into describeLocation at the destination,
+	// causing the wrong variant to show.
 
 	// Engine-level commands handled directly (not by the game script).
 	if (action == kGiveUp) {
@@ -790,7 +808,7 @@ void Angel::dispatchCommand(ThingToDo action) {
 
 			if (_state->_stillPlaying) {
 				outLn();
-				describeLocation();
+				describeLocation(true, locBefore);
 			}
 		}
 	}
@@ -819,6 +837,7 @@ void Angel::dispatchCommand(ThingToDo action) {
 		// We do NOT reset unseen — that would incorrectly show first-visit text.
 
 		int scriptAddr = 0;
+		bool isLocationDispatch = false;
 
 		// Entity-specific dispatch: when an entity was targeted,
 		// run its .n script for the response.
@@ -833,6 +852,7 @@ void Angel::dispatchCommand(ThingToDo action) {
 		} else {
 			// Default: dispatch current location's script.
 			scriptAddr = _data->_map[_state->_location].n;
+			isLocationDispatch = true;
 			debugC(1, kDebugScripts, "Angel: location dispatch loc=%d addr=%d",
 			       _state->_location, scriptAddr);
 		}
@@ -844,6 +864,16 @@ void Angel::dispatchCommand(ThingToDo action) {
 			_vm->setSuppressText(false);
 			_vm->displayMsg(scriptAddr);
 			forceQ();
+		}
+
+		// After location-level dispatch (e.g., LOOK), list visible entities.
+		// P-code proc 10 (describeLocation) runs after ALL command dispatches
+		// and includes entity listing via CLP1 9.  For LOOK, text flag is TRUE
+		// so entities are listed.  We approximate this by listing entities
+		// after any command that dispatches to the location script (no entity
+		// was targeted), which covers LOOK and similar commands.
+		if (isLocationDispatch && _state->_stillPlaying) {
+			listLocationEntities();
 		}
 	}
 }

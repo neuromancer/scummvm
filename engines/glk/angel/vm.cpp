@@ -1245,7 +1245,8 @@ void VM::executeFe(Operation op, int ref, bool fromFe) {
 
 	case kDscOp:
 		// Display a description message. Via kFe: reads getNumber() for address.
-		// Via kFer: uses ref as address (even if ref=0, do NOT read from stream).
+		// Via kFer: ref is an entity VALUE (location/object/person number),
+		// NOT a message address. Convert to description address via .n field.
 		// Uses descriptionOnly mode: stops at first EndSym section break,
 		// displaying only the description section (not command response scripts).
 		// Original P-code CPL 100 likewise only runs the description section.
@@ -1254,8 +1255,17 @@ void VM::executeFe(Operation op, int ref, bool fromFe) {
 			if (fromFe) {
 				// kFe path: read address from stream (CPI 3,5(0,1) = getNumber)
 				addr = getNumber();
+			} else {
+				// kFer path: ref is entity value. Look up message address
+				// from the entity's .n field based on entity type context.
+				if (_entityType == 2 && ref > 0 && ref <= _data->_nbrLocations)
+					addr = _data->_map[ref].n;
+				else if (_entityType == 0 && ref > 0 && ref <= _data->_nbrObjects)
+					addr = _data->_props[ref].n;
+				else if (_entityType == 1 && ref > 0 && ref <= _data->_castSize)
+					addr = _data->_cast[ref].n;
 			}
-			debugC(kDebugScripts, "Angel VM: Fe kDscOp addr=%d ref=%d", addr, ref);
+			debugC(kDebugScripts, "Angel VM: Fe kDscOp addr=%d ref=%d entityType=%d", addr, ref, _entityType);
 			if (addr > 0)
 				displayMsg(addr, true);
 		}
@@ -1453,10 +1463,27 @@ void VM::executeFe(Operation op, int ref, bool fromFe) {
 				}
 				if (!name.empty()) {
 					if (!_suppressText) {
-						if (useThe)
-							_engine->putWord("the ");
-						for (uint i = 0; i < name.size(); i++)
-							_engine->putChar(name[i]);
+						// Consume _capitalizeNext here so that Fe entity
+						// names get capitalized at message start. Without
+						// this, _capitalizeNext leaks past the entity name
+						// and capitalises the wrong character.
+						if (useThe) {
+							if (_capitalizeNext) {
+								_engine->putWord("The ");
+								_capitalizeNext = false;
+							} else {
+								_engine->putWord("the ");
+							}
+						}
+						for (uint i = 0; i < name.size(); i++) {
+							char ch = name[i];
+							if (i == 0 && !useThe && _capitalizeNext
+							    && ch >= 'a' && ch <= 'z') {
+								ch = ch - 'a' + 'A';
+								_capitalizeNext = false;
+							}
+							_engine->putChar(ch);
+						}
 					}
 					debugC(kDebugScripts, "Angel VM: Fe ref-value op %d → %s '%s%s'",
 					        (int)op, _suppressText ? "suppressed" : "displayed",
@@ -1731,6 +1758,7 @@ void VM::opRLoc(int ref) {
 		_state->_placeNamed = dest;
 	}
 	_state->_tfIndicator = valid;
+	_lastTestResult = valid;
 }
 
 void VM::opNxStop() {

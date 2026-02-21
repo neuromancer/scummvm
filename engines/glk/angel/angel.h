@@ -190,8 +190,15 @@ private:
 	/** Execute one turn of the game loop */
 	void doTurn();
 
-	/** Describe the current location */
-	void describeLocation();
+	/** Describe the current location.
+	 *  @param fromMovement  true when entering via movement (not LOOK).
+	 *         For visited locations during movement, suppresses the full
+	 *         description and shows "You've returned to [name]." instead. */
+	void describeLocation(bool fromMovement = false, int sourceLocation = 0);
+
+	/** List visible entities (objects) at the current location.
+	 *  Extracted from describeLocation for reuse after LOOK dispatch. */
+	void listLocationEntities();
 
 	/** Process NPC animation for all cast members */
 	void animateAll();
