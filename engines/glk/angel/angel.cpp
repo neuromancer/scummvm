@@ -634,21 +634,38 @@ void Angel::tickClock() {
 }
 
 void Angel::processTimedEvents() {
-	// Process xReg timed events: decrement active counters, fire when reaching 0.
-	// xReg[i].x > 0 → active countdown. Decrement each call.
-	// xReg[i].x == 0 → fires the event (displayMsg of proc), then stays at 0.
-	// xReg[i].x < 0 → suspended (via opSsp), skip.
-	for (int i = 0; i < 32; i++) {
+	// Two-pass approach to prevent cascading event fires.
+	// When an event fires, its message script may re-register events (opEvent+opSet).
+	// A single-pass loop would decrement those new registrations immediately,
+	// causing multiple events to fire on the same turn.
+	//
+	// The P-code timer loop (RESPOND proc 1) starts at index 2 (kXCurse),
+	// skipping xReg[0] (gas counter managed by scripts) and xReg[1] (WELCOME).
+	//
+	// Pass 1: Decrement all active counters, track which just expired.
+	// Pass 2: Fire only events that were just decremented to 0.
+	// Events registered during Pass 2 won't fire until a future turn.
+
+	// Pass 1: Decrement and record which expired (start at kXCurse=2)
+	uint32 justExpired = 0;
+	for (int i = kXCurse; i < 32; i++) {
 		if (_state->_clock.xReg[i].x > 0) {
 			_state->_clock.xReg[i].x--;
 			debugC(2, kDebugScripts, "Angel: xReg[%d] decremented to %d (proc=%d)",
 			       i, _state->_clock.xReg[i].x, _state->_clock.xReg[i].proc);
-			if (_state->_clock.xReg[i].x == 0 && _state->_clock.xReg[i].proc > 0) {
-				debugC(1, kDebugScripts, "Angel: FIRING xReg[%d] proc=%d (loc=%d)",
-				       i, _state->_clock.xReg[i].proc, _state->_location);
-				_vm->displayMsg(_state->_clock.xReg[i].proc);
-				forceQ();
-			}
+			if (_state->_clock.xReg[i].x == 0)
+				justExpired |= (1u << i);
+		}
+	}
+
+	// Pass 2: Fire only events that just expired and are still at 0
+	for (int i = kXCurse; i < 32; i++) {
+		if ((justExpired & (1u << i)) && _state->_clock.xReg[i].x == 0
+		    && _state->_clock.xReg[i].proc > 0) {
+			debugC(1, kDebugScripts, "Angel: FIRING xReg[%d] proc=%d (loc=%d)",
+			       i, _state->_clock.xReg[i].proc, _state->_location);
+			_vm->displayMsg(_state->_clock.xReg[i].proc);
+			forceQ();
 		}
 	}
 }
@@ -790,6 +807,12 @@ void Angel::dispatchCommand(ThingToDo action) {
 	//   2. If g[3090] (entity resolved) → dispatch CmdEntry[1]
 	//   3. Else → dispatch seg[21].global[4] (= msg 3, the default response)
 	if (_state->_stillPlaying && action != kAMove && action != kATrip) {
+		// "look" re-describes the current location: reset the unseen flag
+		// so testNew returns true and the full description displays.
+		if (_state->_codeSet.has(kVLook)) {
+			_state->map(_state->_location).unseen = true;
+		}
+
 		int scriptAddr = 0;
 
 		// Entity-specific dispatch: when an entity was targeted,
