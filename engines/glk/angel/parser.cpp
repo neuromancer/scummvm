@@ -610,6 +610,12 @@ ThingToDo Parser::classify() {
 			return action;
 	}
 
+	// Any verb not in _thisAction → treat as a generic action.
+	// Game-specific verbs (pull, push, climb, shoot, etc.) have
+	// code=kNotAVWord and are dispatched via entity/location scripts.
+	if (verbIdx >= 0 && verbCode != kVGo && verbCode != kVHello)
+		return kAnAction;
+
 	// Pure direction → movement
 	if (dirIdx >= 0 && verbIdx < 0)
 		return kAMove;

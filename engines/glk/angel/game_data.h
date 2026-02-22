@@ -102,6 +102,7 @@ private:
 	bool loadVocab(Common::SeekableReadStream *stream);
 	bool initMessageVM(Common::SeekableReadStream *stream);
 	void initCipherTables();
+	void loadResponseTable();
 };
 
 } // End of namespace Angel

@@ -422,6 +422,7 @@ struct IntTimeRecord {
 /** Location / place record */
 struct Place {
 	int n;                                  // Place description key
+	int responseAddr;                       // Response handler address (from response table)
 	int shortDscr;                          // Place name (VWordIndex)
 	int nextPlace[kNumDirections];          // Transition table (LocRef per direction)
 	bool traffic[kNumDirections];           // 50% conditional passage
@@ -439,7 +440,7 @@ struct Place {
 	bool itsLocked;
 	bool unseen;
 
-	Place() : n(0), shortDscr(0), accessLock(0), mustHave(0), fogPath(0),
+	Place() : n(0), responseAddr(0), shortDscr(0), accessLock(0), mustHave(0), fogPath(0),
 	          view(kDark), useThe(false), foggy(false), itsADoor(false),
 	          itsOpen(false), itsLocked(false), unseen(true) {
 		for (int i = 0; i < kNumDirections; i++) {

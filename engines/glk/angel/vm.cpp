@@ -338,14 +338,13 @@ void VM::executeMsg() {
 			// Unconditional jump: next 2 nips = forward offset.
 			// Jump targets are encoded relative to the last nip of getNumber
 			// (i.e. one position before _msgPos after getNumber), so subtract 1.
-			// P-code: CXG 18,16 performs the jump and resets tf=TRUE as a side
-			// effect, enabling text output in the destination code section.
+			// P-code L_3387: CLP2 5 (getNumber) then CXG 18,16 (jump).
+			// CXG 18,16 does NOT modify seg[20].global[5] (text flag).
+			// Text flag persists across jumps.
 			{
 				int target = getNumber();
 				debugC(kDebugScripts, "Angel VM: JU target=%d from pos=%d -> pos=%d", target, _state->_msgPos, _state->_msgPos + target - 1);
 				jump(target - 1);
-				_state->_tfIndicator = true;
-				_lastTestResult = true;
 			}
 			break;
 
@@ -353,14 +352,11 @@ void VM::executeMsg() {
 			// Jump if FALSE: next 2 nips = forward offset.
 			// Same encoding convention as kJU — subtract 1 from target.
 			//
-			// P-code uses the UCSD boolean stack (test result), NOT seg[20].global[5]
-			// (text flag), for the branch decision.  We use _lastTestResult for this
-			// (set by all tests), keeping _tfIndicator solely as the text output gate.
-			//
-			// When jumping (test=FALSE), CXG 18,16 resets seg[20].global[5]=TRUE
-			// so that text in the ELSE block is visible after a failed test.
-			// Without this reset, a failed kEqOp (which sets tf=FALSE) would
-			// suppress all text after the JF, including the ELSE branch.
+			// P-code JF (L_3390): loads seg[20].global[5] via LDE 20,5.
+			// If TRUE: reads 2 nips (CXG 18,12 x2) and discards (no jump).
+			// If FALSE: reads 2 nips (CLP2 5) and jumps (CXG 18,16).
+			// NEITHER path modifies seg[20].global[5]. Text flag persists,
+			// so text after JF is gated by the preceding test's result.
 			{
 				int target = getNumber();
 				debugC(kDebugScripts, "Angel VM: JF target=%d testResult=%s tf=%s from pos=%d -> pos=%d",
@@ -369,7 +365,6 @@ void VM::executeMsg() {
 				        _state->_msgPos, _state->_msgPos + target - 1);
 				if (!_lastTestResult) {
 					jump(target - 1);
-					_state->_tfIndicator = true;
 				}
 			}
 			break;
@@ -558,6 +553,8 @@ void VM::executeMsg() {
 					// Tests with no inline data
 					case kDEndOp: case kAskOp: case kCantOp:
 					case kTailOp: case kOnTourOp:
+					// Tests where handler reads its own nips (not preamble):
+					case kHereOp:  // proc 75: getNip(1) + getNumber(2) internally
 						break;
 					// Tests that read getNip (1 nip) via handler code
 					case kWearsOp: case kRandOp: case kCarryOp:
@@ -603,10 +600,17 @@ void VM::executeMsg() {
 				int opVal = opNip + kTestOpcodeBase;
 				debugC(kDebugScripts, "Angel VM: kFtr opNip=%d op=%d refNip=%d refOp=%d ref=%d entityFlag=%d entityValue=%d entityType=%d",
 				        opNip, opVal, refNip, refOp, ref, _entityFlag ? 1 : 0, _entityValue, _entityType);
-				if (opVal < kNumOperations)
+				if (opVal == kSynOp) {
+					// P-code proc 76 case 127: RPU 5 (immediate return, no test).
+					// testSyn is a no-op in kFtr context — no nips consumed, result=false.
+					_lastTestResult = false;
+					_state->_tfIndicator = false;
+					debugC(kDebugScripts, "Angel VM: kFtr testSyn no-op (proc 76 RPU 5)");
+				} else if (opVal < kNumOperations) {
 					executeTest((Operation)opVal, ref);
-				else
+				} else {
 					warning("Angel VM: Unknown test+ref opcode nip=%d op=%d", opNip, opVal);
+				}
 			}
 			break;
 
@@ -695,10 +699,12 @@ void VM::executeMsg() {
 					frame.suppressText = _suppressText;
 					frame.cseContentDepth = _cseContentDepth;
 					_cseContentDepth = 0;
-					// P-code FCall handler (L_33c2) calls NAT_F0 9 after
-					// NAT_F0 6. NAT_F0 9 resets the text flag (seg[20].global[5])
-					// to TRUE, enabling text output in the called message.
-					_state->_tfIndicator = true;
+					// P-code FCall handler (L_33c2): CLP2 6 reads 3-nip addr,
+					// CLP2 9 pushes call frame (CPG 7, sets global[1509]=3).
+					// NEITHER modifies seg[20].global[5] (the text flag).
+					// Text flag persists: FCall'd text is gated by the
+					// caller's test results (e.g., testSyn FALSE suppresses
+					// text in the called message).
 					_lastTestResult = true;
 					openMsg(addr, "FCall");
 				} else {
@@ -1458,8 +1464,12 @@ void VM::executeFe(Operation op, int ref, bool fromFe) {
 						useThe = _data->_fleet[_entityValue].useThe;
 					}
 					break;
+				case 6: // verb — use _state->_verb (vocab index) for name lookup
+					if (_state->_verb > 0 && _state->_verb < _data->_nbrVWords)
+						name = _engine->parser()->getWordName(_state->_verb);
+					break;
 				default:
-					break; // types 5-10 (verb, day, etc.): no display
+					break;
 				}
 				if (!name.empty()) {
 					if (!_suppressText) {
@@ -1989,11 +1999,17 @@ void VM::opSet(int ref) {
 		       attrNip, storeValue);
 	} else {
 		// xReg countdown (g[3020]) — proc 54 'T' case
+		// P-code proc 53 INN set check: only write to xReg entries with
+		// registered timers (proc != 0). Writes to unregistered entries
+		// are filtered by the INN set → proc 54 case 'A' adjusted=0 (no-op).
 		int reg = attrNip - 16;  // proc 53: nip - 16 for xReg index
-		if (reg >= 0 && reg < 32) {
+		if (reg >= 0 && reg < 32 && _state->_clock.xReg[reg].proc != 0) {
 			_state->_clock.xReg[reg].x = storeValue;
 			debugC(kDebugScripts, "Angel VM: opSet xReg[%d].x = %d (nip=%d)",
 			       reg, storeValue, attrNip);
+		} else if (reg >= 0 && reg < 32) {
+			debugC(kDebugScripts, "Angel VM: opSet xReg[%d] skipped (proc=0, not in INN set, nip=%d)",
+			       reg, attrNip);
 		} else {
 			debugC(kDebugScripts, "Angel VM: opSet xReg reg=%d out of range (nip=%d)",
 			       reg, attrNip);
@@ -2341,6 +2357,25 @@ bool VM::isLocal(int locRef) {
 	return false;
 }
 
+/**
+ * P-code entity table packing divisor for a given word type.
+ * Entity table word[3] = ref * divisor + code. The P-code testIs
+ * (proc 77) uses DIVI with the _entityType divisor to extract the ref.
+ * Returns 0 for types without a testIs XJP case.
+ */
+static int entityTypeDivisor(int vType) {
+	switch (vType) {
+	case kAnObject:  return 80;
+	case kAPerson:   return 64;
+	case kALocation:
+	case kABuilding: return 96;
+	case kAVehicle:  return 60;
+	case kAVerb:     return 80;
+	case kAnOther:   return 64;
+	default:         return 0;
+	}
+}
+
 int VM::entityToVocabIdx(int entityNum) const {
 	// Entity table indices include library words (1..kLibraryWordCount)
 	// followed by game vocab entries (kLibraryWordCount+1..N).
@@ -2351,29 +2386,35 @@ int VM::entityToVocabIdx(int entityNum) const {
 }
 
 bool VM::testHere(int ref) {
-	// P-code proc 75: CPI 4,3 reads 1 nip (entity index) at prologue.
-	// Consumed for stream alignment; C++ resolves entities differently (§14.9.1).
-	int entityIdx = getNip();
-	(void)entityIdx;
-	debugC(kDebugScripts, "Angel VM: testHere ref=%d loc=%d entityType=%d entityValue=%d entityIdx=%d",
-	        ref, _state->_location, _entityType, _entityValue, entityIdx);
-
 	Place &loc = _state->map(_state->_location);
 	int vType, entityRef;
 
 	if (_entityType >= 0) {
-		// kFtr path: entity already resolved via resolveEntity.
+		// kFtr path (proc 78): reads 1 getNip, uses _entityType/_entityValue.
+		int entityIdx = getNip();
+		(void)entityIdx;
 		vType = _entityType;
 		entityRef = _entityValue;
+		debugC(kDebugScripts, "Angel VM: testHere(kFtr) ref=%d loc=%d entityType=%d entityValue=%d entityIdx=%d",
+		        ref, _state->_location, _entityType, _entityValue, entityIdx);
 	} else {
-		// kFt path: ref is an entity table index. Convert to vocab.
-		int vocabIdx = entityToVocabIdx(ref);
+		// kFt path (proc 75): reads getNip(1) + getNumber(2) = 3 nips.
+		// CPI 4,3 = getNip (entity nip, consumed for alignment).
+		// CPI 4,5 with flag=1 = getNumber (12-bit entity table index).
+		// Entity type from entity_table[idx].word2 / 56, value from word3 / 80.
+		// We approximate via entityToVocabIdx -> vocab lookup.
+		int entityNip = getNip();
+		(void)entityNip;
+		int entityTableIdx = getNumber();
+		int vocabIdx = entityToVocabIdx(entityTableIdx);
 		if (vocabIdx < 0) {
-			debugC(kDebugScripts, "Angel VM: testHere entityIdx=%d vocabIdx out of range -> FALSE", ref);
+			debugC(kDebugScripts, "Angel VM: testHere(kFt) entityTableIdx=%d vocabIdx out of range -> FALSE", entityTableIdx);
 			return false;
 		}
 		vType = _data->_vocab[vocabIdx].ve.vType;
 		entityRef = _data->_vocab[vocabIdx].ve.ref;
+		debugC(kDebugScripts, "Angel VM: testHere(kFt) entityTableIdx=%d vocabIdx=%d vType=%d entityRef=%d loc=%d",
+		        entityTableIdx, vocabIdx, vType, entityRef, _state->_location);
 	}
 
 	debugC(kDebugScripts, "Angel VM: testHere vType=%d entityRef=%d loc=%d",
@@ -2630,61 +2671,41 @@ bool VM::testWord(int ref) {
 }
 
 bool VM::testSyn(int ref) {
-	// P-code proc 78: CPI 4,3 reads 1 nip (entity index) at prologue.
-	// Consumed for stream alignment; C++ resolves entities differently (§14.9.1).
-	int entityIdx = getNip();
-	(void)entityIdx;
-	debugC(kDebugScripts, "Angel VM: testSyn ref=%d entityType=%d entityValue=%d verb=%d direction=%d entityIdx=%d",
-	       ref, _entityType, _entityValue, _state->_verb, _state->_direction, entityIdx);
+	// kFt path (proc 72 case 127, inline L_192b): reads 0 extra nips.
+	// ref = entity table index from kFt preamble getNumber.
+	// kFtr path: should NOT reach here (proc 76 case 127 = RPU 5, no-op).
+	debugC(kDebugScripts, "Angel VM: testSyn ref=%d entityType=%d entityValue=%d verb=%d direction=%d",
+	       ref, _entityType, _entityValue, _state->_verb, _state->_direction);
 
-	if (_entityType < 0) {
-		// kFt path: no fresh entity context. Convert entity table index to vocab.
-		int vocabIdx = entityToVocabIdx(ref);
-		if (vocabIdx >= 0) {
-			int verbVocabIdx = entityToVocabIdx(_state->_verb);
-			debugC(kDebugScripts, "Angel VM: testSyn fallback: entityIdx=%d vocab[%d].vType=%d .ref=%d direction=%d verb=%d verbVocabIdx=%d",
-			       ref, vocabIdx, _data->_vocab[vocabIdx].ve.vType, _data->_vocab[vocabIdx].ve.ref,
-			       _state->_direction, _state->_verb, verbVocabIdx);
-			// Direction words: check if ref word's direction matches player direction
-			if (_data->_vocab[vocabIdx].ve.vType == kADirection)
-				return _data->_vocab[vocabIdx].ve.ref == _state->_direction;
-			// Verb words: check if ref is in same synonym group as current verb
-			if (verbVocabIdx >= 0)
-				return (_data->_vocab[vocabIdx].ve.ref == _data->_vocab[verbVocabIdx].ve.ref);
-		}
+	if (_entityType >= 0) {
+		// kFtr path: shouldn't reach here — kFtr handler skips kSynOp.
+		// If we do get called, consume 1 getNip for alignment (proc 78 prologue)
+		// and return false as a safe default.
+		int entityIdx = getNip();
+		(void)entityIdx;
+		warning("Angel VM: testSyn reached from kFtr context (entityType=%d)", _entityType);
 		return false;
 	}
 
-	// kFtr path: entity context is fresh from resolveEntity.
-	// ref here comes from kFtr handler's getRefValue, which gives a direct ref.
-	// For kFtr, ref is NOT an entity table index but a resolved value.
-	switch (_entityType) {
-	case kAnObject: {  // 0 — object: synonym set membership (approximated)
-		if (ref > 0 && ref <= _data->_nbrVWords && _entityValue > 0 && _entityValue <= _data->_nbrObjects) {
-			int refVocabIdx = entityToVocabIdx(ref);
-			int objName = _data->_props[_entityValue].oName;
-			if (refVocabIdx >= 0 && objName >= 0 && objName < _data->_nbrVWords)
-				return (_data->_vocab[refVocabIdx].ve.ref == _data->_vocab[objName].ve.ref);
-		}
-		return false;
+	// kFt path: ref is entity table index. Convert to vocab.
+	int vocabIdx = entityToVocabIdx(ref);
+	if (vocabIdx >= 0) {
+		// _state->_verb is already a vocab index (set in parser.cpp from token).
+		int verbVocabIdx = _state->_verb;
+		if (verbVocabIdx < 0 || verbVocabIdx >= _data->_nbrVWords)
+			verbVocabIdx = -1;
+		debugC(kDebugScripts, "Angel VM: testSyn(kFt) entityIdx=%d vocab[%d].vType=%d .ref=%d direction=%d verb=%d verbVocabIdx=%d",
+		       ref, vocabIdx, _data->_vocab[vocabIdx].ve.vType, _data->_vocab[vocabIdx].ve.ref,
+		       _state->_direction, _state->_verb, verbVocabIdx);
+		// Direction words: check if ref word's direction matches player direction
+		if (_data->_vocab[vocabIdx].ve.vType == kADirection)
+			return _data->_vocab[vocabIdx].ve.ref == _state->_direction;
+		// Verb words: check if ref is in same synonym group as current verb
+		if (verbVocabIdx >= 0)
+			return (_data->_vocab[vocabIdx].ve.ref == _data->_vocab[verbVocabIdx].ve.ref &&
+			        _data->_vocab[vocabIdx].ve.vType == _data->_vocab[verbVocabIdx].ve.vType);
 	}
-	case kAPerson: {   // 1 — person: synonym set membership (approximated)
-		if (ref > 0 && ref <= _data->_nbrVWords && _entityValue > 0 && _entityValue <= _data->_castSize) {
-			int refVocabIdx = entityToVocabIdx(ref);
-			int persName = _data->_cast[_entityValue].pName;
-			if (refVocabIdx >= 0 && persName >= 0 && persName < _data->_nbrVWords)
-				return (_data->_vocab[refVocabIdx].ve.ref == _data->_vocab[persName].ve.ref);
-		}
-		return false;
-	}
-	case kALocation:   // 2 — location: adjacency check
-	case kABuilding:   // 4 — building: same as location
-		return isLocal(_entityValue);
-	case kAVehicle:    // 3 — vehicle: check via entity value
-		return (_state->_cab == _entityValue);
-	default:           // 5 (direction), 6 (verb): false per p-code
-		return false;
-	}
+	return false;
 }
 
 bool VM::testNew(int ref) {
@@ -2794,10 +2815,7 @@ bool VM::testIs(int ref) {
 			return result;
 		}
 
-		// Convert entity table index to vocab index.  The entity table
-		// stores ref * divisor + code for each word; DIVI extracts ref.
-		// Since code < divisor for all entries, we can just use vocab[].ref
-		// directly, bypassing the entity table entirely.
+		// Convert entity table index to vocab index.
 		int vocabIdx = entityToVocabIdx(entityNum);
 		if (vocabIdx < 0) {
 			debugC(kDebugScripts, "Angel VM: testIs(ref=%d) $ path entityNum=%d vocabIdx=%d out of range -> FALSE",
@@ -2805,11 +2823,27 @@ bool VM::testIs(int ref) {
 			return false;
 		}
 
-		int extractedRef = _data->_vocab[vocabIdx].ve.ref;
+		// P-code entity table packs word[3] = ref * divisor(entryType) + code.
+		// testIs extracts with divisor(_entityType). When entryType != _entityType,
+		// cross-type extraction gives a different value, preventing false
+		// matches (e.g., verb ref=6 won't match location ref=6).
+		int vocabRef = _data->_vocab[vocabIdx].ve.ref;
+		int vocabCode = (int)_data->_vocab[vocabIdx].ve.code;
+		int vocabVType = _data->_vocab[vocabIdx].ve.vType;
+		int packDiv = entityTypeDivisor(vocabVType);
+		int extractDiv = entityTypeDivisor(_entityType);
+		int extractedRef;
+		if (packDiv > 0 && extractDiv > 0) {
+			int packed = vocabRef * packDiv + vocabCode;
+			extractedRef = packed / extractDiv;
+		} else {
+			extractedRef = vocabRef;
+		}
+
 		bool result = (_entityValue == extractedRef);
 		debugC(kDebugScripts, "Angel VM: testIs(ref=%d) $ path entityValue=%d extractedRef=%d (entityNum=%d vocIdx=%d vType=%d entityType=%d) -> %s",
 		        ref, _entityValue, extractedRef, entityNum, vocabIdx,
-		        _data->_vocab[vocabIdx].ve.vType, _entityType,
+		        vocabVType, _entityType,
 		        result ? "TRUE" : "FALSE");
 
 		// For locations (case 2), P-code also checks adjacency if direct
@@ -3192,11 +3226,17 @@ int VM::lookupFieldValue(int entityRef) {
 		//   g[3020 + i*2 + 0] = xReg[i].x (countdown)
 		//   g[3020 + i*2 + 1] = xReg[i].proc (procedure address)
 		// The 'T' entity refs read/write the .x (countdown) field.
+		// P-code proc 53 checks an INN set (480-bit bitmap) before lookup.
+		// Refs not in the set return type='A', adjusted=0 → value=0.
+		// xReg entries with proc=0 (no registered timer) are not in the INN set.
 		int adjusted = entityRef - 16;
-		if (adjusted >= 0 && adjusted < 32) {
+		if (adjusted >= 0 && adjusted < 32 && _state->_clock.xReg[adjusted].proc != 0) {
 			result = _state->_clock.xReg[adjusted].x;
 			debugC(kDebugScripts, "Angel VM: lookupFieldValue T xReg[%d].x=%d (ref=%d)",
 			       adjusted, result, entityRef);
+		} else {
+			debugC(kDebugScripts, "Angel VM: lookupFieldValue T ref=%d not in INN set (xReg[%d].proc=0), returning 0",
+			       entityRef, entityRef - 16);
 		}
 	} else {
 		// Large refs: P-code data segment addresses for entity fields.
@@ -3278,11 +3318,17 @@ void VM::storeFieldValue(int entityRef, int value) {
 		}
 	} else if (entityRef < 48) {
 		// Type 'T' — xReg[entityRef-16].x
+		// P-code proc 53 INN set check: only write to xReg entries with
+		// registered timers (proc != 0). Unregistered entries are not in
+		// the INN set, so proc 54 case 'A' adjusted=0 does nothing.
 		int adjusted = entityRef - 16;
-		if (adjusted >= 0 && adjusted < 32) {
+		if (adjusted >= 0 && adjusted < 32 && _state->_clock.xReg[adjusted].proc != 0) {
 			_state->_clock.xReg[adjusted].x = value;
 			debugC(kDebugScripts, "Angel VM: storeFieldValue T xReg[%d].x=%d (ref=%d)",
 			       adjusted, value, entityRef);
+		} else {
+			debugC(kDebugScripts, "Angel VM: storeFieldValue T ref=%d not in INN set (proc=0), skipping",
+			       entityRef);
 		}
 	} else {
 		// Large refs: P-code data segment addresses for entity fields.

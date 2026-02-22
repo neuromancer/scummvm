@@ -850,17 +850,35 @@ void Angel::dispatchCommand(ThingToDo action) {
 			debugC(1, kDebugScripts, "Angel: person dispatch person=%d addr=%d",
 			       _state->_cur.personNamed, scriptAddr);
 		} else {
-			// Default: dispatch current location's script.
-			scriptAddr = _data->_map[_state->_location].n;
+			// Default: dispatch current location's handler.
+			// LOOK (bare, no entity): dispatch description message (Place.n).
+			// Other commands: dispatch response handler (responseAddr),
+			// falling back to Place.n for locations without a response entry.
+			if (_state->_verb > 0 && _state->_verb <= _data->_nbrVWords &&
+			    _data->_vocab[_state->_verb].ve.code == kVLook) {
+				scriptAddr = _data->_map[_state->_location].n;
+			} else {
+				scriptAddr = _data->_map[_state->_location].responseAddr;
+				if (scriptAddr <= 0)
+					scriptAddr = _data->_map[_state->_location].n;
+			}
 			isLocationDispatch = true;
-			debugC(1, kDebugScripts, "Angel: location dispatch loc=%d addr=%d",
-			       _state->_location, scriptAddr);
+			debugC(1, kDebugScripts, "Angel: location dispatch loc=%d addr=%d verb=%d (responseAddr=%d, place.n=%d)",
+			       _state->_location, scriptAddr, _state->_verb,
+			       _data->_map[_state->_location].responseAddr,
+			       _data->_map[_state->_location].n);
 		}
 
 		if (scriptAddr > 0) {
 			debugC(1, kDebugScripts, "Angel: dispatch response addr=%d (action=%d, loc=%d, verb=%d)",
 			       scriptAddr, (int)action, _state->_location, _state->_verb);
 
+			// Reset entity context before dispatch.  The P-code resets via
+			// RESPOND proc 19 (entity resolution) which sets _entityType
+			// based on the parsed command.  Without this reset, stale
+			// entityType=2 (location) from the description handler causes
+			// testSyn to always return isLocal()=true, bypassing verb matching.
+			_vm->resetEntityContext();
 			_vm->setSuppressText(false);
 			_vm->displayMsg(scriptAddr);
 			forceQ();
@@ -1106,7 +1124,7 @@ void Angel::runGame() {
 
 	// Enable text output for room description display.
 	_vm->setSuppressText(false);
-	describeLocation();
+	describeLocation(true);  // Treat startup as arrival (movement)
 
 	// Timer events (e.g., xReg[22] countdown=1) set during WELCOME will
 	// fire naturally during the first doTurn() via processTimedEvents().

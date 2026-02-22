@@ -143,6 +143,10 @@ bool GameData::load(Common::SeekableReadStream *tablesFile,
 		return false;
 	}
 
+	// Load the response address table from the message file.
+	// Must be called after both loadTables() and initMessageVM().
+	loadResponseTable();
+
 	return true;
 }
 
@@ -417,13 +421,6 @@ bool GameData::loadTables(Common::SeekableReadStream *stream) {
 				place.useThe = true;   // All 68 locations use NoCaps display → "the [name]"
 				place.view = kSunlit;  // Default to sunlit; exact parsing TBD
 
-				if (locIdx == 7) {
-					// Dump raw bytes for location 7 to verify nextPlace parsing
-					debugC(2, kDebugScripts, "Angel: Map[7] raw bytes: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x",
-					       buf[off], buf[off+1], buf[off+2], buf[off+3],
-					       buf[off+4], buf[off+5], buf[off+6], buf[off+7],
-					       buf[off+8], buf[off+9], buf[off+10], buf[off+11]);
-				}
 				debugC(2, kDebugScripts, "Angel: Map[%d]: n=%d shortDscr=%d exits=[N=%d,S=%d,E=%d,W=%d,U=%d,D=%d]",
 				       locIdx, place.n, place.shortDscr,
 				       place.nextPlace[0], place.nextPlace[1],
@@ -602,8 +599,8 @@ bool GameData::loadVocab(Common::SeekableReadStream *stream) {
 			break;
 		}
 
-		debugC(2, kDebugScripts, "Angel: vocab[%d] = '%s' type=%d code=%d ref=%d",
-		       i, decoded.c_str(), ve.ve.vType, ve.ve.code, ve.ve.ref);
+		debugC(2, kDebugScripts, "Angel: vocab[%d] = '%s' type=%d code=%d ref=%d raw0=%d raw1=%d",
+		       i, decoded.c_str(), ve.ve.vType, ve.ve.code, ve.ve.ref, ve.ve.raw0, ve.ve.raw1);
 
 	}
 
@@ -665,6 +662,111 @@ Chunk GameData::readChunk(int recordIndex) {
 	Chunk chunk;
 	memcpy(chunk.data, page.data + chunkOffset, kChunkWidth);
 	return chunk;
+}
+
+void GameData::loadResponseTable() {
+	// The response address table maps location indices to response handler
+	// message addresses. In the original P-code, this is populated during
+	// INITIALI by reading 64 entries (3 nips each, 18-bit addresses) from
+	// a message in the MESSAGE file.
+	//
+	// Auto-detect the table by scanning for a message with length=192
+	// (64 entries * 3 nips) whose entries are all valid chunk addresses.
+
+	if (!_messageFile)
+		return;
+
+	int fileSize = _messageFile->size();
+	int maxPages = (fileSize + kPageSize - 1) / kPageSize;
+	int maxAddr = maxPages * (kVMBFactor + 1);
+
+	int tableAddr = -1;
+
+	// Scan from the end of the file backwards (the table is typically near the end)
+	for (int addr = maxAddr - 1; addr >= 0 && tableAddr < 0; addr--) {
+		Chunk hdrChunk = readChunk(addr);
+		int h0 = hdrChunk.getNip(0);
+		int h1 = hdrChunk.getNip(1);
+		int length = (h0 << 6) | h1;
+
+		if (length != 192)
+			continue;
+
+		// Check that all 64 entries decode to valid addresses (< maxAddr)
+		bool allValid = true;
+		for (int i = 0; i < 64 && allValid; i++) {
+			int nipPos = 2 + i * 3;
+			int chunkIdx = addr + nipPos / kChunkSize;
+			int cursorIdx = nipPos % kChunkSize;
+			Chunk c = readChunk(chunkIdx);
+			int n1 = c.getNip(cursorIdx);
+
+			nipPos++;
+			chunkIdx = addr + nipPos / kChunkSize;
+			cursorIdx = nipPos % kChunkSize;
+			c = readChunk(chunkIdx);
+			int n2 = c.getNip(cursorIdx);
+
+			nipPos++;
+			chunkIdx = addr + nipPos / kChunkSize;
+			cursorIdx = nipPos % kChunkSize;
+			c = readChunk(chunkIdx);
+			int n3 = c.getNip(cursorIdx);
+
+			int val = (n1 << 12) | (n2 << 6) | n3;
+			if (val > 0 && val >= maxAddr)
+				allValid = false;
+		}
+
+		if (allValid)
+			tableAddr = addr;
+	}
+
+	if (tableAddr < 0) {
+		debugC(1, kDebugScripts, "Angel: Response table not found in message file");
+		return;
+	}
+
+	debugC(1, kDebugScripts, "Angel: Response table found at message address %d", tableAddr);
+
+	// Read 64 raw entries into a temporary array (g[229+0..63] in P-code).
+	int entries[64];
+	memset(entries, 0, sizeof(entries));
+	for (int i = 0; i < 64; i++) {
+		int nipPos = 2 + i * 3;
+		int chunkIdx = tableAddr + nipPos / kChunkSize;
+		int cursorIdx = nipPos % kChunkSize;
+		Chunk c = readChunk(chunkIdx);
+		int n1 = c.getNip(cursorIdx);
+
+		nipPos++;
+		chunkIdx = tableAddr + nipPos / kChunkSize;
+		cursorIdx = nipPos % kChunkSize;
+		c = readChunk(chunkIdx);
+		int n2 = c.getNip(cursorIdx);
+
+		nipPos++;
+		chunkIdx = tableAddr + nipPos / kChunkSize;
+		cursorIdx = nipPos % kChunkSize;
+		c = readChunk(chunkIdx);
+		int n3 = c.getNip(cursorIdx);
+
+		entries[i] = (n1 << 12) | (n2 << 6) | n3;
+		if (entries[i] > 0) {
+			debugC(2, kDebugScripts, "Angel: Response entry[%d] = %d", i, entries[i]);
+		}
+	}
+
+	// Map locations to response addresses.
+	// P-code formula: responseAddr = g[229 + g[326+entityIdx*4+3] / 80]
+	// Each location has its own response table entry: entries[loc] for loc 1-38.
+	// E.g. loc 7 (central chamber) uses entry[7]=3462 (FCall to generic handler).
+	for (int loc = 1; loc <= _nbrLocations && loc < 64; loc++) {
+		if (entries[loc] > 0) {
+			_map[loc].responseAddr = entries[loc];
+			debugC(2, kDebugScripts, "Angel: Location %d responseAddr = %d", loc, entries[loc]);
+		}
+	}
 }
 
 } // End of namespace Angel

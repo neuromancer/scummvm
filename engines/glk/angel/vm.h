@@ -79,6 +79,7 @@ public:
 	void setSuppressText(bool suppress) { _suppressText = suppress; _baseSuppressText = suppress; }
 	void setBaseSuppressText(bool suppress) { _baseSuppressText = suppress; }
 	void setRespondMode(bool respond) { _respondMode = respond; }
+	void resetEntityContext() { _entityType = -1; _entityValue = 0; _entityFlag = false; }
 
 	/** Get the next decoded character from the message stream */
 	char getAChar();
