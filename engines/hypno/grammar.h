@@ -41,6 +41,10 @@ class HypnoSmackerDecoder : public Video::SmackerDecoder {
 public:
 	bool loadStream(Common::SeekableReadStream *stream) override;
 
+	// forceSeekToFrame() calls stopAudio() which destroys mixer handles.
+	// This public wrapper lets callers restart audio after seeking.
+	void restartAudio() { startAudio(); }
+
 protected:
 	uint32 getSignatureVersion(uint32 signature) const override;
 };

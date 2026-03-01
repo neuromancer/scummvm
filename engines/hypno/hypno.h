@@ -266,8 +266,8 @@ public:
 	void drawScreen();
 
 	// intros
-	void runIntro(MVideo &video);
-	void runIntros(Videos &videos);
+	virtual void runIntro(MVideo &video);
+	virtual void runIntros(Videos &videos);
 	Common::HashMap<Filename, bool> _intros;
 
 	// levels

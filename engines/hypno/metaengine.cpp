@@ -25,6 +25,7 @@
 
 #include "hypno/hypno.h"
 #include "hypno/detection.h"
+#include "hypno/teacher/teacher.h"
 
 #include "backends/keymapper/action.h"
 #include "backends/keymapper/keymapper.h"
@@ -110,6 +111,8 @@ Common::Error HypnoMetaEngine::createInstance(OSystem *syst, Engine **engine, co
 		*engine = (Engine *)new Hypno::SpiderEngine(syst, desc);
 	} else if (Common::String(desc->gameId) == "soldierboyz") {
 		*engine = (Engine *)new Hypno::BoyzEngine(syst, desc);
+	} else if (Common::String(desc->gameId) == "teacher") {
+		*engine = (Engine *)new Hypno::TeacherEngine(syst, desc);
 	} else
 		return Common::kUnsupportedGameidError;
 

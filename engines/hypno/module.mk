@@ -20,6 +20,44 @@ MODULE_OBJS := \
 	spider/hard.o \
 	spider/spider.o \
 	spider/talk.o \
+	teacher/teacher.o \
+	teacher/Animation.o \
+	teacher/Character.o \
+	teacher/FlagArray.o \
+	teacher/GameState.o \
+	teacher/Handler.o \
+	teacher/demo/Handler1.o \
+	teacher/demo/Handler2.o \
+	teacher/demo/Handler4.o \
+	teacher/demo/Handler6.o \
+	teacher/demo/Handler8.o \
+	teacher/demo/Handler12.o \
+	teacher/demo/Handler13.o \
+	teacher/demo/Handler14.o \
+	teacher/demo/Handler15.o \
+	teacher/demo/Handler16.o \
+	teacher/demo/SCI_AfterSchoolMenu.o \
+	teacher/demo/SCI_SearchScreen.o \
+	teacher/demo/SCI_Dialog.o \
+	teacher/CombatEngine.o \
+	teacher/CombatSprite.o \
+	teacher/SC_Combat1.o \
+	teacher/Target.o \
+	teacher/Weapon.o \
+	teacher/Hotspot.o \
+	teacher/IconBar.o \
+	teacher/Message.o \
+	teacher/MouseControl.o \
+	teacher/OptionMenu.o \
+	teacher/Palette.o \
+	teacher/Parser.o \
+	teacher/Sample.o \
+	teacher/SC_Question.o \
+	teacher/SC_Timer.o \
+	teacher/Sprite.o \
+	teacher/TeacherFont.o \
+	teacher/StringTable.o \
+	teacher/TimedEvent.o \
 	video.o \
 	wet/arcade.o \
 	wet/cursors.o \

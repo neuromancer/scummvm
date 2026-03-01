@@ -495,10 +495,17 @@ void HypnoEngine::loadPalette(const Common::String &fname) {
 	if (!file.open(path))
 		error("unable to find palette file %s", path.toString().c_str());
 
-	debugC(1, kHypnoDebugMedia, "Loading palette from %s", path.toString().c_str());
-	byte *videoPalette = (byte *)malloc(file.size());
-	file.read(videoPalette, file.size());
-	g_system->getPaletteManager()->setPalette(videoPalette + 8, 0, 256);
+	debugC(1, kHypnoDebugMedia, "Loading palette from %s (size=%d)", path.toString().c_str(), (int)file.size());
+	uint32 size = file.size();
+	byte *videoPalette = (byte *)malloc(size);
+	file.read(videoPalette, size);
+
+	if (size == 768)
+		g_system->getPaletteManager()->setPalette(videoPalette, 0, 256);
+	else
+		g_system->getPaletteManager()->setPalette(videoPalette + 8, 0, 256);
+
+	free(videoPalette);
 }
 
 void HypnoEngine::loadPalette(const byte *palette, uint32 offset, uint32 size) {
