@@ -188,11 +188,7 @@ void Angel::runStartupSequence() {
 void Angel::restartSession() {
 	debugC(1, kDebugScripts, "Angel: restarting scripted session");
 	_state->reset();
-	_state->_respondQuit = false;
-	_state->_stillPlaying = true;
-	_vm->resetEntityContext();
-	_vm->setRespondMode(false);
-	_vm->setSuppressText(false);
+	_vm->resetRuntimeState();
 	runStartupSequence();
 }
 

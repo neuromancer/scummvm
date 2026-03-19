@@ -42,6 +42,33 @@ VM::VM(Angel *engine, GameData *data, GameState *state)
 	memset(_callStack, 0, sizeof(_callStack));
 }
 
+void VM::resetRuntimeState() {
+	// A scripted restart in GAME.000 re-enters the startup path with a fresh
+	// interpreter stack and clean transient state. Reusing stale call/CSE/entity
+	// context between sessions corrupts nested WELCOME/ENTRY execution.
+	_callDepth = 0;
+	memset(_callStack, 0, sizeof(_callStack));
+	_capitalizeNext = false;
+	_lastRawNip = 0;
+	_suppressText = false;
+	_baseSuppressText = false;
+	_descriptionOnly = false;
+	_respondMode = false;
+	_cseContentDepth = 0;
+	_lastTestResult = true;
+	_compFieldAddr = 0;
+	_entityFlag = false;
+	_entityValue = 0;
+	_entityOp = 0;
+	_entityType = -1;
+	_entityContextFresh = false;
+	_lastFieldRef = 0;
+	_describedEntityActive = false;
+	_describedEntityOp = kNoOp;
+	_describedEntityType = -1;
+	_describedEntityValue = 0;
+}
+
 void VM::openMsg(int addr, const char *caller) {
 	if (addr <= 0) {
 		_state->_eom = true;
@@ -159,8 +186,22 @@ void VM::displayMsg(int addr, bool descriptionOnly) {
 	bool savedRespondMode = _respondMode;
 	bool savedSuppressText = _suppressText;
 	bool savedBaseSuppressText = _baseSuppressText;
+	bool savedCapitalizeNext = _capitalizeNext;
+	int savedLastRawNip = _lastRawNip;
+	int savedCseContentDepth = _cseContentDepth;
 	bool savedTfIndicator = _state->_tfIndicator;
 	bool savedLastTestResult = _lastTestResult;
+	int savedCompFieldAddr = _compFieldAddr;
+	bool savedEntityFlag = _entityFlag;
+	int savedEntityValue = _entityValue;
+	int savedEntityOp = _entityOp;
+	int savedEntityType = _entityType;
+	bool savedEntityContextFresh = _entityContextFresh;
+	int savedLastFieldRef = _lastFieldRef;
+	bool savedDescribedActive = _describedEntityActive;
+	Operation savedDescribedOp = _describedEntityOp;
+	int savedDescribedType = _describedEntityType;
+	int savedDescribedValue = _describedEntityValue;
 	Chunk savedRecord = _state->_vmCurRecord;
 	CallFrame savedCallStack[kMaxCallDepth];
 	if (savedCallDepth > 0)
@@ -168,6 +209,7 @@ void VM::displayMsg(int addr, bool descriptionOnly) {
 
 	_callDepth = 0;
 	_descriptionOnly = descriptionOnly;
+	_cseContentDepth = 0;
 	_state->_tfIndicator = true;  // No test has run yet; text should be visible
 	_lastTestResult = true;
 
@@ -186,8 +228,22 @@ void VM::displayMsg(int addr, bool descriptionOnly) {
 	_respondMode = savedRespondMode;
 	_suppressText = savedSuppressText;
 	_baseSuppressText = savedBaseSuppressText;
+	_capitalizeNext = savedCapitalizeNext;
+	_lastRawNip = savedLastRawNip;
+	_cseContentDepth = savedCseContentDepth;
 	_state->_tfIndicator = savedTfIndicator;
 	_lastTestResult = savedLastTestResult;
+	_compFieldAddr = savedCompFieldAddr;
+	_entityFlag = savedEntityFlag;
+	_entityValue = savedEntityValue;
+	_entityOp = savedEntityOp;
+	_entityType = savedEntityType;
+	_entityContextFresh = savedEntityContextFresh;
+	_lastFieldRef = savedLastFieldRef;
+	_describedEntityActive = savedDescribedActive;
+	_describedEntityOp = savedDescribedOp;
+	_describedEntityType = savedDescribedType;
+	_describedEntityValue = savedDescribedValue;
 	_state->_vmCurRecord = savedRecord;
 	if (savedCallDepth > 0)
 		memcpy(_callStack, savedCallStack, savedCallDepth * sizeof(CallFrame));

@@ -59,6 +59,71 @@ GameState::GameState() : _data(nullptr), _location(kNowhere), _direction(kNorth)
 void GameState::initFromData(GameData *data) {
 	_data = data;
 
+	// Reset transient parser/dispatch/message state. GAME.000 restarts by
+	// re-entering startup with fresh globals; leaving these scratch registers,
+	// command slots, or parser sets live across restart contaminates WELCOME
+	// and the first turn after death.
+	_friends.clear();
+	_carDoors.clear();
+	_trail.clear();
+	_vTrail.clear();
+	_vocabWord.clear();
+	_vwDisplay = kNoCaps;
+	_asgV = 0;
+	_putOnVerb = 0;
+	_putInVerb = 0;
+	_tkOutVerb = 0;
+	_tkOffVerb = 0;
+	_takeVerb = 0;
+	_found = false;
+	_partial = false;
+	_placeWords.clear();
+	_vclWords.clear();
+	_objWords.clear();
+	_personWords.clear();
+	_pfxWords.clear();
+	memset(_dayWords, 0, sizeof(_dayWords));
+	_otherPerson = 0;
+	_placeNamed = 0;
+	_target = 0;
+	_thing = 0;
+	_cab = 0;
+	_lastMove = 0;
+	_seed = 0.0;
+	_codeSet.clear();
+	_keyWords.clear();
+	_whatNext = kNothing;
+	_verb = 0;
+	_newArrival = 0;
+	memset(_cmdEntry, 0, sizeof(_cmdEntry));
+	memset(_cmdFlag, 0, sizeof(_cmdFlag));
+	_active.clear();
+	_thingBase = 0;
+	_actualPerson = 0;
+	_heCursed = false;
+	_procAddr = 0;
+	_inObj.clear();
+	_inPerson.clear();
+	_inLoc.clear();
+	_inVcl.clear();
+	_inVerb.clear();
+	_inOther.clear();
+	_inDay.clear();
+	_eom = false;
+	_eoCom = false;
+	_aQuestion = false;
+	_msgCursor = 0;
+	_msgPos = 0;
+	_msgBase = 0;
+	_msgLength = 0;
+	_msgLoc = 0;
+	_msgNext = 0;
+	_printSw = false;
+	_vmCurRecord = Chunk();
+	memset(_msgQ, 0, sizeof(_msgQ));
+	_q = 0;
+	_tfIndicator = false;
+
 	// Copy initial state from tables
 	_capabilities = data->_initGeneral.capabilities;
 	_possessions = data->_initGeneral.possessions;
@@ -89,6 +154,7 @@ void GameState::initFromData(GameData *data) {
 	// Copy determiner
 	_cur = data->_initDeterminer;
 	_ex = _cur;
+	_curBase = _cur;
 
 	// Copy suggestion
 	_suggestion = data->_initSuggestion;
