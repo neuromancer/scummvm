@@ -1947,15 +1947,14 @@ void VM::opEvent(int ref) {
 }
 
 void VM::opSet(int ref) {
-	// Set dispatch table entry (case 75 in kFa XJP → L_28f3)
+	// Generic DOS write opcode (case 75 in kFa XJP → L_28f3).
 	// P-code flow:
 	//   1. CXG 18,15 → getNip (attrNip)                    (1 nip)
 	//   2. CLP2 53   → categorize(attrNip)                  (0 nips)
 	//   3. CXS 15    → getNip (skip value)                   (1 nip)
 	//   4. CXS 16    → CXG 18,16(skip) = jump(skip-1)       (0 nips from stream)
-	//   5. CLP2 58   → proc 58 readCompValue:               (1 or 4 nips)
-	//        getNip(1): if 0 → getNumber18(3), else field ref(0)
-	//   6. CLP2 54   → dispatch stores result                (0 nips)
+	//   5. CLP2 58   → proc 58 readCompValue                (1 or 4 nips)
+	//   6. CLP2 54   → dispatch stores result into the decoded target
 	//
 	// When skip=0, CXG 18,16(0) = jump(-1) backs up 1 position.
 	// This causes proc 58 to re-read the same 0 nip as its literal flag,
@@ -1971,16 +1970,8 @@ void VM::opSet(int ref) {
 	int cxs15val = getNip();
 	jump(cxs15val - 1);  // CXG 18,16(skip): when 0, backs up to re-read as p58 flag
 
-	// Proc 58 (readCompValue): getNip first, then branch
-	int p58nip = getNip();
-	int storeValue;
-	if (p58nip == 0) {
-		// Literal value: proc 6 reads 3 nips (18-bit)
-		storeValue = getNumber18();
-	} else {
-		// Field reference: proc 55 lookup (0 more nips)
-		storeValue = 0;
-	}
+	int storeValue = readCompValueFromStream();
+	int p58nip = _lastFieldRef;
 
 	debugC(kDebugScripts, "Angel VM: opSet attrNip=%d cxs15=%d p58=%d val=%d",
 	       attrNip, cxs15val, p58nip, storeValue);
@@ -1994,22 +1985,15 @@ void VM::opSet(int ref) {
 			       idx, storeValue);
 		}
 	} else if (attrNip < 6) {
-		// Entity field write — sub-dispatch in proc 54 case 'A'
+		storeFieldValue(attrNip, storeValue);
 		debugC(kDebugScripts, "Angel VM: opSet entity field[%d] = %d",
 		       attrNip, storeValue);
 	} else {
-		// xReg countdown (g[3020]) — proc 54 'T' case
-		// P-code proc 53 INN set check: only write to xReg entries with
-		// registered timers (proc != 0). Writes to unregistered entries
-		// are filtered by the INN set → proc 54 case 'A' adjusted=0 (no-op).
 		int reg = attrNip - 16;  // proc 53: nip - 16 for xReg index
-		if (reg >= 0 && reg < 32 && _state->_clock.xReg[reg].proc != 0) {
+		if (reg >= 0 && reg < 32) {
 			_state->_clock.xReg[reg].x = storeValue;
 			debugC(kDebugScripts, "Angel VM: opSet xReg[%d].x = %d (nip=%d)",
 			       reg, storeValue, attrNip);
-		} else if (reg >= 0 && reg < 32) {
-			debugC(kDebugScripts, "Angel VM: opSet xReg[%d] skipped (proc=0, not in INN set, nip=%d)",
-			       reg, attrNip);
 		} else {
 			debugC(kDebugScripts, "Angel VM: opSet xReg reg=%d out of range (nip=%d)",
 			       reg, attrNip);
@@ -3221,22 +3205,15 @@ int VM::lookupFieldValue(int entityRef) {
 			       adjusted, result, entityRef);
 		}
 	} else if (entityRef < 48) {
-		// Type 'T' (xReg countdown) — g[3020 + adjusted * 2]
-		// In P-code, g[3020] is the xReg array base. Each entry is 2 words:
-		//   g[3020 + i*2 + 0] = xReg[i].x (countdown)
-		//   g[3020 + i*2 + 1] = xReg[i].proc (procedure address)
-		// The 'T' entity refs read/write the .x (countdown) field.
-		// P-code proc 53 checks an INN set (480-bit bitmap) before lookup.
-		// Refs not in the set return type='A', adjusted=0 → value=0.
-		// xReg entries with proc=0 (no registered timer) are not in the INN set.
+		// Type 'T' (xReg countdown) — direct DOS access to .x.
 		int adjusted = entityRef - 16;
-		if (adjusted >= 0 && adjusted < 32 && _state->_clock.xReg[adjusted].proc != 0) {
+		if (adjusted >= 0 && adjusted < 32) {
 			result = _state->_clock.xReg[adjusted].x;
 			debugC(kDebugScripts, "Angel VM: lookupFieldValue T xReg[%d].x=%d (ref=%d)",
 			       adjusted, result, entityRef);
 		} else {
-			debugC(kDebugScripts, "Angel VM: lookupFieldValue T ref=%d not in INN set (xReg[%d].proc=0), returning 0",
-			       entityRef, entityRef - 16);
+			debugC(kDebugScripts, "Angel VM: lookupFieldValue T ref=%d out of range, returning 0",
+			       entityRef);
 		}
 	} else {
 		// Large refs: P-code data segment addresses for entity fields.
@@ -3318,16 +3295,13 @@ void VM::storeFieldValue(int entityRef, int value) {
 		}
 	} else if (entityRef < 48) {
 		// Type 'T' — xReg[entityRef-16].x
-		// P-code proc 53 INN set check: only write to xReg entries with
-		// registered timers (proc != 0). Unregistered entries are not in
-		// the INN set, so proc 54 case 'A' adjusted=0 does nothing.
 		int adjusted = entityRef - 16;
-		if (adjusted >= 0 && adjusted < 32 && _state->_clock.xReg[adjusted].proc != 0) {
+		if (adjusted >= 0 && adjusted < 32) {
 			_state->_clock.xReg[adjusted].x = value;
 			debugC(kDebugScripts, "Angel VM: storeFieldValue T xReg[%d].x=%d (ref=%d)",
 			       adjusted, value, entityRef);
 		} else {
-			debugC(kDebugScripts, "Angel VM: storeFieldValue T ref=%d not in INN set (proc=0), skipping",
+			debugC(kDebugScripts, "Angel VM: storeFieldValue T ref=%d out of range, skipping",
 			       entityRef);
 		}
 	} else {

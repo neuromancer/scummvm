@@ -27,6 +27,26 @@
 namespace Glk {
 namespace Angel {
 
+namespace {
+
+static uint16 readUint16LE(const byte *ptr) {
+	return (uint16)ptr[0] | ((uint16)ptr[1] << 8);
+}
+
+static uint32 readUint32LE(const byte *ptr) {
+	return (uint32)ptr[0] |
+	       ((uint32)ptr[1] << 8) |
+	       ((uint32)ptr[2] << 16) |
+	       ((uint32)ptr[3] << 24);
+}
+
+static int decodeVocabIndexLE(const byte *ptr) {
+	uint16 raw = readUint16LE(ptr);
+	return raw ? (int)raw - 1 : -1;
+}
+
+} // namespace
+
 GameData::GameData() : _castSize(0), _nbrObjects(0), _nbrLocations(0),
                        _nbrVehicles(0), _nbrVWords(0), _nbrProperties(0),
                        _messageFile(nullptr) {
@@ -151,6 +171,262 @@ bool GameData::load(Common::SeekableReadStream *tablesFile,
 }
 
 bool GameData::loadTables(Common::SeekableReadStream *stream) {
+	if (stream->size() == 4280) {
+		static const int kRecordSize = 40;
+
+		const int fileSize = stream->size();
+		const int totalRecords = fileSize / kRecordSize;
+		debugC(1, kDebugScripts, "Angel: tables file size=%d bytes, %d DOS records", fileSize, totalRecords);
+
+		byte *buf = new byte[fileSize];
+		stream->read(buf, fileSize);
+
+		int nPerson = 0, nObj = 0, nLoc = 0, nVcl = 0;
+		for (int i = 0; i < totalRecords; i++) {
+			switch (buf[i * kRecordSize]) {
+			case kPersonEntry: nPerson++; break;
+			case kObjEntry:    nObj++; break;
+			case kMapEntry:    nLoc++; break;
+			case kVclEntry:    nVcl++; break;
+			default: break;
+			}
+		}
+
+		_castSize = nPerson;
+		_nbrObjects = nObj;
+		_nbrLocations = nLoc;
+		_nbrVehicles = nVcl;
+		_nbrProperties = kMaxNbrProperties;
+
+		debugC(1, kDebugScripts, "Angel: DOS tables: %d persons, %d objects, %d locations, %d vehicles",
+		       _castSize, _nbrObjects, _nbrLocations, _nbrVehicles);
+
+		int personIdx = 1, objIdx = 1, locIdx = 1, vclIdx = 1, timeIdx = 0;
+
+		for (int i = 0; i < totalRecords; i++) {
+			const int off = i * kRecordSize;
+			const int disc = buf[off];
+
+			switch (disc) {
+			case kMscEntry: {
+				_initGeneral.capabilities.setWord(0, buf[off + 1]);
+				_initGeneral.possessions.setWord(0, readUint32LE(&buf[off + 2]));
+				_initGeneral.possessions.setWord(1, readUint32LE(&buf[off + 6]));
+				_initGeneral.wearing.setWord(0, readUint32LE(&buf[off + 10]));
+				_initGeneral.wearing.setWord(1, readUint32LE(&buf[off + 14]));
+				_initGeneral.location = (int)buf[off + 18];
+				_initGeneral.direction = (MotionSpec)buf[off + 19];
+				_initGeneral.nbrPossessions = (int)buf[off + 20];
+				_initGeneral.fogRoute.loc[0] = (int)buf[off + 22];
+				_initGeneral.fogRoute.loc[1] = (int)buf[off + 23];
+				_initGeneral.fogRoute.loc[2] = (int)buf[off + 24];
+				_initGeneral.robotAddr = (int)readUint16LE(&buf[off + 25]);
+				_initGeneral.civilianTime = (buf[off + 27] != 0);
+				_initGeneral.completeGame = (buf[off + 28] != 0);
+
+				debugC(1, kDebugScripts, "Angel: DOS MscEntry: location=%d direction=%d nbrPoss=%d robotAddr=%d",
+				       _initGeneral.location, _initGeneral.direction,
+				       _initGeneral.nbrPossessions, _initGeneral.robotAddr);
+				break;
+			}
+
+			case kDtrEntry: {
+				_initDeterminer.doItToWhat = (int)buf[off + 1];
+				_initDeterminer.withWhat = (int)buf[off + 2];
+				_initDeterminer.tradeWhat = (int)buf[off + 3];
+				_initDeterminer.forWhat = (int)buf[off + 4];
+				_initDeterminer.personNamed = (int)buf[off + 5];
+				_initDeterminer.rideWhat = (int)buf[off + 6];
+				_initDeterminer.whereTo = (int)buf[off + 7];
+				break;
+			}
+
+			case kSugEntry: {
+				_initSuggestion.m = (int)buf[off + 1];
+				_initSuggestion.kind = (KindOfWord)buf[off + 3];
+				_initSuggestion.ref = (int)buf[off + 5];
+				break;
+			}
+
+			case kComEntry: {
+				_initCom.prvLocation = (int)buf[off + 1];
+				_initCom.pprvLocation = (int)buf[off + 2];
+				_initCom.vLocation = (int)buf[off + 3];
+				_initCom.prvDirection = (MotionSpec)buf[off + 4];
+				_initCom.nbrOffenses = (int)buf[off + 5];
+				_initCom.lastPerson = (int)buf[off + 6];
+				_initCom.pursuer = (int)buf[off + 7];
+				_initCom.gotHim = (buf[off + 8] != 0);
+				_initCom.dspTime = (buf[off + 9] != 0);
+				_initCom.dspDay = (buf[off + 10] != 0);
+				_initCom.dspMove = (buf[off + 11] != 0);
+				_initCom.dspScore = (buf[off + 12] != 0);
+				_initCom.probPickUp = (int)buf[off + 13];
+				break;
+			}
+
+			case kTimeEntry: {
+				if (timeIdx == 0) {
+					_initTime.day = (DayOfWeek)buf[off + 1];
+					_initTime.hour = (int)buf[off + 2];
+					_initTime.minute = (int)buf[off + 3];
+					_initTime.am = (buf[off + 4] != 0);
+					_initTime.tickNumber = (int)buf[off + 5];
+					debugC(1, kDebugScripts, "Angel: DOS TimeEntry[%d]: clock day=%d %d:%02d %s",
+					       timeIdx, _initTime.day, _initTime.hour,
+					       _initTime.minute, _initTime.am ? "AM" : "PM");
+				} else if (timeIdx == 2) {
+					_initTime.xReg[0].x = 0;
+					_initTime.xReg[0].proc = 0;
+					for (int e = 1; e < 5; e++) {
+						const int xOff = off + 11 + (e - 1) * 4;
+						_initTime.xReg[e].x = (int)readUint16LE(&buf[xOff]);
+						_initTime.xReg[e].proc = (int)readUint16LE(&buf[xOff + 2]);
+						if (_initTime.xReg[e].proc > 0) {
+							debugC(1, kDebugScripts, "Angel: DOS xReg[%d] x=%d proc=%d",
+							       e, _initTime.xReg[e].x,
+							       _initTime.xReg[e].proc);
+						}
+					}
+				}
+				timeIdx++;
+				break;
+			}
+
+			case kPersonEntry: {
+				if (personIdx < kMaxCastSize + 1) {
+					Person &p = _cast[personIdx];
+					p.n = (int)readUint16LE(&buf[off + 1]);
+					p.pName = decodeVocabIndexLE(&buf[off + 3]);
+					for (int s = 0; s < 4 && s < kSecretOp - kTradeOp + 1; s++)
+						p.sFun[s] = (int)readUint16LE(&buf[off + 5 + s * 2]);
+					p.carrying.setWord(0, readUint32LE(&buf[off + 13]));
+					p.carrying.setWord(1, readUint32LE(&buf[off + 17]));
+					p.located = (int)buf[off + 21];
+					p.mood = (int)buf[off + 22];
+					p.direction = (MotionSpec)buf[off + 23];
+					p.dropping = (int)buf[off + 24];
+					p.change = (int)buf[off + 25];
+					p.corpse = (int)buf[off + 26];
+					p.useThe = (buf[off + 27] != 0);
+					p.resting = (buf[off + 28] != 0);
+					p.unseen = (buf[off + 29] != 0);
+
+					debugC(2, kDebugScripts, "Angel: DOS Person[%d]: n=%d pName=%d located=%d mood=%d corpse=%d",
+					       personIdx, p.n, p.pName, p.located, p.mood, p.corpse);
+				}
+				personIdx++;
+				break;
+			}
+
+			case kObjEntry: {
+				if (objIdx < kMaxNbrObjects + 1) {
+					Object &obj = _props[objIdx];
+					obj.contents.setWord(0, readUint32LE(&buf[off + 1]));
+					obj.contents.setWord(1, readUint32LE(&buf[off + 5]));
+					obj.n = (int)readUint16LE(&buf[off + 9]);
+					obj.oName = decodeVocabIndexLE(&buf[off + 11]);
+					obj.size = (int)buf[off + 13];
+					obj.value = (int)buf[off + 14];
+					obj.properties.setWord(0, readUint32LE(&buf[off + 15]));
+					obj.properties.setWord(1, readUint32LE(&buf[off + 19]));
+					obj.state = (int)buf[off + 23];
+					obj.inOrOn = (int)buf[off + 24];
+					obj.kindOfThing = (ObjType)buf[off + 25];
+					obj.useThe = (buf[off + 26] != 0);
+					obj.litUp = (buf[off + 27] != 0);
+					obj.itsOpen = (buf[off + 28] != 0);
+					obj.itsLocked = (buf[off + 29] != 0);
+					obj.unseen = (buf[off + 30] != 0);
+
+					debugC(2, kDebugScripts, "Angel: DOS Object[%d]: n=%d oName=%d size=%d val=%d state=%d kind=%d inOrOn=%d",
+					       objIdx, obj.n, obj.oName, obj.size, obj.value,
+					       obj.state, obj.kindOfThing, obj.inOrOn);
+				}
+				objIdx++;
+				break;
+			}
+
+			case kMapEntry: {
+				if (locIdx < kMaxNbrLocations + 1) {
+					Place &place = _map[locIdx];
+					place.n = (int)readUint16LE(&buf[off + 1]);
+					place.shortDscr = decodeVocabIndexLE(&buf[off + 3]);
+					for (int d = 0; d < kNumDirections; d++) {
+						place.nextPlace[d] = (int)buf[off + 5 + d];
+						place.traffic[d] = (buf[off + 11 + d] != 0);
+					}
+					place.accessLock = (int)buf[off + 17];
+					place.mustHave = (int)buf[off + 18];
+					place.fogPath = (int)buf[off + 19];
+					place.view = kSunlit;
+					place.useThe = true;
+					place.foggy = false;
+					place.itsADoor = false;
+					place.itsOpen = false;
+					place.itsLocked = false;
+					place.unseen = (buf[off + 39] != 0);
+
+					debugC(2, kDebugScripts, "Angel: DOS Map[%d]: n=%d shortDscr=%d exits=[N=%d,S=%d,E=%d,W=%d,U=%d,D=%d]",
+					       locIdx, place.n, place.shortDscr,
+					       place.nextPlace[0], place.nextPlace[1],
+					       place.nextPlace[2], place.nextPlace[3],
+					       place.nextPlace[4], place.nextPlace[5]);
+				}
+				locIdx++;
+				break;
+			}
+
+			case kVclEntry: {
+				if (vclIdx < kMaxNbrVehicles + 1) {
+					Vehicle &vcl = _fleet[vclIdx];
+					vcl.n = (int)readUint16LE(&buf[off + 1]);
+					vcl.rideProc = (int)readUint16LE(&buf[off + 3]);
+					vcl.vName = decodeVocabIndexLE(&buf[off + 5]);
+					vcl.cantCarry.setWord(0, readUint32LE(&buf[off + 7]));
+					vcl.cantCarry.setWord(1, readUint32LE(&buf[off + 11]));
+					vcl.stopped = (int)buf[off + 15];
+					vcl.useThe = (buf[off + 16] != 0);
+					vcl.unseen = (buf[off + 17] != 0);
+					vcl.vclType = (VType)buf[off + 18];
+					if (vcl.vclType == kACar) {
+						vcl.inside = (int)buf[off + 19];
+					} else {
+						for (int s = 0; s < kNbrStops; s++) {
+							int stop = (int)buf[off + 19 + s];
+							if (stop >= 1 && stop <= kMaxNbrLocations)
+								vcl.route.set(stop);
+						}
+					}
+
+					debugC(2, kDebugScripts, "Angel: DOS Vehicle[%d]: n=%d vName=%d stopped=%d type=%d inside=%d",
+					       vclIdx, vcl.n, vcl.vName, vcl.stopped, vcl.vclType, vcl.inside);
+				}
+				vclIdx++;
+				break;
+			}
+
+			default:
+				warning("Angel: Unknown DOS table record type %d at record %d", disc, i);
+				break;
+			}
+		}
+
+		for (int loc = 1; loc <= _nbrLocations; loc++)
+			_map[loc].objects.clear();
+		for (int obj = 1; obj <= _nbrObjects; obj++) {
+			int holder = _props[obj].inOrOn;
+			if (holder >= 1 && holder <= _nbrLocations)
+				_map[holder].objects.set(obj);
+		}
+
+		delete[] buf;
+
+		debugC(1, kDebugScripts, "Angel: DOS tables loaded. Starting location=%d, WELCOME proc=%d",
+		       _initGeneral.location, _initTime.xReg[kXWelcome].proc);
+		return true;
+	}
+
 	/**
 	 * The tables file is a UCSD Pascal "FILE OF TableRecord".
 	 * Each record is 36 bytes (18 big-endian 16-bit words).
@@ -197,6 +473,7 @@ bool GameData::loadTables(Common::SeekableReadStream *stream) {
 	_nbrObjects = nObj;
 	_nbrLocations = nLoc;
 	_nbrVehicles = nVcl;
+	_nbrProperties = kMaxNbrProperties;
 
 	debugC(1, kDebugScripts, "Angel: tables: %d persons, %d objects, %d locations, %d vehicles",
 	       _castSize, _nbrObjects, _nbrLocations, _nbrVehicles);
@@ -473,6 +750,76 @@ bool GameData::loadTables(Common::SeekableReadStream *stream) {
 }
 
 bool GameData::loadVocab(Common::SeekableReadStream *stream) {
+	if (stream->size() == 6136) {
+		const int fileSize = stream->size();
+		debugC(1, kDebugScripts, "Angel: DOS vocab file size = %d bytes", fileSize);
+
+		byte *buf = new byte[fileSize];
+		stream->read(buf, fileSize);
+
+		static const int kRecordSize = 26;
+		_nbrVWords = fileSize / kRecordSize;
+		if (_nbrVWords > kMaxNbrVWords)
+			_nbrVWords = kMaxNbrVWords;
+
+		debugC(1, kDebugScripts, "Angel: DOS vocab loading %d entries", _nbrVWords);
+
+		int curBlock = 1;
+		for (int i = 1; i <= kNbrVBlocks; i++)
+			_vText[i].clear();
+
+		for (int i = 0; i < _nbrVWords; i++) {
+			const byte *rec = buf + i * kRecordSize;
+
+			int wordLen = rec[0];
+			if (wordLen < 1 || wordLen > kNameSize)
+				wordLen = 0;
+
+			Common::String decoded;
+			for (int c = 1; c <= wordLen; c++) {
+				int nip = rec[c];
+				if (nip >= 0 && nip < 64)
+					decoded += _yTable[nip];
+			}
+
+			if (curBlock <= kNbrVBlocks && _vText[curBlock].size() + decoded.size() > 255)
+				curBlock++;
+
+			VEntry &ve = _vocab[i];
+			if (curBlock <= kNbrVBlocks && !decoded.empty()) {
+				ve.dsp = _vText[curBlock].size();
+				ve.len = decoded.size();
+				ve.vbi = curBlock;
+				_vText[curBlock] += decoded;
+			} else {
+				ve.dsp = 0;
+				ve.len = 0;
+				ve.vbi = 0;
+			}
+
+			ve.ve.raw0 = (rec[22] << 8) | rec[23];
+			ve.ve.raw1 = (rec[24] << 8) | rec[25];
+			ve.ve.code = (VWords)rec[22];
+			ve.ve.display = (DsplType)rec[23];
+			ve.ve.vType = (KindOfWord)rec[24];
+			ve.ve.ref = (int)rec[25];
+
+			debugC(2, kDebugScripts, "Angel: DOS vocab[%d] = '%s' type=%d code=%d ref=%d raw0=%d raw1=%d",
+			       i, decoded.c_str(), ve.ve.vType, ve.ve.code,
+			       ve.ve.ref, ve.ve.raw0, ve.ve.raw1);
+		}
+
+		delete[] buf;
+
+		debugC(1, kDebugScripts, "Angel: DOS vocab loaded %d words into %d text blocks", _nbrVWords, curBlock);
+		for (int i = 1; i <= kNbrVBlocks; i++) {
+			if (!_vText[i].empty())
+				debugC(1, kDebugScripts, "Angel: VText[%d] = %u chars", i, _vText[i].size());
+		}
+
+		return true;
+	}
+
 	/**
 	 * The vocab file is a UCSD Pascal "FILE OF XVEntry" with 13-word (26-byte) records.
 	 *

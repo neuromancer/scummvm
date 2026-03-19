@@ -69,10 +69,9 @@ const AngelDetectionEntry ANGEL_GAME_ENTRIES[] = {
 		Common::EN_ANY,
 		Common::kPlatformDOS,
 		{
-			{ "tables",        "aca35ed9c97255d68e5b0ec623a95eab", 4096 },
-			{ "vocab",         "a35077d350e0b1bbcc6c9cd18f7e458a", 6144 },
-			{ "message",       "e4326535ee63849c94c8ea29b533d47f", 48128 },
-			{ "game.com",       "e4326535ee63849c94c8ea29b533d47f", 48128 },
+			{ "TABLES",        nullptr, 4280 },
+			{ "VOCAB",         nullptr, 6136 },
+			{ "MESSAGE",       nullptr, 48128 },
 			{ nullptr, nullptr, 0 }
 		}
 	},
@@ -81,7 +80,8 @@ const AngelDetectionEntry ANGEL_GAME_ENTRIES[] = {
 
 // Keep the single-file entry table for getDetectionEntries() compatibility
 const GlkDetectionEntry ANGEL_GAMES[] = {
-	DT_ENTRY0("indianajonesancients", "aca35ed9c97255d68e5b0ec623a95eab", 4096),
+	DT_ENTRYP1("indianajonesancients", "DOS", "cf35387b436350f9512fc69f2902d754", 4280, Common::kPlatformDOS),
+	DT_ENTRYP1("indianajonesancients", "Mac", "aca35ed9c97255d68e5b0ec623a95eab", 4096, Common::kPlatformMacintosh),
 	DT_END_MARKER
 };
 

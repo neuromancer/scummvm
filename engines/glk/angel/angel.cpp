@@ -703,6 +703,7 @@ void Angel::dispatchCommand(ThingToDo action) {
 	// Clear command flags each turn (word 0 of CmdEntry records at g[3045]).
 	// These are set per-command and read by location scripts via lookupFieldValue 'X'.
 	memset(_state->_cmdFlag, 0, sizeof(_state->_cmdFlag));
+	_state->_respondQuit = false;
 
 	// NOTE: cmdFlag[2] is NOT explicitly set here for movement commands.
 	// In the P-code, cmdFlag is only populated by opSet instructions within
@@ -750,13 +751,30 @@ void Angel::dispatchCommand(ThingToDo action) {
 	//   4. proc 2: CXG 18,10 runs the message, then calls proc 66 if not handled
 	//   5. proc 66 case '^': default move via proc 5 + CXG 18,16
 	//
-	// For simple movements (no entity handler), we skip the location message
-	// entirely and go straight to the fallback move.  The location message
-	// runs during describeLocation with text visible; during movement dispatch,
-	// the P-code suppresses its text via the persisted text flag state.
-	// Skipping it avoids the text flag management complexity while producing
-	// correct output: no source-room text, just the destination description.
 	if (_state->_stillPlaying && (action == kAMove || action == kATrip)) {
+		// DOS movement dispatch runs the location response handler first with
+		// text initially suppressed. Generic "can't do that" responses stay
+		// hidden during valid moves, while trap/death handlers explicitly
+		// unsuppress themselves via kSpkOp/kForceOp before printing text.
+		memset(_state->_cmdEntry, 0, sizeof(_state->_cmdEntry));
+		int responseAddr = _data->_map[_state->_location].responseAddr;
+		if (responseAddr > 0) {
+			debugC(1, kDebugScripts,
+			       "Angel: movement response dispatch loc=%d addr=%d verb=%d dest=%d",
+			       _state->_location, responseAddr, _state->_verb, moveDest);
+			_vm->resetEntityContext();
+			_vm->setSuppressText(true);
+			_vm->setBaseSuppressText(false);
+			_vm->displayMsg(responseAddr);
+			forceQ();
+			_vm->setSuppressText(false);
+		}
+
+		if (_state->_respondQuit) {
+			_state->_stillPlaying = false;
+			return;
+		}
+
 		int cmdAddr = _state->_cmdEntry[1];
 		if (cmdAddr > 0) {
 			// Entity-specific command handler (traps, special moves).
@@ -932,11 +950,19 @@ void Angel::doTurn() {
 
 	// Execute the command
 	dispatchCommand(action);
+	if (!_state->_stillPlaying) {
+		forceQ();
+		return;
+	}
 
 	// Post-turn processing
 	_state->_moveNumber++;
 	tickClock();
 	processTimedEvents();
+	if (!_state->_stillPlaying) {
+		forceQ();
+		return;
+	}
 	animateAll();
 
 	// Flush any remaining output

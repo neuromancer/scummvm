@@ -192,24 +192,51 @@ PlainGameDescriptor GlkMetaEngineDetection::findGame(const char *gameId) const {
 #undef FIND_GAME
 
 Common::String GlkMetaEngineDetection::findFileByGameId(const Common::String &gameId) {
-	// Get the list of files in the folder and return detection against them
+	// Some Glk sub-engines, including AngelSoft, detect against a full folder
+	// rather than a single file. First try whole-folder detection and use the
+	// detector-provided primary filename if available.
 	Common::FSNode folder = Common::FSNode(ConfMan.getPath("path"));
 	Common::FSList fslist;
 	folder.getChildren(fslist, Common::FSNode::kListFilesOnly);
 
-	// Iterate over the files
-	for (Common::FSList::iterator i = fslist.begin(); i != fslist.end(); ++i) {
-		// Run a detection on each file in the folder individually
-		Common::FSList singleList;
-		singleList.push_back(*i);
-		DetectedGames games = detectGames(singleList);
+	Common::Platform requestedPlatform = Common::kPlatformUnknown;
+	if (ConfMan.hasKey("platform"))
+		requestedPlatform = Common::parsePlatform(ConfMan.get("platform"));
 
-		// If a detection was found with the correct game Id, we have a winner
-		if (!games.empty() && games.front().gameId == gameId)
-			return (*i).getName();
+	DetectedGames games = detectGames(fslist);
+	for (const auto &game : games) {
+		if (game.gameId != gameId)
+			continue;
+		if (requestedPlatform != Common::kPlatformUnknown &&
+				game.platform != Common::kPlatformUnknown &&
+				game.platform != requestedPlatform) {
+			continue;
+		}
+		if (game._extraConfigEntries.contains("filename"))
+			return game._extraConfigEntries["filename"];
 	}
 
-	// No match found
+	// Fall back to probing each file individually for single-file detectors
+	// that don't emit a filename through full-folder detection.
+	for (Common::FSList::const_iterator i = fslist.begin(); i != fslist.end(); ++i) {
+		Common::FSList singleList;
+		singleList.push_back(*i);
+		DetectedGames singleGames = detectGames(singleList);
+
+		for (const auto &game : singleGames) {
+			if (game.gameId != gameId)
+				continue;
+			if (requestedPlatform != Common::kPlatformUnknown &&
+					game.platform != Common::kPlatformUnknown &&
+					game.platform != requestedPlatform) {
+				continue;
+			}
+			if (game._extraConfigEntries.contains("filename"))
+				return game._extraConfigEntries["filename"];
+			return i->getName();
+		}
+	}
+
 	return Common::String();
 }
 
