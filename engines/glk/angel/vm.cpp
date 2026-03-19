@@ -2432,8 +2432,9 @@ VM::EntitySlotInfo VM::resolveEntitySlotInfo(int entityNum) const {
 	// DOS GAME.000 uses a large runtime slot table at DS:06b2 with 7-byte
 	// records. The kFt handlers for Here/Syn/Is read slot +2 as KindOfWord
 	// and slot +3 as the direct ref byte. We do not have that table loaded
-	// yet, so keep a small set of DOS-grounded overrides for the first-room
-	// movement scripts and fall back to the older vocab approximation.
+	// yet, so only keep the handful of chamber-south overrides that were
+	// needed to confirm the trapdoor path. Unverified high-entropy slots are
+	// intentionally left unresolved rather than guessed from prior notes.
 	if (_data->_isDosData) {
 		switch (entityNum) {
 		case 38:
@@ -2441,21 +2442,15 @@ VM::EntitySlotInfo VM::resolveEntitySlotInfo(int entityNum) const {
 			info.type = kALocation;
 			info.ref = 7;   // Current chamber slot used by msg 1322 in the south death path
 			return info;
-		case 208:
-			info.valid = true;
-			info.type = kALocation;
-			info.ref = 7;   // Central chamber
-			return info;
-		case 211:
 		case 142:
 			info.valid = true;
 			info.type = kADirection;
 			info.ref = 1;   // South
 			return info;
-		case 1244:
+		case 208:
 			info.valid = true;
 			info.type = kALocation;
-			info.ref = 58;  // Domed key room to the south
+			info.ref = 7;   // Central chamber
 			return info;
 		default:
 			break;

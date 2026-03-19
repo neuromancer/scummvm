@@ -187,6 +187,12 @@ private:
 	/** Initialize the game world from loaded data */
 	void initGame();
 
+	/** Run the DOS startup sequence (WELCOME, hidden ENTRY, location description). */
+	void runStartupSequence();
+
+	/** Reset state and restart the current game session after a scripted death/quit. */
+	void restartSession();
+
 	/** Execute one turn of the game loop */
 	void doTurn();
 

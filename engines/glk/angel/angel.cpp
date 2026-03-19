@@ -156,6 +156,46 @@ void Angel::initGame() {
 	debugC(1, kDebugScripts, "Angel: robotAddr=%d (tables), location=%d", _state->_robotAddr, _state->_location);
 }
 
+void Angel::runStartupSequence() {
+	// Execute the WELCOME event procedure from the NtgrRegisters.
+	// xReg[kXWelcome] holds the proc address for the game's intro text.
+	// Set baseSuppressText=true so kForceOp re-evaluates to "suppress"
+	// after each paragraph (hiding init code garbage). But keep
+	// _suppressText=false so the initial text ("With the whine of
+	// bullets...") before the first kForceOp is visible.
+	_vm->setBaseSuppressText(true);
+	if (_state->_clock.xReg[kXWelcome].proc > 0) {
+		debugC(1, kDebugScripts, "Angel: Executing WELCOME event at proc=%d",
+		       _state->_clock.xReg[kXWelcome].proc);
+		_vm->displayMsg(_state->_clock.xReg[kXWelcome].proc);
+		forceQ();
+	}
+
+	// Suppress text for ENTRY — ENTRY's content should not be displayed.
+	_vm->setSuppressText(true);
+
+	if (_state->_clock.xReg[kXEntry].proc > 0) {
+		debugC(1, kDebugScripts, "Angel: Executing ENTRY event at proc=%d",
+		       _state->_clock.xReg[kXEntry].proc);
+		_vm->displayMsg(_state->_clock.xReg[kXEntry].proc);
+		forceQ();
+	}
+
+	_vm->setSuppressText(false);
+	describeLocation(true);
+}
+
+void Angel::restartSession() {
+	debugC(1, kDebugScripts, "Angel: restarting scripted session");
+	_state->reset();
+	_state->_respondQuit = false;
+	_state->_stillPlaying = true;
+	_vm->resetEntityContext();
+	_vm->setRespondMode(false);
+	_vm->setSuppressText(false);
+	runStartupSequence();
+}
+
 // ============================================================
 // I/O
 // ============================================================
@@ -782,7 +822,7 @@ void Angel::dispatchCommand(ThingToDo action) {
 		}
 
 		if (_state->_respondQuit) {
-			_state->_stillPlaying = false;
+			restartSession();
 			return;
 		}
 
@@ -919,6 +959,10 @@ void Angel::dispatchCommand(ThingToDo action) {
 			_vm->displayMsg(scriptAddr, descriptionOnly);
 			forceQ();
 			_vm->setRespondMode(false);
+			if (_state->_respondQuit) {
+				restartSession();
+				return;
+			}
 		}
 
 		// Do not synthesize entity listing after location dispatches either.
@@ -1133,37 +1177,7 @@ void Angel::runGame() {
 
 	// Initialize game state
 	initGame();
-
-	// Execute the WELCOME event procedure from the NtgrRegisters.
-	// xReg[kXWelcome] holds the proc address for the game's intro text.
-	// Set baseSuppressText=true so kForceOp re-evaluates to "suppress"
-	// after each paragraph (hiding init code garbage). But keep
-	// _suppressText=false so the initial text ("With the whine of
-	// bullets...") before the first kForceOp is visible.
-	_vm->setBaseSuppressText(true);
-	if (_state->_clock.xReg[kXWelcome].proc > 0) {
-		debugC(1, kDebugScripts, "Angel: Executing WELCOME event at proc=%d",
-		       _state->_clock.xReg[kXWelcome].proc);
-		_vm->displayMsg(_state->_clock.xReg[kXWelcome].proc);
-		// The WELCOME message ends with kForceOp which handles its own
-		// paragraph break (EndSpeak + outLn). Just flush any remnants.
-		forceQ();
-	}
-
-	// Suppress text for ENTRY — ENTRY's content should not be displayed.
-	_vm->setSuppressText(true);
-
-	// Execute the ENTRY event procedure (xReg[kXEntry]).
-	if (_state->_clock.xReg[kXEntry].proc > 0) {
-		debugC(1, kDebugScripts, "Angel: Executing ENTRY event at proc=%d",
-		       _state->_clock.xReg[kXEntry].proc);
-		_vm->displayMsg(_state->_clock.xReg[kXEntry].proc);
-		forceQ();
-	}
-
-	// Enable text output for room description display.
-	_vm->setSuppressText(false);
-	describeLocation(true);  // Treat startup as arrival (movement)
+	runStartupSequence();
 
 	// Timer events (e.g., xReg[22] countdown=1) set during WELCOME will
 	// fire naturally during the first doTurn() via processTimedEvents().
