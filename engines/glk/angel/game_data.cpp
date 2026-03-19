@@ -1106,12 +1106,23 @@ void GameData::loadResponseTable() {
 
 	// Map locations to response addresses.
 	// P-code formula: responseAddr = g[229 + g[326+entityIdx*4+3] / 80]
-	// Each location has its own response table entry: entries[loc] for loc 1-38.
-	// E.g. loc 7 (central chamber) uses entry[7]=3462 (FCall to generic handler).
+	//
+	// The location table uses a dummy slot for kNowhere=1, and the response
+	// table has the same dummy slot at entry[0]. The live places therefore
+	// map to entries[loc - 1], not entries[loc].
+	//
+	// This matches the DOS startup behavior:
+	//   loc 7 (central chamber) -> entry[6] = 2667
+	//   loc 6 (tomb)            -> entry[5] = 86
+	//
+	// Using entries[loc] shifts all handlers by one location and causes the
+	// early chamber/tomb scripts to fire on the wrong rooms.
 	for (int loc = 1; loc <= _nbrLocations && loc < 64; loc++) {
-		if (entries[loc] > 0) {
-			_map[loc].responseAddr = entries[loc];
-			debugC(2, kDebugScripts, "Angel: Location %d responseAddr = %d", loc, entries[loc]);
+		const int entryIdx = loc - 1;
+		if (entries[entryIdx] > 0) {
+			_map[loc].responseAddr = entries[entryIdx];
+			debugC(2, kDebugScripts, "Angel: Location %d responseAddr = %d (entry[%d])",
+			       loc, entries[entryIdx], entryIdx);
 		}
 	}
 }

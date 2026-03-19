@@ -573,14 +573,20 @@ void Angel::describeLocation(bool fromMovement, int /*sourceLocation*/) {
 	if (here.n > 0) {
 		if (_needsSeparator)
 			outLn();
-		_vm->displayMsg(here.n);
+		// Place.n messages contain a description section followed by
+		// response/thought sections. Room entry/LOOK should stop after
+		// the description section like the DOS engine.
+		_vm->displayMsg(here.n, true);
 		forceQ();
 	}
 
 	// Mark location as seen.
 	_data->_map[_state->_location].unseen = false;
 
-	listLocationEntities();
+	// Do not synthesize object/person listing here.
+	// The DOS scripts use kRoleOp-driven entity display, and the current
+	// hardcoded listing over-describes the opening room with extra objects
+	// that are not part of the initial visible text.
 
 	debugC(2, kDebugScripts, "Angel describeLocation: done");
 }
@@ -763,10 +769,15 @@ void Angel::dispatchCommand(ThingToDo action) {
 			       "Angel: movement response dispatch loc=%d addr=%d verb=%d dest=%d",
 			       _state->_location, responseAddr, _state->_verb, moveDest);
 			_vm->resetEntityContext();
+			_vm->setRespondMode(true);
+			// The DOS movement response handler computes command/response state
+			// first, then any visible special text is emitted by the follow-up
+			// command entry dispatch. Letting the hidden response phase
+			// unsuppress itself leaks room-description text from nested kDscOp.
 			_vm->setSuppressText(true);
-			_vm->setBaseSuppressText(false);
 			_vm->displayMsg(responseAddr);
 			forceQ();
+			_vm->setRespondMode(false);
 			_vm->setSuppressText(false);
 		}
 
@@ -780,9 +791,11 @@ void Angel::dispatchCommand(ThingToDo action) {
 			// Entity-specific command handler (traps, special moves).
 			debugC(1, kDebugScripts, "Angel: CmdEntry[1] dispatch addr=%d loc=%d target=%d",
 			       cmdAddr, _state->_location, moveDest);
+			_vm->setRespondMode(true);
 			_vm->setSuppressText(false);
 			_vm->displayMsg(cmdAddr);
 			forceQ();
+			_vm->setRespondMode(false);
 		}
 
 		// Default movement: change location or report dead end.
@@ -897,20 +910,20 @@ void Angel::dispatchCommand(ThingToDo action) {
 			// entityType=2 (location) from the description handler causes
 			// testSyn to always return isLocal()=true, bypassing verb matching.
 			_vm->resetEntityContext();
+			const bool respondMode = !(isLocationDispatch &&
+				_state->_verb > 0 && _state->_verb <= _data->_nbrVWords &&
+				_data->_vocab[_state->_verb].ve.code == kVLook);
+			const bool descriptionOnly = isLocationDispatch && scriptAddr == _data->_map[_state->_location].n;
+			_vm->setRespondMode(respondMode);
 			_vm->setSuppressText(false);
-			_vm->displayMsg(scriptAddr);
+			_vm->displayMsg(scriptAddr, descriptionOnly);
 			forceQ();
+			_vm->setRespondMode(false);
 		}
 
-		// After location-level dispatch (e.g., LOOK), list visible entities.
-		// P-code proc 10 (describeLocation) runs after ALL command dispatches
-		// and includes entity listing via CLP1 9.  For LOOK, text flag is TRUE
-		// so entities are listed.  We approximate this by listing entities
-		// after any command that dispatches to the location script (no entity
-		// was targeted), which covers LOOK and similar commands.
-		if (isLocationDispatch && _state->_stillPlaying) {
-			listLocationEntities();
-		}
+		// Do not synthesize entity listing after location dispatches either.
+		// Until kRoleOp is implemented faithfully, the manual listing path is
+		// not DOS-accurate and adds incorrect startup text.
 	}
 }
 

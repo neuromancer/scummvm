@@ -144,6 +144,13 @@ private:
 	int _entityType;         // intermediate[N][12] — entity type (0-6)
 	bool _entityContextFresh; // True when kFar/kFtr just set entity context
 
+	// Nested kDscOp context. DOS kDscOp(entity) evaluates the described
+	// message against that entity, not the player's live current room/object.
+	bool _describedEntityActive;
+	Operation _describedEntityOp;
+	int _describedEntityType;
+	int _describedEntityValue;
+
 	/** Advance to the next nip, handling chunk boundaries */
 	void bumpMsg();
 

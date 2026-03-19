@@ -36,7 +36,9 @@ VM::VM(Angel *engine, GameData *data, GameState *state)
       _descriptionOnly(false), _respondMode(false), _cseContentDepth(0),
       _lastTestResult(true), _compFieldAddr(0),
       _entityFlag(false), _entityValue(0), _entityOp(0), _entityType(-1),
-      _entityContextFresh(false), _lastFieldRef(0) {
+      _entityContextFresh(false), _lastFieldRef(0),
+      _describedEntityActive(false), _describedEntityOp(kNoOp),
+      _describedEntityType(-1), _describedEntityValue(0) {
 	memset(_callStack, 0, sizeof(_callStack));
 }
 
@@ -155,6 +157,10 @@ void VM::displayMsg(int addr, bool descriptionOnly) {
 	int savedCallDepth = _callDepth;
 	bool savedDescOnly = _descriptionOnly;
 	bool savedRespondMode = _respondMode;
+	bool savedSuppressText = _suppressText;
+	bool savedBaseSuppressText = _baseSuppressText;
+	bool savedTfIndicator = _state->_tfIndicator;
+	bool savedLastTestResult = _lastTestResult;
 	Chunk savedRecord = _state->_vmCurRecord;
 	CallFrame savedCallStack[kMaxCallDepth];
 	if (savedCallDepth > 0)
@@ -178,6 +184,10 @@ void VM::displayMsg(int addr, bool descriptionOnly) {
 	_callDepth = savedCallDepth;
 	_descriptionOnly = savedDescOnly;
 	_respondMode = savedRespondMode;
+	_suppressText = savedSuppressText;
+	_baseSuppressText = savedBaseSuppressText;
+	_state->_tfIndicator = savedTfIndicator;
+	_lastTestResult = savedLastTestResult;
 	_state->_vmCurRecord = savedRecord;
 	if (savedCallDepth > 0)
 		memcpy(_callStack, savedCallStack, savedCallDepth * sizeof(CallFrame));
@@ -790,7 +800,10 @@ void VM::executeCase() {
 		// that exceed message length, so this is equivalent.
 		int nbrCases = getNip();
 		int totalSize = getNumber();
-		int endPos = _state->_msgPos + totalSize - 1;
+		// totalSize is counted from the first nip after the size field to the
+		// first nip *after* the CSE block. Landing on the last nib inside the
+		// block leaks one stray character/control nib into the parent stream.
+		int endPos = _state->_msgPos + totalSize;
 		debugC(kDebugScripts, "Angel VM: CSE unknown caseType %d (nbrCases=%d totalSize=%d endPos=%d) base=%d pos=%d — skipping",
 		        caseType, nbrCases, totalSize, endPos, _state->_msgBase, _state->_msgPos);
 		// Clamp endPos to message bounds to prevent reading past the file
@@ -810,7 +823,10 @@ void VM::executeCase() {
 
 	int nbrCases = getNip();
 	int totalSize = getNumber();
-	int endPos = _state->_msgPos + totalSize - 1;
+	// totalSize is the distance to the first nip after the CSE block, not to
+	// the last nip inside it. Using -1 leaves the final block nib live and
+	// causes garbage like the trailing "A U tg" seen in DOS msg 74 paths.
+	int endPos = _state->_msgPos + totalSize;
 
 	// Determine match value based on case type
 	int matchValue = 0;
@@ -1272,8 +1288,49 @@ void VM::executeFe(Operation op, int ref, bool fromFe) {
 					addr = _data->_cast[ref].n;
 			}
 			debugC(kDebugScripts, "Angel VM: Fe kDscOp addr=%d ref=%d entityType=%d", addr, ref, _entityType);
-			if (addr > 0)
+			if (addr > 0) {
+				const bool savedDescribedActive = _describedEntityActive;
+				const Operation savedDescribedOp = _describedEntityOp;
+				const int savedDescribedType = _describedEntityType;
+				const int savedDescribedValue = _describedEntityValue;
+
+				if (!fromFe) {
+					switch (_entityType) {
+					case 0:
+						_describedEntityActive = true;
+						_describedEntityOp = kObjOp;
+						_describedEntityType = 0;
+						_describedEntityValue = ref;
+						break;
+					case 1:
+						_describedEntityActive = true;
+						_describedEntityOp = kPersonOp;
+						_describedEntityType = 1;
+						_describedEntityValue = ref;
+						break;
+					case 2:
+						_describedEntityActive = true;
+						_describedEntityOp = kLocOp;
+						_describedEntityType = 2;
+						_describedEntityValue = ref;
+						break;
+					case 3:
+						_describedEntityActive = true;
+						_describedEntityOp = kVclOp;
+						_describedEntityType = 3;
+						_describedEntityValue = ref;
+						break;
+					default:
+						break;
+					}
+				}
+
 				displayMsg(addr, true);
+				_describedEntityActive = savedDescribedActive;
+				_describedEntityOp = savedDescribedOp;
+				_describedEntityType = savedDescribedType;
+				_describedEntityValue = savedDescribedValue;
+			}
 		}
 		break;
 
@@ -2807,22 +2864,15 @@ bool VM::testIs(int ref) {
 			return false;
 		}
 
-		// P-code entity table packs word[3] = ref * divisor(entryType) + code.
-		// testIs extracts with divisor(_entityType). When entryType != _entityType,
-		// cross-type extraction gives a different value, preventing false
-		// matches (e.g., verb ref=6 won't match location ref=6).
-		int vocabRef = _data->_vocab[vocabIdx].ve.ref;
-		int vocabCode = (int)_data->_vocab[vocabIdx].ve.code;
+		// DOS truth from HandleTestOpcode_130_Is:
+		// the '$' path compares against the compared entity record's direct
+		// ref byte (local_17 + 3), not the older cross-type DIVI/MODI
+		// approximation we were using here.
+		//
+		// For the game vocab-backed entries we currently expose in C++, that
+		// direct record byte corresponds to VECore.ref.
+		int extractedRef = _data->_vocab[vocabIdx].ve.ref;
 		int vocabVType = _data->_vocab[vocabIdx].ve.vType;
-		int packDiv = entityTypeDivisor(vocabVType);
-		int extractDiv = entityTypeDivisor(_entityType);
-		int extractedRef;
-		if (packDiv > 0 && extractDiv > 0) {
-			int packed = vocabRef * packDiv + vocabCode;
-			extractedRef = packed / extractDiv;
-		} else {
-			extractedRef = vocabRef;
-		}
 
 		bool result = (_entityValue == extractedRef);
 		debugC(kDebugScripts, "Angel VM: testIs(ref=%d) $ path entityValue=%d extractedRef=%d (entityNum=%d vocIdx=%d vType=%d entityType=%d) -> %s",
@@ -2830,14 +2880,11 @@ bool VM::testIs(int ref) {
 		        vocabVType, _entityType,
 		        result ? "TRUE" : "FALSE");
 
-		// For locations (case 2), P-code also checks adjacency if direct
-		// comparison failed (isLocal check at 0x1b7e in proc 77).
-		if (!result && (_entityType == kALocation || _entityType == kABuilding)) {
-			result = isLocal(extractedRef);
-			if (result) {
-				debugC(kDebugScripts, "Angel VM: testIs $ path location isLocal(%d) -> TRUE", extractedRef);
-			}
-		}
+		// Do not apply the old isLocal() fallback here.
+		// DOS HandleTestOpcode_130_Is dispatches through response-state helpers
+		// on the location/building case; the previous adjacency shortcut was an
+		// approximation and is what caused the chamber/tomb scripts to fire on
+		// the wrong movement commands.
 
 		return result;
 	} else {
@@ -2911,6 +2958,9 @@ bool VM::testLEq(int ref) {
 }
 
 int VM::getRefValue(Operation op) {
+	if (_describedEntityActive && op == _describedEntityOp)
+		return _describedEntityValue;
+
 	switch (op) {
 	case kItOp:      return _state->_thing;
 	case kTargOp:    return _state->_target;
@@ -2953,6 +3003,29 @@ void VM::resolveEntity(int op) {
 	_entityValue = 0;
 	_entityOp = op;
 	_entityType = -1;
+
+	if (_describedEntityActive && op == _describedEntityOp) {
+		_entityType = _describedEntityType;
+		_entityValue = _describedEntityValue;
+		switch (_entityType) {
+		case 0:
+			_entityFlag = (_entityValue != kNonthing);
+			break;
+		case 1:
+			_entityFlag = (_entityValue != kNobody);
+			break;
+		case 2:
+			_entityFlag = (_entityValue != kNowhere);
+			break;
+		case 3:
+			_entityFlag = (_entityValue != 1);
+			break;
+		default:
+			_entityFlag = (_entityValue != 0);
+			break;
+		}
+		return;
+	}
 
 	switch ((Operation)op) {
 	case kPassOp:
