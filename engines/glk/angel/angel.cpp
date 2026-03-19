@@ -770,11 +770,11 @@ void Angel::dispatchCommand(ThingToDo action) {
 			       _state->_location, responseAddr, _state->_verb, moveDest);
 			_vm->resetEntityContext();
 			_vm->setRespondMode(true);
-			// The DOS movement response handler computes command/response state
-			// first, then any visible special text is emitted by the follow-up
-			// command entry dispatch. Letting the hidden response phase
-			// unsuppress itself leaks room-description text from nested kDscOp.
+			// Start movement responses hidden, but do NOT pin the base suppress
+			// flag. DOS trap/death handlers rely on kSpkOp/kForceOp to make
+			// selected text visible from inside this otherwise hidden phase.
 			_vm->setSuppressText(true);
+			_vm->setBaseSuppressText(false);
 			_vm->displayMsg(responseAddr);
 			forceQ();
 			_vm->setRespondMode(false);

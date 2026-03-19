@@ -258,6 +258,14 @@ private:
 	void opSub(int ref);
 
 	// ---- Entity table helpers ----
+	struct EntitySlotInfo {
+		bool valid;
+		KindOfWord type;
+		int ref;
+
+		EntitySlotInfo() : valid(false), type(kAnObject), ref(0) {}
+	};
+
 	/**
 	 * Convert an entity table index (from message stream getNumber()) to a
 	 * vocab file index.  The ASG runtime's entity table includes library
@@ -267,6 +275,7 @@ private:
 	 * Returns -1 if the entity number is out of game vocab range.
 	 */
 	int entityToVocabIdx(int entityNum) const;
+	EntitySlotInfo resolveEntitySlotInfo(int entityNum) const;
 
 	// ---- Test implementations ----
 	/** Check if location is adjacent to current location (FUNCTION Local) */

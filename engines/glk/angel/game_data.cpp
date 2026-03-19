@@ -49,7 +49,7 @@ static int decodeVocabIndexLE(const byte *ptr) {
 
 GameData::GameData() : _castSize(0), _nbrObjects(0), _nbrLocations(0),
                        _nbrVehicles(0), _nbrVWords(0), _nbrProperties(0),
-                       _messageFile(nullptr) {
+                       _isDosData(false), _messageFile(nullptr) {
 	memset(_robot, 0, sizeof(_robot));
 	memset(_yTable, 0, sizeof(_yTable));
 	memset(_xTable, 0, sizeof(_xTable));
@@ -751,6 +751,7 @@ bool GameData::loadTables(Common::SeekableReadStream *stream) {
 
 bool GameData::loadVocab(Common::SeekableReadStream *stream) {
 	if (stream->size() == 6136) {
+		_isDosData = true;
 		const int fileSize = stream->size();
 		debugC(1, kDebugScripts, "Angel: DOS vocab file size = %d bytes", fileSize);
 
@@ -839,6 +840,7 @@ bool GameData::loadVocab(Common::SeekableReadStream *stream) {
 	 *   byte25:          ref for persons/locations/objects/verbs/others
 	 */
 
+	_isDosData = false;
 	int fileSize = stream->size();
 	debugC(1, kDebugScripts, "Angel: vocab file size = %d bytes", fileSize);
 

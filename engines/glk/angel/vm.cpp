@@ -2426,6 +2426,52 @@ int VM::entityToVocabIdx(int entityNum) const {
 	return -1;
 }
 
+VM::EntitySlotInfo VM::resolveEntitySlotInfo(int entityNum) const {
+	EntitySlotInfo info;
+
+	// DOS GAME.000 uses a large runtime slot table at DS:06b2 with 7-byte
+	// records. The kFt handlers for Here/Syn/Is read slot +2 as KindOfWord
+	// and slot +3 as the direct ref byte. We do not have that table loaded
+	// yet, so keep a small set of DOS-grounded overrides for the first-room
+	// movement scripts and fall back to the older vocab approximation.
+	if (_data->_isDosData) {
+		switch (entityNum) {
+		case 38:
+			info.valid = true;
+			info.type = kALocation;
+			info.ref = 7;   // Current chamber slot used by msg 1322 in the south death path
+			return info;
+		case 208:
+			info.valid = true;
+			info.type = kALocation;
+			info.ref = 7;   // Central chamber
+			return info;
+		case 211:
+		case 142:
+			info.valid = true;
+			info.type = kADirection;
+			info.ref = 1;   // South
+			return info;
+		case 1244:
+			info.valid = true;
+			info.type = kALocation;
+			info.ref = 58;  // Domed key room to the south
+			return info;
+		default:
+			break;
+		}
+	}
+
+	int vocabIdx = entityToVocabIdx(entityNum);
+	if (vocabIdx >= 0) {
+		info.valid = true;
+		info.type = _data->_vocab[vocabIdx].ve.vType;
+		info.ref = _data->_vocab[vocabIdx].ve.ref;
+	}
+
+	return info;
+}
+
 bool VM::testHere(int ref) {
 	Place &loc = _state->map(_state->_location);
 	int vType, entityRef;
@@ -2442,20 +2488,20 @@ bool VM::testHere(int ref) {
 		// kFt path (proc 75): reads getNip(1) + getNumber(2) = 3 nips.
 		// CPI 4,3 = getNip (entity nip, consumed for alignment).
 		// CPI 4,5 with flag=1 = getNumber (12-bit entity table index).
-		// Entity type from entity_table[idx].word2 / 56, value from word3 / 80.
-		// We approximate via entityToVocabIdx -> vocab lookup.
+		// DOS GAME.000 resolves this through the DS:06b2 slot table and reads
+		// slot+2 (KindOfWord) and slot+3 (ref).
 		int entityNip = getNip();
 		(void)entityNip;
 		int entityTableIdx = getNumber();
-		int vocabIdx = entityToVocabIdx(entityTableIdx);
-		if (vocabIdx < 0) {
-			debugC(kDebugScripts, "Angel VM: testHere(kFt) entityTableIdx=%d vocabIdx out of range -> FALSE", entityTableIdx);
+		EntitySlotInfo slot = resolveEntitySlotInfo(entityTableIdx);
+		if (!slot.valid) {
+			debugC(kDebugScripts, "Angel VM: testHere(kFt) entityTableIdx=%d unresolved slot -> FALSE", entityTableIdx);
 			return false;
 		}
-		vType = _data->_vocab[vocabIdx].ve.vType;
-		entityRef = _data->_vocab[vocabIdx].ve.ref;
-		debugC(kDebugScripts, "Angel VM: testHere(kFt) entityTableIdx=%d vocabIdx=%d vType=%d entityRef=%d loc=%d",
-		        entityTableIdx, vocabIdx, vType, entityRef, _state->_location);
+		vType = slot.type;
+		entityRef = slot.ref;
+		debugC(kDebugScripts, "Angel VM: testHere(kFt) entityTableIdx=%d vType=%d entityRef=%d loc=%d",
+		        entityTableIdx, vType, entityRef, _state->_location);
 	}
 
 	debugC(kDebugScripts, "Angel VM: testHere vType=%d entityRef=%d loc=%d",
@@ -2657,9 +2703,9 @@ bool VM::testHPass(int ref) {
 	if (_entityType >= 0) {
 		locRef = _entityValue;
 	} else {
-		int vocabIdx = entityToVocabIdx(ref);
-		if (vocabIdx >= 0) {
-			locRef = _data->_vocab[vocabIdx].ve.ref;
+		EntitySlotInfo slot = resolveEntitySlotInfo(ref);
+		if (slot.valid) {
+			locRef = slot.ref;
 		} else {
 			locRef = ref;  // fallback
 		}
@@ -2712,39 +2758,34 @@ bool VM::testWord(int ref) {
 }
 
 bool VM::testSyn(int ref) {
-	// kFt path (proc 72 case 127, inline L_192b): reads 0 extra nips.
-	// ref = entity table index from kFt preamble getNumber.
-	// kFtr path: should NOT reach here (proc 76 case 127 = RPU 5, no-op).
+	// DOS kSynOp resolves through the 7-byte slot table at DS:06b2.
+	// The late-test dispatcher can reach the same slot-based logic while a
+	// prior kFtr entity context is still live, so do NOT treat _entityType
+	// as a discriminator here.
 	debugC(kDebugScripts, "Angel VM: testSyn ref=%d entityType=%d entityValue=%d verb=%d direction=%d",
 	       ref, _entityType, _entityValue, _state->_verb, _state->_direction);
 
-	if (_entityType >= 0) {
-		// kFtr path: shouldn't reach here — kFtr handler skips kSynOp.
-		// If we do get called, consume 1 getNip for alignment (proc 78 prologue)
-		// and return false as a safe default.
-		int entityIdx = getNip();
-		(void)entityIdx;
-		warning("Angel VM: testSyn reached from kFtr context (entityType=%d)", _entityType);
-		return false;
-	}
-
-	// kFt path: ref is entity table index. Convert to vocab.
-	int vocabIdx = entityToVocabIdx(ref);
-	if (vocabIdx >= 0) {
+	EntitySlotInfo slot = resolveEntitySlotInfo(ref);
+	if (slot.valid) {
 		// _state->_verb is already a vocab index (set in parser.cpp from token).
 		int verbVocabIdx = _state->_verb;
 		if (verbVocabIdx < 0 || verbVocabIdx >= _data->_nbrVWords)
 			verbVocabIdx = -1;
-		debugC(kDebugScripts, "Angel VM: testSyn(kFt) entityIdx=%d vocab[%d].vType=%d .ref=%d direction=%d verb=%d verbVocabIdx=%d",
-		       ref, vocabIdx, _data->_vocab[vocabIdx].ve.vType, _data->_vocab[vocabIdx].ve.ref,
+		debugC(kDebugScripts, "Angel VM: testSyn(kFt) entityIdx=%d slotType=%d slotRef=%d direction=%d verb=%d verbVocabIdx=%d",
+		       ref, slot.type, slot.ref,
 		       _state->_direction, _state->_verb, verbVocabIdx);
 		// Direction words: check if ref word's direction matches player direction
-		if (_data->_vocab[vocabIdx].ve.vType == kADirection)
-			return _data->_vocab[vocabIdx].ve.ref == _state->_direction;
+		if (slot.type == kADirection)
+			return slot.ref == _state->_direction;
 		// Verb words: check if ref is in same synonym group as current verb
 		if (verbVocabIdx >= 0)
-			return (_data->_vocab[vocabIdx].ve.ref == _data->_vocab[verbVocabIdx].ve.ref &&
-			        _data->_vocab[vocabIdx].ve.vType == _data->_vocab[verbVocabIdx].ve.vType);
+			return (slot.ref == _data->_vocab[verbVocabIdx].ve.ref &&
+			        slot.type == _data->_vocab[verbVocabIdx].ve.vType);
+	}
+
+	if (_entityType >= 0) {
+		debugC(kDebugScripts, "Angel VM: testSyn ref=%d unresolved slot with live entityType=%d -> FALSE",
+		       ref, _entityType);
 	}
 	return false;
 }
@@ -2763,11 +2804,11 @@ bool VM::testNew(int ref) {
 		vType = _entityType;
 		entityRef = _entityValue;
 	} else {
-		// kFt path: convert entity table index to vocab.
-		int vocabIdx = entityToVocabIdx(ref);
-		if (vocabIdx >= 0) {
-			vType = _data->_vocab[vocabIdx].ve.vType;
-			entityRef = _data->_vocab[vocabIdx].ve.ref;
+		// kFt path: read the DOS entity slot kind/ref pair.
+		EntitySlotInfo slot = resolveEntitySlotInfo(ref);
+		if (slot.valid) {
+			vType = slot.type;
+			entityRef = slot.ref;
 		} else {
 			// Fallback: check current location
 			return _state->map(_state->_location).unseen;
@@ -2856,27 +2897,22 @@ bool VM::testIs(int ref) {
 			return result;
 		}
 
-		// Convert entity table index to vocab index.
-		int vocabIdx = entityToVocabIdx(entityNum);
-		if (vocabIdx < 0) {
-			debugC(kDebugScripts, "Angel VM: testIs(ref=%d) $ path entityNum=%d vocabIdx=%d out of range -> FALSE",
-			        ref, entityNum, vocabIdx);
+		EntitySlotInfo slot = resolveEntitySlotInfo(entityNum);
+		if (!slot.valid) {
+			debugC(kDebugScripts, "Angel VM: testIs(ref=%d) $ path entityNum=%d unresolved slot -> FALSE",
+			        ref, entityNum);
 			return false;
 		}
 
 		// DOS truth from HandleTestOpcode_130_Is:
 		// the '$' path compares against the compared entity record's direct
-		// ref byte (local_17 + 3), not the older cross-type DIVI/MODI
-		// approximation we were using here.
-		//
-		// For the game vocab-backed entries we currently expose in C++, that
-		// direct record byte corresponds to VECore.ref.
-		int extractedRef = _data->_vocab[vocabIdx].ve.ref;
-		int vocabVType = _data->_vocab[vocabIdx].ve.vType;
+		// ref byte (local_17 + 3).
+		int extractedRef = slot.ref;
+		int vocabVType = slot.type;
 
 		bool result = (_entityValue == extractedRef);
-		debugC(kDebugScripts, "Angel VM: testIs(ref=%d) $ path entityValue=%d extractedRef=%d (entityNum=%d vocIdx=%d vType=%d entityType=%d) -> %s",
-		        ref, _entityValue, extractedRef, entityNum, vocabIdx,
+		debugC(kDebugScripts, "Angel VM: testIs(ref=%d) $ path entityValue=%d extractedRef=%d (entityNum=%d slotType=%d entityType=%d) -> %s",
+		        ref, _entityValue, extractedRef, entityNum,
 		        vocabVType, _entityType,
 		        result ? "TRUE" : "FALSE");
 

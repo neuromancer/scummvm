@@ -50,6 +50,7 @@ public:
 	int _nbrVehicles;
 	int _nbrVWords;
 	int _nbrProperties;
+	bool _isDosData;
 
 	// Vocab data
 	VEntry _vocab[kMaxNbrVWords + 1];
