@@ -359,15 +359,16 @@ bool GameData::loadTables(Common::SeekableReadStream *stream) {
 					place.accessLock = (int)buf[off + 17];
 					place.mustHave = (int)buf[off + 18];
 					place.fogPath = (int)buf[off + 19];
-					// People set at off+20 (4 bytes PersonSet)
+					// DOS field order: useThe at off+20, THEN people, objects, view, flags
+					place.useThe = (buf[off + 20] != 0);
+					// People set at off+21 (4 bytes PersonSet)
 					place.people.clear();
-					place.people.setWord(0, readUint32LE(&buf[off + 20]));
-					// Objects set at off+24 (8 bytes ObjSet)
+					place.people.setWord(0, readUint32LE(&buf[off + 21]));
+					// Objects set at off+25 (8 bytes ObjSet)
 					place.objects.clear();
-					place.objects.setWord(0, readUint32LE(&buf[off + 24]));
-					place.objects.setWord(1, readUint32LE(&buf[off + 28]));
-					place.view = (Aspect)buf[off + 32];
-					place.useThe = (buf[off + 33] != 0);
+					place.objects.setWord(0, readUint32LE(&buf[off + 25]));
+					place.objects.setWord(1, readUint32LE(&buf[off + 29]));
+					place.view = (Aspect)buf[off + 33];
 					place.foggy = (buf[off + 34] != 0);
 					place.itsADoor = (buf[off + 35] != 0);
 					place.itsOpen = (buf[off + 36] != 0);
@@ -375,9 +376,9 @@ bool GameData::loadTables(Common::SeekableReadStream *stream) {
 					place.unseen = (buf[off + 39] != 0);
 
 					// Log objects at this location
-					for (int o = 1; o <= 23; o++) {
+					for (int o = 1; o <= _nbrObjects; o++) {
 						if (place.objects.has(o))
-							debugC(2, kDebugScripts, "Angel: DOS Map[%d] has object %d (n=%d)", locIdx, o, (o <= _nbrObjects) ? _props[o].n : 0);
+							debugC(2, kDebugScripts, "Angel: DOS Map[%d] has object %d (n=%d oName=%d)", locIdx, o, _props[o].n, _props[o].oName);
 					}
 					debugC(2, kDebugScripts, "Angel: DOS Map[%d]: n=%d shortDscr=%d exits=[N=%d,S=%d,E=%d,W=%d,U=%d,D=%d] access=%d mustHave=%d fog=%d traffic=[%d,%d,%d,%d,%d,%d] door=%d open=%d",
 					       locIdx, place.n, place.shortDscr,
