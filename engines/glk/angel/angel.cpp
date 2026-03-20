@@ -833,6 +833,12 @@ void Angel::dispatchCommand(ThingToDo action) {
 			return;
 		}
 
+		// TODO: Phase 2 entity response record matching (CPL 19 equivalent).
+		// The DOS binary's ExecuteResponseRecordLoop iterates linked entity
+		// records per location, populating cmdEntry[1] via the slot table and
+		// response handlers. Requires Ghidra RE of the record table format
+		// and the matching logic before implementing.
+
 		int cmdAddr = _state->_cmdEntry[1];
 		if (cmdAddr > 0) {
 			// Entity-specific command handler (traps, special moves).
@@ -847,11 +853,7 @@ void Angel::dispatchCommand(ThingToDo action) {
 
 		// Default movement: change location or report dead end.
 		// P-code RESPOND proc 66 case '^': compute destination, change location.
-		// If the response handler produced visible text (_lineDirty), the command
-		// was handled by the response system — skip the default move. This matches
-		// the DOS binary where the response state machine's text output gates the
-		// default movement path.
-		if (_state->_location == locBefore && !_lineDirty) {
+		if (_state->_location == locBefore) {
 			if (moveDest > kNowhere) {
 				debugC(1, kDebugScripts, "Angel: default move loc %d -> %d dir=%d",
 				       _state->_location, moveDest, _state->_direction);

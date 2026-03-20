@@ -2960,17 +2960,15 @@ bool VM::testIs(int ref) {
 
 		bool result = (_entityValue == extractedRef);
 
-		// DOS HandleTestOpcode_130_Is: for location entities (type 2),
-		// the merge section does equality first, then an adjacency check
-		// gated by the response finalization system (HandleResponseOpcode_0B
-		// + FinalizeResponseOutcomeFromAL). The adjacency check iterates
-		// nextPlace[0..5] of the target location. However, the gate condition
-		// depends on the full response state machine which is not yet
-		// implemented in C++. For now, use simple equality only.
-		//
-		// TODO: Implement gated adjacency check per DOS HandleTestOpcode_130_Is.
-		// The gate requires the response finalization dispatch to determine
-		// whether the adjacency path should be taken.
+		// DOS HandleTestOpcode_130_Is has an adjacency check for type-2
+		// entities gated by the response finalization system. This gate
+		// prevents it from firing during movement dispatch (where it would
+		// incorrectly match all adjacent directions). The C++ does not yet
+		// implement the response finalization gate, so we use simple equality
+		// only. The west-blocking for loc 7 depends on the entity response
+		// record iteration (ExecuteResponseRecordLoop) which is not yet
+		// implemented in C++.
+		// TODO: Implement entity response record iteration for Phase 2.
 
 		debugC(kDebugScripts, "Angel VM: testIs(ref=%d) $ path entityValue=%d extractedRef=%d (entityNum=%d slotType=%d entityType=%d) -> %s",
 		        ref, _entityValue, extractedRef, entityNum,
