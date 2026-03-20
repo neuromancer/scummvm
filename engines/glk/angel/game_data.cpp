@@ -367,11 +367,15 @@ bool GameData::loadTables(Common::SeekableReadStream *stream) {
 					place.itsLocked = false;
 					place.unseen = (buf[off + 39] != 0);
 
-					debugC(2, kDebugScripts, "Angel: DOS Map[%d]: n=%d shortDscr=%d exits=[N=%d,S=%d,E=%d,W=%d,U=%d,D=%d]",
+					debugC(2, kDebugScripts, "Angel: DOS Map[%d]: n=%d shortDscr=%d exits=[N=%d,S=%d,E=%d,W=%d,U=%d,D=%d] access=%d mustHave=%d fog=%d traffic=[%d,%d,%d,%d,%d,%d]",
 					       locIdx, place.n, place.shortDscr,
 					       place.nextPlace[0], place.nextPlace[1],
 					       place.nextPlace[2], place.nextPlace[3],
-					       place.nextPlace[4], place.nextPlace[5]);
+					       place.nextPlace[4], place.nextPlace[5],
+					       place.accessLock, place.mustHave, place.fogPath,
+					       place.traffic[0], place.traffic[1],
+					       place.traffic[2], place.traffic[3],
+					       place.traffic[4], place.traffic[5]);
 				}
 				locIdx++;
 				break;

@@ -90,6 +90,7 @@ public:
 	int _tourPoint;                              // LocRef
 	bool _stillPlaying;
 	bool _respondQuit;                           // RESPOND segment's quit flag (SRO 2)
+	bool _responseHandled;                       // True when response handler output visible text
 	int _robotAddr;
 
 	// ---- Communication record state ----

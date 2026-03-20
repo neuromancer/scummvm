@@ -809,6 +809,7 @@ void Angel::dispatchCommand(ThingToDo action) {
 		// hidden during valid moves, while trap/death handlers explicitly
 		// unsuppress themselves via kSpkOp/kForceOp before printing text.
 		memset(_state->_cmdEntry, 0, sizeof(_state->_cmdEntry));
+		_state->_responseHandled = false;
 		int responseAddr = _data->_map[_state->_location].responseAddr;
 		if (responseAddr > 0) {
 			debugC(1, kDebugScripts,
@@ -846,7 +847,11 @@ void Angel::dispatchCommand(ThingToDo action) {
 
 		// Default movement: change location or report dead end.
 		// P-code RESPOND proc 66 case '^': compute destination, change location.
-		if (_state->_location == locBefore) {
+		// If the response handler produced visible text (_lineDirty), the command
+		// was handled by the response system — skip the default move. This matches
+		// the DOS binary where the response state machine's text output gates the
+		// default movement path.
+		if (_state->_location == locBefore && !_lineDirty) {
 			if (moveDest > kNowhere) {
 				debugC(1, kDebugScripts, "Angel: default move loc %d -> %d dir=%d",
 				       _state->_location, moveDest, _state->_direction);

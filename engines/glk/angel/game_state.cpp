@@ -181,6 +181,7 @@ void GameState::initFromData(GameData *data) {
 
 	_stillPlaying = true;
 	_respondQuit = false;
+	_responseHandled = false;
 	_moveNumber = 0;
 
 	// Initialize verb → action mapping

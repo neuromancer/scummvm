@@ -795,6 +795,7 @@ void VM::executeMsg() {
 				break;
 			}
 			charCount++;
+			_state->_responseHandled = true;
 
 			// kCapOp-based capitalization (for proper nouns like Tepotzteco).
 			// Period-based auto-capitalize and auto-spacing after punctuation
@@ -2958,16 +2959,23 @@ bool VM::testIs(int ref) {
 		int vocabVType = slot.type;
 
 		bool result = (_entityValue == extractedRef);
+
+		// DOS HandleTestOpcode_130_Is: for location entities (type 2),
+		// the merge section does equality first, then an adjacency check
+		// gated by the response finalization system (HandleResponseOpcode_0B
+		// + FinalizeResponseOutcomeFromAL). The adjacency check iterates
+		// nextPlace[0..5] of the target location. However, the gate condition
+		// depends on the full response state machine which is not yet
+		// implemented in C++. For now, use simple equality only.
+		//
+		// TODO: Implement gated adjacency check per DOS HandleTestOpcode_130_Is.
+		// The gate requires the response finalization dispatch to determine
+		// whether the adjacency path should be taken.
+
 		debugC(kDebugScripts, "Angel VM: testIs(ref=%d) $ path entityValue=%d extractedRef=%d (entityNum=%d slotType=%d entityType=%d) -> %s",
 		        ref, _entityValue, extractedRef, entityNum,
 		        vocabVType, _entityType,
 		        result ? "TRUE" : "FALSE");
-
-		// Do not apply the old isLocal() fallback here.
-		// DOS HandleTestOpcode_130_Is dispatches through response-state helpers
-		// on the location/building case; the previous adjacency shortcut was an
-		// approximation and is what caused the chamber/tomb scripts to fire on
-		// the wrong movement commands.
 
 		return result;
 	} else {
