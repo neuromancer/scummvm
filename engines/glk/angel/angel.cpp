@@ -182,7 +182,10 @@ void Angel::runStartupSequence() {
 	}
 
 	_vm->setSuppressText(false);
-	describeLocation(true);
+	// Startup is not a movement arrival. Room scripts use cmdFlag[2] to
+	// distinguish movement text from the initial/LOOK description, and
+	// room 7's opening paragraph must stay on the non-movement branch.
+	describeLocation(false);
 }
 
 void Angel::restartSession() {
@@ -600,10 +603,12 @@ void Angel::describeLocation(bool fromMovement, int /*sourceLocation*/) {
 	// description (e.g., "The central chamber is a vast, shadowy space..."
 	// without first-visit-only elements).
 
-	// Set cmdFlag[2]=1 for movement commands. Location messages check this
+	// Set X[2]=1 for movement commands. DOS GAME.000 reads X targets through
+	// the single command-word table, and room scripts use ref=8 to distinguish
+	// movement arrivals from initial/LOOK descriptions.
 	// (via kEqOp) to select between full and condensed description variants.
 	if (fromMovement) {
-		_state->_cmdFlag[2] = 1;
+		_state->_cmdEntry[2] = 1;
 	}
 
 	if (here.n > 0) {
@@ -742,8 +747,9 @@ void Angel::runLocationScripts() {
 }
 
 void Angel::dispatchCommand(ThingToDo action) {
-	// Clear command flags each turn (word 0 of CmdEntry records at g[3045]).
-	// These are set per-command and read by location scripts via lookupFieldValue 'X'.
+	// Clear the DOS X target table each turn. GAME.000 uses a single word
+	// table for X refs, not the older split cmdFlag/cmdEntry approximation.
+	memset(_state->_cmdEntry, 0, sizeof(_state->_cmdEntry));
 	memset(_state->_cmdFlag, 0, sizeof(_state->_cmdFlag));
 	_state->_respondQuit = false;
 
@@ -775,10 +781,14 @@ void Angel::dispatchCommand(ThingToDo action) {
 		moveDest = _state->_cur.whereTo;
 		debugC(1, kDebugScripts, "Angel: dispatchCommand move: loc=%d dest=%d dir=%d verb=%d cmdEntry[1]=%d",
 		       _state->_location, moveDest, _state->_direction, _state->_verb, _state->_cmdEntry[1]);
-		// Set target so kTargOp returns the destination — even for kNowhere,
-		// because the MOVE script checks kTargOp to decide traps vs dead-ends.
+		// kTargOp should see the parser-computed destination for movement
+		// scripts, even when it is kNowhere.
 		_state->_target = moveDest;
-		_state->_placeNamed = moveDest;
+		// Keep kPlaceOp anchored to the current location for direction-only
+		// movement commands. Older movement traces reach opRLoc with
+		// placeNamed=current_location, not the destination.
+		if (_state->_placeNamed == 0)
+			_state->_placeNamed = _state->_location;
 	}
 
 	// NOTE: The MOVE event (xReg[kXMove]) is NOT dispatched directly here.

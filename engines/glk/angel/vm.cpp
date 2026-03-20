@@ -2487,10 +2487,11 @@ VM::EntitySlotInfo VM::resolveEntitySlotInfo(int entityNum) const {
 
 	// DOS GAME.000 uses a large runtime slot table at DS:06b2 with 7-byte
 	// records. The kFt handlers for Here/Syn/Is read slot +2 as KindOfWord
-	// and slot +3 as the direct ref byte. We do not have that table loaded
-	// yet, so only keep the handful of chamber-south overrides that were
-	// needed to confirm the trapdoor path. Unverified high-entropy slots are
-	// intentionally left unresolved rather than guessed from prior notes.
+	// and slot +3 as the direct ref byte. The full runtime producer path is
+	// still not implemented in C++, so only keep the handful of room-7 slots
+	// whose semantics are grounded by confirmed GAME.000 handler behavior.
+	// Everything else still falls back to the older vocab-based approximation
+	// until the slot writers are modeled properly.
 	if (_data->_isDosData) {
 		switch (entityNum) {
 		case 38:
@@ -2502,11 +2503,6 @@ VM::EntitySlotInfo VM::resolveEntitySlotInfo(int entityNum) const {
 			info.valid = true;
 			info.type = kADirection;
 			info.ref = 1;   // South
-			return info;
-		case 208:
-			info.valid = true;
-			info.type = kALocation;
-			info.ref = 7;   // Central chamber
 			return info;
 		default:
 			break;
@@ -3352,16 +3348,14 @@ int VM::lookupFieldValue(int entityRef) {
 			break;
 		}
 	} else if (entityRef < 16) {
-		// Type 'X' — g[3045 + adjusted * 2], SIND 0 reads word 0
-		// g[3045] is the CmdEntry array base (separate from xReg at g[3020]).
-		// Each entry is 2 words: {flag (word 0), addr (word 1)}.
-		// Dispatch (SIND 1) reads word 1 = _cmdEntry[adj] (the message address).
-		// LookupFieldValue (SIND 0) reads word 0 = _cmdFlag[adj] (state/type flag).
-		// For ref=8 (adjusted=2): _cmdFlag[2] = 1 for movement commands.
+		// DOS GAME.000 uses a single word table for X targets here.
+		// ReadEditTargetValue/WriteEditTargetValue both access g_cmdEntryTable
+		// directly as one word per index, so lookupFieldValue must read the
+		// same backing array rather than the old split cmdFlag approximation.
 		int adjusted = entityRef - 6;
 		if (adjusted >= 0 && adjusted < GameState::kMaxCmdEntries) {
-			result = _state->_cmdFlag[adjusted];
-			debugC(kDebugScripts, "Angel VM: lookupFieldValue X cmdFlag[%d]=%d (ref=%d)",
+			result = _state->_cmdEntry[adjusted];
+			debugC(kDebugScripts, "Angel VM: lookupFieldValue X cmdEntry[%d]=%d (ref=%d)",
 			       adjusted, result, entityRef);
 		}
 	} else if (entityRef < 48) {
@@ -3446,11 +3440,12 @@ void VM::storeFieldValue(int entityRef, int value) {
 			break;
 		}
 	} else if (entityRef < 16) {
-		// Type 'X' — cmdFlag[entityRef-6] (word 0 of CmdEntry records at g[3045])
+		// DOS GAME.000 stores X targets in the same single-word command table
+		// used by lookupFieldValue and by WriteEditTargetValue.
 		int adjusted = entityRef - 6;
 		if (adjusted >= 0 && adjusted < GameState::kMaxCmdEntries) {
-			_state->_cmdFlag[adjusted] = value;
-			debugC(kDebugScripts, "Angel VM: storeFieldValue X cmdFlag[%d]=%d (ref=%d)",
+			_state->_cmdEntry[adjusted] = value;
+			debugC(kDebugScripts, "Angel VM: storeFieldValue X cmdEntry[%d]=%d (ref=%d)",
 			       adjusted, value, entityRef);
 		}
 	} else if (entityRef < 48) {
