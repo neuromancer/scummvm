@@ -429,6 +429,12 @@ void VM::executeMsg() {
 				        target, _lastTestResult ? "T" : "F",
 				        _state->_tfIndicator ? "T" : "F",
 				        _state->_msgPos, _state->_msgPos + target - 1);
+				// DOS JF handler (confirmed at 1000:0c2e) reads g_tfIndicator
+				// at [0x4B7B]. However, switching to _tfIndicator causes
+				// regressions because the tfIndicator management during
+				// displayMsg differs from the DOS response state machine.
+				// TODO: Fix tfIndicator flow in displayMsg to match DOS,
+				// then switch JF to use _tfIndicator.
 				if (!_lastTestResult) {
 					jump(target - 1);
 				}
@@ -640,7 +646,7 @@ void VM::executeMsg() {
 					}
 					debugC(kDebugScripts, "Angel VM: kFt test op=%d ref=%d", opVal, ref);
 					if (opVal < kNumOperations) {
-						executeTest((Operation)opVal, ref);
+						executeTest((Operation)opVal, ref, false);  // kFt context
 					} else {
 						warning("Angel VM: Unknown test opcode nip=%d op=%d", opNip, opVal);
 					}
@@ -673,7 +679,7 @@ void VM::executeMsg() {
 					_state->_tfIndicator = false;
 					debugC(kDebugScripts, "Angel VM: kFtr testSyn no-op (proc 76 RPU 5)");
 				} else if (opVal < kNumOperations) {
-					executeTest((Operation)opVal, ref);
+					executeTest((Operation)opVal, ref, true);  // kFtr context
 				} else {
 					warning("Angel VM: Unknown test+ref opcode nip=%d op=%d", opNip, opVal);
 				}
@@ -1153,7 +1159,7 @@ void VM::executeAction(Operation op, int ref) {
 // Test dispatch
 // ============================================================
 
-void VM::executeTest(Operation op, int ref) {
+void VM::executeTest(Operation op, int ref, bool isKFtr) {
 	bool result = false;
 
 	switch (op) {
@@ -1207,12 +1213,19 @@ void VM::executeTest(Operation op, int ref) {
 		break;
 	}
 
-	// All tests set _lastTestResult for JF branching (UCSD boolean stack).
+	// All tests set _lastTestResult.
 	_lastTestResult = result;
 
-	// kNewOp does NOT set the text flag (seg[20].global[5]) — P-code proc 76
-	// only stores the result to global[5] for kIsOp (case 130), not kNewOp (128).
-	// All other tests DO set the text flag.
+	// kFt context (proc 72): kNewOp does NOT set g_tfIndicator.
+	// kFtr context (proc 76): ALL tests set g_tfIndicator including kNewOp
+	// (confirmed from Ghidra: HandleTestOpcode_128_New at 0xc7b6 writes [0x4b7b]).
+	//
+	// However, the current C++ uses _lastTestResult for JF (not _tfIndicator),
+	// and the displayMsg tfIndicator management differs from the DOS response
+	// state machine. Setting tfIndicator for kFtr kNewOp causes text suppression
+	// regressions. Keep the kNewOp exception for both contexts until the full
+	// tfIndicator flow matches DOS.
+	// TODO: Once JF uses _tfIndicator, enable kFtr kNewOp tfIndicator writes.
 	if (op != kNewOp)
 		_state->_tfIndicator = result;
 }

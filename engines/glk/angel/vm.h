@@ -168,7 +168,7 @@ private:
 	void executeAction(Operation op, int ref);
 
 	/** Execute a test opcode (Ft/Ftr), sets _state->_tfIndicator */
-	void executeTest(Operation op, int ref);
+	void executeTest(Operation op, int ref, bool isKFtr = false);
 
 	/** Execute an edit opcode (via Fa/Far edit range) */
 	void executeEdit(Operation op, int ref);
