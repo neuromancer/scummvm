@@ -83,6 +83,12 @@ public:
 	void populateEntitySlot(int vocabIdx, byte kindOfWord, byte ref);
 	void resetRuntimeState();
 
+	// Direct action dispatch (for angel.cpp to call when entity record
+	// system is not yet implemented). In the DOS binary, these are invoked
+	// from within the response state machine via kFa/kFar opcodes.
+	void opTake();
+	void opDrop();
+
 	/** Get the next decoded character from the message stream */
 	char getAChar();
 
@@ -187,8 +193,7 @@ private:
 	void opCap(int ref);
 	void opForce(int ref);
 
-	void opTake();
-	void opDrop();
+	// opTake/opDrop moved to public section for direct dispatch from angel.cpp
 	void opWear();
 	void opShed();
 	void opPkUp();

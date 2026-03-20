@@ -212,10 +212,12 @@ void VM::displayMsg(int addr, bool descriptionOnly) {
 	_cseContentDepth = 0;
 	// DOS binary does NOT reset g_tfIndicator on message entry (confirmed
 	// from Ghidra: no MOV [0x4B7B] in JU/FCall/dispatch loop at 1000:0c00+).
-	// However, the C++ JF uses _lastTestResult (not _tfIndicator) as a
-	// workaround. Both must be TRUE at message start so text flows by default.
-	// The dispatchCommand reset sets _tfIndicator=true per command; this init
-	// sets _lastTestResult=true per displayMsg call for nested messages.
+	// However, the C++ needs both flags TRUE at message start because:
+	// 1. _tfIndicator gates putChar text output (line 789)
+	// 2. _lastTestResult is used by JF (as a workaround for tfIndicator)
+	// Without this, WELCOME intro text is suppressed when tfIndicator starts FALSE.
+	// TODO: Remove once dispatchCommand/runStartupSequence properly manage tfIndicator.
+	_state->_tfIndicator = true;
 	_lastTestResult = true;
 
 	openMsg(addr, "displayMsg");
@@ -1696,15 +1698,45 @@ void VM::opForce(int ref) {
 
 void VM::opTake() {
 	// Player takes an object — adds to possessions.
-	// The script is responsible for testing preconditions (kHereOp etc.)
-	// via kFt/JF before calling this action. We just execute the state change.
+	// In the DOS binary, HandleActionOpcode_52_PickUp_Core runs through the
+	// response state machine which generates "You take the [name]." text.
+	// The C++ dispatches opTake directly, so we generate the text here.
 	int obj = _state->_cur.doItToWhat;
 	debugC(kDebugScripts, "Angel VM: opTake/opPkUp obj=%d loc=%d", obj, _state->_location);
 	if (obj > 0 && obj <= _data->_nbrObjects) {
-		// Remove from location if present
-		_data->_map[_state->_location].objects.unset(obj);
-		_state->_possessions.set(obj);
-		_state->_nbrPossessions++;
+		// Check if object is accessible (at location or already held)
+		bool atLocation = _data->_map[_state->_location].objects.has(obj) ||
+		                  _data->_props[obj].inOrOn == _state->_location;
+		bool inPossession = _state->_possessions.has(obj) || _state->_wearing.has(obj);
+
+		if (!atLocation && !inPossession) {
+			_state->_tfIndicator = false;
+			return;
+		}
+
+		if (_state->_wearing.has(obj)) {
+			// Already wearing — remove from wearing to "take in hand"
+			_state->_wearing.unset(obj);
+			// Output text: "You take the [name]."
+			Common::String name = _engine->parser()->getWordName(_data->_props[obj].oName);
+			if (!name.empty() && !_suppressText) {
+				_engine->putWord("You take the ");
+				_engine->putWord(name.c_str());
+				_engine->putWord(".");
+			}
+		} else if (atLocation) {
+			// Pick up from location
+			_data->_map[_state->_location].objects.unset(obj);
+			_state->_possessions.set(obj);
+			_state->_nbrPossessions++;
+			Common::String name = _engine->parser()->getWordName(_data->_props[obj].oName);
+			if (!name.empty() && !_suppressText) {
+				_engine->putWord("You take the ");
+				_engine->putWord(name.c_str());
+				_engine->putWord(".");
+			}
+		}
+		_state->_tfIndicator = true;
 		debugC(kDebugScripts, "Angel VM: opTake SUCCESS - player now has obj %d", obj);
 	}
 }

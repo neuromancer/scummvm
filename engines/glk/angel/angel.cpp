@@ -939,6 +939,26 @@ void Angel::dispatchCommand(ThingToDo action) {
 		// For action verbs (take, drop, etc.), run in respond mode so
 		// kRoleOp skips the description and executes the response section.
 		if (_state->_cur.doItToWhat > 0 && _state->_cur.doItToWhat <= _data->_nbrObjects) {
+			// Check if this is an action verb that should be dispatched directly.
+			// In the DOS binary, actions go through ExecuteResponseRecord's
+			// response state machine. Until that's implemented, dispatch common
+			// action verbs directly from C++ to their opcode handlers.
+			bool actionHandled = false;
+			if (_state->_verb > 0 && _state->_verb <= _data->_nbrVWords) {
+				VWords vc = _data->_vocab[_state->_verb].ve.code;
+				if (vc == kVTake) {
+					_vm->opTake();
+					forceQ();
+					actionHandled = true;
+				} else if (vc == kVDrop) {
+					_vm->opDrop();
+					forceQ();
+					actionHandled = true;
+				}
+			}
+			if (actionHandled)
+				return;
+
 			scriptAddr = _data->_props[_state->_cur.doItToWhat].n;
 			debugC(1, kDebugScripts, "Angel: object dispatch obj=%d addr=%d",
 			       _state->_cur.doItToWhat, scriptAddr);
