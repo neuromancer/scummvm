@@ -2483,33 +2483,37 @@ int VM::entityToVocabIdx(int entityNum) const {
 	return -1;
 }
 
+void VM::populateEntitySlot(int vocabIdx, byte kindOfWord, byte ref) {
+	// Convert vocab index to entity table index and populate the slot.
+	// Entity index = kLibraryWordCount + 1 + vocabIdx (inverse of entityToVocabIdx).
+	int entityIdx = kLibraryWordCount + 1 + vocabIdx;
+	if (entityIdx >= 0 && entityIdx < GameState::kMaxEntitySlots) {
+		_state->_entitySlots[entityIdx].kindOfWord = kindOfWord;
+		_state->_entitySlots[entityIdx].ref = ref;
+	}
+}
+
 VM::EntitySlotInfo VM::resolveEntitySlotInfo(int entityNum) const {
 	EntitySlotInfo info;
 
-	// DOS GAME.000 uses a large runtime slot table at DS:06b2 with 7-byte
-	// records. The kFt handlers for Here/Syn/Is read slot +2 as KindOfWord
-	// and slot +3 as the direct ref byte. The full runtime producer path is
-	// still not implemented in C++, so only keep the handful of room-7 slots
-	// whose semantics are grounded by confirmed GAME.000 handler behavior.
-	// Everything else still falls back to the older vocab-based approximation
-	// until the slot writers are modeled properly.
-	if (_data->_isDosData) {
-		switch (entityNum) {
-		case 38:
+	// DOS GAME.000 uses a runtime slot table at DS:06b2 with 7-byte records.
+	// The kFt handlers for Here/Syn/Is read slot +2 as KindOfWord and slot +3
+	// as the direct ref byte. The table is populated by ExecuteResponseRecord
+	// before running entity handlers (Phase 2 dispatch).
+	//
+	// Check the runtime slot table first — if populated (kindOfWord != 0 or
+	// ref != 0), use it. Otherwise fall back to static vocab data.
+	if (entityNum >= 0 && entityNum < GameState::kMaxEntitySlots) {
+		const GameState::EntitySlotEntry &slot = _state->_entitySlots[entityNum];
+		if (slot.kindOfWord != 0 || slot.ref != 0) {
 			info.valid = true;
-			info.type = kALocation;
-			info.ref = 7;   // Current chamber slot used by msg 1322 in the south death path
+			info.type = (KindOfWord)slot.kindOfWord;
+			info.ref = (int)slot.ref;
 			return info;
-		case 142:
-			info.valid = true;
-			info.type = kADirection;
-			info.ref = 1;   // South
-			return info;
-		default:
-			break;
 		}
 	}
 
+	// Fallback: derive from static vocab data.
 	int vocabIdx = entityToVocabIdx(entityNum);
 	if (vocabIdx >= 0) {
 		info.valid = true;

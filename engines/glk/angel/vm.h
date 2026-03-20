@@ -80,6 +80,7 @@ public:
 	void setBaseSuppressText(bool suppress) { _baseSuppressText = suppress; }
 	void setRespondMode(bool respond) { _respondMode = respond; }
 	void resetEntityContext() { _entityType = -1; _entityValue = 0; _entityFlag = false; }
+	void populateEntitySlot(int vocabIdx, byte kindOfWord, byte ref);
 	void resetRuntimeState();
 
 	/** Get the next decoded character from the message stream */

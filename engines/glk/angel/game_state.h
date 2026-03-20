@@ -133,6 +133,18 @@ public:
 	VWordSet _cueWords;                          // Prepositions
 	int _newArrival;                             // PersonRef
 
+	// ---- Entity slot table (DOS DS:06b2, 7-byte records) ----
+	// Populated by ExecuteResponseRecord before running entity handlers.
+	// kIsOp/testSyn/testHere read kindOfWord (+2) and ref (+3) from here.
+	// Entity index = kLibraryWordCount + 1 + vocabIndex.
+	static const int kMaxEntitySlots = 320;  // kLibraryWordCount + kMaxNbrVWords + margin
+	struct EntitySlotEntry {
+		byte kindOfWord;  // KindOfWord enum (0=obj, 1=person, 2=loc, etc.)
+		byte ref;         // Entity reference within type
+		EntitySlotEntry() : kindOfWord(0), ref(0) {}
+	};
+	EntitySlotEntry _entitySlots[kMaxEntitySlots];
+
 	// ---- Command dispatch (CmdEntry at g[3045]) ----
 	// g[3045] stores 2-word records: {flag (word 0), addr (word 1)}.
 	// _cmdEntry[i] = word 1 (message address for dispatch, read via SIND 1).

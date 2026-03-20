@@ -833,11 +833,16 @@ void Angel::dispatchCommand(ThingToDo action) {
 			return;
 		}
 
-		// TODO: Phase 2 entity response record matching (CPL 19 equivalent).
-		// The DOS binary's ExecuteResponseRecordLoop iterates linked entity
-		// records per location, populating cmdEntry[1] via the slot table and
-		// response handlers. Requires Ghidra RE of the record table format
-		// and the matching logic before implementing.
+		// TODO: Phase 2 entity response matching.
+		// BuildResponseContextFrame (0x8912) iterates ALL entities and runs
+		// each one's response section via the full response state machine
+		// (ExecuteResponseRecord → RespondOpcodeLoop). The displayMsg approach
+		// doesn't work because entity messages need the state machine's proper
+		// slot table population and response section gating — raw displayMsg
+		// causes corrupt nip reads and text leaks. Implementing this requires
+		// either porting the response state machine or building a lightweight
+		// entity dispatch that populates slots and runs only the response
+		// section bytecodes (skipping description) with proper error handling.
 
 		int cmdAddr = _state->_cmdEntry[1];
 		if (cmdAddr > 0) {
