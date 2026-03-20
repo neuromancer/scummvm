@@ -380,7 +380,15 @@ int Parser::resolveObject(int vocabIndex) const {
 	if (vocabIndex < 0)
 		return 0;
 
-	// First pass: prefer objects at the player's location or in inventory
+	// The vocab entry's ref field directly gives the ObjRef for type AnObject.
+	// Multiple vocab words can reference the same object (e.g., "whip" and
+	// "bullwhip" both have ref=5 for Object[5]).
+	const VEntry &ve = _data->_vocab[vocabIndex];
+	if (ve.ve.vType == kAnObject && ve.ve.ref > 0 && ve.ve.ref <= _data->_nbrObjects) {
+		return ve.ve.ref;
+	}
+
+	// Fallback: match by oName (for cases where vType isn't AnObject)
 	int loc = _state->_location;
 	for (int obj = 1; obj <= _data->_nbrObjects; obj++) {
 		if (_data->_props[obj].oName == vocabIndex) {
@@ -390,8 +398,6 @@ int Parser::resolveObject(int vocabIndex) const {
 				return obj;
 		}
 	}
-
-	// Second pass: return first match anywhere in the world
 	for (int obj = 1; obj <= _data->_nbrObjects; obj++) {
 		if (_data->_props[obj].oName == vocabIndex)
 			return obj;

@@ -929,11 +929,30 @@ void Angel::dispatchCommand(ThingToDo action) {
 		bool isLocationDispatch = false;
 
 		// Entity-specific dispatch: when an entity was targeted,
-		// run its .n script for the response.
+		// run its .n script. For examine/look, run in description mode.
+		// For action verbs (take, drop, etc.), run in respond mode so
+		// kRoleOp skips the description and executes the response section.
+		bool isObjectAction = false;
 		if (_state->_cur.doItToWhat > 0 && _state->_cur.doItToWhat <= _data->_nbrObjects) {
-			scriptAddr = _data->_props[_state->_cur.doItToWhat].n;
-			debugC(1, kDebugScripts, "Angel: object dispatch obj=%d addr=%d",
-			       _state->_cur.doItToWhat, scriptAddr);
+			// Check if this is an examine/look or an action verb
+			if (_state->_verb > 0 && _state->_verb <= _data->_nbrVWords) {
+				VWords vc = _data->_vocab[_state->_verb].ve.code;
+				isObjectAction = (vc != kVLook && vc != kVExamine);
+			}
+			if (isObjectAction) {
+				// Action verbs (take, drop, open, etc.) go through the
+				// LOCATION response handler, which has kFa/kFar opcodes
+				// that dispatch to action handlers like kPkUpOp.
+				scriptAddr = _data->_map[_state->_location].responseAddr;
+				if (scriptAddr <= 0)
+					scriptAddr = _data->_props[_state->_cur.doItToWhat].n;
+				isLocationDispatch = true;
+			} else {
+				// Examine/look dispatches to the object's description.
+				scriptAddr = _data->_props[_state->_cur.doItToWhat].n;
+			}
+			debugC(1, kDebugScripts, "Angel: object dispatch obj=%d addr=%d action=%d",
+			       _state->_cur.doItToWhat, scriptAddr, isObjectAction ? 1 : 0);
 		} else if (_state->_cur.personNamed > 0 && _state->_cur.personNamed <= _data->_castSize) {
 			scriptAddr = _data->_cast[_state->_cur.personNamed].n;
 			debugC(1, kDebugScripts, "Angel: person dispatch person=%d addr=%d",
@@ -946,6 +965,10 @@ void Angel::dispatchCommand(ThingToDo action) {
 			if (_state->_verb > 0 && _state->_verb <= _data->_nbrVWords &&
 			    _data->_vocab[_state->_verb].ve.code == kVLook) {
 				scriptAddr = _data->_map[_state->_location].n;
+				// DOS sets cmdEntry[2]=1 for look commands so the
+				// room description script can show the full text
+				// (panel text etc.) via kFt comparison ref=8.
+				_state->_cmdEntry[2] = 1;
 			} else {
 				scriptAddr = _data->_map[_state->_location].responseAddr;
 				if (scriptAddr <= 0)
@@ -968,9 +991,12 @@ void Angel::dispatchCommand(ThingToDo action) {
 			// entityType=2 (location) from the description handler causes
 			// testSyn to always return isLocal()=true, bypassing verb matching.
 			_vm->resetEntityContext();
-			const bool respondMode = !(isLocationDispatch &&
-				_state->_verb > 0 && _state->_verb <= _data->_nbrVWords &&
-				_data->_vocab[_state->_verb].ve.code == kVLook);
+			// Respond mode for: action verbs on objects, non-look location dispatch.
+			// Description mode for: examine/look on objects, bare look.
+			const bool respondMode = isObjectAction ||
+				!(isLocationDispatch &&
+				  _state->_verb > 0 && _state->_verb <= _data->_nbrVWords &&
+				  _data->_vocab[_state->_verb].ve.code == kVLook);
 			const bool descriptionOnly = isLocationDispatch && scriptAddr == _data->_map[_state->_location].n;
 			_vm->setRespondMode(respondMode);
 			_vm->setSuppressText(false);
