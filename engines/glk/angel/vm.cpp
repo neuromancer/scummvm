@@ -210,7 +210,12 @@ void VM::displayMsg(int addr, bool descriptionOnly) {
 	_callDepth = 0;
 	_descriptionOnly = descriptionOnly;
 	_cseContentDepth = 0;
-	_state->_tfIndicator = true;  // No test has run yet; text should be visible
+	// DOS binary does NOT reset g_tfIndicator on message entry (confirmed
+	// from Ghidra: no MOV [0x4B7B] in JU/FCall/dispatch loop at 1000:0c00+).
+	// However, the C++ JF uses _lastTestResult (not _tfIndicator) as a
+	// workaround. Both must be TRUE at message start so text flows by default.
+	// The dispatchCommand reset sets _tfIndicator=true per command; this init
+	// sets _lastTestResult=true per displayMsg call for nested messages.
 	_lastTestResult = true;
 
 	openMsg(addr, "displayMsg");
@@ -429,12 +434,14 @@ void VM::executeMsg() {
 				        target, _lastTestResult ? "T" : "F",
 				        _state->_tfIndicator ? "T" : "F",
 				        _state->_msgPos, _state->_msgPos + target - 1);
-				// DOS JF handler (confirmed at 1000:0c2e) reads g_tfIndicator
-				// at [0x4B7B]. However, switching to _tfIndicator causes
-				// regressions because the tfIndicator management during
-				// displayMsg differs from the DOS response state machine.
-				// TODO: Fix tfIndicator flow in displayMsg to match DOS,
-				// then switch JF to use _tfIndicator.
+				// DOS JF handler (confirmed at 1000:0c2e) reads g_tfIndicator.
+				// DOS does NOT reset tfIndicator on message entry (confirmed:
+				// no write in JU/FCall/dispatch loop at 1000:0c00+).
+				// DOS does NOT init tfIndicator=true in displayMsg (confirmed).
+				// Switching to _tfIndicator requires matching the full DOS
+				// response state machine's tfIndicator management (reset points
+				// in RunMainResponseCycle and dispatch state handlers).
+				// Using _lastTestResult as a workaround preserves existing behavior.
 				if (!_lastTestResult) {
 					jump(target - 1);
 				}
@@ -1216,16 +1223,15 @@ void VM::executeTest(Operation op, int ref, bool isKFtr) {
 	// All tests set _lastTestResult.
 	_lastTestResult = result;
 
-	// kFt context (proc 72): kNewOp does NOT set g_tfIndicator.
-	// kFtr context (proc 76): ALL tests set g_tfIndicator including kNewOp
-	// (confirmed from Ghidra: HandleTestOpcode_128_New at 0xc7b6 writes [0x4b7b]).
+	// Ghidra-confirmed tfIndicator behavior:
+	//   kFt (proc 72): kNewOp does NOT write g_tfIndicator. All others DO.
+	//   kFtr (proc 76): ALL tests write g_tfIndicator including kNewOp
+	//     (HandleTestOpcode_128_New at 0xc7b6 writes [0x4b7b]).
 	//
-	// However, the current C++ uses _lastTestResult for JF (not _tfIndicator),
-	// and the displayMsg tfIndicator management differs from the DOS response
-	// state machine. Setting tfIndicator for kFtr kNewOp causes text suppression
-	// regressions. Keep the kNewOp exception for both contexts until the full
-	// tfIndicator flow matches DOS.
-	// TODO: Once JF uses _tfIndicator, enable kFtr kNewOp tfIndicator writes.
+	// However, since JF currently uses _lastTestResult (not _tfIndicator),
+	// applying the kFtr distinction causes text suppression regressions.
+	// Keep the kNewOp exception for both contexts as a workaround.
+	// TODO: When JF switches to _tfIndicator, use: if (isKFtr || op != kNewOp)
 	if (op != kNewOp)
 		_state->_tfIndicator = result;
 }

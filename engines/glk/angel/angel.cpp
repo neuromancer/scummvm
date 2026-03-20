@@ -163,6 +163,7 @@ void Angel::runStartupSequence() {
 	// after each paragraph (hiding init code garbage). But keep
 	// _suppressText=false so the initial text ("With the whine of
 	// bullets...") before the first kForceOp is visible.
+	_state->_tfIndicator = true;  // Text visible at game start
 	_vm->setBaseSuppressText(true);
 	if (_state->_clock.xReg[kXWelcome].proc > 0) {
 		debugC(1, kDebugScripts, "Angel: Executing WELCOME event at proc=%d",
@@ -603,13 +604,11 @@ void Angel::describeLocation(bool fromMovement, int /*sourceLocation*/) {
 	// description (e.g., "The central chamber is a vast, shadowy space..."
 	// without first-visit-only elements).
 
-	// Set X[2]=1 for movement commands. DOS GAME.000 reads X targets through
-	// the single command-word table, and room scripts use ref=8 to distinguish
-	// movement arrivals from initial/LOOK descriptions.
-	// (via kEqOp) to select between full and condensed description variants.
-	if (fromMovement) {
-		_state->_cmdEntry[2] = 1;
-	}
+	// Set X[2]=1 so room scripts show the full description variant.
+	// DOS GAME.000 room scripts test ref=8 (cmdEntry[2]) via kEqOp to
+	// select between truncated and full description. Both initial entry
+	// and movement arrivals need the full text.
+	_state->_cmdEntry[2] = 1;
 
 	if (here.n > 0) {
 		if (_needsSeparator)
@@ -752,6 +751,13 @@ void Angel::dispatchCommand(ThingToDo action) {
 	memset(_state->_cmdEntry, 0, sizeof(_state->_cmdEntry));
 	memset(_state->_cmdFlag, 0, sizeof(_state->_cmdFlag));
 	_state->_respondQuit = false;
+
+	// Reset tfIndicator at the start of each command dispatch.
+	// The DOS binary's response state machine (RunMainResponseCycle) does
+	// this implicitly through the response state init. The tfIndicator
+	// must be TRUE at command start so text flows by default — tests
+	// within message handlers set it FALSE to suppress conditional text.
+	_state->_tfIndicator = true;
 
 	// NOTE: cmdFlag[2] is NOT explicitly set here for movement commands.
 	// In the P-code, cmdFlag is only populated by opSet instructions within

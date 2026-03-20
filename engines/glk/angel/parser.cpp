@@ -383,9 +383,18 @@ int Parser::resolveObject(int vocabIndex) const {
 	// The vocab entry's ref field directly gives the ObjRef for type AnObject.
 	// Multiple vocab words can reference the same object (e.g., "whip" and
 	// "bullwhip" both have ref=5 for Object[5]).
+	// Only resolve if accessible: at current location, in possession, or worn.
 	const VEntry &ve = _data->_vocab[vocabIndex];
 	if (ve.ve.vType == kAnObject && ve.ve.ref > 0 && ve.ve.ref <= _data->_nbrObjects) {
-		return ve.ve.ref;
+		int obj = ve.ve.ref;
+		int loc = _state->_location;
+		if (_state->map(loc).objects.has(obj) ||
+		    _state->_possessions.has(obj) ||
+		    _state->_wearing.has(obj) ||
+		    _data->_props[obj].inOrOn == loc) {
+			return obj;
+		}
+		// Object exists but not accessible — don't resolve
 	}
 
 	// Fallback: match by oName (for cases where vType isn't AnObject)
