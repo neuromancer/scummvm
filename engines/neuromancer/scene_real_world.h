@@ -34,18 +34,12 @@ namespace Neuromancer {
 
 // Real-world scene: UI frame (NEURO.IMH) + per-level PIC + neuro-VM tick.
 //
-// Interaction flow:
-//   - On level entry, load NEURO.IMH + R{N+1}.PIC + R{N+1}.BIH.
-//   - Attach the BIH to the NeuroVM and start thread 0 at the default
-//     program of the first bytecode table (the original engine's
-//     opcode-0x00 equivalent).
-//   - Each frame: tick the VM. If it yields kTextOutput or kDialogReply,
-//     render the string on top of the PIC and wait for a keypress to
-//     resume. Level-change requests (opcode 0x10) update the engine's
-//     current level and re-init the scene.
-//
-// Navigation keys (Left/Right/PageUp/PageDown) remain active for rapid
-// browsing of level backgrounds until the VM takes over.
+// Two text widgets mirror the DOS engine (scene_real_world.c / window_animation.c):
+//   - Scroll widget: small 136x56 box at (88, 134). Used by setup_intro()
+//     and by VM opcode 0x02 (text output).
+//   - Dialog bubble: overlay near the character position. Used by VM
+//     opcodes 0x01 / 0x18 (NPC replies). For now a simple rectangle at a
+//     fixed location -- full BUBBLES.IMH-based framing lands later.
 class RealWorldScene : public Scene {
 public:
 	explicit RealWorldScene(NeuromancerEngine *engine);
@@ -59,24 +53,33 @@ public:
 	void handleEvent(const Common::Event &event) override;
 
 private:
-	bool loadLevel(); // loads BIH, PIC, and queues the intro text
+	enum TextWidget {
+		kWidgetScroll,  // lower 136x56 box -- intro + opcode 0x02
+		kWidgetBubble   // overlay dialog bubble -- opcode 0x01 / 0x18
+	};
+
+	bool loadLevel();
 	void showLevelIndicator();
-	void clearTextPanel();
-	void renderTextPanel(const char *rawText);
 	void gotoLevel(int delta);
 	void advanceVmOnce();
 	void showLevelIntro();
 	void startVmForCurrentLevel();
 
+	// Render `text` into the requested widget and mark that widget as the
+	// active (blocking) overlay. Any previously active widget is cleared.
+	void showText(const char *text, TextWidget widget);
+	void clearTextWidgets();
+
 	Common::Array<byte> _neuroImh;
-	Common::Array<byte> _picSprite;       // [ImhHeader][PIC pixels]
-	Common::Array<byte> _bihData;         // decompressed BIH bytes
-	Common::Array<byte> _textPanelSprite; // IMH buffer for the text overlay
-	Common::Array<byte> _indicatorSprite; // IMH buffer for "Level N" label
+	Common::Array<byte> _picSprite;
+	Common::Array<byte> _bihData;
+	Common::Array<byte> _scrollSprite;     // 136x56 scroll text box
+	Common::Array<byte> _bubbleSprite;     // dialog bubble
+	Common::Array<byte> _indicatorSprite;
 
 	SceneId _next;
 	bool _textVisible;
-	bool _introPending; // true while the pre-VM intro text is queued/displayed
+	bool _introPending;
 };
 
 } // End of namespace Neuromancer

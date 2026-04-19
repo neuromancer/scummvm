@@ -40,14 +40,16 @@ enum {
 };
 
 // Sprite layer identities used throughout the original engine. Preserve the
-// numeric ordering: SpriteChain composites back-to-front (index 10 first).
+// numeric ordering: SpriteChain composites back-to-front (index 10 first),
+// so lower indices render on top.
 enum SpriteLayerIndex {
-	kLayerCursor       = 0,
-	kLayerNeuroMenu    = 2,
-	kLayerDialogBubble = 3,
-	kLayerCharacter    = 4,
-	kLayerLevelBg      = 9,
-	kLayerBackground   = 10
+	kLayerCursor         = 0,
+	kLayerDebugOverlay   = 1, // engine-added debug text (e.g. level indicator)
+	kLayerNeuroMenu      = 2,
+	kLayerDialogBubble   = 3,
+	kLayerCharacter      = 4,
+	kLayerLevelBg        = 9,
+	kLayerBackground     = 10
 };
 
 // Initialize the 16-colour EGA palette on the ScummVM screen.

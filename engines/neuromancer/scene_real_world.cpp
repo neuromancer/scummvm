@@ -42,19 +42,32 @@ namespace Neuromancer {
 
 namespace {
 
-// PIC: 152 packed bytes × 112 rows.
 enum {
 	kPicPackedW = 152,
 	kPicHeight  = 112,
 	kPicBytes   = kPicPackedW * kPicHeight,
 
-	// Text panel: same footprint as the PIC (304 px wide × 112 px tall).
-	// 304 / 8 = 38 characters per line, which matches the DOS layout.
-	kTextPanelWidthPx  = 304,
-	kTextPanelHeightPx = 112,
-	kTextPanelPackedW  = kTextPanelWidthPx / 2,
-	kTextPanelBytes    = kTextPanelPackedW * kTextPanelHeightPx,
-	kTextPanelColumns  = kTextPanelWidthPx / 8,
+	// Scroll text box: 17 chars x 7 lines at (88, 134). Dimensions match
+	// Reuromancer/NeuromancerWin64/window_animation.c:290-301 for NWM_NEURO_UI.
+	// w=68 packed bytes = 136 px; h = b-t+1 = 58 px (we use 56 for 7 rows).
+	kScrollX          = 88,
+	kScrollY          = 134,
+	kScrollWidthPx    = 136,
+	kScrollHeightPx   = 56,
+	kScrollPackedW    = kScrollWidthPx / 2,
+	kScrollBytes      = kScrollPackedW * kScrollHeightPx,
+	kScrollColumns    = kScrollWidthPx / 8,   // 17
+	kScrollRows       = kScrollHeightPx / 8,  // 7
+
+	// Dialog bubble (stub geometry; real version uses BUBBLES.IMH framing).
+	kBubbleX          = 40,
+	kBubbleY          = 24,
+	kBubbleWidthPx    = 240,
+	kBubbleHeightPx   = 48,
+	kBubblePackedW    = kBubbleWidthPx / 2,
+	kBubbleBytes      = kBubblePackedW * kBubbleHeightPx,
+	kBubbleColumns    = kBubbleWidthPx / 8,   // 30
+	kBubbleRows       = kBubbleHeightPx / 8,  // 6
 
 	kIndicatorWidthPx  = 72,
 	kIndicatorHeightPx = 12,
@@ -88,8 +101,11 @@ void RealWorldScene::init() {
 	_picSprite.resize(sizeof(ImhHeader) + kPicBytes);
 	writeImhHeader(_picSprite.data(), 0, 0, kPicPackedW, kPicHeight);
 
-	_textPanelSprite.resize(sizeof(ImhHeader) + kTextPanelBytes);
-	writeImhHeader(_textPanelSprite.data(), 0, 0, kTextPanelPackedW, kTextPanelHeightPx);
+	_scrollSprite.resize(sizeof(ImhHeader) + kScrollBytes);
+	writeImhHeader(_scrollSprite.data(), 0, 0, kScrollPackedW, kScrollHeightPx);
+
+	_bubbleSprite.resize(sizeof(ImhHeader) + kBubbleBytes);
+	writeImhHeader(_bubbleSprite.data(), 0, 0, kBubblePackedW, kBubbleHeightPx);
 
 	_indicatorSprite.resize(sizeof(ImhHeader) + kIndicatorBytes);
 	writeImhHeader(_indicatorSprite.data(), 0, 0, kIndicatorPackedW, kIndicatorHeightPx);
@@ -108,14 +124,11 @@ void RealWorldScene::deinit() {
 	chain->clearSprite(kLayerBackground);
 	chain->clearSprite(kLayerLevelBg);
 	chain->clearSprite(kLayerDialogBubble);
+	chain->clearSprite(kLayerNeuroMenu);
+	chain->clearSprite(kLayerDebugOverlay);
 }
 
 SceneId RealWorldScene::update() {
-	// Three-state drive loop:
-	//   1. Intro pending -> the level-intro text is on screen. Wait for a
-	//      keypress to dismiss; handleEvent() starts the VM afterwards.
-	//   2. Text visible (VM yielded a blocking action) -> wait for input.
-	//   3. Otherwise -> tick the VM.
 	if (!_textVisible && !_introPending)
 		advanceVmOnce();
 
@@ -127,18 +140,16 @@ void RealWorldScene::handleEvent(const Common::Event &event) {
 	if (event.type != Common::EVENT_KEYDOWN)
 		return;
 
-	// Pre-VM intro: first keypress dismisses it and starts the VM.
 	if (_introPending) {
-		clearTextPanel();
+		clearTextWidgets();
 		_textVisible = false;
 		_introPending = false;
 		startVmForCurrentLevel();
 		return;
 	}
 
-	// Mid-VM blocking text: dismiss and let the VM continue.
 	if (_textVisible) {
-		clearTextPanel();
+		clearTextWidgets();
 		_textVisible = false;
 		_engine->vm()->resume();
 		return;
@@ -186,7 +197,6 @@ bool RealWorldScene::loadLevel() {
 	int lvl = (int)_engine->currentLevel();
 	ResourceManager *res = _engine->resources();
 
-	// Background image.
 	Common::String picName = Common::String::format("R%d.PIC", lvl + 1);
 	uint32 picSize = res->load(picName, _picSprite.data() + sizeof(ImhHeader));
 	debugC(1, kDebugResource, "RealWorldScene: %s -> %u bytes", picName.c_str(), picSize);
@@ -194,31 +204,23 @@ bool RealWorldScene::loadLevel() {
 		return false;
 
 	_engine->spriteChain()->addSprite(kLayerLevelBg, 8, 8, _picSprite.data(), true);
-	clearTextPanel();
+	clearTextWidgets();
 	_textVisible = false;
 	_introPending = false;
 
-	// BIH script.
 	Common::String bihName = Common::String::format("R%d.BIH", lvl + 1);
 	uint32 bihSize = res->load(bihName, _bihData.data());
 	debugC(1, kDebugResource, "RealWorldScene: %s -> %u bytes", bihName.c_str(), bihSize);
 
-	// Attach the BIH to the VM but do NOT start threads yet. The DOS
-	// engine runs setup_intro() before the VM takes over; we mirror that
-	// by showing the level intro string first and only starting threads
-	// once the user dismisses it.
 	NeuroVM *vm = _engine->vm();
 	vm->resetThreads();
 	if (bihSize > 0) {
-		vm->attach(_bihData.data(), bihSize); // size = the real decompressed size
+		vm->attach(_bihData.data(), bihSize);
 		showLevelIntro();
 	}
 	return true;
 }
 
-// Display the pre-VM intro text. First-visit shows text[0] (the long
-// intro); subsequent visits show text[1] (short intro), matching the
-// visited-levels bitstring logic in setup_intro() (scene_real_world.c:315).
 void RealWorldScene::showLevelIntro() {
 	uint8 level = _engine->currentLevel();
 	uint16 stringNum = _engine->isLevelVisited(level) ? 1 : 0;
@@ -228,17 +230,13 @@ void RealWorldScene::showLevelIntro() {
 	debugC(1, kDebugScript, "RealWorldScene: intro text[%u] = \"%s\"", stringNum, s);
 
 	if (s && *s) {
-		renderTextPanel(s);
+		showText(s, kWidgetScroll);
 		_introPending = true;
 	} else {
-		// No intro for this level -- go straight to the VM.
 		startVmForCurrentLevel();
 	}
 }
 
-// Start the VM for the already-attached BIH. Called once the user dismisses
-// the pre-VM intro text. Equivalent to the DOS engine transitioning from
-// RWS_TEXT_OUTPUT to RWS_NORMAL after setup_intro() finishes.
 void RealWorldScene::startVmForCurrentLevel() {
 	_engine->vm()->startDefaultThread(0, 0);
 }
@@ -250,32 +248,56 @@ void RealWorldScene::showLevelIndicator() {
 	Common::String label = Common::String::format("Level %d", (int)_engine->currentLevel() + 1);
 	drawString(label.c_str(), kIndicatorWidthPx, kIndicatorHeightPx, 0, 2, pixels);
 
-	_engine->spriteChain()->addSprite(kLayerDialogBubble, 12, 124, _indicatorSprite.data(), false);
+	_engine->spriteChain()->addSprite(kLayerDebugOverlay, 12, 124, _indicatorSprite.data(), false);
 }
 
-void RealWorldScene::clearTextPanel() {
-	_engine->spriteChain()->clearSprite(kLayerDialogBubble);
+void RealWorldScene::clearTextWidgets() {
+	SpriteChain *chain = _engine->spriteChain();
+	chain->clearSprite(kLayerNeuroMenu);
+	chain->clearSprite(kLayerDialogBubble);
 }
 
-void RealWorldScene::renderTextPanel(const char *rawText) {
-	byte *pixels = _textPanelSprite.data() + sizeof(ImhHeader);
-	memset(pixels, 0xFF, kTextPanelBytes); // white fill -- text will XOR to black
+// Paint `text` into the requested widget's sprite buffer and register it
+// with the SpriteChain. Background is black (0x00), text is white
+// (drawString's default), so no XOR inversion is needed -- both widgets
+// are rendered opaque to fully cover whatever sits behind them.
+void RealWorldScene::showText(const char *text, TextWidget widget) {
+	clearTextWidgets();
 
-	Common::String wrapped = wrapText(rawText, kTextPanelColumns);
+	int widthPx, heightPx, packedW, bytes, columns, posX, posY;
+	SpriteLayerIndex layer;
+	byte *spriteBuf;
 
-	// drawString writes colour-15 (white) packed bytes; XOR against the
-	// white background to produce black text on a white panel, matching
-	// the DOS neuro_window style.
-	Common::Array<byte> scratch;
-	scratch.resize(kTextPanelBytes);
-	memset(scratch.data(), 0, scratch.size());
-	drawString(wrapped.c_str(), kTextPanelWidthPx, kTextPanelHeightPx, 4, 4, scratch.data());
+	if (widget == kWidgetScroll) {
+		widthPx   = kScrollWidthPx;
+		heightPx  = kScrollHeightPx;
+		packedW   = kScrollPackedW;
+		bytes     = kScrollBytes;
+		columns   = kScrollColumns;
+		posX      = kScrollX;
+		posY      = kScrollY;
+		spriteBuf = _scrollSprite.data();
+		layer     = kLayerNeuroMenu; // "lower" widget slot
+	} else {
+		widthPx   = kBubbleWidthPx;
+		heightPx  = kBubbleHeightPx;
+		packedW   = kBubblePackedW;
+		bytes     = kBubbleBytes;
+		columns   = kBubbleColumns;
+		posX      = kBubbleX;
+		posY      = kBubbleY;
+		spriteBuf = _bubbleSprite.data();
+		layer     = kLayerDialogBubble;
+	}
+	(void)packedW;
 
-	for (uint32 i = 0; i < kTextPanelBytes; i++)
-		pixels[i] ^= scratch[i];
+	byte *pixels = spriteBuf + sizeof(ImhHeader);
+	memset(pixels, 0, bytes); // black fill
 
-	// Re-use the dialog bubble layer as a general overlay for now.
-	_engine->spriteChain()->addSprite(kLayerDialogBubble, 8, 8, _textPanelSprite.data(), true);
+	Common::String wrapped = wrapText(text, columns);
+	drawString(wrapped.c_str(), widthPx, heightPx, 0, 0, pixels);
+
+	_engine->spriteChain()->addSprite(layer, posX, posY, spriteBuf, true);
 	_textVisible = true;
 }
 
@@ -287,11 +309,17 @@ void RealWorldScene::advanceVmOnce() {
 	case NeuroVM::Action::kIdle:
 		break;
 
-	case NeuroVM::Action::kTextOutput:
+	case NeuroVM::Action::kTextOutput: {
+		const char *s = vm->bih().textString(r.stringNum);
+		debugC(1, kDebugScript, "RealWorldScene: scroll text[%u] = \"%s\"", r.stringNum, s);
+		showText(s, kWidgetScroll);
+		break;
+	}
+
 	case NeuroVM::Action::kDialogReply: {
 		const char *s = vm->bih().textString(r.stringNum);
-		debugC(1, kDebugScript, "RealWorldScene: text[%u] = \"%s\"", r.stringNum, s);
-		renderTextPanel(s);
+		debugC(1, kDebugScript, "RealWorldScene: bubble text[%u] = \"%s\"", r.stringNum, s);
+		showText(s, kWidgetBubble);
 		break;
 	}
 

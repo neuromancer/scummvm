@@ -221,36 +221,55 @@ Common::String wrapText(const char *text, int columns) {
 
 void drawString(const char *string, int widthPx, int heightPx,
                 int leftPx, int topPx, byte *dst) {
-	(void)heightPx; // caller guarantees buffer extent; no clipping here.
+	if (!string || !dst || widthPx <= 0 || heightPx <= 0)
+		return;
 
 	byte character[32]; // 8 rows × 4 packed bytes.
 
 	// IMH sprite buffers are packed 4bpp with (widthPx / 2) bytes per row.
-	int rowStride = widthPx / 2;
-	int textOriginPackedX = leftPx / 2;
-	int line = 1;
+	const int rowStride = widthPx / 2;
+	const int packedW   = rowStride; // alias for clarity
+	(void)packedW;
 
-	// dst points at the packed pixel region inside the caller's buffer; this
-	// contract matches the Reuromancer build_string signature which operated
-	// on the pixel pointer, not the ImhHeader-preceded buffer.
-	byte *origin = dst + rowStride * topPx + textOriginPackedX;
-	byte *cursor = origin;
+	int curCol = leftPx / 8;   // cell index within the current line
+	int curRow = topPx  / 8;   // line index from the top
+	const int maxCols = widthPx  / 8;
+	const int maxRows = heightPx / 8;
 
 	char c;
 	while ((c = *string++) != 0) {
 		if (c == '\n') {
-			cursor = origin + rowStride * kFontCharHeight * line++;
+			curCol = 0;
+			curRow++;
 			continue;
 		}
 		if ((byte)c < 0x20 || (byte)c > 0x7E)
 			continue;
 
-		buildCharacter((byte)c, character);
-		for (int row = 0; row < kFontCharHeight; row++) {
-			// Each glyph row is 4 packed bytes = 8 pixels = 1 character width.
-			memcpy(cursor + row * rowStride, character + row * 4, 4);
+		// Clip: drop any character that falls outside the sprite extent.
+		// The caller pre-wraps text to the available columns, but a stray
+		// overlong word or extra line must not overrun the destination.
+		if (curRow >= maxRows)
+			return;
+		if (curCol >= maxCols) {
+			// Line doesn't fit; skip ahead to the next newline.
+			while (*string && *string != '\n')
+				string++;
+			continue;
 		}
-		cursor += 4;
+
+		buildCharacter((byte)c, character);
+
+		// Top-left of this glyph in packed-byte coordinates.
+		const int glyphX = curCol * 4;          // 4 packed bytes = 8 px
+		const int glyphY = curRow * kFontCharHeight;
+
+		for (int row = 0; row < kFontCharHeight; row++) {
+			int dstY = glyphY + row;
+			if (dstY >= heightPx) break;
+			memcpy(dst + dstY * rowStride + glyphX, character + row * 4, 4);
+		}
+		curCol++;
 	}
 }
 
