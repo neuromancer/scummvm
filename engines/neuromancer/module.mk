@@ -12,6 +12,7 @@ MODULE_OBJS := \
 	music_player.o \
 	neuromancer.o \
 	neuro_vm.o \
+	pax.o \
 	resource.o \
 	scene.o \
 	scene_main_menu.o \

@@ -176,12 +176,18 @@ RealWorldScene::RealWorldScene(NeuromancerEngine *engine)
 	  _charLastStepMs(0),
 	  _walkL(8), _walkR(312), _walkT(8), _walkB(120),
 	  _statusMode(kStatusDate),
-	  _cash(0),
+	  _cash(6),
 	  _constitution(2000),
 	  _timeH(0),
 	  _timeM(0),
 	  _dateDay(0),
-	  _lastClockTickMs(0) {}
+	  _bankAccount(2000),
+	  _bankTxIndex(0),
+	  _playerName("Case"),
+	  _lastClockTickMs(0),
+	  _pax(engine, this) {
+	for (int i = 0; i < 4; i++) { _bankTx[i].op = 0; _bankTx[i].amount = 0; }
+}
 
 RealWorldScene::~RealWorldScene() = default;
 
@@ -226,6 +232,21 @@ void RealWorldScene::deinit() {
 SceneId RealWorldScene::update() {
 	uint32 nowMs = g_system->getMillis();
 
+	// PAX has exclusive control while active: freeze the VM, character
+	// controller, and in-scene text widgets. Matches the DOS RWS_PAX sub-
+	// state which tail-returns from update_pax() without running update_normal.
+	if (_pax.isActive()) {
+		_pax.update();
+		tickGameClock(nowMs);
+		_engine->render();
+		if (!_pax.isActive()) {
+			// PAX just closed this frame (e.g. via 'X' button): restore
+			// the character sprite and re-acknowledge the scene.
+			restoreCharacterAfterPax();
+		}
+		return _next;
+	}
+
 	if (!_textVisible && !_introPending)
 		advanceVmOnce();
 
@@ -239,6 +260,13 @@ SceneId RealWorldScene::update() {
 
 	_engine->render();
 	return _next;
+}
+
+// After the PAX panel closes, re-install the player sprite at its last
+// position. The level PIC is still on kLayerLevelBg underneath, so we don't
+// have to reload it -- only the character layer was cleared on open().
+void RealWorldScene::restoreCharacterAfterPax() {
+	renderCharacterFrame();
 }
 
 // Advance the in-game clock by one minute every real second, matching the
@@ -274,6 +302,15 @@ void RealWorldScene::tickGameClock(uint32 nowMs) {
 }
 
 void RealWorldScene::handleEvent(const Common::Event &event) {
+	// PAX owns all input while open -- any unhandled events fall through
+	// silently so they don't drive the level's character or UI.
+	if (_pax.isActive()) {
+		(void)_pax.handleEvent(event);
+		if (!_pax.isActive())
+			restoreCharacterAfterPax();
+		return;
+	}
+
 	// Dialog picker takes absolute priority: Enter accepts the current
 	// reply, any other key advances to the next reply in the list.
 	if (_dialogOpen && event.type == Common::EVENT_KEYDOWN) {
@@ -628,7 +665,16 @@ void RealWorldScene::onUiAction(int code) {
 	// yet. Fall back to a scroll-widget message so the interaction is
 	// still visibly acknowledged.
 	case kUiInventory: showText("Inventory (not yet implemented).", kWidgetScroll); break;
-	case kUiPax:       showText("PAX network (not yet implemented).", kWidgetScroll); break;
+	case kUiPax: {
+		// Dismiss any blocking text widget first so the VM isn't stuck
+		// mid-yield while the player is in the PAX panel.
+		clearTextWidgets();
+		_textVisible  = false;
+		_introPending = false;
+		_dialogOpen   = false;
+		_pax.open();
+		break;
+	}
 	case kUiDialog:    openDialogPicker(); break;
 	case kUiSkills:    showText("Skills (not yet implemented).", kWidgetScroll); break;
 	case kUiChip:      showText("ROM construct (not yet implemented).", kWidgetScroll); break;
@@ -864,14 +910,15 @@ void RealWorldScene::renderCurrentPage() {
 
 	byte *pixels = _bubbleSprite.data() + sizeof(ImhHeader);
 	buildBorderFrame(pixels, kBubbleWidthPx, desiredH);
+	(void)usedBytes;
 
-	Common::Array<byte> scratch;
-	scratch.resize(usedBytes);
-	memset(scratch.data(), 0, scratch.size());
+	// drawString writes black ink on a white background (kFontPixels in
+	// font.cpp encodes on-pixels as 0x00 and off-pixels as 0xFF), so we
+	// can render straight on top of the white bubble interior without any
+	// XOR gymnastics. The previous XOR pass inverted the colours and
+	// turned the bubble body black -- matching what the user reported.
 	drawString(page.c_str(), kBubbleWidthPx, desiredH,
-	           kBubbleInnerLeft, kBubbleInnerTop, scratch.data());
-	for (int i = 0; i < usedBytes; i++)
-		pixels[i] ^= scratch[i];
+	           kBubbleInnerLeft, kBubbleInnerTop, pixels);
 
 	_engine->spriteChain()->addSprite(kLayerDialogBubble, kBubbleX, kBubbleY,
 	                                  _bubbleSprite.data(), /*opaque=*/true);

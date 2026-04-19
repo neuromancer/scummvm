@@ -48,6 +48,7 @@ enum SpriteLayerIndex {
 	kLayerNeuroMenu      = 2,
 	kLayerDialogBubble   = 3,
 	kLayerCharacter      = 4,
+	kLayerPaxWindow      = 5, // PAX terminal panel (covers level BG while active)
 	kLayerLevelBg        = 9,
 	kLayerBackground     = 10
 };

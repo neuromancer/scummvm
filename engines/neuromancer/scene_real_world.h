@@ -25,6 +25,7 @@
 #ifndef NEUROMANCER_SCENE_REAL_WORLD_H
 #define NEUROMANCER_SCENE_REAL_WORLD_H
 
+#include "neuromancer/pax.h"
 #include "neuromancer/scene.h"
 
 #include "common/array.h"
@@ -59,6 +60,22 @@ public:
 	void deinit() override;
 	SceneId update() override;
 	void handleEvent(const Common::Event &event) override;
+
+	// ---- Game state accessors (used by PAX / Inventory sub-modules) -----
+	int32 cash() const { return _cash; }
+	void  setCash(int32 v) { _cash = v; updateStatusWidget(); }
+	int32 bankAccount() const { return _bankAccount; }
+	void  setBankAccount(int32 v) { _bankAccount = v; }
+	uint8 bankTxIndex() const { return _bankTxIndex; }
+	void  setBankTxIndex(uint8 v) { _bankTxIndex = v & 3; }
+	uint8 bankTxOp(int i) const { return _bankTx[i & 3].op; }
+	uint32 bankTxAmount(int i) const { return _bankTx[i & 3].amount; }
+	void  setBankTxRecord(int i, uint8 op, uint32 amount) {
+		_bankTx[i & 3].op = op;
+		_bankTx[i & 3].amount = amount;
+	}
+	int16 dateDay() const { return _dateDay; }
+	const Common::String &playerName() const { return _playerName; }
 
 private:
 	enum TextWidget {
@@ -172,18 +189,38 @@ private:
 	void applyRoomposForCurrentLevel();
 
 	// Game state surfaced by the status widget. Defaults are the level 1
-	// start values from the DOS save-slot template (11/16/58, cash=0).
+	// start values from the DOS save-slot template (11/16/58, cash=6).
 	StatusMode _statusMode;
 	int32 _cash;
 	int16 _constitution;
 	int16 _timeH, _timeM;
 	int16 _dateDay; // day offset from 11/16/58 -- the DOS build_date_string input
 
+	// Bank state. Mirrors g_4bae.bank_account / bank_transaction_record[4]
+	// from the DOS build (data.h:290-300). The ring buffer index lives in
+	// the low 2 bits of _bankTxIndex; op's high 2 bits encode the kind of
+	// transaction (upload / download / transfer-in / fined) while the low
+	// 6 bits hold the in-game date the op happened on.
+	int32 _bankAccount;
+	uint8 _bankTxIndex;
+	struct BankTx { uint8 op; uint32 amount; } _bankTx[4];
+
+	// Player name (DOS g_4bae.name). The DOS save slot defaults to
+	// "{@Case\0..." with two leading decoration bytes; we store only the
+	// printable part.
+	Common::String _playerName;
+
 	// Wall-clock of the last in-game minute tick. The DOS ui_panel_update
 	// bumps time_m every ~1 real second (scene_real_world.c:601).
 	uint32 _lastClockTickMs;
 
 	void tickGameClock(uint32 nowMs);
+
+	// PAX ("Public Access eXchange") sub-module. Activated by the PAX UI
+	// button; while _pax.isActive() the scene freezes VM / character ticks
+	// and routes events to _pax. Mirrors DOS update_pax()'s sub-state.
+	Pax _pax;
+	void restoreCharacterAfterPax();
 };
 
 } // End of namespace Neuromancer
