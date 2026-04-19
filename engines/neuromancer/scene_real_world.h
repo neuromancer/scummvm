@@ -214,7 +214,30 @@ private:
 	//   B = exits[DOWN][1]  + exits[DOWN][3]
 	int _walkL, _walkR, _walkT, _walkB;
 
+	// Raw 4-byte exit rectangles for the current level (N, E, S, W). Each
+	// byte group is { x_packed, y, w_packed, h } with x / w in packed
+	// coordinates (multiply by 2 for pixels). Used to detect when the
+	// character has walked into an exit zone and the level should change.
+	uint8 _exitZones[4][4];
+
+	// Direction the player used to leave the previous level, in the same
+	// 0..3 enum as CharDir. -1 on a fresh start (initial entry from DOS
+	// south-exit default). The opposite direction is where the character
+	// spawns on the new level, matching DOS roompos_init's transition
+	// formula (transition = (exit_point + 2) & 3).
+	int _lastExitDir;
+
 	void applyRoomposForCurrentLevel();
+
+	// If (_charX, _charY) currently sits inside the exit rectangle for
+	// direction `dir` AND the per-level transition table has a target,
+	// returns that target level (0..57). Otherwise returns -1. Mirrors
+	// DOS roompos_hit_exit_zone (scene_real_world.c:926).
+	int hitExitZone(int dir) const;
+
+	// Run exit detection after each character move. If an exit fires,
+	// swap levels, seeding roompos_init from _lastExitDir.
+	void checkForLevelExit();
 
 	// Game state surfaced by the status widget. Defaults are the level 1
 	// start values from the DOS save-slot template (11/16/58, cash=6).

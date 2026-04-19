@@ -154,6 +154,42 @@ enum {
 	kCharFrameCapMs = 100
 };
 
+// Per-level exit destinations. Transcribed verbatim from DOS data.c:233-291
+// (g_3f85.level_info[58].level_transitions). 58 levels, 4 directions each
+// (N, E, S, W). 0xFF = no exit in that direction. Indices match our
+// 0-based level enum (level 0 = Chatsubo / R1.BIH).
+static const uint8 kLevelTransitions[58][4] = {
+	{ 0xFF, 0xFF, 0x01, 0xFF }, { 0xFF, 0x04, 0xFF, 0xFF },
+	{ 0x01, 0xFF, 0xFF, 0xFF }, { 0xFF, 0xFF, 0x04, 0xFF },
+	{ 0x03, 0x0C, 0x05, 0x01 }, { 0x04, 0xFF, 0xFF, 0xFF },
+	{ 0xFF, 0x0E, 0xFF, 0xFF }, { 0xFF, 0x0F, 0xFF, 0xFF },
+	{ 0xFF, 0x10, 0xFF, 0xFF }, { 0xFF, 0xFF, 0xFF, 0xFF },
+	{ 0xFF, 0xFF, 0xFF, 0xFF }, { 0xFF, 0xFF, 0x0C, 0xFF },
+	{ 0x0B, 0x17, 0x0D, 0x04 }, { 0x0C, 0x18, 0x0E, 0xFF },
+	{ 0x0D, 0x19, 0x0F, 0x06 }, { 0x0E, 0xFF, 0x10, 0x07 },
+	{ 0x0F, 0x1A, 0x11, 0xFF }, { 0x10, 0xFF, 0xFF, 0x12 },
+	{ 0xFF, 0x11, 0xFF, 0xFF }, { 0xFF, 0xFF, 0xFF, 0xFF },
+	{ 0x15, 0x1D, 0xFF, 0xFF }, { 0xFF, 0xFF, 0x14, 0xFF },
+	{ 0xFF, 0xFF, 0x0B, 0xFF }, { 0xFF, 0xFF, 0xFF, 0x0C },
+	{ 0xFF, 0x0D, 0xFF, 0xFF }, { 0xFF, 0x1E, 0xFF, 0x0E },
+	{ 0xFF, 0xFF, 0xFF, 0x10 }, { 0xFF, 0xFF, 0xFF, 0xFF },
+	{ 0xFF, 0xFF, 0x1D, 0xFF }, { 0x1C, 0x20, 0xFF, 0x14 },
+	{ 0x1F, 0x26, 0xFF, 0x19 }, { 0xFF, 0xFF, 0x1E, 0xFF },
+	{ 0x21, 0x29, 0xFF, 0x1D }, { 0xFF, 0xFF, 0x20, 0xFF },
+	{ 0xFF, 0xFF, 0x21, 0xFF }, { 0xFF, 0xFF, 0x24, 0xFF },
+	{ 0x23, 0xFF, 0x25, 0xFF }, { 0x24, 0x2B, 0x26, 0xFF },
+	{ 0x25, 0x2C, 0x27, 0x1E }, { 0x26, 0xFF, 0xFF, 0xFF },
+	{ 0xFF, 0xFF, 0x29, 0xFF }, { 0x28, 0xFF, 0xFF, 0x20 },
+	{ 0xFF, 0xFF, 0xFF, 0xFF }, { 0xFF, 0xFF, 0xFF, 0x25 },
+	{ 0xFF, 0x30, 0x2D, 0x26 }, { 0x2C, 0xFF, 0xFF, 0xFF },
+	{ 0xFF, 0xFF, 0xFF, 0x28 }, { 0xFF, 0xFF, 0xFF, 0xFF },
+	{ 0xFF, 0x33, 0xFF, 0x2C }, { 0xFF, 0xFF, 0xFF, 0xFF },
+	{ 0xFF, 0x35, 0xFF, 0xFF }, { 0xFF, 0x36, 0xFF, 0x30 },
+	{ 0xFF, 0xFF, 0x35, 0xFF }, { 0xFF, 0xFF, 0x36, 0xFF },
+	{ 0x35, 0xFF, 0xFF, 0x33 }, { 0x36, 0xFF, 0xFF, 0xFF },
+	{ 0xFF, 0xFF, 0xFF, 0x35 }, { 0xFF, 0xFF, 0xFF, 0x36 }
+};
+
 } // anonymous namespace
 
 RealWorldScene::RealWorldScene(NeuromancerEngine *engine)
@@ -178,6 +214,7 @@ RealWorldScene::RealWorldScene(NeuromancerEngine *engine)
 	  _lmbHeld(false),
 	  _charLastStepMs(0),
 	  _walkL(8), _walkR(312), _walkT(8), _walkB(120),
+	  _lastExitDir(-1),
 	  _statusMode(kStatusDate),
 	  _cash(6),
 	  _constitution(2000),
@@ -195,6 +232,7 @@ RealWorldScene::RealWorldScene(NeuromancerEngine *engine)
 	// Empty all inventory slots, then seed the DOS save-slot defaults
 	// (data.c:293-313). Each slot is 4 bytes: [code, version, flag, aux].
 	// 0xFF in the code byte means the slot is unused.
+	memset(_exitZones,   0,    sizeof(_exitZones));
 	memset(_invItems,    0xFF, sizeof(_invItems));
 	memset(_invSoftware, 0xFF, sizeof(_invSoftware));
 	for (int i = 0; i < 32; i++) {
@@ -646,6 +684,11 @@ void RealWorldScene::updateCharacter(uint32 nowMs) {
 	debugC(3, kDebugGeneral,
 	       "char: dir=%d pos=(%d, %d) frame=%d",
 	       (int)_charDir, _charX, _charY, _charFrame);
+
+	// After moving, see whether the character has crossed into an exit
+	// zone. hitExitZone + checkForLevelExit together drive level changes
+	// triggered by player movement (as opposed to VM opcode 0x10).
+	checkForLevelExit();
 }
 
 void RealWorldScene::renderCharacterFrame() {
@@ -659,18 +702,17 @@ void RealWorldScene::renderCharacterFrame() {
 }
 
 // Port of Reuromancer/NeuromancerWin64/scene_real_world.c:657-698
-// (roompos_init), limited to the initial-entry path where transition=2
-// (CD_DOWN = south exit). Reads the level's 20-byte record from
-// ROOMPOS.BIH:
+// (roompos_init). Reads the level's 20-byte record from ROOMPOS.BIH:
 //   floor a8ae[0..3] at offset +0
 //   exits[dir][0..3] at offset +4 + dir*4  for dir 0=N, 1=E, 2=S, 3=W
-// and computes:
-//   roompos_x = (exit_S[0] << 1) + exit_S[2]
-//   roompos_y = (exit_S[3] >> 1) + exit_S[1]
-//   walk bounds from exit L/R/U/D rectangles (update loop uses these
-//   to clamp the character each frame).
-// If ROOMPOS data isn't available (e.g. engine init failed) or the level
-// index is out of range, keep the default conservative PIC-sized bounds.
+//
+// Entry side is derived from `_lastExitDir`: entry = (_lastExitDir + 2) & 3,
+// so exiting east on the old level spawns the character at the west edge
+// of the new one. A fresh start (_lastExitDir == -1) defaults to south,
+// matching DOS roompos_init's `transition = 2`.
+//
+// If ROOMPOS data isn't available (engine init failed) or the level index
+// is out of range, keep the default conservative PIC-sized bounds.
 void RealWorldScene::applyRoomposForCurrentLevel() {
 	const byte *rp = _engine->roompos();
 	uint8 lvl = _engine->currentLevel();
@@ -686,23 +728,107 @@ void RealWorldScene::applyRoomposForCurrentLevel() {
 	const byte *exitS = rp + off + 12;
 	const byte *exitW = rp + off + 16;
 
-	// Initial entry comes from the south exit (transition=2).
-	_charX = ((int)exitS[0] << 1) + (int)exitS[2];
-	_charY = ((int)exitS[3] >> 1) + (int)exitS[1];
-	_charDir = kDirUp;
+	// Cache the four exit rectangles for later hit-tests.
+	memcpy(_exitZones[0], exitN, 4);
+	memcpy(_exitZones[1], exitE, 4);
+	memcpy(_exitZones[2], exitS, 4);
+	memcpy(_exitZones[3], exitW, 4);
+
+	// Pick entry zone: opposite of the direction the player took to leave
+	// the previous level. Default to south on a fresh start.
+	int transition = 2;
+	if (_lastExitDir >= 0 && _lastExitDir <= 3)
+		transition = (_lastExitDir + 2) & 3;
+
+	const byte *entry = _exitZones[transition];
+	// If the chosen entry has no rectangle (dest 0xFF in the transition
+	// table), DOS falls back to the floor-center default. That should
+	// rarely fire in practice.
+	if (lvl < 58 && kLevelTransitions[lvl][transition] == 0xFF) {
+		_charX = (int)floor[1] + (int)floor[3];
+		_charY = ((int)floor[0] + (int)floor[2]) / 2;
+	} else {
+		_charY = ((int)entry[3] >> 1) + (int)entry[1];
+		_charX = ((int)entry[0] << 1) + (int)entry[2];
+	}
+
+	// Face AWAY from the entry (into the room). DOS: dir = (transition+2)&3.
+	_charDir   = (CharDir)((transition + 2) & 3);
 	_charFrame = 0;
 
-	// Walkable bounds. The DOS update uses these to clamp motion.
+	// Walkable bounds derive from the exit rectangles regardless of which
+	// side we entered from -- they represent the room interior.
 	_walkL = (int)exitW[0] << 1;
 	_walkR = ((int)exitE[0] + (int)exitE[2]) << 1;
 	_walkT = (int)exitN[1];
 	_walkB = (int)exitS[1] + (int)exitS[3];
 
 	debugC(1, kDebugLevel,
-	       "RealWorldScene: roompos[%u] start=(%d, %d) bounds L/R/T/B=%d/%d/%d/%d"
-	       " floor={%d,%d,%d,%d}",
-	       lvl, _charX, _charY, _walkL, _walkR, _walkT, _walkB,
+	       "RealWorldScene: roompos[%u] entry=%d start=(%d, %d) "
+	       "bounds L/R/T/B=%d/%d/%d/%d floor={%d,%d,%d,%d}",
+	       lvl, transition, _charX, _charY, _walkL, _walkR, _walkT, _walkB,
 	       floor[0], floor[1], floor[2], floor[3]);
+}
+
+// Test whether the character is currently inside the exit rectangle for
+// direction `dir` (0=N, 1=E, 2=S, 3=W) AND that exit leads somewhere on
+// this level. Returns the destination level index, or -1. Mirrors DOS
+// roompos_hit_exit_zone (scene_real_world.c:926).
+int RealWorldScene::hitExitZone(int dir) const {
+	if (dir < 0 || dir > 3) return -1;
+	uint8 lvl = _engine->currentLevel();
+	if (lvl >= 58) return -1;
+	uint8 dest = kLevelTransitions[lvl][dir];
+	if (dest == 0xFF) return -1;
+
+	const uint8 *z = _exitZones[dir];
+	int l = ((int)z[0]) << 1;            // pixel x
+	int t = (int)z[1];
+	int r = l + (((int)z[2]) << 1);      // right edge in pixels
+	int b = t + (int)z[3];
+
+	if (dir & 1) {
+		// RIGHT (1) / LEFT (3): check vertical range + cross the edge.
+		if (_charY < t || _charY > b) return -1;
+		if (dir == 1) {
+			if (_charX < l) return -1;   // not yet at the zone's left edge
+		} else {
+			if (_charX > r) return -1;   // not yet at the zone's right edge
+		}
+	} else {
+		// UP (0) / DOWN (2): check horizontal range + cross the edge.
+		if (_charX < l || _charX > r) return -1;
+		if (dir == 2) {
+			if (_charY < t) return -1;
+		} else {
+			if (_charY > b) return -1;
+		}
+	}
+	return (int)dest;
+}
+
+void RealWorldScene::checkForLevelExit() {
+	// Only react while the character is actively walking; avoids re-firing
+	// when the player stands in an exit zone without new input.
+	if (!_charMoving) return;
+	if (_charDir < 0 || _charDir > 3) return;
+
+	int dest = hitExitZone((int)_charDir);
+	if (dest < 0) return;
+
+	debugC(1, kDebugLevel,
+	       "RealWorldScene: exit %d -> level %d (from %d)",
+	       (int)_charDir, dest, (int)_engine->currentLevel());
+
+	// Remember the direction we left by so the new level spawns us at the
+	// opposite edge. Then stop moving so the new level's roompos_init
+	// controls the initial pose.
+	_lastExitDir = (int)_charDir;
+	_charMoving  = false;
+	_lmbHeld     = false;
+
+	_engine->setCurrentLevel((uint8)dest);
+	loadLevel();
 }
 
 int RealWorldScene::keyToUiAction(uint16 ascii) const {
@@ -1184,6 +1310,10 @@ void RealWorldScene::advanceVmOnce() {
 
 	case NeuroVM::Action::kChangeLevel:
 		debugC(1, kDebugLevel, "RealWorldScene: VM requested level %u", r.levelN);
+		// VM-driven level changes spawn from the south edge, matching DOS
+		// which resets g_exit_point = -1 (transition defaults to 2) when
+		// g_load_level_vm != 0 (scene_real_world.c:667-670).
+		_lastExitDir = -1;
 		_engine->setCurrentLevel(r.levelN);
 		loadLevel();
 		break;
