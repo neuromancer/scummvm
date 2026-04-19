@@ -28,6 +28,7 @@
 #include "neuromancer/inventory.h"
 #include "neuromancer/pax.h"
 #include "neuromancer/scene.h"
+#include "neuromancer/skills.h"
 #include "neuromancer/text_scroller.h"
 
 #include "common/array.h"
@@ -317,6 +318,11 @@ private:
 	// item list + Give Credits (which sets active_item + cash_withdrawal
 	// in DSEG so the per-level BIH script can detect the payment).
 	Inventory _inventory;
+
+	// Skills sub-module. Activated by the Skills UI button; currently a
+	// list + description view. Complex per-skill flows (Warez / Debug /
+	// HW Repair / Cryptology / Musicianship) land in a later phase.
+	Skills _skillsMenu;
 };
 
 } // End of namespace Neuromancer

@@ -226,7 +226,8 @@ RealWorldScene::RealWorldScene(NeuromancerEngine *engine)
 	  _playerName("Case"),
 	  _lastClockTickMs(0),
 	  _pax(engine, this),
-	  _inventory(engine, this) {
+	  _inventory(engine, this),
+	  _skillsMenu(engine, this) {
 	for (int i = 0; i < 4; i++) { _bankTx[i].op = 0; _bankTx[i].amount = 0; }
 
 	// Empty all inventory slots, then seed the DOS save-slot defaults
@@ -235,7 +236,15 @@ RealWorldScene::RealWorldScene(NeuromancerEngine *engine)
 	memset(_exitZones,   0,    sizeof(_exitZones));
 	memset(_invItems,    0xFF, sizeof(_invItems));
 	memset(_invSoftware, 0xFF, sizeof(_invSoftware));
-	memset(_skills,      0,    sizeof(_skills));
+	// DOS save-slot default (data.c g_3f85.skills): Case starts with
+	// every skill available. 0xFF means "not acquired" which would leave
+	// the Skills menu empty; the in-game progression expects the full
+	// set from the start, with chips raising the level.
+	static const uint8 kStartSkills[16] = {
+		0x01, 0x00, 0x00, 0x01, 0x01, 0x01, 0x01, 0x01,
+		0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x00, 0x01
+	};
+	memcpy(_skills, kStartSkills, sizeof(_skills));
 	_gasMaskOn = false;
 	for (int i = 0; i < 32; i++) {
 		_invItems[i * 4 + 1] = _invItems[i * 4 + 2] = _invItems[i * 4 + 3] = 0;
@@ -409,6 +418,14 @@ SceneId RealWorldScene::update() {
 		return _next;
 	}
 
+	// Skills: same exclusive-control pattern.
+	if (_skillsMenu.isActive()) {
+		_skillsMenu.update();
+		tickGameClock(nowMs);
+		_engine->render();
+		return _next;
+	}
+
 	// Advance the scroll widget's teletype reveal. Re-compose the sprite
 	// when either the revealed-line count or the scroller state changed
 	// so we don't thrash the sprite-chain every tick.
@@ -538,6 +555,11 @@ void RealWorldScene::handleEvent(const Common::Event &event) {
 
 	if (_inventory.isActive()) {
 		(void)_inventory.handleEvent(event);
+		return;
+	}
+
+	if (_skillsMenu.isActive()) {
+		(void)_skillsMenu.handleEvent(event);
 		return;
 	}
 
@@ -974,7 +996,16 @@ void RealWorldScene::onUiAction(int code) {
 		break;
 	}
 	case kUiDialog:    openDialogPicker(); break;
-	case kUiSkills:    showText("Skills (not yet implemented).", kWidgetScroll); break;
+	case kUiSkills: {
+		// Same pattern as PAX / Inventory: dismiss blocking text widgets
+		// so the VM isn't left mid-yield while the skills window is up.
+		clearTextWidgets();
+		_textVisible  = false;
+		_introPending = false;
+		_dialogOpen   = false;
+		_skillsMenu.open();
+		break;
+	}
 	case kUiChip:      showText("ROM construct (not yet implemented).", kWidgetScroll); break;
 	case kUiDisk:      showText("Disk options (not yet implemented).", kWidgetScroll); break;
 
