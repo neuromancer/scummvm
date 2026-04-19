@@ -63,7 +63,8 @@ private:
 		kStateSoftwareList   = 5,  // DOS IS_ERASE_SOFTWARE_LIST
 		kStateSoftwareErase  = 6,  // DOS IS_ERASE_SOFTWARE (Y/N confirm)
 		kStateGiveCredits    = 7,  // DOS IS_GIVE_CREDITS
-		kStateGiveItem       = 8   // DOS IS_GIVE_ITEM (Y/N confirm for NPC)
+		kStateGiveItem       = 8,  // DOS IS_GIVE_ITEM (Y/N confirm for NPC)
+		kStateMessage        = 9   // DOS IS_WFI_AND_CONTINUE / _AND_CLOSE
 	};
 
 	// --- rendering ---
@@ -75,6 +76,11 @@ private:
 	void drawSoftwareEraseConfirm();
 	void drawGiveCredits();
 	void drawGiveItemConfirm();
+	// Generic one-line message screen reached by several Operate paths
+	// (e.g. "Nothing happens.", "No jack here.", "Gas mask is on."). On
+	// acknowledge (_messageClosesInv == true) the inventory closes;
+	// otherwise we bounce back to the item list.
+	void drawMessage(const char *text, bool closesInventory);
 	void pushSprite();
 
 	// --- dispatch ---
@@ -98,6 +104,12 @@ private:
 	// Return a printable name for the given item code. Credits (0x7F)
 	// gets "Credits N"; other codes index into the engine item-name table.
 	Common::String itemDisplayName(uint8 code) const;
+
+	// Run the item's "Operate" effect. Mirrors DOS inventory_operate_item
+	// (rw_state_inventory.c:306): looks up the item's op byte in
+	// kItemOperations[128] and branches on hardware / skill-chip /
+	// gas-mask / cyberspace / database / jackable categories.
+	void operateSelectedItem();
 
 	NeuromancerEngine *_engine;
 	RealWorldScene   *_scene;
@@ -130,6 +142,11 @@ private:
 	// When true, rebuildPage + drawItemList / drawSoftwareList switch to
 	// the software inventory. Reached via item-options Erase on CyberEyes.
 	bool _viewingSoftware;
+
+	// If true, dismissing the current message screen closes the inventory
+	// entirely (DOS IS_WFI_AND_CLOSE); otherwise we return to the item
+	// list (DOS IS_WFI_AND_CONTINUE).
+	bool _messageClosesInv;
 };
 
 } // End of namespace Neuromancer

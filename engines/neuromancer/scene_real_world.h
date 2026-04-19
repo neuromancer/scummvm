@@ -90,6 +90,19 @@ public:
 	uint8 *softwareSlots()       { return _invSoftware; }
 	const uint8 *softwareSlots() const { return _invSoftware; }
 
+	// Player skills (DOS g_3f85.skills[16] at 0x42D7). Each byte tracks
+	// a level 0..N for one of 16 trainable skills. Raising a skill
+	// happens by operating the corresponding skill chip in the inventory;
+	// NPCs / scripts read this to tell whether the player can perform a
+	// specific task.
+	uint8 *skills()              { return _skills;     }
+	const uint8 *skills() const  { return _skills;     }
+
+	// Gas-mask toggle state (DOS g_4bae.gas_mask_is_on at 0x4C19).
+	// Toggled via Operate on the gas-mask item.
+	bool gasMaskOn() const       { return _gasMaskOn; }
+	void setGasMaskOn(bool on)   { _gasMaskOn = on;   }
+
 private:
 	enum TextWidget {
 		kWidgetScroll,  // lower 136x56 box -- intro + opcode 0x02
@@ -267,6 +280,14 @@ private:
 	// ticket), items[1]=0x53 (CyberEyes), software[0]=0x00 (Mimic v1).
 	uint8 _invItems[128];
 	uint8 _invSoftware[128];
+
+	// Player skills (16 bytes). Parallel slot for each of the 16
+	// trainable skills; raised by operating skill-chip items.
+	uint8 _skills[16];
+
+	// Gas mask on/off flag. Simple bool here -- the Operate handler
+	// mirrors it into the VM DSEG (0x4C19) so level scripts can check.
+	bool _gasMaskOn;
 
 	// Wall-clock of the last in-game minute tick. The DOS ui_panel_update
 	// bumps time_m every ~1 real second (scene_real_world.c:601).

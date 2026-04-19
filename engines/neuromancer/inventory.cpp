@@ -96,6 +96,40 @@ static const char *const kItemNames[104] = {
 const uint16 kVarX4BBF           = 0x4BBF;
 const uint16 kVarActiveItem      = 0x4BC0;
 const uint16 kVarCashWithdrawal  = 0x4BC2;
+// x4ccb / x4ccc get written on Operate to communicate op category to
+// per-level BIH scripts (DOS rw_state_inventory.c:337-338).
+const uint16 kVarX4CCB           = 0x4CCB;
+const uint16 kVarX4CCC           = 0x4CCC;
+// gas_mask_is_on (DOS data.h:243, DSEG 0x4C19).
+const uint16 kVarGasMaskIsOn     = 0x4C19;
+
+// Per-item Operate dispatch table. Transcribed from DOS data.c:361-378
+// (g_inventory_item_operations[128]).
+//   bit 7 (0x80): hardware item (deck / skill-chip / gas-mask / ...)
+//   bits 4-5 (0x30): category
+//     0x00: jackable (deck software -- needs NPC jack on level)
+//     0x10: database-only
+//     0x20: cyberspace-only
+//   bits 0-3 (0x0F): subcategory / script callback index
+//   0xFF:          no-op ("Nothing happens.")
+static const uint8 kItemOperations[128] = {
+	0x25, 0x27, 0x23, 0x01, 0x29, 0x22, 0x22, 0x10,
+	0x24, 0x2B, 0x00, 0x22, 0x21, 0x22, 0x22, 0x23,
+	0x23, 0x23, 0x22, 0x22, 0x26, 0x22, 0x01, 0x27,
+	0x12, 0x20, 0x11, 0x20, 0x20, 0x80, 0x80, 0x80,
+	0x80, 0xC0, 0xC0, 0xC0, 0x80, 0x80, 0xC0, 0xC0,
+	0x80, 0x80, 0x80, 0xC0, 0xC0, 0xC0, 0xC0, 0x80,
+	0x80, 0xC0, 0xC0, 0x80, 0xC0, 0xFF, 0xFF, 0xFF,
+	0x84, 0x85, 0x80, 0x80, 0x80, 0x80, 0x2A, 0x00,
+	0x00, 0x00, 0x00, 0x81, 0x81, 0x81, 0x81, 0x81,
+	0x81, 0x81, 0x81, 0x81, 0x81, 0x81, 0x81, 0x81,
+	0x81, 0x81, 0x81, 0xC0, 0xFF, 0xFF, 0xFF, 0xFF,
+	0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+	0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x82, 0x83, 0xFF,
+	0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0xFF,
+	0xFF, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00,
+	0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0xFF, 0x00
+};
 
 void writeImhHeader(byte *buf, int16 dx, int16 dy, uint16 packedW, uint16 h) {
 	WRITE_LE_UINT16(buf + 0, (uint16)dx);
@@ -116,7 +150,8 @@ Inventory::Inventory(NeuromancerEngine *engine, RealWorldScene *scene)
 	  _amountLen(0),
 	  _pageStart(0),
 	  _pageCount(0),
-	  _viewingSoftware(false) {
+	  _viewingSoftware(false),
+	  _messageClosesInv(false) {
 	_sprite.resize(sizeof(ImhHeader) + kWindowBytes);
 	writeImhHeader(_sprite.data(), 0, 0, kWindowPackedW, kWindowHeightPx);
 	memset(_amount, 0, sizeof(_amount));
@@ -202,6 +237,20 @@ bool Inventory::handleEvent(const Common::Event &event) {
 	if (_state == kStateGiveCredits) {
 		if (handleGiveCreditsKey(event))
 			return true;
+	}
+
+	// Message screen absorbs any input and dispatches based on the state
+	// it was entered from.
+	if (_state == kStateMessage) {
+		if (event.type == Common::EVENT_KEYDOWN ||
+		    event.type == Common::EVENT_LBUTTONDOWN) {
+			if (_messageClosesInv)
+				close();
+			else
+				drawItemList();
+			return true;
+		}
+		return false;
 	}
 
 	if (event.type == Common::EVENT_KEYDOWN) {
@@ -502,14 +551,7 @@ bool Inventory::dispatchItemOptions(char code) {
 		drawItemList();
 		return true;
 	case 'o':
-		// Operate: DOS runs an item-specific handler (item_op table). For
-		// non-software items most are no-ops; the ones that do something
-		// show text or set game-state flags that BIH scripts read. Phase 2
-		// ack-and-bounce is a safe default; Phase 3 wires the software
-		// list to its proper Operate behaviour.
-		debugC(1, kDebugGeneral,
-		       "Inventory: operate item 0x%02X (stub)", _selectedItemCode);
-		drawItemList();
+		operateSelectedItem();
 		return true;
 	case 'd':
 		// Discard: credits can't be discarded; real items go through a
@@ -797,6 +839,109 @@ bool Inventory::dispatchGiveItemConfirm(char code) {
 		return true;
 	default:
 		return false;
+	}
+}
+
+// -------------------------------------------------------------------------
+// Message screen + Operate
+// -------------------------------------------------------------------------
+
+void Inventory::drawMessage(const char *text, bool closesInventory) {
+	_state = kStateMessage;
+	_messageClosesInv = closesInventory;
+	drawWindowFrame();
+
+	byte *pixels = _sprite.data() + sizeof(ImhHeader);
+
+	Common::String body = Common::String::format(
+		"%s\n\n\n"
+		"Press any key.", text ? text : "");
+	drawString(body.c_str(), kWindowWidthPx, kWindowHeightPx, 8, 16, pixels);
+
+	pushSprite();
+}
+
+void Inventory::operateSelectedItem() {
+	// Credits can't be "operated" in the DOS sense -- there's no side
+	// effect. Show the canonical no-op and continue.
+	if (_selectedItemCode == kItemCodeCredits) {
+		drawMessage("Nothing happens.", /*closesInv=*/false);
+		return;
+	}
+	if (_selectedItemCode >= 128) {
+		drawMessage("Nothing happens.", /*closesInv=*/false);
+		return;
+	}
+
+	uint8 itemOp = kItemOperations[_selectedItemCode];
+	if (itemOp == 0xFF) {
+		drawMessage("Nothing happens.", /*closesInv=*/false);
+		return;
+	}
+
+	// Mirror item_op category bits into DSEG so scripts / later code can
+	// read them (DOS rw_state_inventory.c:337-338).
+	NeuroVM *vm = _engine->vm();
+	vm->writeVar8(kVarX4CCB, (uint8)(itemOp & 0x0F));
+	vm->writeVar8(kVarX4CCC, (uint8)(itemOp & 0x30));
+
+	// Hardware items branch by subcategory (DOS line 343).
+	if (itemOp & 0x80) {
+		uint8 sub = itemOp & 0x0F;
+		switch (sub) {
+		case 1: {
+			// Skill chip: add to skills[] at index (code - 0x43), consume
+			// the item slot. DOS rw_state_inventory.c:351.
+			int skillIdx = (int)_selectedItemCode - 0x43;
+			if (skillIdx >= 0 && skillIdx < 16) {
+				_scene->skills()[skillIdx] = 0;
+			}
+			if (_selectedSlot >= 0)
+				_scene->itemSlots()[_selectedSlot * 4] = 0xFF;
+			drawMessage("Skill chip implanted.", /*closesInv=*/false);
+			return;
+		}
+		case 2: {
+			// Gas mask toggle (DOS rw_state_inventory.c:357).
+			bool on = !_scene->gasMaskOn();
+			_scene->setGasMaskOn(on);
+			vm->writeVar8(kVarGasMaskIsOn, on ? 1 : 0);
+			drawMessage(on ? "Gas mask is on." : "Gas mask is off.",
+			            /*closesInv=*/false);
+			return;
+		}
+		case 0:
+			// Deck: DOS opens a software picker here so the player can
+			// Operate one of their uploaded programs inside cyberspace
+			// (rw_state_inventory.c:346-349). Cyberspace isn't ported
+			// yet, so bounce with a message instead of sending the
+			// player into the Erase-software list by accident.
+			drawMessage("Jack into cyberspace to run programs.",
+			            /*closesInv=*/true);
+			return;
+		default:
+			drawMessage("Not implemented yet.", /*closesInv=*/true);
+			return;
+		}
+	}
+
+	// Non-hardware: category drives the gate.
+	uint8 cat = itemOp & 0x30;
+	switch (cat) {
+	case 0x10:
+		// Database-only items (DOS line 434).
+		drawMessage("Database only.", /*closesInv=*/true);
+		return;
+	case 0x20:
+		// Cyberspace-only items (DOS line 374).
+		drawMessage("Cyberspace only.", /*closesInv=*/true);
+		return;
+	default:
+		// cat == 0x00 -> jackable items (need an NPC on the current level).
+		// We don't yet have per-level NPC tracking, so err on the safe
+		// side -- DOS says "No jack here." (line 424).
+		drawMessage("No jack here.", /*closesInv=*/true);
+		return;
 	}
 }
 

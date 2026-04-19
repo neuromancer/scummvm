@@ -88,22 +88,13 @@ void NeuroMenu::drawText(const char *text, int cellL, int cellT) {
 	int topPx  = _innerT + cellT * kCellPx;
 	byte *pixels = _imh.data() + sizeof(ImhHeader);
 
-	// Note: `drawString` writes 0xFF packed pixels (colour 15). That blends
-	// invisibly into the white interior of the frame. Invert to 0x00 (black
-	// text on white) by swapping the pixel byte after writing. Simplest:
-	// render then flip the text region. Here we instead draw directly in
-	// black by extending drawString later; for now invert pixels in a temp
-	// buffer of known size.
-	//
-	// Temporary: draw into a cleared scratch the same size, then XOR onto
-	// the frame so 0xFF text becomes black (0xFF ^ 0xFF = 0x00).
-	Common::Array<byte> scratch;
-	scratch.resize(_pixW / 2 * _pixH);
-	memset(scratch.data(), 0, scratch.size());
-	drawString(text, _pixW, _pixH, leftPx, topPx, scratch.data());
-
-	for (uint i = 0; i < scratch.size(); i++)
-		pixels[i] ^= scratch[i];
+	// drawString (now routed through Graphics::DosFont) paints black ink
+	// on a white cell background -- exactly what we want on top of the
+	// white frame interior. The previous XOR-with-scratch trick was an
+	// inversion workaround for the old custom renderer and now flips
+	// polarity the wrong way, making the menu title look blank. Draw
+	// straight onto the frame instead.
+	drawString(text, _pixW, _pixH, leftPx, topPx, pixels);
 }
 
 void NeuroMenu::addItem(int cellL, int cellT, int cellW, int code, char label) {

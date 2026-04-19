@@ -235,6 +235,8 @@ RealWorldScene::RealWorldScene(NeuromancerEngine *engine)
 	memset(_exitZones,   0,    sizeof(_exitZones));
 	memset(_invItems,    0xFF, sizeof(_invItems));
 	memset(_invSoftware, 0xFF, sizeof(_invSoftware));
+	memset(_skills,      0,    sizeof(_skills));
+	_gasMaskOn = false;
 	for (int i = 0; i < 32; i++) {
 		_invItems[i * 4 + 1] = _invItems[i * 4 + 2] = _invItems[i * 4 + 3] = 0;
 		_invSoftware[i * 4 + 1] = _invSoftware[i * 4 + 2] = _invSoftware[i * 4 + 3] = 0;
@@ -284,6 +286,7 @@ void RealWorldScene::deinit() {
 	chain->clearSprite(kLayerDialogBubble);
 	chain->clearSprite(kLayerNeuroMenu);
 	chain->clearSprite(kLayerCharacter);
+	chain->clearSprite(kLayerStatusWidget);
 	chain->clearSprite(kLayerDebugOverlay);
 }
 
@@ -1238,7 +1241,12 @@ void RealWorldScene::acceptDialogReply() {
 //   UI_PM_DATE -> "mm/dd/yy"     (via build_date_string)
 void RealWorldScene::updateStatusWidget() {
 	byte *pixels = _statusSprite.data() + sizeof(ImhHeader);
-	memset(pixels, 0, kStatusBytes);
+	// Sentinel fill (colour 14 = 0xEE packed): drawString overwrites the
+	// character cells we actually need with black-on-white, and the rest
+	// of the buffer stays transparent via transBlitFrom(key=14). This
+	// prevents the status box from drawing a solid black rectangle over
+	// the Inventory window, which opens in the same screen region.
+	memset(pixels, 0xEE, kStatusBytes);
 
 	char buf[9] = { 0 };
 	switch (_statusMode) {
@@ -1271,12 +1279,14 @@ void RealWorldScene::updateStatusWidget() {
 
 	drawString(buf, kStatusWidthPx, kStatusHeightPx, 0, 0, pixels);
 
-	// Lives on kLayerDebugOverlay (= 1) so it doesn't collide with the
-	// player character sprite on kLayerCharacter. Opaque fill so both
-	// white text pixels AND black glyph-interior pixels render cleanly,
-	// matching DOS build_string's behaviour of overwriting the underlying
-	// g_seg010.background bytes in place.
-	_engine->spriteChain()->addSprite(kLayerDebugOverlay, kStatusX, kStatusY, _statusSprite.data(), true);
+	// Lives on kLayerStatusWidget (= 8) -- lower in the composition stack
+	// than widget popups (Inventory, PAX), so the Inventory window at
+	// (56, 128)..(231, 191), which overlaps the status area at (96, 149),
+	// correctly draws on top of it. Non-text cells are the 0xEE sentinel
+	// so they blit transparent via the transBlitFrom key path.
+	_engine->spriteChain()->addSprite(kLayerStatusWidget, kStatusX, kStatusY,
+	                                  _statusSprite.data(),
+	                                  /*opaque=*/false, /*transKey=*/14);
 }
 
 void RealWorldScene::advanceVmOnce() {

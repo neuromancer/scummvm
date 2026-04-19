@@ -49,6 +49,9 @@ enum SpriteLayerIndex {
 	kLayerDialogBubble   = 3,
 	kLayerCharacter      = 4,
 	kLayerPaxWindow      = 5, // PAX terminal panel (covers level BG while active)
+	kLayerStatusWidget   = 8, // cash / CON / time / date readout inside the
+	                          // UI panel. Lower in the stack than popups so
+	                          // the Inventory / PAX windows cover it cleanly.
 	kLayerLevelBg        = 9,
 	kLayerBackground     = 10
 };
