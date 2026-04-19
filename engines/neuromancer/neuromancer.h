@@ -58,6 +58,25 @@ public:
 	uint8 currentLevel() const { return _currentLevel; }
 	void setCurrentLevel(uint8 level) { _currentLevel = level; }
 
+	// Read-only accessor for the decompressed ROOMPOS.BIH payload, loaded
+	// once at engine startup. Layout: 58 levels * 5 "roompos" entries of
+	// 4 bytes each = 1160 bytes. Entry 0 is the floor bounds of a level,
+	// entries 1-4 are exit zones (one per cardinal direction). Exact byte
+	// semantics are still partially reverse-engineered -- callers inspect
+	// the raw bytes for now.
+	const byte *roompos() const {
+		return _roomposData.empty() ? nullptr : _roomposData.data();
+	}
+	uint32 roomposSize() const { return _roomposData.size(); }
+
+	// Read-only accessor for the decompressed SPRITES.IMH payload. Used
+	// by the real-world scene to render the player character: frame
+	// offsets for UP/RIGHT/DOWN/LEFT animations are hardcoded at the
+	// scene level (see g_*_frames[] tables in character_control.c).
+	const byte *spritesheet() const {
+		return _spritesImh.empty() ? nullptr : _spritesImh.data();
+	}
+
 	// Persistent "has the player been here before" bit per level, used by
 	// setup_intro() to choose long (first-visit) or short (revisit) text.
 	// Mirrors g_visited_levels_bitstring in the DOS build.
@@ -85,7 +104,9 @@ private:
 	Scene *_scene;
 	uint32 _lastMusicTickMs;
 
-	Common::Array<byte> _cursorsImh; // decompressed CURSORS.IMH
+	Common::Array<byte> _cursorsImh;  // decompressed CURSORS.IMH
+	Common::Array<byte> _roomposData; // decompressed ROOMPOS.BIH (1160 bytes)
+	Common::Array<byte> _spritesImh;  // decompressed SPRITES.IMH (character frames)
 	int _mouseX, _mouseY;
 
 	uint8 _currentLevel;

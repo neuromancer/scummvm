@@ -110,6 +110,10 @@ public:
 		Action action;
 		uint16 stringNum;
 		uint8  levelN;
+		// Thread-local variables carried by the yielding opcode; used by
+		// dialog bubbles (op 0x01 / 0x18) for positioning near the speaker.
+		uint16 var1;
+		uint16 var2;
 	};
 
 	// Run opcodes until a thread yields or all are idle.
@@ -119,6 +123,26 @@ public:
 	void resume();
 
 	const Bih &bih() const { return _bih; }
+
+	// Public accessors for the game-state variable array (debug + scene
+	// integration). Offsets are byte indices into the x4bae_t region.
+	uint8  readVar8(uint16 idx) const {
+		return idx < kVarsSize ? _vars[idx] : 0;
+	}
+	void   writeVar8(uint16 idx, uint8 val) {
+		if (idx < kVarsSize) _vars[idx] = val;
+	}
+	uint16 readVar16(uint16 idx) const {
+		return (idx + 1 < kVarsSize)
+		       ? (uint16)_vars[idx] | ((uint16)_vars[idx + 1] << 8)
+		       : 0;
+	}
+	void   writeVar16(uint16 idx, uint16 val) {
+		if (idx + 1 < kVarsSize) {
+			_vars[idx]     = (uint8)(val & 0xFF);
+			_vars[idx + 1] = (uint8)(val >> 8);
+		}
+	}
 
 private:
 	bool step(int slot);
@@ -142,6 +166,14 @@ private:
 	Action _pendingAction;
 	uint16 _pendingString;
 	uint8  _pendingLevel;
+	uint16 _pendingVar1;
+	uint16 _pendingVar2;
+
+	// Per-level dialog control set by opcode 0x13. Up to 64 levels; for each,
+	// the first_dialog_reply and total_dialog_replies values that the dialog
+	// scene will use when the player enters dialog mode (opcode 0x17).
+	struct LevelDialogCtrl { uint8 firstReply; uint8 totalReplies; };
+	LevelDialogCtrl _levelDialog[64];
 };
 
 } // End of namespace Neuromancer

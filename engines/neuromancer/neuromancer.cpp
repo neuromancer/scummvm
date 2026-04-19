@@ -124,6 +124,22 @@ Common::Error NeuromancerEngine::run() {
 	uint32 cursorsSize = _resources->load("CURSORS.IMH", _cursorsImh.data());
 	debugC(1, kDebugResource, "Neuromancer: CURSORS.IMH -> %u bytes", cursorsSize);
 
+	// Load ROOMPOS.BIH once. All 58 level roompos tables live here; the
+	// real-world scene indexes this data per-level to hit-test clicks.
+	_roomposData.resize(4096);
+	uint32 roomposSz = _resources->load("ROOMPOS.BIH", _roomposData.data());
+	_roomposData.resize(roomposSz);
+	debugC(1, kDebugResource, "Neuromancer: ROOMPOS.BIH -> %u bytes", roomposSz);
+
+	// Load SPRITES.IMH once (the player character's walk-cycle sheet).
+	// Individual frames are addressed by byte offset inside this buffer;
+	// each frame starts with its own ImhHeader so SpriteChain::addSprite
+	// can unpack it directly.
+	_spritesImh.resize(64000);
+	uint32 spritesSz = _resources->load("SPRITES.IMH", _spritesImh.data());
+	_spritesImh.resize(spritesSz);
+	debugC(1, kDebugResource, "Neuromancer: SPRITES.IMH -> %u bytes", spritesSz);
+
 	_scene = createScene(kSceneMainMenu, this);
 	if (_scene)
 		_scene->init();

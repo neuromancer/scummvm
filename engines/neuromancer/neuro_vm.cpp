@@ -93,9 +93,12 @@ NeuroVM::NeuroVM(NeuromancerEngine *engine)
 	  _updateHold(0),
 	  _pendingAction(Action::kIdle),
 	  _pendingString(0),
-	  _pendingLevel(0) {
+	  _pendingLevel(0),
+	  _pendingVar1(0),
+	  _pendingVar2(0) {
 	memset(_threads, 0, sizeof(_threads));
 	memset(_vars, 0, sizeof(_vars));
+	memset(_levelDialog, 0, sizeof(_levelDialog));
 }
 
 void NeuroVM::attach(const byte *bihData, uint32 size) {
@@ -145,12 +148,14 @@ void NeuroVM::resume() {
 }
 
 NeuroVM::TickResult NeuroVM::tick() {
-	TickResult r = { Action::kIdle, 0, 0 };
+	TickResult r = { Action::kIdle, 0, 0, 0, 0 };
 
 	if (_pendingAction != Action::kIdle) {
 		r.action    = _pendingAction;
 		r.stringNum = _pendingString;
 		r.levelN    = _pendingLevel;
+		r.var1      = _pendingVar1;
+		r.var2      = _pendingVar2;
 		return r;
 	}
 
@@ -170,6 +175,8 @@ NeuroVM::TickResult NeuroVM::tick() {
 				r.action    = _pendingAction;
 				r.stringNum = _pendingString;
 				r.levelN    = _pendingLevel;
+				r.var1      = _pendingVar1;
+				r.var2      = _pendingVar2;
 				return r;
 			}
 		}
@@ -195,7 +202,7 @@ bool NeuroVM::step(int slot) {
 	switch (code) {
 	case 0x00: {
 		uint16 addr = _bih.programAddress(t.flag & 3, 0);
-		debugC(3, kDebugScript, "VM: slot %d op 0x00 -> default prog 0x%04X", slot, addr);
+		debugC(2, kDebugScript, "VM: slot %d op 0x00 -> default prog 0x%04X", slot, addr);
 		t.nextOpAddr = addr;
 		break;
 	}
@@ -203,8 +210,12 @@ bool NeuroVM::step(int slot) {
 	case 0x01: {
 		_pendingAction = Action::kDialogReply;
 		_pendingString = op[1];
+		_pendingVar1 = t.var1;
+		_pendingVar2 = t.var2;
 		t.nextOpAddr += 2;
-		debugC(2, kDebugScript, "VM: slot %d op 0x01 dialog str=%u", slot, _pendingString);
+		debugC(2, kDebugScript,
+		       "VM: slot %d op 0x01 dialog str=%u at (%u, %u)",
+		       slot, _pendingString, t.var1, t.var2);
 		return true;
 	}
 
@@ -218,7 +229,7 @@ bool NeuroVM::step(int slot) {
 
 	case 0x03: {
 		uint16 addr = _bih.programAddress(t.flag & 3, op[1]);
-		debugC(3, kDebugScript, "VM: slot %d op 0x03 prog[%u] -> 0x%04X", slot, op[1], addr);
+		debugC(2, kDebugScript, "VM: slot %d op 0x03 prog[%u] -> 0x%04X", slot, op[1], addr);
 		t.nextOpAddr = addr;
 		break;
 	}
@@ -226,7 +237,7 @@ bool NeuroVM::step(int slot) {
 	case 0x04: {
 		int16 offset = (int16)READ_LE_UINT16(op + 1);
 		t.nextOpAddr = (uint16)(t.nextOpAddr + offset + 1);
-		debugC(3, kDebugScript, "VM: slot %d op 0x04 goto %+d -> 0x%04X", slot, offset, t.nextOpAddr);
+		debugC(2, kDebugScript, "VM: slot %d op 0x04 goto %+d -> 0x%04X", slot, offset, t.nextOpAddr);
 		break;
 	}
 
@@ -251,7 +262,7 @@ bool NeuroVM::step(int slot) {
 			t.nextOpAddr += 6;
 		else
 			t.nextOpAddr = (uint16)(t.nextOpAddr + offset + 4);
-		debugC(3, kDebugScript, "VM: slot %d cond 0x%02X var[%u]=%u vs %u -> %s",
+		debugC(2, kDebugScript, "VM: slot %d cond 0x%02X var[%u]=%u vs %u -> %s",
 		       slot, code, idx, got, val, met ? "fallthrough" : "jump");
 		break;
 	}
@@ -269,7 +280,7 @@ bool NeuroVM::step(int slot) {
 			        idx, (uint32)kVarsSize);
 		}
 		t.nextOpAddr += 5;
-		debugC(3, kDebugScript, "VM: slot %d op 0x%02X var[0x%04X]=%u", slot, code, idx, val);
+		debugC(2, kDebugScript, "VM: slot %d op 0x%02X var[0x%04X]=%u", slot, code, idx, val);
 		break;
 	}
 
@@ -291,9 +302,22 @@ bool NeuroVM::step(int slot) {
 		t.nextOpAddr++;
 		break;
 
-	case 0x13:
+	case 0x13: {
+		// Set per-level dialog control: level index at op[1], first reply
+		// id at op[2], total replies at op[3]. The dialog scene reads
+		// these when the player later enters dialog mode (opcode 0x17).
+		uint8 levelN   = op[1];
+		uint8 firstRep = op[2];
+		uint8 totalRep = op[3];
+		if (levelN < 64) {
+			_levelDialog[levelN].firstReply   = firstRep;
+			_levelDialog[levelN].totalReplies = totalRep;
+		}
+		debugC(2, kDebugScript, "VM: slot %d op 0x13 lvl=%u first=%u total=%u",
+		       slot, levelN, firstRep, totalRep);
 		t.nextOpAddr += 4;
 		break;
+	}
 
 	case 0x15: {
 		// 16-bit add-to-variable (little-endian).
@@ -339,10 +363,12 @@ bool NeuroVM::step(int slot) {
 			stringNum = (uint16)_vars[varOff] | ((uint16)_vars[varOff + 1] << 8);
 		_pendingAction = Action::kDialogReply;
 		_pendingString = stringNum;
+		_pendingVar1 = t.var1;
+		_pendingVar2 = t.var2;
 		t.nextOpAddr += 2;
 		debugC(2, kDebugScript,
-		       "VM: slot %d op 0x18 dynamic str var[0x%04X]=%u",
-		       slot, varOff, stringNum);
+		       "VM: slot %d op 0x18 dynamic str var[0x%04X]=%u at (%u, %u)",
+		       slot, varOff, stringNum, t.var1, t.var2);
 		return true;
 	}
 

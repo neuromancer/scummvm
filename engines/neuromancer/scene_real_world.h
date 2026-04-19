@@ -103,6 +103,11 @@ private:
 	int hitTestUiButton(int x, int y) const; // returns action code or -1
 	int keyToUiAction(uint16 ascii) const;   // returns action code or -1
 
+	// Mouse click inside the PIC area (8, 8)-(312, 120). For now this
+	// only logs + maps edge clicks to prev/next level navigation as a
+	// placeholder for full ROOMPOS-based exit detection.
+	void handlePicClick(int x, int y);
+
 	Common::Array<byte> _neuroImh;
 	Common::Array<byte> _picSprite;
 	Common::Array<byte> _bihData;

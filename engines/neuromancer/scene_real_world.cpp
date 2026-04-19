@@ -172,6 +172,7 @@ void RealWorldScene::deinit() {
 	chain->clearSprite(kLayerDialogBubble);
 	chain->clearSprite(kLayerNeuroMenu);
 	chain->clearSprite(kLayerCharacter);
+	chain->clearSprite(kLayerDebugOverlay);
 }
 
 SceneId RealWorldScene::update() {
@@ -231,6 +232,22 @@ void RealWorldScene::handleEvent(const Common::Event &event) {
 		case Common::KEYCODE_BACKSPACE:
 			gotoLevel(-1);
 			break;
+
+		// --- TEMPORARY debug backdoors while the dialog-choice scene
+		// isn't ported yet. Level 1's pay-Ratz loop checks var[16]==6
+		// (paid) and var[18]==127 (bypassed). Pressing F8 / F9 writes
+		// those values directly so we can step past the loop and see
+		// what the script does next. Remove once opcode 0x17 has a
+		// real dialog UI.
+		case Common::KEYCODE_F8:
+			debugC(1, kDebugScript, "DEBUG: writing var[16] = 6 (paid Ratz)");
+			_engine->vm()->writeVar8(16, 6);
+			break;
+		case Common::KEYCODE_F9:
+			debugC(1, kDebugScript, "DEBUG: writing var[18] = 127 (bypass)");
+			_engine->vm()->writeVar8(18, 127);
+			break;
+
 		default:
 			break;
 		}
@@ -255,8 +272,56 @@ void RealWorldScene::handleEvent(const Common::Event &event) {
 			return;
 		}
 		int uiAction = hitTestUiButton(event.mouse.x, event.mouse.y);
-		if (uiAction >= 0)
+		if (uiAction >= 0) {
 			onUiAction(uiAction);
+			return;
+		}
+		// PIC area click (8,8 to 312,120) -- scene-level navigation.
+		if (event.mouse.x >= 8 && event.mouse.x < 8 + 304 &&
+		    event.mouse.y >= 8 && event.mouse.y < 8 + 112) {
+			handlePicClick(event.mouse.x, event.mouse.y);
+		}
+	}
+}
+
+// Placeholder click-to-move: split the PIC area into three zones
+// (left-edge / middle / right-edge). Edge clicks page through levels
+// exactly like the arrow keys, so the player gets visible feedback.
+// Once ROOMPOS.BIH parsing lands we'll dispatch to level-specific
+// exits instead; for now the raw roompos bytes for this level are
+// also logged so we can see them against screenshots.
+void RealWorldScene::handlePicClick(int x, int y) {
+	int relX = x - 8;   // 0..303 inside the PIC
+	int relY = y - 8;   // 0..111
+
+	debugC(1, kDebugGeneral,
+	       "RealWorldScene: PIC click at screen (%d, %d) -> relative (%d, %d)",
+	       x, y, relX, relY);
+
+	// Dump the level's ROOMPOS entry for future use.
+	if (const byte *rp = _engine->roompos()) {
+		uint8 lvl = _engine->currentLevel();
+		uint32 off = (uint32)lvl * 20;
+		if (off + 20 <= _engine->roomposSize()) {
+			debugC(1, kDebugGeneral,
+			       "  roompos[level=%u]: floor=%02X %02X %02X %02X"
+			       "  exits=[%02X %02X %02X %02X] [%02X %02X %02X %02X]"
+			       " [%02X %02X %02X %02X] [%02X %02X %02X %02X]",
+			       lvl,
+			       rp[off+0],  rp[off+1],  rp[off+2],  rp[off+3],
+			       rp[off+4],  rp[off+5],  rp[off+6],  rp[off+7],
+			       rp[off+8],  rp[off+9],  rp[off+10], rp[off+11],
+			       rp[off+12], rp[off+13], rp[off+14], rp[off+15],
+			       rp[off+16], rp[off+17], rp[off+18], rp[off+19]);
+		}
+	}
+
+	// Edge-zone navigation placeholder.
+	const int kEdgeWidth = 60;
+	if (relX < kEdgeWidth) {
+		gotoLevel(-1);
+	} else if (relX >= 304 - kEdgeWidth) {
+		gotoLevel(+1);
 	}
 }
 
@@ -331,6 +396,21 @@ bool RealWorldScene::loadLevel() {
 	clearTextWidgets();
 	_textVisible = false;
 	_introPending = false;
+
+	// Player character: initial pose is UP-facing (DOS roompos_init picks
+	// dir = (transition+2)&3 = CD_UP for first entry, see
+	// Reuromancer/NeuromancerWin64/scene_real_world.c:696). Frame 0 of
+	// g_up_frames[] is at SPRITES.IMH offset 0x0000. Rendered on
+	// kLayerCharacter with transparent key 0 so the sprite's background
+	// pixels show the PIC through.
+	if (const byte *sheet = _engine->spritesheet()) {
+		const uint32 kCharUpFrame0 = 0x0000;
+		int posX = 8 + 304 / 2;
+		int posY = 8 + 112 - 40;
+		_engine->spriteChain()->addSprite(kLayerCharacter, posX, posY,
+		                                  sheet + kCharUpFrame0,
+		                                  /*opaque=*/false, /*transKey=*/0);
+	}
 
 	Common::String bihName = Common::String::format("R%d.BIH", lvl + 1);
 	uint32 bihSize = res->load(bihName, _bihData.data());
@@ -560,11 +640,12 @@ void RealWorldScene::updateStatusWidget() {
 
 	drawString(buf, kStatusWidthPx, kStatusHeightPx, 0, 0, pixels);
 
-	// Opaque so the 64x8 patch fully replaces whatever NEURO.IMH chrome
-	// sits under it: both white text pixels AND black glyph-interior pixels
-	// need to render, which matches the DOS build_string's behaviour of
-	// overwriting the underlying g_seg010.background bytes in place.
-	_engine->spriteChain()->addSprite(kLayerCharacter, kStatusX, kStatusY, _statusSprite.data(), true);
+	// Lives on kLayerDebugOverlay (= 1) so it doesn't collide with the
+	// player character sprite on kLayerCharacter. Opaque fill so both
+	// white text pixels AND black glyph-interior pixels render cleanly,
+	// matching DOS build_string's behaviour of overwriting the underlying
+	// g_seg010.background bytes in place.
+	_engine->spriteChain()->addSprite(kLayerDebugOverlay, kStatusX, kStatusY, _statusSprite.data(), true);
 }
 
 void RealWorldScene::advanceVmOnce() {
@@ -584,7 +665,9 @@ void RealWorldScene::advanceVmOnce() {
 
 	case NeuroVM::Action::kDialogReply: {
 		const char *s = vm->bih().textString(r.stringNum);
-		debugC(1, kDebugScript, "RealWorldScene: bubble text[%u] = \"%s\"", r.stringNum, s);
+		debugC(1, kDebugScript,
+		       "RealWorldScene: bubble text[%u] at (%u, %u) = \"%s\"",
+		       r.stringNum, r.var1, r.var2, s);
 		showText(s, kWidgetBubble);
 		break;
 	}
