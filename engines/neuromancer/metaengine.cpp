@@ -37,6 +37,17 @@ public:
 		*engine = new NeuromancerEngine(syst, gd);
 		return Common::kNoError;
 	}
+
+	// Enable ScummVM's built-in save/load UI (list, pick, delete slots;
+	// thumbnails + play time + meta-info on saves). The actual state
+	// serialization lives in NeuromancerEngine::syncGame.
+	bool hasFeature(MetaEngineFeature f) const override {
+		return checkExtendedSaves(f) ||
+		       (f == kSupportsLoadingDuringStartup);
+	}
+
+	// Up to 99 numbered save slots, matching the ScummVM default.
+	int getMaximumSaveSlot() const override { return 99; }
 };
 
 } // End of namespace Neuromancer

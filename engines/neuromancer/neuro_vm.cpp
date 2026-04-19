@@ -158,6 +158,43 @@ void NeuroVM::resume() {
 	_pendingAction = Action::kIdle;
 }
 
+void NeuroVM::syncGame(Common::Serializer &s) {
+	// DSEG: the 64 KB data-segment mirror. Absolutely critical -- this
+	// is where all the per-level game flags live (Ratz paid, items used,
+	// dialog counters, etc).
+	s.syncBytes(_vars.data(), (uint)_vars.size());
+
+	// Thread slots: four of them, each a small POD.
+	for (int i = 0; i < 4; i++) {
+		byte active = _threads[i].active ? 1 : 0;
+		s.syncAsByte(active);
+		if (s.isLoading()) _threads[i].active = (active != 0);
+		s.syncAsUint16LE(_threads[i].nextOpAddr);
+		s.syncAsUint16LE(_threads[i].var1);
+		s.syncAsUint16LE(_threads[i].var2);
+		s.syncAsByte(_threads[i].flag);
+	}
+	s.syncAsSint32LE(_currentThread);
+	s.syncAsSint32LE(_updateHold);
+
+	// Pending blocking action (in case the player saved mid-yield).
+	{
+		byte act = (byte)_pendingAction;
+		s.syncAsByte(act);
+		if (s.isLoading()) _pendingAction = (Action)act;
+	}
+	s.syncAsUint16LE(_pendingString);
+	s.syncAsByte(_pendingLevel);
+	s.syncAsUint16LE(_pendingVar1);
+	s.syncAsUint16LE(_pendingVar2);
+
+	// Per-level dialog control (set by op 0x13).
+	for (int i = 0; i < 64; i++) {
+		s.syncAsByte(_levelDialog[i].firstReply);
+		s.syncAsByte(_levelDialog[i].totalReplies);
+	}
+}
+
 NeuroVM::TickResult NeuroVM::tick() {
 	TickResult r = { Action::kIdle, 0, 0, 0, 0 };
 

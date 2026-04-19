@@ -27,6 +27,7 @@
 
 #include "common/array.h"
 #include "common/scummsys.h"
+#include "common/serializer.h"
 
 namespace Neuromancer {
 
@@ -121,6 +122,12 @@ public:
 
 	// Clear the pending action so the next tick can resume.
 	void resume();
+
+	// Save / load hook. Persists the 64 KB DSEG, thread slots, pending
+	// action, and per-level dialog control. The caller must re-attach
+	// the BIH (via attach()) BEFORE invoking this on load, so the VM
+	// knows its bytecode layout; syncGame only touches mutable state.
+	void syncGame(Common::Serializer &s);
 
 	const Bih &bih() const { return _bih; }
 

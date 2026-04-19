@@ -31,12 +31,16 @@
 #include "neuromancer/neuro_vm.h"
 #include "neuromancer/resource.h"
 #include "neuromancer/scene.h"
+#include "neuromancer/scene_real_world.h"
 
 #include "audio/softsynth/pcspk.h"
+#include "common/config-manager.h"
 #include "common/debug.h"
 #include "common/error.h"
 #include "common/events.h"
+#include "common/stream.h"
 #include "common/system.h"
+#include "common/translation.h"
 #include "engines/util.h"
 #include "graphics/cursorman.h"
 
@@ -94,6 +98,89 @@ void NeuromancerEngine::render() {
 	_spriteChain->renderToScreen();
 }
 
+// ---------------------------------------------------------------------------
+// Save / load
+// ---------------------------------------------------------------------------
+
+static const uint8 kSaveVersion = 1;
+
+bool NeuromancerEngine::canSaveGameStateCurrently(Common::U32String *msg) {
+	// Only allow saving while the real-world scene is up -- that's where
+	// all the persistable state lives. The main menu / title screen have
+	// nothing meaningful to save.
+	if (!_scene || _scene->id() != kSceneRealWorld) {
+		if (msg) *msg = _("Saving is only available during gameplay.");
+		return false;
+	}
+	return true;
+}
+
+bool NeuromancerEngine::canLoadGameStateCurrently(Common::U32String *msg) {
+	// Loading from the title screen is supported too -- we swap to the
+	// real-world scene below on load.
+	return true;
+}
+
+Common::Error NeuromancerEngine::saveGameStream(Common::WriteStream *stream,
+                                                bool isAutosave) {
+	stream->writeByte(kSaveVersion);
+	Common::Serializer ser(nullptr, stream);
+	ser.setVersion(kSaveVersion);
+	return syncGame(ser);
+}
+
+Common::Error NeuromancerEngine::loadGameStream(Common::SeekableReadStream *stream) {
+	uint8 version = stream->readByte();
+	if (version != kSaveVersion) {
+		warning("Neuromancer: unsupported save version %u (expected %u)",
+		        version, kSaveVersion);
+		return Common::kReadingFailed;
+	}
+	Common::Serializer ser(stream, nullptr);
+	ser.setVersion(version);
+	return syncGame(ser);
+}
+
+Common::Error NeuromancerEngine::syncGame(Common::Serializer &s) {
+	// Core engine state: current level + visited-levels bitset.
+	s.syncAsByte(_currentLevel);
+	s.syncBytes(_visitedLevels, sizeof(_visitedLevels));
+
+	// On load we may be sitting at the main-menu scene. Switch to the
+	// real-world scene BEFORE its syncGame runs so the destination scene
+	// exists. loadLevel happens later inside reinitializeAfterLoad.
+	if (s.isLoading()) {
+		if (!_scene || _scene->id() != kSceneRealWorld) {
+			if (_scene) {
+				_scene->deinit();
+				delete _scene;
+			}
+			_scene = createScene(kSceneRealWorld, this);
+			if (_scene)
+				_scene->init();
+		}
+	}
+
+	// Scene state (player pose, cash, inventory, ...).
+	RealWorldScene *rw = dynamic_cast<RealWorldScene *>(_scene);
+	if (!rw) {
+		warning("Neuromancer: save/load without a real-world scene");
+		return Common::kReadingFailed;
+	}
+	rw->syncGame(s);
+
+	// VM state (64 KB DSEG + threads + dialog control).
+	if (_vm) _vm->syncGame(s);
+
+	// After load: rebuild visuals. loadLevel re-loads the level's PIC +
+	// BIH; the scene then reinstates the saved player pose on top.
+	if (s.isLoading() && rw) {
+		rw->reinitializeAfterLoad();
+	}
+
+	return Common::kNoError;
+}
+
 Common::Error NeuromancerEngine::run() {
 	// 320x200 paletted, matching the DOS original.
 	initGraphics(kScreenWidth, kScreenHeight);
@@ -140,9 +227,22 @@ Common::Error NeuromancerEngine::run() {
 	_spritesImh.resize(spritesSz);
 	debugC(1, kDebugResource, "Neuromancer: SPRITES.IMH -> %u bytes", spritesSz);
 
-	_scene = createScene(kSceneMainMenu, this);
+	// If the launcher passed a save slot to auto-load, skip straight to
+	// the real-world scene and apply the saved state right after init().
+	int pendingSlot = -1;
+	if (ConfMan.hasKey("save_slot"))
+		pendingSlot = ConfMan.getInt("save_slot");
+
+	_scene = createScene(pendingSlot >= 0 ? kSceneRealWorld : kSceneMainMenu, this);
 	if (_scene)
 		_scene->init();
+
+	if (pendingSlot >= 0) {
+		Common::Error err = loadGameState(pendingSlot);
+		if (err.getCode() != Common::kNoError)
+			warning("Neuromancer: auto-load slot %d failed: %s",
+			        pendingSlot, err.getDesc().c_str());
+	}
 
 	Common::Event event;
 	while (!shouldQuit() && !_exitGame) {

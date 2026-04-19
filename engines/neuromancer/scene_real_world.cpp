@@ -290,6 +290,96 @@ void RealWorldScene::deinit() {
 	chain->clearSprite(kLayerDebugOverlay);
 }
 
+// Save / load hook. Persists the bits of player-facing state the scene
+// owns directly. The engine is responsible for currentLevel / visited
+// bits; the VM serializes its own DSEG + threads.
+void RealWorldScene::syncGame(Common::Serializer &s) {
+	// Player name. DOS stores this as a fixed 13-char field; we use a
+	// Common::String backed by a fixed-size buffer for portability.
+	char name[16] = { 0 };
+	Common::strlcpy(name, _playerName.c_str(), sizeof(name));
+	s.syncBytes((byte *)name, sizeof(name));
+	if (s.isLoading())
+		_playerName = name;
+
+	// Character pose + movement state.
+	s.syncAsSint32LE(_charX);
+	s.syncAsSint32LE(_charY);
+	{
+		int8 dir = (int8)_charDir;
+		s.syncAsSByte(dir);
+		if (s.isLoading()) _charDir = (CharDir)dir;
+	}
+	s.syncAsSint32LE(_charFrame);
+	{
+		byte b = _charMoving ? 1 : 0;
+		s.syncAsByte(b);
+		if (s.isLoading()) _charMoving = (b != 0);
+	}
+	s.syncAsSint32LE(_lastExitDir);
+
+	// Status + game-clock state.
+	{
+		byte mode = (byte)_statusMode;
+		s.syncAsByte(mode);
+		if (s.isLoading()) _statusMode = (StatusMode)mode;
+	}
+	s.syncAsSint32LE(_cash);
+	s.syncAsSint16LE(_constitution);
+	s.syncAsSint16LE(_timeH);
+	s.syncAsSint16LE(_timeM);
+	s.syncAsSint16LE(_dateDay);
+
+	// Bank state.
+	s.syncAsSint32LE(_bankAccount);
+	s.syncAsByte(_bankTxIndex);
+	for (int i = 0; i < 4; i++) {
+		s.syncAsByte(_bankTx[i].op);
+		s.syncAsUint32LE(_bankTx[i].amount);
+	}
+
+	// Inventory + skills + gas-mask.
+	s.syncBytes(_invItems,    sizeof(_invItems));
+	s.syncBytes(_invSoftware, sizeof(_invSoftware));
+	s.syncBytes(_skills,      sizeof(_skills));
+	{
+		byte gas = _gasMaskOn ? 1 : 0;
+		s.syncAsByte(gas);
+		if (s.isLoading()) _gasMaskOn = (gas != 0);
+	}
+}
+
+// After a save-file load the engine re-activates this scene. We need to
+// (a) re-run loadLevel() for the current level to reload the PIC / BIH /
+// sprite assets, then (b) override the default spawn position + direction
+// with whatever the save file provided. Also hides any text widgets left
+// over in the loaded VM state -- we re-draw them as the VM runs.
+void RealWorldScene::reinitializeAfterLoad() {
+	// Cache restored character pose: loadLevel -> applyRoomposForCurrentLevel
+	// would otherwise clobber it.
+	int   savedX     = _charX;
+	int   savedY     = _charY;
+	CharDir savedDir = _charDir;
+
+	// Reload the level assets + walk bounds + dialog widgets.
+	loadLevel();
+	// Suppress the intro text that loadLevel re-queues; the player has
+	// already seen it in the saved session.
+	_introPending = false;
+	_textVisible  = false;
+	clearTextWidgets();
+
+	// Restore the saved pose, stop any movement, re-render.
+	_charX        = savedX;
+	_charY        = savedY;
+	_charDir      = savedDir;
+	_charFrame    = 0;
+	_charMoving   = false;
+	_lmbHeld      = false;
+	renderCharacterFrame();
+	updateStatusWidget();
+}
+
 SceneId RealWorldScene::update() {
 	uint32 nowMs = g_system->getMillis();
 

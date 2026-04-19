@@ -27,6 +27,7 @@
 
 #include "common/array.h"
 #include "common/random.h"
+#include "common/serializer.h"
 #include "engines/advancedDetector.h"
 #include "engines/engine.h"
 
@@ -47,6 +48,21 @@ public:
 	~NeuromancerEngine() override;
 
 	Common::Error run() override;
+
+	// ---- Save / load plumbing (Engine overrides) ----
+	bool hasFeature(EngineFeature f) const override {
+		return f == kSupportsLoadingDuringRuntime ||
+		       f == kSupportsSavingDuringRuntime;
+	}
+	bool canLoadGameStateCurrently(Common::U32String *msg = nullptr) override;
+	bool canSaveGameStateCurrently(Common::U32String *msg = nullptr) override;
+	Common::Error loadGameStream(Common::SeekableReadStream *stream) override;
+	Common::Error saveGameStream(Common::WriteStream *stream, bool isAutosave) override;
+
+	// Bidirectional state sync. Called by both saveGameStream and
+	// loadGameStream through a Common::Serializer. On load it populates
+	// the scene + VM state; on save it snapshots them.
+	Common::Error syncGame(Common::Serializer &s);
 
 	// Subsystem accessors used by scenes and level handlers.
 	ResourceManager *resources() { return _resources; }

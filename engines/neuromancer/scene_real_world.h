@@ -31,6 +31,7 @@
 #include "neuromancer/text_scroller.h"
 
 #include "common/array.h"
+#include "common/serializer.h"
 #include "common/str.h"
 
 namespace Neuromancer {
@@ -62,6 +63,17 @@ public:
 	void deinit() override;
 	SceneId update() override;
 	void handleEvent(const Common::Event &event) override;
+
+	// Save / load hook. Called by NeuromancerEngine::syncGame to persist
+	// or restore all scene-owned state (player position, cash, bank,
+	// inventory, skills, ...). On load the caller re-invokes loadLevel()
+	// afterwards so the PIC / BIH / character sprite re-render.
+	void syncGame(Common::Serializer &s);
+
+	// Rebuild visual state after a save-file load. Keeps _charX/_charY/
+	// _charDir overrides from the loaded state instead of applyRoompos()'s
+	// defaults.
+	void reinitializeAfterLoad();
 
 	// ---- Game state accessors (used by PAX / Inventory sub-modules) -----
 	int32 cash() const { return _cash; }
