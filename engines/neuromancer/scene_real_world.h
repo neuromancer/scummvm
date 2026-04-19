@@ -32,14 +32,22 @@
 
 namespace Neuromancer {
 
-// Real-world scene: UI frame (NEURO.IMH) + per-level PIC + neuro-VM tick.
+// Real-world scene: UI frame (NEURO.IMH) + per-level PIC + neuro-VM tick +
+// clickable UI buttons.
 //
-// Two text widgets mirror the DOS engine (scene_real_world.c / window_animation.c):
-//   - Scroll widget: small 136x56 box at (88, 134). Used by setup_intro()
-//     and by VM opcode 0x02 (text output).
-//   - Dialog bubble: overlay near the character position. Used by VM
-//     opcodes 0x01 / 0x18 (NPC replies). For now a simple rectangle at a
-//     fixed location -- full BUBBLES.IMH-based framing lands later.
+// Widgets and their layers (see SpriteLayerIndex in gfx.h):
+//   - kLayerBackground : NEURO.IMH UI frame (opaque)
+//   - kLayerLevelBg    : R{N+1}.PIC level image at (8, 8)
+//   - kLayerNeuroMenu  : scroll text widget at (88, 134) 136x56 (intro,
+//                        VM opcode 0x02 text output)
+//   - kLayerDialogBubble: dialog bubble (VM opcodes 0x01 / 0x18)
+//   - kLayerCharacter  : status display at (96, 149) showing cash / CON /
+//                        time / date for the currently selected UI mode
+//   - kLayerCursor     : mouse cursor sprite
+//
+// UI buttons: 10 clickable regions defined in the DOS build's
+// g_ui_buttons (data.c:127-138). The icons are baked into NEURO.IMH so
+// the scene only needs to maintain hit rectangles and handle input.
 class RealWorldScene : public Scene {
 public:
 	explicit RealWorldScene(NeuromancerEngine *engine);
@@ -58,28 +66,56 @@ private:
 		kWidgetBubble   // overlay dialog bubble -- opcode 0x01 / 0x18
 	};
 
+	// UI button action codes. Values match g_ui_buttons[*].code in data.c
+	// so future save/load and VM handlers can round-trip them directly.
+	enum UiAction {
+		kUiInventory    = 0x00,
+		kUiPax          = 0x01,
+		kUiDialog       = 0x02,
+		kUiSkills       = 0x03,
+		kUiChip         = 0x04,
+		kUiDisk         = 0x05,
+		kUiDate         = 0x0A,
+		kUiTime         = 0x0B,
+		kUiCash         = 0x0C,
+		kUiConstitution = 0x0D
+	};
+
+	// Status-panel mode (what to render in the status widget at (96, 149)).
+	enum StatusMode { kStatusCash = 0, kStatusCon, kStatusTime, kStatusDate };
+
 	bool loadLevel();
-	void showLevelIndicator();
 	void gotoLevel(int delta);
 	void advanceVmOnce();
 	void showLevelIntro();
 	void startVmForCurrentLevel();
 
-	// Render `text` into the requested widget and mark that widget as the
-	// active (blocking) overlay. Any previously active widget is cleared.
 	void showText(const char *text, TextWidget widget);
 	void clearTextWidgets();
+
+	void updateStatusWidget();
+	void onUiAction(int code);
+	int hitTestUiButton(int x, int y) const; // returns action code or -1
+	int keyToUiAction(uint16 ascii) const;   // returns action code or -1
 
 	Common::Array<byte> _neuroImh;
 	Common::Array<byte> _picSprite;
 	Common::Array<byte> _bihData;
-	Common::Array<byte> _scrollSprite;     // 136x56 scroll text box
-	Common::Array<byte> _bubbleSprite;     // dialog bubble
-	Common::Array<byte> _indicatorSprite;
+	Common::Array<byte> _scrollSprite;
+	Common::Array<byte> _bubbleSprite;
+	Common::Array<byte> _statusSprite;  // status widget at (96, 149)
 
 	SceneId _next;
 	bool _textVisible;
 	bool _introPending;
+
+	// Game state surfaced by the status widget. Defaults are the level 1
+	// start values from the DOS save-slot template (11/16/58, cash=0).
+	StatusMode _statusMode;
+	int32 _cash;
+	int16 _constitution;
+	int16 _timeH, _timeM;
+	int16 _dateDay; // day offset from 11/16/58 -- the DOS build_date_string input
 };
 
 } // End of namespace Neuromancer
