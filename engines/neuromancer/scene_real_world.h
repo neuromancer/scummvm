@@ -161,6 +161,16 @@ private:
 	bool    _lmbHeld;
 	uint32  _charLastStepMs;
 
+	// Per-level walkable bounds derived from ROOMPOS exit rectangles.
+	// Match DOS character_control_update (scene_real_world.c:82-85):
+	//   L = exits[LEFT][0]  * 2
+	//   R = (exits[RIGHT][0] + exits[RIGHT][2]) * 2
+	//   T = exits[UP][1]
+	//   B = exits[DOWN][1]  + exits[DOWN][3]
+	int _walkL, _walkR, _walkT, _walkB;
+
+	void applyRoomposForCurrentLevel();
+
 	// Game state surfaced by the status widget. Defaults are the level 1
 	// start values from the DOS save-slot template (11/16/58, cash=0).
 	StatusMode _statusMode;
@@ -168,6 +178,12 @@ private:
 	int16 _constitution;
 	int16 _timeH, _timeM;
 	int16 _dateDay; // day offset from 11/16/58 -- the DOS build_date_string input
+
+	// Wall-clock of the last in-game minute tick. The DOS ui_panel_update
+	// bumps time_m every ~1 real second (scene_real_world.c:601).
+	uint32 _lastClockTickMs;
+
+	void tickGameClock(uint32 nowMs);
 };
 
 } // End of namespace Neuromancer

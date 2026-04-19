@@ -167,19 +167,21 @@ RealWorldScene::RealWorldScene(NeuromancerEngine *engine)
 	  _dialogCurrentReply(0),
 	  _dialogFirst(0),
 	  _dialogTotal(0),
-	  _charX(8 + 304 / 2),
-	  _charY(8 + 112 - 40),
+	  _charX(160),
+	  _charY(117),
 	  _charDir(kDirUp),
 	  _charFrame(0),
 	  _charMoving(false),
 	  _lmbHeld(false),
 	  _charLastStepMs(0),
+	  _walkL(8), _walkR(312), _walkT(8), _walkB(120),
 	  _statusMode(kStatusDate),
 	  _cash(0),
 	  _constitution(2000),
 	  _timeH(0),
 	  _timeM(0),
-	  _dateDay(0) {}
+	  _dateDay(0),
+	  _lastClockTickMs(0) {}
 
 RealWorldScene::~RealWorldScene() = default;
 
@@ -222,6 +224,8 @@ void RealWorldScene::deinit() {
 }
 
 SceneId RealWorldScene::update() {
+	uint32 nowMs = g_system->getMillis();
+
 	if (!_textVisible && !_introPending)
 		advanceVmOnce();
 
@@ -229,10 +233,44 @@ SceneId RealWorldScene::update() {
 	// when no blocking widget is up -- matches the DOS game freezing the
 	// character while modal dialogs / bubbles are visible.
 	if (!_textVisible && !_introPending && !_dialogOpen)
-		updateCharacter(g_system->getMillis());
+		updateCharacter(nowMs);
+
+	tickGameClock(nowMs);
 
 	_engine->render();
 	return _next;
+}
+
+// Advance the in-game clock by one minute every real second, matching the
+// DOS ui_panel_update (Reuromancer/NeuromancerWin64/scene_real_world.c:
+// 601-620). Wraps at 60 -> hour, 24 -> day. Re-renders the status widget
+// only when the visible mode's displayed value has changed.
+void RealWorldScene::tickGameClock(uint32 nowMs) {
+	if (_lastClockTickMs == 0) {
+		_lastClockTickMs = nowMs;
+		return;
+	}
+	if (nowMs - _lastClockTickMs < 1000)
+		return;
+
+	// Catch up however many seconds passed (e.g. after a debugger break).
+	while (nowMs - _lastClockTickMs >= 1000) {
+		_lastClockTickMs += 1000;
+		if (++_timeM >= 60) {
+			_timeM = 0;
+			if (++_timeH >= 24) {
+				_timeH = 0;
+				_dateDay++;
+			}
+		}
+	}
+
+	// Only redraw the status widget when it's showing a field that just
+	// changed; saves a sprite-unpack per second.
+	if (_statusMode == kStatusTime ||
+	    (_statusMode == kStatusDate && _timeH == 0 && _timeM == 0)) {
+		updateStatusWidget();
+	}
 }
 
 void RealWorldScene::handleEvent(const Common::Event &event) {
@@ -427,6 +465,7 @@ void RealWorldScene::setCharDirFromCursor(int cursorX, int cursorY) {
 	const int spriteW = 32;
 	const int spriteH = 40;
 
+	CharDir prev = _charDir;
 	if (cursorX < _charX) {
 		_charDir = kDirLeft;
 		_charMoving = true;
@@ -440,8 +479,16 @@ void RealWorldScene::setCharDirFromCursor(int cursorX, int cursorY) {
 		_charDir = kDirDown;
 		_charMoving = true;
 	} else {
-		// Cursor directly over the character; stop.
 		_charMoving = false;
+	}
+
+	// DOS character_control_handle_input snaps to frame 1 and renders
+	// immediately when the direction changes, so the player gets instant
+	// visual feedback instead of waiting for the 100ms throttle.
+	if (_charMoving && _charDir != prev) {
+		_charFrame = 1;
+		_charLastStepMs = 0;    // allow an immediate step on next update
+		renderCharacterFrame();
 	}
 }
 
@@ -463,22 +510,23 @@ void RealWorldScene::updateCharacter(uint32 nowMs) {
 		return;
 	_charLastStepMs = nowMs;
 
-	// Clamp within the PIC area (8..312, 8..120). The DOS engine checks
-	// against the roompos exit rectangles; without that data for every
-	// level yet, we just keep the character visible inside the image.
-	const int minX = 8, maxX = 312 - 32;
-	const int minY = 8, maxY = 120 - 40;
-
+	// Clamp to the level's walkable region, derived from ROOMPOS exit
+	// rectangles in applyRoomposForCurrentLevel(). Matches DOS bounds
+	// in character_control_update (scene_real_world.c:82-85).
 	switch (_charDir) {
-	case kDirLeft:  if (_charX - kCharSpeedHort >= minX) _charX -= kCharSpeedHort; break;
-	case kDirRight: if (_charX + kCharSpeedHort <= maxX) _charX += kCharSpeedHort; break;
-	case kDirUp:    if (_charY - kCharSpeedVert >= minY) _charY -= kCharSpeedVert; break;
-	case kDirDown:  if (_charY + kCharSpeedVert <= maxY) _charY += kCharSpeedVert; break;
+	case kDirLeft:  if (_charX - kCharSpeedHort >  _walkL) _charX -= kCharSpeedHort; break;
+	case kDirRight: if (_charX + kCharSpeedHort <  _walkR) _charX += kCharSpeedHort; break;
+	case kDirUp:    if (_charY - kCharSpeedVert >  _walkT) _charY -= kCharSpeedVert; break;
+	case kDirDown:  if (_charY + kCharSpeedVert <  _walkB) _charY += kCharSpeedVert; break;
 	default: break;
 	}
 
 	_charFrame = (_charFrame + 1) & 7;
 	renderCharacterFrame();
+
+	debugC(3, kDebugGeneral,
+	       "char: dir=%d pos=(%d, %d) frame=%d",
+	       (int)_charDir, _charX, _charY, _charFrame);
 }
 
 void RealWorldScene::renderCharacterFrame() {
@@ -489,6 +537,53 @@ void RealWorldScene::renderCharacterFrame() {
 	_engine->spriteChain()->addSprite(kLayerCharacter, _charX, _charY,
 	                                  sheet + off,
 	                                  /*opaque=*/false, /*transKey=*/0);
+}
+
+// Port of Reuromancer/NeuromancerWin64/scene_real_world.c:657-698
+// (roompos_init), limited to the initial-entry path where transition=2
+// (CD_DOWN = south exit). Reads the level's 20-byte record from
+// ROOMPOS.BIH:
+//   floor a8ae[0..3] at offset +0
+//   exits[dir][0..3] at offset +4 + dir*4  for dir 0=N, 1=E, 2=S, 3=W
+// and computes:
+//   roompos_x = (exit_S[0] << 1) + exit_S[2]
+//   roompos_y = (exit_S[3] >> 1) + exit_S[1]
+//   walk bounds from exit L/R/U/D rectangles (update loop uses these
+//   to clamp the character each frame).
+// If ROOMPOS data isn't available (e.g. engine init failed) or the level
+// index is out of range, keep the default conservative PIC-sized bounds.
+void RealWorldScene::applyRoomposForCurrentLevel() {
+	const byte *rp = _engine->roompos();
+	uint8 lvl = _engine->currentLevel();
+	if (!rp)
+		return;
+	uint32 off = (uint32)lvl * 20;
+	if (off + 20 > _engine->roomposSize())
+		return;
+
+	const byte *floor = rp + off + 0;
+	const byte *exitN = rp + off + 4;
+	const byte *exitE = rp + off + 8;
+	const byte *exitS = rp + off + 12;
+	const byte *exitW = rp + off + 16;
+
+	// Initial entry comes from the south exit (transition=2).
+	_charX = ((int)exitS[0] << 1) + (int)exitS[2];
+	_charY = ((int)exitS[3] >> 1) + (int)exitS[1];
+	_charDir = kDirUp;
+	_charFrame = 0;
+
+	// Walkable bounds. The DOS update uses these to clamp motion.
+	_walkL = (int)exitW[0] << 1;
+	_walkR = ((int)exitE[0] + (int)exitE[2]) << 1;
+	_walkT = (int)exitN[1];
+	_walkB = (int)exitS[1] + (int)exitS[3];
+
+	debugC(1, kDebugLevel,
+	       "RealWorldScene: roompos[%u] start=(%d, %d) bounds L/R/T/B=%d/%d/%d/%d"
+	       " floor={%d,%d,%d,%d}",
+	       lvl, _charX, _charY, _walkL, _walkR, _walkT, _walkB,
+	       floor[0], floor[1], floor[2], floor[3]);
 }
 
 int RealWorldScene::keyToUiAction(uint16 ascii) const {
@@ -562,19 +657,36 @@ bool RealWorldScene::loadLevel() {
 	clearTextWidgets();
 	_textVisible = false;
 	_introPending = false;
+	_dialogOpen = false;
+	_dialogCurrentReply = 0;
+	_pages.clear();
+	_currentPage = 0;
 
-	// Reset character controller to the level's default entry pose and
-	// place the sprite. The DOS engine picks dir = (transition+2)&3
-	// which evaluates to CD_UP for first entry (see roompos_init in
-	// Reuromancer/NeuromancerWin64/scene_real_world.c:696).
+	// Reset character controller to the level's default entry pose.
+	// Direction = CD_UP matches the DOS roompos_init choice for the
+	// default transition (= 2) -- see scene_real_world.c:696.
 	_charDir        = kDirUp;
 	_charFrame      = 0;
 	_charMoving     = false;
 	_lmbHeld        = false;
 	_charLastStepMs = 0;
-	// Leave _charX/_charY as they were unless coming from the menu — the
-	// DOS engine preserves them across level reloads so the character
-	// enters from the correct exit.
+
+	applyRoomposForCurrentLevel();
+
+	// Log the character sprite's header so we can see what dx/dy offsets
+	// the artwork was authored with. Mismatched dy is the typical cause
+	// of "floating" character sprites.
+	if (const byte *sheet = _engine->spritesheet()) {
+		const byte *frame = sheet + 0x0000; // CD_UP frame 0
+		int16 dx = (int16)READ_LE_UINT16(frame + 0);
+		int16 dy = (int16)READ_LE_UINT16(frame + 2);
+		uint16 pw = READ_LE_UINT16(frame + 4);
+		uint16 h  = READ_LE_UINT16(frame + 6);
+		debugC(1, kDebugGeneral,
+		       "RealWorldScene: char UP frame 0: dx=%d dy=%d w=%d h=%d",
+		       dx, dy, pw * 2, h);
+	}
+
 	renderCharacterFrame();
 
 	Common::String bihName = Common::String::format("R%d.BIH", lvl + 1);
