@@ -24,8 +24,9 @@
 
 #include "neuromancer/decompress.h"
 
-#include "common/stream.h"
+#include "common/endian.h"
 #include "common/memstream.h"
+#include "common/stream.h"
 #include "common/textconsole.h"
 
 namespace Neuromancer {

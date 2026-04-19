@@ -2,11 +2,17 @@ MODULE := engines/neuromancer
 
 MODULE_OBJS := \
 	decompress.o \
+	font.o \
+	gfx.o \
 	level_handlers.o \
+	menu.o \
 	metaengine.o \
 	neuromancer.o \
 	neuro_vm.o \
-	resource.o
+	resource.o \
+	scene.o \
+	scene_main_menu.o \
+	scene_real_world.o
 
 MODULE_DIRS += \
 	engines/neuromancer

@@ -25,15 +25,18 @@
 #ifndef NEUROMANCER_NEUROMANCER_H
 #define NEUROMANCER_NEUROMANCER_H
 
+#include "common/array.h"
 #include "common/random.h"
 #include "engines/advancedDetector.h"
 #include "engines/engine.h"
 
 namespace Neuromancer {
 
-class ResourceManager;
-class NeuroVM;
 class LevelHandlers;
+class NeuroVM;
+class ResourceManager;
+class Scene;
+class SpriteChain;
 
 class NeuromancerEngine : public Engine {
 public:
@@ -42,12 +45,22 @@ public:
 
 	Common::Error run() override;
 
+	// Subsystem accessors used by scenes and level handlers.
 	ResourceManager *resources() { return _resources; }
 	NeuroVM *vm() { return _vm; }
 	LevelHandlers *levelHandlers() { return _levelHandlers; }
+	SpriteChain *spriteChain() { return _spriteChain; }
 
 	uint8 currentLevel() const { return _currentLevel; }
 	void setCurrentLevel(uint8 level) { _currentLevel = level; }
+
+	// Scenes call this to exit the engine (e.g. the user selects "Quit").
+	void requestQuit() { _exitGame = true; }
+
+	// Composite cursor on top of the current scene and push to the screen.
+	// Scenes should call this instead of SpriteChain::renderToScreen() so
+	// the cursor stays consistent across scene transitions.
+	void render();
 
 private:
 	const ADGameDescription *_gameDescription;
@@ -56,6 +69,11 @@ private:
 	ResourceManager *_resources;
 	NeuroVM *_vm;
 	LevelHandlers *_levelHandlers;
+	SpriteChain *_spriteChain;
+	Scene *_scene;
+
+	Common::Array<byte> _cursorsImh; // decompressed CURSORS.IMH
+	int _mouseX, _mouseY;
 
 	uint8 _currentLevel;
 	bool _exitGame;

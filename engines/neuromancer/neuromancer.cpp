@@ -24,75 +24,21 @@
 
 #include "neuromancer/neuromancer.h"
 
-#include "neuromancer/decompress.h"
 #include "neuromancer/detection.h"
+#include "neuromancer/gfx.h"
 #include "neuromancer/level_handlers.h"
 #include "neuromancer/neuro_vm.h"
 #include "neuromancer/resource.h"
+#include "neuromancer/scene.h"
 
 #include "common/debug.h"
 #include "common/error.h"
 #include "common/events.h"
 #include "common/system.h"
 #include "engines/util.h"
-#include "graphics/palette.h"
-#include "graphics/paletteman.h"
-#include "graphics/surface.h"
+#include "graphics/cursorman.h"
 
 namespace Neuromancer {
-
-// The DOS original runs in 16-colour EGA, which the Reuromancer port hard-codes
-// as an RGBA table (drawing_control.c). ScummVM wants RGB triplets.
-static const byte kEgaPalette[16 * 3] = {
-	0x00, 0x00, 0x00,   // 0  black
-	0x00, 0x00, 0xAA,   // 1  blue
-	0x00, 0xAA, 0x00,   // 2  green
-	0x00, 0xAA, 0xAA,   // 3  cyan
-	0xAA, 0x00, 0x00,   // 4  red
-	0xAA, 0x00, 0xAA,   // 5  magenta
-	0xAA, 0x55, 0x00,   // 6  brown
-	0xAA, 0xAA, 0xAA,   // 7  light gray
-	0x55, 0x55, 0x55,   // 8  dark gray
-	0x55, 0x55, 0xFF,   // 9  light blue
-	0x00, 0xFF, 0x55,   // 10 light green
-	0x55, 0xFF, 0xFF,   // 11 light cyan
-	0xFF, 0x55, 0x55,   // 12 light red
-	0xFF, 0x55, 0xFF,   // 13 light magenta
-	0xFF, 0xFF, 0x55,   // 14 yellow
-	0xFF, 0xFF, 0xFF,   // 15 white
-};
-
-// Unpack a single 4bpp IMH frame into an 8bpp buffer.
-//
-// IMH layout after decompression is: [ImhHeader (8 bytes)][packed pixels].
-// `width` in the header is *packed* (bytes per row -- two pixels per byte).
-// High nibble is the left pixel, low nibble is the right pixel.
-// Copies into `dst` at offset (hdr.dx, hdr.dy), clipped to (dstW, dstH).
-static void blitImh4bpp(const byte *imh, byte *dst, int dstW, int dstH) {
-	uint16 dx     = READ_LE_UINT16(imh + 0);
-	uint16 dy     = READ_LE_UINT16(imh + 2);
-	uint16 packedW = READ_LE_UINT16(imh + 4);
-	uint16 height  = READ_LE_UINT16(imh + 6);
-	const byte *pix = imh + sizeof(ImhHeader);
-
-	int outW = (int)packedW * 2;
-	for (int y = 0; y < height; y++) {
-		int dy2 = (int)dy + y;
-		if (dy2 < 0 || dy2 >= dstH)
-			continue;
-		byte *row = dst + dy2 * dstW;
-		const byte *src = pix + y * packedW;
-		for (int b = 0; b < packedW; b++) {
-			int x = (int)dx + b * 2;
-			byte v = src[b];
-			if (x >= 0 && x < dstW)
-				row[x] = v >> 4;
-			if (x + 1 >= 0 && x + 1 < dstW)
-				row[x + 1] = v & 0x0F;
-		}
-	}
-	(void)outW;
-}
 
 NeuromancerEngine::NeuromancerEngine(OSystem *syst, const ADGameDescription *gd)
 	: Engine(syst),
@@ -101,18 +47,36 @@ NeuromancerEngine::NeuromancerEngine(OSystem *syst, const ADGameDescription *gd)
 	  _resources(nullptr),
 	  _vm(nullptr),
 	  _levelHandlers(nullptr),
+	  _spriteChain(nullptr),
+	  _scene(nullptr),
+	  _mouseX(kScreenWidth / 2),
+	  _mouseY(kScreenHeight / 2),
 	  _currentLevel(0),
 	  _exitGame(false) {}
 
 NeuromancerEngine::~NeuromancerEngine() {
+	delete _scene;
+	delete _spriteChain;
 	delete _vm;
 	delete _levelHandlers;
 	delete _resources;
 }
 
+void NeuromancerEngine::render() {
+	// Place the cursor on its layer at the current mouse position. The
+	// first IMH record inside CURSORS.IMH is the default pointer.
+	if (!_cursorsImh.empty())
+		_spriteChain->addSprite(kLayerCursor, _mouseX, _mouseY, _cursorsImh.data(), false);
+	_spriteChain->renderToScreen();
+}
+
 Common::Error NeuromancerEngine::run() {
 	// 320x200 paletted, matching the DOS original.
-	initGraphics(320, 200);
+	initGraphics(kScreenWidth, kScreenHeight);
+	setEgaPalette();
+
+	// Hide the system cursor; we composite our own via the sprite chain.
+	CursorMan.showMouse(false);
 
 	_resources = new ResourceManager();
 	if (!_resources->open())
@@ -120,53 +84,55 @@ Common::Error NeuromancerEngine::run() {
 
 	_levelHandlers = new LevelHandlers();
 	_vm = new NeuroVM(this);
+	_spriteChain = new SpriteChain();
 
-	// 16-colour EGA palette, placed at indices 0..15. Remaining entries stay
-	// black -- the game only uses 0..15 in the pixel stream.
-	byte palette[256 * 3];
-	memset(palette, 0, sizeof(palette));
-	memcpy(palette, kEgaPalette, sizeof(kEgaPalette));
-	g_system->getPaletteManager()->setPalette(palette, 0, 256);
+	// Load the cursor sprite sheet once; it stays resident for the whole
+	// session. Only the first IMH record is used for now.
+	_cursorsImh.resize(64000);
+	uint32 cursorsSize = _resources->load("CURSORS.IMH", _cursorsImh.data());
+	debugC(1, kDebugResource, "Neuromancer: CURSORS.IMH -> %u bytes", cursorsSize);
 
-	// Show the title screen. Equivalent to scene_main_menu.c:init() loading
-	// TITLE.IMH into g_seg010.background and adding it to the sprite chain.
-	{
-		Common::Array<byte> imh;
-		imh.resize(64000);
-		uint32 sz = _resources->load("TITLE.IMH", imh.data());
-		debugC(1, kDebugResource, "Neuromancer: TITLE.IMH decompressed to %u bytes", sz);
+	_scene = createScene(kSceneMainMenu, this);
+	if (_scene)
+		_scene->init();
 
-		Common::Array<byte> screen;
-		screen.resize(320 * 200);
-		if (sz >= sizeof(ImhHeader))
-			blitImh4bpp(imh.data(), screen.data(), 320, 200);
-
-		g_system->copyRectToScreen(screen.data(), 320, 0, 0, 320, 200);
-		g_system->updateScreen();
-	}
-
-	// Wait for the player to dismiss the title. Keypress, mouse click,
-	// or quit event all break the loop.
 	Common::Event event;
 	while (!shouldQuit() && !_exitGame) {
 		while (g_system->getEventManager()->pollEvent(event)) {
-			switch (event.type) {
-			case Common::EVENT_QUIT:
-			case Common::EVENT_RETURN_TO_LAUNCHER:
-			case Common::EVENT_KEYDOWN:
-			case Common::EVENT_LBUTTONDOWN:
-			case Common::EVENT_RBUTTONDOWN:
+			if (event.type == Common::EVENT_QUIT ||
+			    event.type == Common::EVENT_RETURN_TO_LAUNCHER) {
 				_exitGame = true;
 				break;
-			default:
-				break;
 			}
+			if (event.type == Common::EVENT_MOUSEMOVE) {
+				_mouseX = event.mouse.x;
+				_mouseY = event.mouse.y;
+			}
+			if (_scene)
+				_scene->handleEvent(event);
 		}
 
-		_vm->tick();
-		g_system->updateScreen();
+		if (!_scene)
+			break;
+
+		SceneId next = _scene->update();
+		if (next != _scene->id()) {
+			_scene->deinit();
+			delete _scene;
+			_scene = createScene(next, this);
+			if (!_scene) {
+				debugC(1, kDebugGeneral, "Neuromancer: target scene %d unavailable, staying in menu", (int)next);
+				_scene = createScene(kSceneMainMenu, this);
+			}
+			if (_scene)
+				_scene->init();
+		}
+
 		g_system->delayMillis(16);
 	}
+
+	if (_scene)
+		_scene->deinit();
 
 	return Common::kNoError;
 }
