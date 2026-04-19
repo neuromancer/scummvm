@@ -5,6 +5,7 @@ MODULE_OBJS := \
 	decompress.o \
 	font.o \
 	gfx.o \
+	inventory.o \
 	level_handlers.o \
 	menu.o \
 	metaengine.o \

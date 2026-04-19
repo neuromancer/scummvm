@@ -25,6 +25,7 @@
 #ifndef NEUROMANCER_SCENE_REAL_WORLD_H
 #define NEUROMANCER_SCENE_REAL_WORLD_H
 
+#include "neuromancer/inventory.h"
 #include "neuromancer/pax.h"
 #include "neuromancer/scene.h"
 #include "neuromancer/text_scroller.h"
@@ -237,6 +238,11 @@ private:
 	// and routes events to _pax. Mirrors DOS update_pax()'s sub-state.
 	Pax _pax;
 	void restoreCharacterAfterPax();
+
+	// Inventory sub-module. Activated by the Inventory UI button; handles
+	// item list + Give Credits (which sets active_item + cash_withdrawal
+	// in DSEG so the per-level BIH script can detect the payment).
+	Inventory _inventory;
 };
 
 } // End of namespace Neuromancer

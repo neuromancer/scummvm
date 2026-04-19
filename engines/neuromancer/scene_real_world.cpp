@@ -188,7 +188,8 @@ RealWorldScene::RealWorldScene(NeuromancerEngine *engine)
 	  _bankTxIndex(0),
 	  _playerName("Case"),
 	  _lastClockTickMs(0),
-	  _pax(engine, this) {
+	  _pax(engine, this),
+	  _inventory(engine, this) {
 	for (int i = 0; i < 4; i++) { _bankTx[i].op = 0; _bankTx[i].amount = 0; }
 }
 
@@ -247,6 +248,17 @@ SceneId RealWorldScene::update() {
 			// the character sprite and re-acknowledge the scene.
 			restoreCharacterAfterPax();
 		}
+		return _next;
+	}
+
+	// Inventory uses the same exclusive-control pattern as PAX. Same
+	// rationale: freeze the VM + character while the window is up; on
+	// close, let the VM resume so level scripts can react to any
+	// cash_withdrawal / active_item change the player just made.
+	if (_inventory.isActive()) {
+		_inventory.update();
+		tickGameClock(nowMs);
+		_engine->render();
 		return _next;
 	}
 
@@ -374,6 +386,11 @@ void RealWorldScene::handleEvent(const Common::Event &event) {
 		(void)_pax.handleEvent(event);
 		if (!_pax.isActive())
 			restoreCharacterAfterPax();
+		return;
+	}
+
+	if (_inventory.isActive()) {
+		(void)_inventory.handleEvent(event);
 		return;
 	}
 
@@ -701,7 +718,16 @@ void RealWorldScene::onUiAction(int code) {
 	// The six navigation buttons open auxiliary scenes that aren't ported
 	// yet. Fall back to a scroll-widget message so the interaction is
 	// still visibly acknowledged.
-	case kUiInventory: showText("Inventory (not yet implemented).", kWidgetScroll); break;
+	case kUiInventory: {
+		// Dismiss any blocking text widget so the VM isn't left mid-yield
+		// while the player edits the inventory -- same pattern as PAX.
+		clearTextWidgets();
+		_textVisible  = false;
+		_introPending = false;
+		_dialogOpen   = false;
+		_inventory.open();
+		break;
+	}
 	case kUiPax: {
 		// Dismiss any blocking text widget first so the VM isn't stuck
 		// mid-yield while the player is in the PAX panel.
