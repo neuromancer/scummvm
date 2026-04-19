@@ -28,12 +28,20 @@
 #include "common/scummsys.h"
 #include "common/str.h"
 
+namespace Graphics { class Font; }
+
 namespace Neuromancer {
 
 enum {
 	kFontCharWidth  = 8,
 	kFontCharHeight = 8
 };
+
+// Engine-wide Graphics::Font. This is a reference to a process-lifetime
+// Graphics::DosFont (standard PC BIOS 8x8 CP437 glyphs). Use it to access
+// the full ScummVM Font API -- drawChar, drawString with alignment, word
+// wrap, getStringWidth, etc.
+const Graphics::Font &getFont();
 
 // Render an ASCII string as IMH-format (4bpp-packed) data in-place into
 // `dst`. `dst` must be a sprite buffer large enough to cover (widthPx × h)

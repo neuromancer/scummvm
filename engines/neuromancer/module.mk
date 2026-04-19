@@ -16,7 +16,8 @@ MODULE_OBJS := \
 	resource.o \
 	scene.o \
 	scene_main_menu.o \
-	scene_real_world.o
+	scene_real_world.o \
+	text_scroller.o
 
 MODULE_DIRS += \
 	engines/neuromancer

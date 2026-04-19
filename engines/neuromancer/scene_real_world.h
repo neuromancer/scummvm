@@ -27,6 +27,7 @@
 
 #include "neuromancer/pax.h"
 #include "neuromancer/scene.h"
+#include "neuromancer/text_scroller.h"
 
 #include "common/array.h"
 #include "common/str.h"
@@ -108,12 +109,18 @@ private:
 	void startVmForCurrentLevel();
 
 	// `text` is raw BIH text: it may contain DOS control codes (\r, 0x01
-	// for name, 0x02 for date). The helper wraps, splits into pages, and
-	// shows page 0. Subsequent pages are shown by pageTextForward().
+	// for name, 0x02 for date). For the scroll widget the text is handed
+	// to the TextScroller for a DOS-style line-by-line reveal. For the
+	// bubble widget the text is paginated and shown one page at a time.
 	void showText(const char *text, TextWidget widget);
 	bool pageTextForward(); // true if more pages remain; false if done
 	void renderCurrentPage();
+	void renderScrollerWidget();
 	void clearTextWidgets();
+	// Advance or dismiss the active text widget based on its current
+	// state. Returns true if the widget consumed the input (caller should
+	// return early from its event handler).
+	bool advanceActiveText();
 
 	void updateStatusWidget();
 	void onUiAction(int code);
@@ -149,9 +156,18 @@ private:
 	bool _textVisible;
 	bool _introPending;
 
-	// Paging state for the active text widget: the BIH strings exceed the
-	// 17x7 scroll box and 38x8 bubble box, so we split wrapped text into
-	// pages and advance one per keypress.
+	// Text display state. The scroll widget (lower 17x7 box) uses the
+	// line-by-line TextScroller to reveal text with the DOS teletype feel
+	// (matching WA_TYPE_TEXT_SCROLLING). The bubble widget (dialog
+	// replies / op 0x01, op 0x18) doesn't scroll -- it's short enough to
+	// show in a single frame and dismiss on input.
+	TextScroller _scroller;
+	bool         _scrollerActive;
+	TextScroller::State _lastScrollerState;
+	int          _lastScrollerLines;
+
+	// Bubble paging (short-message path). The bubble body can still be a
+	// few lines, so we keep the old page-at-a-time flow for it.
 	Common::Array<Common::String> _pages;
 	int        _currentPage;
 	TextWidget _activeWidget;

@@ -161,6 +161,9 @@ RealWorldScene::RealWorldScene(NeuromancerEngine *engine)
 	  _next(kSceneRealWorld),
 	  _textVisible(false),
 	  _introPending(false),
+	  _scrollerActive(false),
+	  _lastScrollerState(TextScroller::kIdle),
+	  _lastScrollerLines(-1),
 	  _currentPage(0),
 	  _activeWidget(kWidgetScroll),
 	  _dialogOpen(false),
@@ -247,6 +250,19 @@ SceneId RealWorldScene::update() {
 		return _next;
 	}
 
+	// Advance the scroll widget's teletype reveal. Re-compose the sprite
+	// when either the revealed-line count or the scroller state changed
+	// so we don't thrash the sprite-chain every tick.
+	if (_scrollerActive) {
+		TextScroller::State st = _scroller.tick(nowMs);
+		int lines = _scroller.visibleLines();
+		if (st != _lastScrollerState || lines != _lastScrollerLines) {
+			_lastScrollerState = st;
+			_lastScrollerLines = lines;
+			renderScrollerWidget();
+		}
+	}
+
 	if (!_textVisible && !_introPending)
 		advanceVmOnce();
 
@@ -260,6 +276,56 @@ SceneId RealWorldScene::update() {
 
 	_engine->render();
 	return _next;
+}
+
+// Advance the active text widget on player input. Returns true if the
+// input was consumed (the event handler should stop further processing).
+bool RealWorldScene::advanceActiveText() {
+	// Scroll widget: route through the scroller state machine.
+	if (_scrollerActive && _activeWidget == kWidgetScroll) {
+		TextScroller::State st = _scroller.state();
+		if (st == TextScroller::kRunning) {
+			// Player is impatient: skip the reveal. Fast-forward by
+			// bumping the frame cap to zero so tick catches up.
+			_scroller.tick(g_system->getMillis() + 10000);
+			renderScrollerWidget();
+			return true;
+		}
+		if (st == TextScroller::kWaitingForInput) {
+			_scroller.acknowledge();
+			renderScrollerWidget();
+			return true;
+		}
+		if (st == TextScroller::kComplete) {
+			_scrollerActive = false;
+			clearTextWidgets();
+			_textVisible = false;
+			if (_introPending) {
+				_introPending = false;
+				startVmForCurrentLevel();
+			} else {
+				_engine->vm()->resume();
+			}
+			return true;
+		}
+		return false;
+	}
+
+	// Bubble widget: page through as before.
+	if (_textVisible && _activeWidget == kWidgetBubble) {
+		if (pageTextForward())
+			return true;
+		clearTextWidgets();
+		_textVisible = false;
+		if (_introPending) {
+			_introPending = false;
+			startVmForCurrentLevel();
+		} else {
+			_engine->vm()->resume();
+		}
+		return true;
+	}
+	return false;
 }
 
 // After the PAX panel closes, re-install the player sprite at its last
@@ -356,28 +422,12 @@ void RealWorldScene::handleEvent(const Common::Event &event) {
 	}
 
 	if (event.type == Common::EVENT_KEYDOWN) {
-		// Dismiss / page through blocking text. Each keypress advances
-		// one page; only the final page completes the widget (resumes VM
-		// or starts it for pre-VM intro).
-		if (_introPending) {
-			if (pageTextForward()) {
-				return; // still more pages to show
-			}
-			clearTextWidgets();
-			_textVisible = false;
-			_introPending = false;
-			startVmForCurrentLevel();
+		// Dismiss / advance the blocking text widget. advanceActiveText
+		// handles both the teletype scroller (scroll widget) and the
+		// page-at-a-time bubble, and calls startVmForCurrentLevel() or
+		// vm()->resume() itself on completion.
+		if ((_introPending || _textVisible) && advanceActiveText())
 			return;
-		}
-		if (_textVisible) {
-			if (pageTextForward()) {
-				return;
-			}
-			clearTextWidgets();
-			_textVisible = false;
-			_engine->vm()->resume();
-			return;
-		}
 
 		switch (event.kbd.keycode) {
 		case Common::KEYCODE_ESCAPE:
@@ -419,23 +469,10 @@ void RealWorldScene::handleEvent(const Common::Event &event) {
 	}
 
 	if (event.type == Common::EVENT_LBUTTONDOWN) {
-		// A click also pages / dismisses pending text (if it wasn't on a
-		// UI button -- those returned early above).
-		if (_introPending) {
-			if (pageTextForward()) return;
-			clearTextWidgets();
-			_textVisible = false;
-			_introPending = false;
-			startVmForCurrentLevel();
+		// A click also advances blocking text (unless it already landed
+		// on a UI button, which returned early earlier).
+		if ((_introPending || _textVisible) && advanceActiveText())
 			return;
-		}
-		if (_textVisible) {
-			if (pageTextForward()) return;
-			clearTextWidgets();
-			_textVisible = false;
-			_engine->vm()->resume();
-			return;
-		}
 		// PIC area click: start walking in the clicked direction and
 		// latch LMB-held so MOUSEMOVE keeps the walk direction updated.
 		if (event.mouse.x >= 8 && event.mouse.x < 8 + 304 &&
@@ -846,19 +883,60 @@ void RealWorldScene::showText(const char *text, TextWidget widget) {
 	// Expand DOS control codes (0x01 name, 0x02 date, \r -> \n).
 	Common::String expanded = expandText(text, /*playerName*/ "", /*dateString*/ "");
 
-	int columns = (widget == kWidgetScroll) ? kScrollColumns : kBubbleColumns;
-	int rows    = (widget == kWidgetScroll) ? kScrollRows    : kBubbleRows;
-
-	Common::String wrapped = wrapText(expanded.c_str(), columns);
-	_pages        = paginate(wrapped, rows);
-	_currentPage  = 0;
 	_activeWidget = widget;
 	_textVisible  = true;
+
+	if (widget == kWidgetScroll) {
+		// Long-form text (level intro, VM op 0x02 output): feed the
+		// scroller and let update() drive the teletype reveal. Frame cap
+		// of ~100 ms matches the DOS text_scrolling_data_t default in
+		// rw_state_pax.c:47 and gives a readable, non-frantic feel.
+		_scroller.start(expanded.c_str(), kScrollColumns,
+		                kScrollRows, /*frameCapMs=*/100);
+		_scrollerActive    = true;
+		_lastScrollerLines = -1;
+		_lastScrollerState = TextScroller::kIdle;
+		_pages.clear();
+		_currentPage = 0;
+		renderScrollerWidget();
+		return;
+	}
+
+	// Bubble widget: pre-wrap + paginate as before. Bubble bodies are
+	// short; the scroller would just add latency here.
+	Common::String wrapped = wrapText(expanded.c_str(), kBubbleColumns);
+	_pages        = paginate(wrapped, kBubbleRows);
+	_currentPage  = 0;
+	_scrollerActive = false;
 
 	debugC(1, kDebugScript, "RealWorldScene: text -> %u page(s) in widget %d",
 	       (uint)_pages.size(), (int)widget);
 
 	renderCurrentPage();
+}
+
+// Compose the scroll widget sprite from the TextScroller's current
+// revealed lines. Background stays at the sentinel transparent key (14)
+// everywhere except inside glyph cells, so the NEURO.IMH chrome below
+// the widget continues to show through exactly as in the DOS build.
+void RealWorldScene::renderScrollerWidget() {
+	byte *pixels = _scrollSprite.data() + sizeof(ImhHeader);
+	memset(pixels, 0xEE, kScrollBytes);
+
+	// Compose the visible lines into a single '\n'-joined string and
+	// let drawString lay them out. visibleLines() never exceeds the
+	// scroll widget's row capacity.
+	Common::String body;
+	for (int i = 0; i < _scroller.visibleLines(); i++) {
+		if (i > 0) body += '\n';
+		body += _scroller.lineAt(i);
+	}
+	if (!body.empty())
+		drawString(body.c_str(), kScrollWidthPx, kScrollHeightPx, 0, 0, pixels);
+
+	_engine->spriteChain()->addSprite(kLayerNeuroMenu, kScrollX, kScrollY,
+	                                  _scrollSprite.data(),
+	                                  /*opaque=*/false, /*transKey=*/14);
 }
 
 void RealWorldScene::renderCurrentPage() {
@@ -873,28 +951,6 @@ void RealWorldScene::renderCurrentPage() {
 	for (uint i = 0; i < page.size(); i++)
 		if (page[i] == '\n')
 			lines++;
-
-	if (_activeWidget == kWidgetScroll) {
-		// Scroll widget must match DOS build_string behaviour: inside
-		// each character cell, write black (OFF pixels) and white (ON
-		// pixels) verbatim; leave everything OUTSIDE character cells
-		// untouched so the NEURO.IMH chrome at (176, 134) keeps showing.
-		//
-		// We can't just blit with colour 0 as the transparent key, since
-		// black IS used for OFF pixels inside glyphs. Instead we fill
-		// the sprite with sentinel colour 14 (packed byte 0xEE), let
-		// drawString overwrite each drawn character's 4x8 packed region
-		// with the font pattern (0x00/0x0F/0xF0/0xFF), and transBlit
-		// with 14 as the key -- so drawn cells composite as black+white
-		// and undrawn cells stay transparent.
-		byte *pixels = _scrollSprite.data() + sizeof(ImhHeader);
-		memset(pixels, 0xEE, kScrollBytes);
-		drawString(page.c_str(), kScrollWidthPx, kScrollHeightPx, 0, 0, pixels);
-		_engine->spriteChain()->addSprite(kLayerNeuroMenu, kScrollX, kScrollY,
-		                                  _scrollSprite.data(),
-		                                  /*opaque=*/false, /*transKey=*/14);
-		return;
-	}
 
 	// Bubble widget: size dynamically to the current page's line count.
 	// height = lines*8 + 16 (inner text) + 2 border rows; clamp to the

@@ -36,6 +36,7 @@
 #include "common/debug.h"
 #include "common/endian.h"
 #include "common/keyboard.h"
+#include "common/system.h"
 #include "common/textconsole.h"
 
 namespace Neuromancer {
@@ -210,16 +211,16 @@ Pax::Pax(NeuromancerEngine *engine, RealWorldScene *scene)
 	  _newsLoaded(false),
 	  _newsPageStart(0),
 	  _newsPageCount(0),
-	  _newsArticlePage(0),
+	  _scrollKind(kScrollNone),
+	  _scrollArticleEntry(0),
+	  _lastScrollLines(0),
+	  _lastScrollState(TextScroller::kIdle),
 	  _boardLoaded(false),
 	  _boardPageStart(0),
 	  _boardPageCount(0),
-	  _boardArticlePage(0),
-	  _boardArticleEntry(0),
 	  _sendAddrLen(0),
 	  _sendBodyLen(0),
-	  _userInfoLoaded(false),
-	  _userInfoPage(0) {
+	  _userInfoLoaded(false) {
 	_sprite.resize(sizeof(ImhHeader) + kWindowBytes);
 	writeImhHeader(_sprite.data(), 0, 0, kWindowPackedW, kWindowHeightPx);
 	memset(_amount, 0, sizeof(_amount));
@@ -252,9 +253,19 @@ void Pax::close() {
 }
 
 void Pax::update() {
-	// Phase A has no per-frame animation; the entire menu is static until
-	// the player presses a button. Later phases will drive text-scrolling
-	// / message-entry cursors from here.
+	// Drive the article scroller when one of the long-form views is up.
+	// Redraws only when visible-line count or state actually changes so
+	// the sprite-chain composition isn't re-unpacking each frame.
+	if (_scrollKind == kScrollNone)
+		return;
+
+	TextScroller::State st = _scroller.tick(g_system->getMillis());
+	int lines = _scroller.visibleLines();
+	if (st != _lastScrollState || lines != _lastScrollLines) {
+		_lastScrollState = st;
+		_lastScrollLines = lines;
+		redrawScrollView();
+	}
 }
 
 bool Pax::handleEvent(const Common::Event &event) {
@@ -275,87 +286,59 @@ bool Pax::handleEvent(const Common::Event &event) {
 		}
 	}
 
-	// Article view: space / enter / click advances page; X exits; no other
-	// keys are meaningful. Matches DOS PS_NEWS_WFI / _END_WFI behaviour.
-	if (_state == kStateNewsArticle) {
-		if (event.type == Common::EVENT_KEYDOWN) {
-			if (event.kbd.keycode == Common::KEYCODE_ESCAPE ||
-			    event.kbd.ascii == 'x' || event.kbd.ascii == 'X') {
-				drawNewsMenu();
-				return true;
-			}
-			// Any other key advances; wrap back to the menu on the final page.
-			if (_newsArticlePage + 1 < (int)_newsPages.size()) {
-				_newsArticlePage++;
-				drawNewsArticle(-1); // -1 = redraw current, no reset
-			} else {
-				drawNewsMenu();
-			}
-			return true;
-		}
-		if (event.type == Common::EVENT_LBUTTONDOWN) {
-			if (_newsArticlePage + 1 < (int)_newsPages.size()) {
-				_newsArticlePage++;
-				drawNewsArticle(-1);
-			} else {
-				drawNewsMenu();
-			}
-			return true;
-		}
-	}
+	// Unified handling for the three long-form scrolling views (news
+	// article, board message, user info). While the scroller is running
+	// we absorb input (except 'x' which skips); a paused "screen full"
+	// scroller advances on any key; a completed scroller returns to the
+	// parent menu. Mirrors DOS PS_*_WFI / PS_*_END_WFI transitions.
+	if (_state == kStateNewsArticle || _state == kStateBoardArticle ||
+	    _state == kStateUserInfo) {
+		bool pressed = (event.type == Common::EVENT_KEYDOWN ||
+		                event.type == Common::EVENT_LBUTTONDOWN);
+		if (!pressed)
+			return false;
 
-	// Board article view: same paging pattern as news, but return to the
-	// board view-menu instead of the main board screen.
-	if (_state == kStateBoardArticle) {
+		bool exitNow = false;
 		if (event.type == Common::EVENT_KEYDOWN) {
-			if (event.kbd.keycode == Common::KEYCODE_ESCAPE ||
-			    event.kbd.ascii == 'x' || event.kbd.ascii == 'X') {
-				drawBoardViewMenu();
-				return true;
+			Common::KeyCode kc = event.kbd.keycode;
+			if (kc == Common::KEYCODE_ESCAPE ||
+			    event.kbd.ascii == 'x' || event.kbd.ascii == 'X')
+				exitNow = true;
+		}
+
+		auto backToParent = [&]() {
+			switch (_scrollKind) {
+			case kScrollNews:     drawNewsMenu();      break;
+			case kScrollBoard:    drawBoardViewMenu(); break;
+			case kScrollUserInfo: drawMainMenu();      break;
+			default:              drawMainMenu();      break;
 			}
-			if (_boardArticlePage + 1 < (int)_boardPages.size()) {
-				_boardArticlePage++;
-				drawBoardArticle(-1);
-			} else {
-				drawBoardViewMenu();
-			}
+			_scrollKind = kScrollNone;
+		};
+
+		TextScroller::State st = _scroller.state();
+		if (exitNow) {
+			backToParent();
 			return true;
 		}
-		if (event.type == Common::EVENT_LBUTTONDOWN) {
-			if (_boardArticlePage + 1 < (int)_boardPages.size()) {
-				_boardArticlePage++;
-				drawBoardArticle(-1);
-			} else {
-				drawBoardViewMenu();
-			}
+		if (st == TextScroller::kWaitingForInput) {
+			_scroller.acknowledge();
+			redrawScrollView();
 			return true;
 		}
+		if (st == TextScroller::kComplete) {
+			backToParent();
+			return true;
+		}
+		// st == kRunning: let it finish; consume the input so stray
+		// keys don't fall through into the menu dispatch below.
+		return true;
 	}
 
 	// Send-message editor: text entry consumes almost all keys.
 	if (_state == kStateBoardSendAddr || _state == kStateBoardSendBody) {
 		if (handleBoardSendKey(event))
 			return true;
-	}
-
-	// User-info: any key / click advances; on last page returns to menu.
-	if (_state == kStateUserInfo) {
-		if (event.type == Common::EVENT_KEYDOWN ||
-		    event.type == Common::EVENT_LBUTTONDOWN) {
-			if (event.type == Common::EVENT_KEYDOWN &&
-			    (event.kbd.keycode == Common::KEYCODE_ESCAPE ||
-			     event.kbd.ascii == 'x' || event.kbd.ascii == 'X')) {
-				drawMainMenu();
-				return true;
-			}
-			if (_userInfoPage + 1 < (int)_userInfoPages.size()) {
-				_userInfoPage++;
-				drawUserInfoPage();
-			} else {
-				drawMainMenu();
-			}
-			return true;
-		}
 	}
 
 	if (event.type == Common::EVENT_KEYDOWN) {
@@ -883,57 +866,15 @@ void Pax::drawNewsMenu() {
 void Pax::drawNewsArticle(int entryIndex) {
 	if (entryIndex >= 0) {
 		const char *body = newsArticleText(entryIndex);
-		Common::String wrapped = wrapText(body ? body : "(article unavailable)",
-		                                  kArticleColumns);
-		// Split into pages of kArticleLinesPerPage lines each.
-		_newsPages.clear();
-		_newsArticlePage = 0;
-
-		Common::Array<Common::String> lines;
-		Common::String cur;
-		for (uint i = 0; i < wrapped.size(); i++) {
-			char c = wrapped[i];
-			if (c == '\n') { lines.push_back(cur); cur.clear(); }
-			else           { cur += c; }
-		}
-		if (!cur.empty()) lines.push_back(cur);
-
-		for (uint i = 0; i < lines.size(); i += kArticleLinesPerPage) {
-			Common::String page;
-			for (uint j = i; j < i + kArticleLinesPerPage && j < lines.size(); j++) {
-				if (j > i) page += '\n';
-				page += lines[j];
-			}
-			_newsPages.push_back(page);
-		}
-		if (_newsPages.empty()) _newsPages.push_back(Common::String());
-
-		// Remember the entry so the header re-render uses it.
-		_newsPageEntries[0] = entryIndex;
-		_state = kStateNewsArticle;
+		_scroller.start(body ? body : "(article unavailable)",
+		                kArticleColumns, kArticleRows, /*frameCapMs=*/120);
+		_scrollKind         = kScrollNews;
+		_scrollArticleEntry = entryIndex;
+		_lastScrollLines    = -1;
+		_lastScrollState    = TextScroller::kIdle;
+		_state              = kStateNewsArticle;
 	}
-
-	drawWindowFrame();
-	byte *pixels = _sprite.data() + sizeof(ImhHeader);
-
-	// Header: subject + date from the header table.
-	const PaxNewsEntry &e = kNewsTable[_newsPageEntries[0]];
-	Common::String head = Common::String::format("%s %s", e.date, e.subject);
-	drawString(head.c_str(), kWindowWidthPx, kWindowHeightPx, 8, 8, pixels);
-
-	// Body: draw the current page starting at y=24.
-	if (_newsArticlePage < (int)_newsPages.size()) {
-		drawString(_newsPages[_newsArticlePage].c_str(),
-		           kWindowWidthPx, kWindowHeightPx, 8, 24, pixels);
-	}
-
-	// Footer hint.
-	const char *hint = (_newsArticlePage + 1 < (int)_newsPages.size()) ?
-		"[Space] more   [X] exit" :
-		"[Space] back to menu   [X] exit";
-	drawString(hint, kWindowWidthPx, kWindowHeightPx, 8, 96, pixels);
-
-	pushSprite();
+	redrawScrollView();
 }
 
 bool Pax::dispatchNewsMenu(char code) {
@@ -1070,54 +1011,16 @@ void Pax::drawBoardViewMenu() {
 
 void Pax::drawBoardArticle(int entryIndex) {
 	if (entryIndex >= 0) {
-		_boardArticleEntry = entryIndex;
 		const char *body = boardArticleText(entryIndex);
-		Common::String wrapped = wrapText(body ? body : "(message unavailable)",
-		                                  kArticleColumns);
-		_boardPages.clear();
-		_boardArticlePage = 0;
-
-		Common::Array<Common::String> lines;
-		Common::String cur;
-		for (uint i = 0; i < wrapped.size(); i++) {
-			char c = wrapped[i];
-			if (c == '\n') { lines.push_back(cur); cur.clear(); }
-			else           { cur += c; }
-		}
-		if (!cur.empty()) lines.push_back(cur);
-
-		for (uint i = 0; i < lines.size(); i += kArticleLinesPerPage) {
-			Common::String page;
-			for (uint j = i; j < i + kArticleLinesPerPage && j < lines.size(); j++) {
-				if (j > i) page += '\n';
-				page += lines[j];
-			}
-			_boardPages.push_back(page);
-		}
-		if (_boardPages.empty()) _boardPages.push_back(Common::String());
-
-		_state = kStateBoardArticle;
+		_scroller.start(body ? body : "(message unavailable)",
+		                kArticleColumns, kArticleRows, /*frameCapMs=*/120);
+		_scrollKind         = kScrollBoard;
+		_scrollArticleEntry = entryIndex;
+		_lastScrollLines    = -1;
+		_lastScrollState    = TextScroller::kIdle;
+		_state              = kStateBoardArticle;
 	}
-
-	drawWindowFrame();
-	byte *pixels = _sprite.data() + sizeof(ImhHeader);
-
-	const PaxBoardEntry &e = kBoardTable[_boardArticleEntry];
-	const char *to = ((byte)e.to[0] == 0x01) ? _scene->playerName().c_str() : e.to;
-	Common::String head = Common::String::format(
-		"%s  to:%-12s  from:%s", e.date, to, e.from);
-	drawString(head.c_str(), kWindowWidthPx, kWindowHeightPx, 8, 8, pixels);
-
-	if (_boardArticlePage < (int)_boardPages.size()) {
-		drawString(_boardPages[_boardArticlePage].c_str(),
-		           kWindowWidthPx, kWindowHeightPx, 8, 24, pixels);
-	}
-
-	const char *hint = (_boardArticlePage + 1 < (int)_boardPages.size()) ?
-		"[Space] more   [X] exit" :
-		"[Space] back to list   [X] exit";
-	drawString(hint, kWindowWidthPx, kWindowHeightPx, 8, 96, pixels);
-	pushSprite();
+	redrawScrollView();
 }
 
 void Pax::drawBoardSend() {
@@ -1336,60 +1239,82 @@ void Pax::drawUserInfo() {
 
 		if (sz > 0) {
 			// DOS layout: first null-terminated string = header (drawn
-			// statically), second = body (scrolled).
+			// statically above the scroll area), second = body (scrolled).
 			const char *hdr = (const char *)_userInfoData.data();
 			_userInfoHeader = hdr;
-			const char *body = hdr + strlen(hdr) + 1;
-
-			Common::String wrapped = wrapText(body, kArticleColumns);
-			Common::Array<Common::String> lines;
-			Common::String cur;
-			for (uint i = 0; i < wrapped.size(); i++) {
-				char c = wrapped[i];
-				if (c == '\n') { lines.push_back(cur); cur.clear(); }
-				else           { cur += c; }
-			}
-			if (!cur.empty()) lines.push_back(cur);
-
-			_userInfoPages.clear();
-			for (uint i = 0; i < lines.size(); i += kArticleLinesPerPage) {
-				Common::String page;
-				for (uint j = i; j < i + kArticleLinesPerPage && j < lines.size(); j++) {
-					if (j > i) page += '\n';
-					page += lines[j];
-				}
-				_userInfoPages.push_back(page);
-			}
-			if (_userInfoPages.empty())
-				_userInfoPages.push_back(Common::String());
 		} else {
 			_userInfoHeader = "First-time user info";
-			_userInfoPages.clear();
-			_userInfoPages.push_back("(FTUSER.TXH unavailable)");
 		}
 		_userInfoLoaded = true;
 	}
 
-	_state        = kStateUserInfo;
-	_userInfoPage = 0;
-	drawUserInfoPage();
+	const char *body = "";
+	if (_userInfoData.size() > 0) {
+		const char *hdr = (const char *)_userInfoData.data();
+		body = hdr + strlen(hdr) + 1;
+	}
+
+	_scroller.start(body, kArticleColumns, kArticleRows, /*frameCapMs=*/120);
+	_scrollKind      = kScrollUserInfo;
+	_lastScrollLines = -1;
+	_lastScrollState = TextScroller::kIdle;
+	_state           = kStateUserInfo;
+	redrawScrollView();
 }
 
-void Pax::drawUserInfoPage() {
+// Paint the PAX window with the current scroller snapshot. Shared by all
+// three long-form views -- the header text and the "back" target differ,
+// but the body layout (lines starting at y=24) and footer are identical.
+void Pax::redrawScrollView() {
 	drawWindowFrame();
 	byte *pixels = _sprite.data() + sizeof(ImhHeader);
 
-	drawString(_userInfoHeader.c_str(), kWindowWidthPx, kWindowHeightPx,
-	           8, 8, pixels);
+	// Header line.
+	Common::String head;
+	switch (_scrollKind) {
+	case kScrollNews: {
+		const PaxNewsEntry &e = kNewsTable[_scrollArticleEntry];
+		head = Common::String::format("%s %s", e.date, e.subject);
+		break;
+	}
+	case kScrollBoard: {
+		const PaxBoardEntry &e = kBoardTable[_scrollArticleEntry];
+		const char *to = ((byte)e.to[0] == 0x01) ? _scene->playerName().c_str() : e.to;
+		head = Common::String::format("%s  to:%-12s  from:%s", e.date, to, e.from);
+		break;
+	}
+	case kScrollUserInfo:
+		head = _userInfoHeader;
+		break;
+	default:
+		break;
+	}
+	drawString(head.c_str(), kWindowWidthPx, kWindowHeightPx, 8, 8, pixels);
 
-	if (_userInfoPage < (int)_userInfoPages.size()) {
-		drawString(_userInfoPages[_userInfoPage].c_str(),
-		           kWindowWidthPx, kWindowHeightPx, 8, 24, pixels);
+	// Body: paint each currently-revealed line at its fixed row. Lines
+	// that haven't been revealed yet remain on the white background, so
+	// the reader sees the text fill in top-to-bottom.
+	for (int i = 0; i < _scroller.visibleLines(); i++) {
+		const Common::String &line = _scroller.lineAt(i);
+		int rowY = 24 + i * 8;
+		drawString(line.c_str(), kWindowWidthPx, kWindowHeightPx, 8, rowY, pixels);
 	}
 
-	const char *hint = (_userInfoPage + 1 < (int)_userInfoPages.size()) ?
-		"[Space] more   [X] exit" :
-		"[Space] back to menu   [X] exit";
+	// Footer hint keyed off scroller state.
+	const char *hint = "[Space] back   [X] exit";
+	switch (_scroller.state()) {
+	case TextScroller::kRunning:
+		hint = "(revealing)           [X] skip";
+		break;
+	case TextScroller::kWaitingForInput:
+		hint = "[Space] more    [X] exit";
+		break;
+	case TextScroller::kComplete:
+		hint = "[Space] back    [X] exit";
+		break;
+	default:
+		break;
+	}
 	drawString(hint, kWindowWidthPx, kWindowHeightPx, 8, 96, pixels);
 	pushSprite();
 }

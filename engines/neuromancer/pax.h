@@ -30,6 +30,8 @@
 #include "common/scummsys.h"
 #include "common/str.h"
 
+#include "neuromancer/text_scroller.h"
+
 namespace Neuromancer {
 
 class NeuromancerEngine;
@@ -104,7 +106,12 @@ private:
 	void drawBoardSend();           // composites current addr / body editor
 	void drawBoardSendConfirm();
 	void drawUserInfo();
-	void drawUserInfoPage();
+
+	// Render the currently-scrolling long-form view (news article / board
+	// message / user info) into the PAX sprite. Draws the header, the
+	// scroller's currently-revealed lines, and a state-appropriate footer
+	// (MORE / continue / press any key).
+	void redrawScrollView();
 
 	void pushSprite(); // composite _sprite into the engine's sprite chain
 
@@ -171,21 +178,25 @@ private:
 	int _newsPageEntries[5];
 	int _newsPageCount;
 
-	// Article paging: current page of wrapped + paginated body text.
-	Common::Array<Common::String> _newsPages;
-	int _newsArticlePage;
+	// Article scroller state. One scroller handles all three long-form
+	// views (news article / board message / user info). The active view
+	// id is captured in _scrollViewKind so update() knows which header
+	// to redraw on tick.
+	TextScroller _scroller;
+	enum ScrollViewKind { kScrollNone, kScrollNews, kScrollBoard, kScrollUserInfo };
+	ScrollViewKind _scrollKind;
+	int _scrollArticleEntry; // news / board entry index being displayed
+	int _lastScrollLines;    // last visibleLines() snapshot, for dirty check
+	TextScroller::State _lastScrollState;
 
 	// Cached PAXBBS.BIH contents (null-terminated message bodies).
 	Common::Array<byte> _boardData;
 	bool _boardLoaded;
 
-	// Board menu + article paging (shared structure with news).
+	// Board menu paging (view list -- separate from article scroller).
 	int _boardPageStart;
 	int _boardPageEntries[5];
 	int _boardPageCount;
-	Common::Array<Common::String> _boardPages;
-	int _boardArticlePage;
-	int _boardArticleEntry; // index into the board header table
 
 	// Send-message editor state. `_sendAddr` is the 12-char addressee,
 	// `_sendBody` is up to ~116 chars (one line for now).
@@ -194,13 +205,11 @@ private:
 	char _sendBody[120];
 	int  _sendBodyLen;
 
-	// FTUSER.TXH cache + pagination. Header = first null-terminated string,
-	// body = remainder paginated into kArticleLinesPerPage pages.
+	// FTUSER.TXH cache. Header = first null-terminated string (drawn at
+	// the top of the window), body = remainder fed to the scroller.
 	Common::Array<byte> _userInfoData;
 	bool _userInfoLoaded;
 	Common::String _userInfoHeader;
-	Common::Array<Common::String> _userInfoPages;
-	int _userInfoPage;
 };
 
 } // End of namespace Neuromancer
