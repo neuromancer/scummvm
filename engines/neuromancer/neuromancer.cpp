@@ -24,6 +24,7 @@
 
 #include "neuromancer/neuromancer.h"
 
+#include "neuromancer/decompress.h"
 #include "neuromancer/detection.h"
 #include "neuromancer/level_handlers.h"
 #include "neuromancer/neuro_vm.h"
@@ -39,6 +40,59 @@
 #include "graphics/surface.h"
 
 namespace Neuromancer {
+
+// The DOS original runs in 16-colour EGA, which the Reuromancer port hard-codes
+// as an RGBA table (drawing_control.c). ScummVM wants RGB triplets.
+static const byte kEgaPalette[16 * 3] = {
+	0x00, 0x00, 0x00,   // 0  black
+	0x00, 0x00, 0xAA,   // 1  blue
+	0x00, 0xAA, 0x00,   // 2  green
+	0x00, 0xAA, 0xAA,   // 3  cyan
+	0xAA, 0x00, 0x00,   // 4  red
+	0xAA, 0x00, 0xAA,   // 5  magenta
+	0xAA, 0x55, 0x00,   // 6  brown
+	0xAA, 0xAA, 0xAA,   // 7  light gray
+	0x55, 0x55, 0x55,   // 8  dark gray
+	0x55, 0x55, 0xFF,   // 9  light blue
+	0x00, 0xFF, 0x55,   // 10 light green
+	0x55, 0xFF, 0xFF,   // 11 light cyan
+	0xFF, 0x55, 0x55,   // 12 light red
+	0xFF, 0x55, 0xFF,   // 13 light magenta
+	0xFF, 0xFF, 0x55,   // 14 yellow
+	0xFF, 0xFF, 0xFF,   // 15 white
+};
+
+// Unpack a single 4bpp IMH frame into an 8bpp buffer.
+//
+// IMH layout after decompression is: [ImhHeader (8 bytes)][packed pixels].
+// `width` in the header is *packed* (bytes per row -- two pixels per byte).
+// High nibble is the left pixel, low nibble is the right pixel.
+// Copies into `dst` at offset (hdr.dx, hdr.dy), clipped to (dstW, dstH).
+static void blitImh4bpp(const byte *imh, byte *dst, int dstW, int dstH) {
+	uint16 dx     = READ_LE_UINT16(imh + 0);
+	uint16 dy     = READ_LE_UINT16(imh + 2);
+	uint16 packedW = READ_LE_UINT16(imh + 4);
+	uint16 height  = READ_LE_UINT16(imh + 6);
+	const byte *pix = imh + sizeof(ImhHeader);
+
+	int outW = (int)packedW * 2;
+	for (int y = 0; y < height; y++) {
+		int dy2 = (int)dy + y;
+		if (dy2 < 0 || dy2 >= dstH)
+			continue;
+		byte *row = dst + dy2 * dstW;
+		const byte *src = pix + y * packedW;
+		for (int b = 0; b < packedW; b++) {
+			int x = (int)dx + b * 2;
+			byte v = src[b];
+			if (x >= 0 && x < dstW)
+				row[x] = v >> 4;
+			if (x + 1 >= 0 && x + 1 < dstW)
+				row[x + 1] = v & 0x0F;
+		}
+	}
+	(void)outW;
+}
 
 NeuromancerEngine::NeuromancerEngine(OSystem *syst, const ADGameDescription *gd)
 	: Engine(syst),
@@ -57,7 +111,7 @@ NeuromancerEngine::~NeuromancerEngine() {
 }
 
 Common::Error NeuromancerEngine::run() {
-	// 320x200 paletted -- the DOS original's native resolution.
+	// 320x200 paletted, matching the DOS original.
 	initGraphics(320, 200);
 
 	_resources = new ResourceManager();
@@ -67,33 +121,46 @@ Common::Error NeuromancerEngine::run() {
 	_levelHandlers = new LevelHandlers();
 	_vm = new NeuroVM(this);
 
-	// Smoke test: round-trip a known IMH and a known BIH through the
-	// resource manager + decompressors, logging sizes. Confirms the
-	// offset tables, Huffman tree, and RLE/XOR passes are functional
-	// end-to-end before scene code is in place.
-	{
-		Common::Array<byte> buf;
-		buf.resize(64000);
-		uint32 imhSize = _resources->load("TITLE.IMH", buf.data());
-		uint32 bihSize = _resources->load("R1.BIH",   buf.data());
-		debugC(1, kDebugResource, "Neuromancer: smoke test TITLE.IMH -> %u bytes, R1.BIH -> %u bytes",
-		       imhSize, bihSize);
-	}
-
-	// Black palette to start. Scene code will load the real palette
-	// from resources once the main menu is ported.
+	// 16-colour EGA palette, placed at indices 0..15. Remaining entries stay
+	// black -- the game only uses 0..15 in the pixel stream.
 	byte palette[256 * 3];
 	memset(palette, 0, sizeof(palette));
+	memcpy(palette, kEgaPalette, sizeof(kEgaPalette));
 	g_system->getPaletteManager()->setPalette(palette, 0, 256);
 
-	// Main loop skeleton. Scene-specific update / render / input handling
-	// will replace the empty body as those subsystems are ported.
+	// Show the title screen. Equivalent to scene_main_menu.c:init() loading
+	// TITLE.IMH into g_seg010.background and adding it to the sprite chain.
+	{
+		Common::Array<byte> imh;
+		imh.resize(64000);
+		uint32 sz = _resources->load("TITLE.IMH", imh.data());
+		debugC(1, kDebugResource, "Neuromancer: TITLE.IMH decompressed to %u bytes", sz);
+
+		Common::Array<byte> screen;
+		screen.resize(320 * 200);
+		if (sz >= sizeof(ImhHeader))
+			blitImh4bpp(imh.data(), screen.data(), 320, 200);
+
+		g_system->copyRectToScreen(screen.data(), 320, 0, 0, 320, 200);
+		g_system->updateScreen();
+	}
+
+	// Wait for the player to dismiss the title. Keypress, mouse click,
+	// or quit event all break the loop.
 	Common::Event event;
 	while (!shouldQuit() && !_exitGame) {
 		while (g_system->getEventManager()->pollEvent(event)) {
-			if (event.type == Common::EVENT_QUIT ||
-			    event.type == Common::EVENT_RETURN_TO_LAUNCHER)
+			switch (event.type) {
+			case Common::EVENT_QUIT:
+			case Common::EVENT_RETURN_TO_LAUNCHER:
+			case Common::EVENT_KEYDOWN:
+			case Common::EVENT_LBUTTONDOWN:
+			case Common::EVENT_RBUTTONDOWN:
 				_exitGame = true;
+				break;
+			default:
+				break;
+			}
 		}
 
 		_vm->tick();

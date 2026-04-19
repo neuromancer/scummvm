@@ -43,8 +43,8 @@ const ADGameDescription gameDescriptions[] = {
 	{
 		"neuromancer",
 		"",
-		AD_ENTRY2s("neuro1.dat", "d29b149e9c8544385094042094d3c08b", 260174,
-		           "neuro2.dat", "a82f19c98916fe4b76905bdd9c57e479", 361755),
+		AD_ENTRY2s("neuro1.dat", "96b7ab21a0ad81d8e784a617d4f5a6b8", 260174,
+		           "neuro2.dat", "eaac9eadce55004f61e3734c67090ab4", 361755),
 		Common::EN_ANY,
 		Common::kPlatformDOS,
 		ADGF_UNSTABLE,
