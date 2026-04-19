@@ -30,9 +30,12 @@
 #include "engines/advancedDetector.h"
 #include "engines/engine.h"
 
+namespace Audio { class PCSpeaker; }
+
 namespace Neuromancer {
 
 class LevelHandlers;
+class MusicPlayer;
 class NeuroVM;
 class ResourceManager;
 class Scene;
@@ -50,6 +53,7 @@ public:
 	NeuroVM *vm() { return _vm; }
 	LevelHandlers *levelHandlers() { return _levelHandlers; }
 	SpriteChain *spriteChain() { return _spriteChain; }
+	MusicPlayer *music() { return _musicPlayer; }
 
 	uint8 currentLevel() const { return _currentLevel; }
 	void setCurrentLevel(uint8 level) { _currentLevel = level; }
@@ -76,7 +80,10 @@ private:
 	NeuroVM *_vm;
 	LevelHandlers *_levelHandlers;
 	SpriteChain *_spriteChain;
+	Audio::PCSpeaker *_speaker;
+	MusicPlayer *_musicPlayer;
 	Scene *_scene;
+	uint32 _lastMusicTickMs;
 
 	Common::Array<byte> _cursorsImh; // decompressed CURSORS.IMH
 	int _mouseX, _mouseY;

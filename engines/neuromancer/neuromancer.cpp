@@ -27,10 +27,12 @@
 #include "neuromancer/detection.h"
 #include "neuromancer/gfx.h"
 #include "neuromancer/level_handlers.h"
+#include "neuromancer/music_player.h"
 #include "neuromancer/neuro_vm.h"
 #include "neuromancer/resource.h"
 #include "neuromancer/scene.h"
 
+#include "audio/softsynth/pcspk.h"
 #include "common/debug.h"
 #include "common/error.h"
 #include "common/events.h"
@@ -48,7 +50,10 @@ NeuromancerEngine::NeuromancerEngine(OSystem *syst, const ADGameDescription *gd)
 	  _vm(nullptr),
 	  _levelHandlers(nullptr),
 	  _spriteChain(nullptr),
+	  _speaker(nullptr),
+	  _musicPlayer(nullptr),
 	  _scene(nullptr),
+	  _lastMusicTickMs(0),
 	  _mouseX(kScreenWidth / 2),
 	  _mouseY(kScreenHeight / 2),
 	  _currentLevel(0),
@@ -74,6 +79,11 @@ NeuromancerEngine::~NeuromancerEngine() {
 	delete _vm;
 	delete _levelHandlers;
 	delete _resources;
+	delete _musicPlayer;
+	if (_speaker) {
+		_speaker->quit();
+		delete _speaker;
+	}
 }
 
 void NeuromancerEngine::render() {
@@ -99,6 +109,14 @@ Common::Error NeuromancerEngine::run() {
 	_levelHandlers = new LevelHandlers();
 	_vm = new NeuroVM(this);
 	_spriteChain = new SpriteChain();
+
+	// Music: use ScummVM's Audio::PCSpeaker synth. The synth manages its
+	// own mixer stream internally via init(); the MusicPlayer feeds it PIT
+	// divisor values at ~541 Hz via playQueue().
+	_speaker = new Audio::PCSpeaker();
+	_speaker->init();
+	_musicPlayer = new MusicPlayer(_speaker);
+	_lastMusicTickMs = g_system->getMillis();
 
 	// Load the cursor sprite sheet once; it stays resident for the whole
 	// session. Only the first IMH record is used for now.
@@ -140,6 +158,17 @@ Common::Error NeuromancerEngine::run() {
 			}
 			if (_scene)
 				_scene->init();
+		}
+
+		// Pump music forward by the elapsed wall time since the last tick.
+		// MusicPlayer tracks fractional sub-tick time internally so the
+		// aggregate tempo stays accurate even at variable frame rates.
+		{
+			uint32 now = g_system->getMillis();
+			uint32 dt = now - _lastMusicTickMs;
+			if (_musicPlayer)
+				_musicPlayer->tick(dt);
+			_lastMusicTickMs = now;
 		}
 
 		g_system->delayMillis(16);

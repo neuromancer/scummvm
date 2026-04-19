@@ -7,6 +7,8 @@ MODULE_OBJS := \
 	level_handlers.o \
 	menu.o \
 	metaengine.o \
+	music_data.o \
+	music_player.o \
 	neuromancer.o \
 	neuro_vm.o \
 	resource.o \

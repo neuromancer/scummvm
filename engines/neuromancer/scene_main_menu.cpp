@@ -27,6 +27,7 @@
 #include "neuromancer/detection.h"
 #include "neuromancer/gfx.h"
 #include "neuromancer/menu.h"
+#include "neuromancer/music_player.h"
 #include "neuromancer/neuromancer.h"
 #include "neuromancer/resource.h"
 
@@ -62,6 +63,10 @@ void MainMenuScene::init() {
 	SpriteChain *chain = _engine->spriteChain();
 	chain->addSprite(kLayerBackground, 0, 0, _titleImh.data(), true);
 	chain->addSprite(kLayerNeuroMenu, _menu->left(), _menu->top(), _menu->imhBuffer(), true);
+
+	// Title theme -- track 1 is the menu/intro music in the DOS build.
+	if (MusicPlayer *m = _engine->music())
+		m->setTrack(1);
 }
 
 void MainMenuScene::deinit() {
