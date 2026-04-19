@@ -27,6 +27,7 @@
 
 #include "neuromancer/inventory.h"
 #include "neuromancer/pax.h"
+#include "neuromancer/rom.h"
 #include "neuromancer/scene.h"
 #include "neuromancer/skills.h"
 #include "neuromancer/text_scroller.h"
@@ -75,6 +76,11 @@ public:
 	// _charDir overrides from the loaded state instead of applyRoompos()'s
 	// defaults.
 	void reinitializeAfterLoad();
+
+	// Open the Skills sub-module directly. Used by the ROM panel's
+	// "Software Analysis" option, which in DOS is a one-instruction
+	// jump into the shared skill picker (FUN_1000_b679 -> FUN_1000_7e62).
+	void openSkillsMenu();
 
 	// ---- Game state accessors (used by PAX / Inventory sub-modules) -----
 	int32 cash() const { return _cash; }
@@ -323,6 +329,13 @@ private:
 	// list + description view. Complex per-skill flows (Warez / Debug /
 	// HW Repair / Cryptology / Musicianship) land in a later phase.
 	Skills _skillsMenu;
+
+	// ROM-construct sub-module. Ports the DOS rom_panel_open /
+	// rom_main_loop pair -- matches the Chiba BAMA ROM panel UI.
+	// "Software Debug" / "Monitor Mode" bounce with the DOS
+	// "Only in cyberspace." message; "Software Analysis" re-routes
+	// into the Skills picker.
+	Rom _rom;
 };
 
 } // End of namespace Neuromancer

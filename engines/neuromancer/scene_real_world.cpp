@@ -227,7 +227,8 @@ RealWorldScene::RealWorldScene(NeuromancerEngine *engine)
 	  _lastClockTickMs(0),
 	  _pax(engine, this),
 	  _inventory(engine, this),
-	  _skillsMenu(engine, this) {
+	  _skillsMenu(engine, this),
+	  _rom(engine, this) {
 	for (int i = 0; i < 4; i++) { _bankTx[i].op = 0; _bankTx[i].amount = 0; }
 
 	// Empty all inventory slots, then seed the DOS save-slot defaults
@@ -358,6 +359,18 @@ void RealWorldScene::syncGame(Common::Serializer &s) {
 	}
 }
 
+// Direct Skills entry point. DOS rom_software_analysis
+// (FUN_1000_b679 at neuro.exe 1000:b679) is literally a tail-call into
+// the skill picker -- we reproduce that by closing any blocking widget
+// and opening the Skills sub-module immediately.
+void RealWorldScene::openSkillsMenu() {
+	clearTextWidgets();
+	_textVisible  = false;
+	_introPending = false;
+	_dialogOpen   = false;
+	_skillsMenu.open();
+}
+
 // After a save-file load the engine re-activates this scene. We need to
 // (a) re-run loadLevel() for the current level to reload the PIC / BIH /
 // sprite assets, then (b) override the default spawn position + direction
@@ -421,6 +434,15 @@ SceneId RealWorldScene::update() {
 	// Skills: same exclusive-control pattern.
 	if (_skillsMenu.isActive()) {
 		_skillsMenu.update();
+		tickGameClock(nowMs);
+		_engine->render();
+		return _next;
+	}
+
+	// ROM construct: same pattern. Matches DOS rom_main_loop which
+	// freezes the character controller while the panel is up.
+	if (_rom.isActive()) {
+		_rom.update();
 		tickGameClock(nowMs);
 		_engine->render();
 		return _next;
@@ -560,6 +582,11 @@ void RealWorldScene::handleEvent(const Common::Event &event) {
 
 	if (_skillsMenu.isActive()) {
 		(void)_skillsMenu.handleEvent(event);
+		return;
+	}
+
+	if (_rom.isActive()) {
+		(void)_rom.handleEvent(event);
 		return;
 	}
 
@@ -1006,7 +1033,19 @@ void RealWorldScene::onUiAction(int code) {
 		_skillsMenu.open();
 		break;
 	}
-	case kUiChip:      showText("ROM construct (not yet implemented).", kWidgetScroll); break;
+	case kUiChip: {
+		// Same pattern as PAX / Inventory / Skills: dismiss blocking
+		// text widgets so the VM isn't left mid-yield while the ROM
+		// panel is up. Matches DOS rom_panel_open's control flow
+		// (FUN_1000_881d at neuro.exe 1000:881d) which takes exclusive
+		// focus until the player picks "X. Exit Rom Construct".
+		clearTextWidgets();
+		_textVisible  = false;
+		_introPending = false;
+		_dialogOpen   = false;
+		_rom.open();
+		break;
+	}
 	case kUiDisk:      showText("Disk options (not yet implemented).", kWidgetScroll); break;
 
 	default:

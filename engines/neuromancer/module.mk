@@ -15,6 +15,7 @@ MODULE_OBJS := \
 	neuro_vm.o \
 	pax.o \
 	resource.o \
+	rom.o \
 	scene.o \
 	scene_main_menu.o \
 	scene_real_world.o \
