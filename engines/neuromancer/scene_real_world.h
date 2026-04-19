@@ -108,6 +108,13 @@ private:
 	// placeholder for full ROOMPOS-based exit detection.
 	void handlePicClick(int x, int y);
 
+	// Dialog picker helpers (shared by the T-button UI action and the
+	// VM op-0x17 "enter dialog" path).
+	void openDialogPicker();
+	void renderDialogPicker();
+	void advanceDialogReply();
+	void acceptDialogReply();
+
 	Common::Array<byte> _neuroImh;
 	Common::Array<byte> _picSprite;
 	Common::Array<byte> _bihData;
@@ -125,6 +132,16 @@ private:
 	Common::Array<Common::String> _pages;
 	int        _currentPage;
 	TextWidget _activeWidget;
+
+	// Dialog picker state. When open, the bubble layer shows the player's
+	// currently-highlighted reply; cycle with any key, accept with Enter /
+	// right-click. Accepting writes var[16] = firstReply + currentReply
+	// and var[0] = 0 (matching the DOS rw_state_dialog.c end-of-dialog
+	// behaviour), then resumes the VM.
+	bool _dialogOpen;
+	int  _dialogCurrentReply; // 0 .. totalReplies-1
+	uint8 _dialogFirst;
+	uint8 _dialogTotal;
 
 	// Game state surfaced by the status widget. Defaults are the level 1
 	// start values from the DOS save-slot template (11/16/58, cash=0).

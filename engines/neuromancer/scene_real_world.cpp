@@ -128,6 +128,10 @@ RealWorldScene::RealWorldScene(NeuromancerEngine *engine)
 	  _introPending(false),
 	  _currentPage(0),
 	  _activeWidget(kWidgetScroll),
+	  _dialogOpen(false),
+	  _dialogCurrentReply(0),
+	  _dialogFirst(0),
+	  _dialogTotal(0),
 	  _statusMode(kStatusDate),
 	  _cash(0),
 	  _constitution(2000),
@@ -184,6 +188,50 @@ SceneId RealWorldScene::update() {
 }
 
 void RealWorldScene::handleEvent(const Common::Event &event) {
+	// Dialog picker takes absolute priority: Enter accepts the current
+	// reply, any other key advances to the next reply in the list.
+	if (_dialogOpen && event.type == Common::EVENT_KEYDOWN) {
+		if (event.kbd.keycode == Common::KEYCODE_RETURN ||
+		    event.kbd.keycode == Common::KEYCODE_KP_ENTER) {
+			acceptDialogReply();
+		} else if (event.kbd.keycode == Common::KEYCODE_ESCAPE) {
+			// Cancel: close picker, don't write game state.
+			_dialogOpen = false;
+			clearTextWidgets();
+		} else {
+			advanceDialogReply();
+		}
+		return;
+	}
+	if (_dialogOpen && event.type == Common::EVENT_LBUTTONDOWN) {
+		advanceDialogReply();
+		return;
+	}
+	if (_dialogOpen && event.type == Common::EVENT_RBUTTONDOWN) {
+		acceptDialogReply();
+		return;
+	}
+
+	// UI buttons (both keyboard shortcuts and sidebar clicks) must fire
+	// BEFORE the "dismiss active text" path. In the DOS game you can click
+	// the talk / inventory / PAX icons while a bubble is on-screen and
+	// that opens the corresponding sub-scene without dismissing the
+	// bubble's underlying VM state.
+	if (event.type == Common::EVENT_KEYDOWN) {
+		int uiAction = keyToUiAction(event.kbd.ascii);
+		if (uiAction >= 0) {
+			onUiAction(uiAction);
+			return;
+		}
+	}
+	if (event.type == Common::EVENT_LBUTTONDOWN) {
+		int uiAction = hitTestUiButton(event.mouse.x, event.mouse.y);
+		if (uiAction >= 0) {
+			onUiAction(uiAction);
+			return;
+		}
+	}
+
 	if (event.type == Common::EVENT_KEYDOWN) {
 		// Dismiss / page through blocking text. Each keypress advances
 		// one page; only the final page completes the widget (resumes VM
@@ -208,13 +256,6 @@ void RealWorldScene::handleEvent(const Common::Event &event) {
 			return;
 		}
 
-		// UI keyboard shortcuts (i/p/t/s/r/d/1/2/3/4).
-		int uiAction = keyToUiAction(event.kbd.ascii);
-		if (uiAction >= 0) {
-			onUiAction(uiAction);
-			return;
-		}
-
 		switch (event.kbd.keycode) {
 		case Common::KEYCODE_ESCAPE:
 			_next = kSceneMainMenu;
@@ -233,21 +274,6 @@ void RealWorldScene::handleEvent(const Common::Event &event) {
 			gotoLevel(-1);
 			break;
 
-		// --- TEMPORARY debug backdoors while the dialog-choice scene
-		// isn't ported yet. Level 1's pay-Ratz loop checks var[16]==6
-		// (paid) and var[18]==127 (bypassed). Pressing F8 / F9 writes
-		// those values directly so we can step past the loop and see
-		// what the script does next. Remove once opcode 0x17 has a
-		// real dialog UI.
-		case Common::KEYCODE_F8:
-			debugC(1, kDebugScript, "DEBUG: writing var[16] = 6 (paid Ratz)");
-			_engine->vm()->writeVar8(16, 6);
-			break;
-		case Common::KEYCODE_F9:
-			debugC(1, kDebugScript, "DEBUG: writing var[18] = 127 (bypass)");
-			_engine->vm()->writeVar8(18, 127);
-			break;
-
 		default:
 			break;
 		}
@@ -255,7 +281,8 @@ void RealWorldScene::handleEvent(const Common::Event &event) {
 	}
 
 	if (event.type == Common::EVENT_LBUTTONDOWN) {
-		// A click also pages / dismisses pending text.
+		// A click also pages / dismisses pending text (if it wasn't on a
+		// UI button -- those returned early above).
 		if (_introPending) {
 			if (pageTextForward()) return;
 			clearTextWidgets();
@@ -269,11 +296,6 @@ void RealWorldScene::handleEvent(const Common::Event &event) {
 			clearTextWidgets();
 			_textVisible = false;
 			_engine->vm()->resume();
-			return;
-		}
-		int uiAction = hitTestUiButton(event.mouse.x, event.mouse.y);
-		if (uiAction >= 0) {
-			onUiAction(uiAction);
 			return;
 		}
 		// PIC area click (8,8 to 312,120) -- scene-level navigation.
@@ -356,7 +378,7 @@ void RealWorldScene::onUiAction(int code) {
 	// still visibly acknowledged.
 	case kUiInventory: showText("Inventory (not yet implemented).", kWidgetScroll); break;
 	case kUiPax:       showText("PAX network (not yet implemented).", kWidgetScroll); break;
-	case kUiDialog:    showText("Dialog mode (not yet implemented).", kWidgetScroll); break;
+	case kUiDialog:    openDialogPicker(); break;
 	case kUiSkills:    showText("Skills (not yet implemented).", kWidgetScroll); break;
 	case kUiChip:      showText("ROM construct (not yet implemented).", kWidgetScroll); break;
 	case kUiDisk:      showText("Disk options (not yet implemented).", kWidgetScroll); break;
@@ -599,6 +621,77 @@ bool RealWorldScene::pageTextForward() {
 	return true;
 }
 
+// ---- Dialog picker ------------------------------------------------------
+
+// Open the dialog-picker widget for the current level. Reads the per-level
+// dialog control (set by VM opcode 0x13) to know which reply strings in the
+// BIH text section are this level's options. If no dialog is registered
+// for the level, shows a placeholder message instead.
+void RealWorldScene::openDialogPicker() {
+	NeuroVM *vm = _engine->vm();
+	uint8 level = _engine->currentLevel();
+	_dialogFirst = vm->dialogFirstReply(level);
+	_dialogTotal = vm->dialogTotalReplies(level);
+
+	if (_dialogTotal == 0) {
+		showText("No one to talk to here.", kWidgetScroll);
+		return;
+	}
+
+	_dialogOpen = true;
+	_dialogCurrentReply = 0;
+	debugC(1, kDebugScript,
+	       "RealWorldScene: dialog opened (level=%u first=%u total=%u)",
+	       level, _dialogFirst, _dialogTotal);
+	renderDialogPicker();
+}
+
+// Render the currently-highlighted reply into the bubble widget, tagged
+// "[n/total]" so the player sees which option is up. Reuses the bubble
+// widget's bordered frame + XOR-ed black text.
+void RealWorldScene::renderDialogPicker() {
+	const char *raw = _engine->vm()->bih().textString(_dialogFirst + _dialogCurrentReply);
+	Common::String expanded = expandText(raw, "", "");
+	Common::String header = Common::String::format("[%d/%d] ",
+	                                               _dialogCurrentReply + 1,
+	                                               (int)_dialogTotal);
+	header += expanded;
+
+	// Pack into a single-page bubble and render immediately.
+	Common::String wrapped = wrapText(header.c_str(), kBubbleColumns);
+	_pages.clear();
+	_pages.push_back(wrapped);
+	_currentPage  = 0;
+	_activeWidget = kWidgetBubble;
+	renderCurrentPage();
+}
+
+void RealWorldScene::advanceDialogReply() {
+	_dialogCurrentReply = (_dialogCurrentReply + 1) % (int)_dialogTotal;
+	debugC(2, kDebugScript, "RealWorldScene: dialog cycle -> %d", _dialogCurrentReply);
+	renderDialogPicker();
+}
+
+// Accept the currently-highlighted reply. Writes the reply id into
+// active_dialog_reply (var[16], DSEG 0x4BBE) and clears the wait flag at
+// var[0], matching the DOS on_dialog_accept_reply end state. Then closes
+// the picker and resumes the VM so it picks up the new state.
+void RealWorldScene::acceptDialogReply() {
+	uint8 replyId = (uint8)(_dialogFirst + _dialogCurrentReply);
+	NeuroVM *vm   = _engine->vm();
+	vm->writeVar8(NeuroVM::kVarActiveDialogReply, replyId);
+	vm->writeVar8(NeuroVM::kVarDialogWaitFlag, 0);
+
+	debugC(1, kDebugScript,
+	       "RealWorldScene: dialog accept reply %u -> var[%u]=%u",
+	       replyId, NeuroVM::kVarActiveDialogReply, replyId);
+
+	_dialogOpen = false;
+	_textVisible = false;
+	clearTextWidgets();
+	vm->resume();
+}
+
 // Renders the current status-panel string in a small 64x8 sprite placed at
 // (96, 149). Follows the DOS formatting (scene_real_world.c:630-654):
 //   UI_PM_CASH -> "$%7d"         (e.g. "$      0")
@@ -673,8 +766,8 @@ void RealWorldScene::advanceVmOnce() {
 	}
 
 	case NeuroVM::Action::kEnterDialog:
-		debugC(1, kDebugScript, "RealWorldScene: enter dialog (stub: resume)");
-		vm->resume();
+		debugC(1, kDebugScript, "RealWorldScene: VM op 0x17 enter dialog");
+		openDialogPicker();
 		break;
 
 	case NeuroVM::Action::kChangeLevel:

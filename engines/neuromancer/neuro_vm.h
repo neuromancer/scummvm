@@ -144,6 +144,23 @@ public:
 		}
 	}
 
+	// Per-level dialog control (seeded by opcode 0x13).
+	uint8 dialogFirstReply(uint8 level) const {
+		return level < 64 ? _levelDialog[level].firstReply : 0;
+	}
+	uint8 dialogTotalReplies(uint8 level) const {
+		return level < 64 ? _levelDialog[level].totalReplies : 0;
+	}
+
+	// The "active_dialog_reply" field lives at DSEG 0x4BBE, which is
+	// offset 0x10 inside x4bae_t -- i.e. our var[16]. The dialog scene
+	// writes the chosen reply index there and the VM's next iteration
+	// picks it up via the usual cond-jump opcodes.
+	static const uint16 kVarActiveDialogReply = 0x10;
+	// A companion "wait" flag at offset 0; DOS clears it when dialog
+	// accepts to signal "no longer waiting for input".
+	static const uint16 kVarDialogWaitFlag    = 0x00;
+
 private:
 	bool step(int slot);
 
