@@ -1,6 +1,7 @@
 MODULE := engines/neuromancer
 
 MODULE_OBJS := \
+	bih_script.o \
 	decompress.o \
 	font.o \
 	gfx.o \

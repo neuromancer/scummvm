@@ -124,25 +124,32 @@ public:
 
 	const Bih &bih() const { return _bih; }
 
-	// Public accessors for the game-state variable array (debug + scene
-	// integration). Offsets are byte indices into the x4bae_t region.
-	uint8  readVar8(uint16 idx) const {
-		return idx < kVarsSize ? _vars[idx] : 0;
+	// DSEG-absolute data memory accessors. `addr` is a 16-bit DOS data
+	// segment address, 0x0000..0xFFFF -- always in range of the 64 KB
+	// _vars buffer. Shared by the high-level VM (which translates
+	// x4bae-relative operands by adding kX4baeBase) and the BIH script
+	// interpreter (which fetches & writes memory at the DSEG addresses
+	// its instructions encode directly).
+	uint8  readVar8(uint16 addr) const {
+		assert((uint32)addr < _vars.size());
+		return _vars[addr];
 	}
-	void   writeVar8(uint16 idx, uint8 val) {
-		if (idx < kVarsSize) _vars[idx] = val;
+	void   writeVar8(uint16 addr, uint8 val) {
+		assert((uint32)addr < _vars.size());
+		_vars[addr] = val;
 	}
-	uint16 readVar16(uint16 idx) const {
-		return (idx + 1 < kVarsSize)
-		       ? (uint16)_vars[idx] | ((uint16)_vars[idx + 1] << 8)
-		       : 0;
+	uint16 readVar16(uint16 addr) const {
+		return (uint16)readVar8(addr) | ((uint16)readVar8((uint16)(addr + 1)) << 8);
 	}
-	void   writeVar16(uint16 idx, uint16 val) {
-		if (idx + 1 < kVarsSize) {
-			_vars[idx]     = (uint8)(val & 0xFF);
-			_vars[idx + 1] = (uint8)(val >> 8);
-		}
+	void   writeVar16(uint16 addr, uint16 val) {
+		writeVar8(addr,               (uint8)(val & 0xFF));
+		writeVar8((uint16)(addr + 1), (uint8)(val >> 8));
 	}
+
+	// Raw pointer to the DSEG buffer for save/load. Prefer read/write
+	// helpers above for interactive access.
+	uint8       *vars()       { return _vars.data(); }
+	const uint8 *vars() const { return _vars.data(); }
 
 	// Per-level dialog control (seeded by opcode 0x13).
 	uint8 dialogFirstReply(uint8 level) const {
@@ -152,14 +159,21 @@ public:
 		return level < 64 ? _levelDialog[level].totalReplies : 0;
 	}
 
-	// The "active_dialog_reply" field lives at DSEG 0x4BBE, which is
-	// offset 0x10 inside x4bae_t -- i.e. our var[16]. The dialog scene
-	// writes the chosen reply index there and the VM's next iteration
-	// picks it up via the usual cond-jump opcodes.
-	static const uint16 kVarActiveDialogReply = 0x10;
-	// A companion "wait" flag at offset 0; DOS clears it when dialog
-	// accepts to signal "no longer waiting for input".
-	static const uint16 kVarDialogWaitFlag    = 0x00;
+	// DSEG-absolute address of active_dialog_reply in g_4bae. Note that
+	// *nothing in our high-level VM actually uses this* -- the DOS BIH
+	// scripts encode cond-jump operands using the low byte of the DSEG
+	// address (0xBE = 190), but the 5-op-encoding only has an 8-bit
+	// index byte, so for our purposes it's the same 0x10 offset within
+	// x4bae_t. We keep both offsets here for BihScript and scene code.
+	static const uint16 kVarActiveDialogReply = 0x4BBE;
+	static const uint16 kVarDialogWaitFlag    = 0x4BAE;
+
+	// Legacy byte-index aliases for the high-level VM's cond-jump
+	// operand (which is only 8 bits wide). These are the low bytes of
+	// the DSEG-absolute addresses above, i.e. the offsets the BIH
+	// scripts use in their encoded immediates.
+	static const uint8  kVarIdxActiveDialogReply = 0x10;
+	static const uint8  kVarIdxDialogWaitFlag    = 0x00;
 
 private:
 	bool step(int slot);
@@ -170,15 +184,31 @@ private:
 	VmThread _threads[4];
 	int _currentThread;
 
-	// Game-state byte array (x4bae[] in the DOS build). The original struct
-	// is ~24 KB; fields are addressed by absolute byte offset inside that
-	// region. Opcodes 0x05-0x08 read single bytes; 0x0E/0x0F/0x15 read/write
-	// 16-bit LE pairs starting at the given byte index.
-	static const uint32 kVarsSize = 0x4000; // 16 KB -- covers all known
-	                                        // offsets used by the shipped
-	                                        // BIH scripts up to the PAX area.
-	uint8 _vars[kVarsSize];
+	// DOS-compatible data memory (64 KB). Holds game state (x4bae,
+	// x3f85, the other structs), the stack used by native BIH scripts
+	// starting at 0xCC10, and the currently-loaded BIH at 0xA8E8. All
+	// offsets are absolute within this region -- matching the DOS data
+	// segment layout so the 8086-encoded BIH handlers read and write
+	// the same addresses they always did.
+	//
+	// Backed by Common::Array so size() is always authoritative and so
+	// future save/load can serialize with .data(), .size().
+	static const uint32 kVarsSize = 0x10000; // 64 KB (full DOS DSEG)
+	Common::Array<uint8> _vars;
 	int   _updateHold;
+
+public:
+	// DSEG address of the first byte of the x4bae_t struct (where the
+	// high-level VM's "var[idx]" operands index). Public so BihScript
+	// and save/load can translate between x4bae-relative and DSEG-absolute.
+	static const uint16 kX4baeBase = 0x4BAE;
+
+	// BIH is loaded at this absolute DSEG offset (= DOS g_a8e0.bih).
+	// BihScript uses this to fetch instructions and resolve op 0x16
+	// targets (which are `bihOffset + kBihBase` in the DOS memory map).
+	static const uint16 kBihBase = 0xA8E8;
+
+private:
 
 	Action _pendingAction;
 	uint16 _pendingString;

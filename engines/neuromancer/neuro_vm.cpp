@@ -24,6 +24,7 @@
 
 #include "neuromancer/neuro_vm.h"
 
+#include "neuromancer/bih_script.h"
 #include "neuromancer/detection.h"
 #include "neuromancer/level_handlers.h"
 #include "neuromancer/neuromancer.h"
@@ -97,12 +98,22 @@ NeuroVM::NeuroVM(NeuromancerEngine *engine)
 	  _pendingVar1(0),
 	  _pendingVar2(0) {
 	memset(_threads, 0, sizeof(_threads));
-	memset(_vars, 0, sizeof(_vars));
+	_vars.resize(kVarsSize);
 	memset(_levelDialog, 0, sizeof(_levelDialog));
 }
 
 void NeuroVM::attach(const byte *bihData, uint32 size) {
 	_bih.attach(bihData, size);
+
+	// Copy the BIH bytes into the DSEG mirror at 0xA8E8 so BihScript can
+	// fetch instructions and BIH-local data in place, exactly as the DOS
+	// engine does when it loads a BIH into g_a8e0.bih.bytes.
+	if (bihData && (uint32)kBihBase + size <= _vars.size()) {
+		memcpy(_vars.data() + kBihBase, bihData, size);
+	} else if (bihData) {
+		warning("NeuroVM::attach: BIH too large (%u bytes) for DSEG window", size);
+	}
+
 	resetThreads();
 	debugC(1, kDebugScript,
 	       "NeuroVM attached: text=0x%04X bytecode=[0x%04X,0x%04X,0x%04X] init=[0x%04X,0x%04X,0x%04X]",
@@ -159,29 +170,25 @@ NeuroVM::TickResult NeuroVM::tick() {
 		return r;
 	}
 
-	// Bound total opcodes per tick so a self-jump or similar bug can't hang
-	// the main loop.
-	const int kOpcodeBudget = 1024;
-	int budget = kOpcodeBudget;
-
-	while (budget-- > 0) {
-		bool anyActive = false;
-		for (int slot = 3; slot >= 0; slot--) {
-			if (!_threads[slot].active)
-				continue;
-			anyActive = true;
-
-			if (step(slot)) {
-				r.action    = _pendingAction;
-				r.stringNum = _pendingString;
-				r.levelN    = _pendingLevel;
-				r.var1      = _pendingVar1;
-				r.var2      = _pendingVar2;
-				return r;
-			}
+	// Match DOS neuro_vm() (scene_real_world.c:128): run AT MOST one
+	// opcode per active thread per tick, then return. This is critical for
+	// scripts that busy-wait on a variable (e.g. Ratz's Pay-up nag in R1:
+	// TOP -> jne var[16],255 -> TOP -> ...). With the DOS cadence the loop
+	// advances one opcode per frame, which leaves the main loop responsive
+	// to mouse / keyboard input. Our old "run until yield or idle" design
+	// would execute thousands of cond-jumps in a single frame, flooding the
+	// log and starving input.
+	for (int slot = 3; slot >= 0; slot--) {
+		if (!_threads[slot].active)
+			continue;
+		if (step(slot)) {
+			r.action    = _pendingAction;
+			r.stringNum = _pendingString;
+			r.levelN    = _pendingLevel;
+			r.var1      = _pendingVar1;
+			r.var2      = _pendingVar2;
+			return r;
 		}
-		if (!anyActive)
-			break;
 	}
 
 	return r;
@@ -213,14 +220,15 @@ bool NeuroVM::step(int slot) {
 		_pendingVar1 = t.var1;
 		_pendingVar2 = t.var2;
 		t.nextOpAddr += 2;
-		// DOS scene_real_world.c:164 resets active_dialog_reply to 0xFF
-		// when yielding on op 0x01. Without this, a script that loops
-		// while checking var[16] re-observes the previous reply and
-		// re-enters the same branch forever.
+		// DOS scene_real_world.c:164: reset active_dialog_reply so the
+		// idle script ping-pongs silently on `jne var[16], 255 -> TOP`
+		// until the dialog picker writes a real reply. Relies on our
+		// one-opcode-per-tick dispatch (matching DOS) so the spin does
+		// not starve the main loop.
 		writeVar8(kVarActiveDialogReply, 0xFF);
 		debugC(2, kDebugScript,
-		       "VM: slot %d op 0x01 dialog str=%u at (%u, %u); reset var[%u]=0xFF",
-		       slot, _pendingString, t.var1, t.var2, kVarActiveDialogReply);
+		       "VM: slot %d op 0x01 dialog str=%u at (%u, %u); reset var[16]=0xFF",
+		       slot, _pendingString, t.var1, t.var2);
 		return true;
 	}
 
@@ -250,12 +258,13 @@ bool NeuroVM::step(int slot) {
 		// [op][idx][_][val][offLo][offHi] -- 6 bytes total.
 		// Condition MET -> advance past the instruction (fallthrough).
 		// Condition NOT MET -> take the alternate branch by `offset + 4`.
-		// This is inverted from a typical assembler JE; the DOS scripts use
-		// these as "if X == Y then continue-here else goto else-branch".
+		// `idx` is a byte offset inside g_4bae.x4bae[]; absolute DSEG
+		// address is 0x4BAE + idx. BIH native code stores the same field
+		// at that DSEG location, so high-level and BihScript share one memory.
 		uint8 idx = op[1];
 		uint8 val = op[3];
 		int16 offset = (int16)READ_LE_UINT16(op + 4);
-		uint8 got = _vars[idx];
+		uint8 got = _vars[(uint32)kX4baeBase + idx];
 		bool met = false;
 		switch (code) {
 		case 0x05: met = (got == val); break; // "equal"
@@ -267,22 +276,44 @@ bool NeuroVM::step(int slot) {
 			t.nextOpAddr += 6;
 		else
 			t.nextOpAddr = (uint16)(t.nextOpAddr + offset + 4);
-		debugC(2, kDebugScript, "VM: slot %d cond 0x%02X var[%u]=%u vs %u -> %s",
-		       slot, code, idx, got, val, met ? "fallthrough" : "jump");
+		// Cond-jumps can fire thousands of times a second while a script
+		// is busy-waiting on a variable. Suppress exact repeats so the
+		// log stays useful.
+		static int s_lastSlot = -1;
+		static byte s_lastCode = 0, s_lastIdx = 0, s_lastGot = 0, s_lastVal = 0;
+		static bool s_lastMet = false;
+		static uint32 s_repeatCount = 0;
+		if (slot == s_lastSlot && code == s_lastCode && idx == s_lastIdx &&
+		    got == s_lastGot && val == s_lastVal && met == s_lastMet) {
+			s_repeatCount++;
+		} else {
+			if (s_repeatCount > 0) {
+				debugC(2, kDebugScript, "VM: ... (prev cond repeated %u times)", s_repeatCount);
+				s_repeatCount = 0;
+			}
+			debugC(2, kDebugScript, "VM: slot %d cond 0x%02X var[%u]=%u vs %u -> %s",
+			       slot, code, idx, got, val, met ? "fallthrough" : "jump");
+			s_lastSlot = slot;
+			s_lastCode = code;
+			s_lastIdx = idx;
+			s_lastGot = got;
+			s_lastVal = val;
+			s_lastMet = met;
+		}
 		break;
 	}
 
 	case 0x0E: case 0x0F: {
-		// 16-bit variable write. idx is a byte offset into _vars; value is
-		// stored little-endian across [idx, idx+1].
+		// 16-bit variable write. `idx` is an x4bae-relative byte offset;
+		// absolute DSEG target is 0x4BAE + idx.
 		uint16 idx = READ_LE_UINT16(op + 1);
 		uint16 val = READ_LE_UINT16(op + 3);
-		if (idx + 1 < kVarsSize) {
-			_vars[idx]     = (uint8)(val & 0xFF);
-			_vars[idx + 1] = (uint8)(val >> 8);
+		uint32 addr = (uint32)kX4baeBase + idx;
+		if (addr + 1 < kVarsSize) {
+			_vars[addr]     = (uint8)(val & 0xFF);
+			_vars[addr + 1] = (uint8)(val >> 8);
 		} else {
-			warning("NeuroVM: set-var idx 0x%04X out of range (max 0x%04X)",
-			        idx, (uint32)kVarsSize);
+			warning("NeuroVM: set-var idx 0x%04X out of range", idx);
 		}
 		t.nextOpAddr += 5;
 		debugC(2, kDebugScript, "VM: slot %d op 0x%02X var[0x%04X]=%u", slot, code, idx, val);
@@ -325,14 +356,15 @@ bool NeuroVM::step(int slot) {
 	}
 
 	case 0x15: {
-		// 16-bit add-to-variable (little-endian).
+		// 16-bit add-to-variable (little-endian). x4bae-relative idx.
 		uint16 idx = READ_LE_UINT16(op + 1);
 		uint16 val = READ_LE_UINT16(op + 3);
-		if (idx + 1 < kVarsSize) {
-			uint16 cur = _vars[idx] | ((uint16)_vars[idx + 1] << 8);
+		uint32 addr = (uint32)kX4baeBase + idx;
+		if (addr + 1 < kVarsSize) {
+			uint16 cur = _vars[addr] | ((uint16)_vars[addr + 1] << 8);
 			uint16 sum = cur + val;
-			_vars[idx]     = (uint8)(sum & 0xFF);
-			_vars[idx + 1] = (uint8)(sum >> 8);
+			_vars[addr]     = (uint8)(sum & 0xFF);
+			_vars[addr + 1] = (uint8)(sum >> 8);
 		} else {
 			warning("NeuroVM: add-var idx 0x%04X out of range", idx);
 		}
@@ -341,8 +373,16 @@ bool NeuroVM::step(int slot) {
 	}
 
 	case 0x16: {
+		// Call into the BIH's per-level native-code routine at the
+		// given offset. Runs synchronously via the BIH script
+		// interpreter, which reads DSEG via _vars so the routine sees
+		// the same game state the high-level VM is running against.
 		uint16 offset = READ_LE_UINT16(op + 1);
-		debugC(2, kDebugScript, "VM: slot %d op 0x16 exec offset=0x%04X", slot, offset);
+		debugC(2, kDebugScript, "VM: slot %d op 0x16 exec bih+0x%04X", slot, offset);
+		BihScript script(_engine);
+		script.runBihOffset(offset);
+		// Also let the C++ handler layer observe -- useful for hooking
+		// in hand-ported overrides alongside the interpreter.
 		if (LevelHandlers *h = _engine->levelHandlers())
 			h->execTarget(_engine->currentLevel(), offset, _engine);
 		t.nextOpAddr += 3;
@@ -356,27 +396,23 @@ bool NeuroVM::step(int slot) {
 		return true;
 
 	case 0x18: {
-		// Dynamic string output: the operand indexes an array of 16-bit
-		// string IDs that lives in game state. In the DOS build the
-		// pointer is `&g_4bae.x4c7c`, at DSEG 0x4C7C -- offset 0xCE
-		// inside the x4bae_t struct; op[1] is a WORD index, so the byte
-		// offset into our _vars[] is 0xCE + op[1] * 2.
-		uint16 baseOff = 0xCE;
-		uint16 varOff  = (uint16)(baseOff + (uint16)op[1] * 2);
+		// Dynamic string output: the operand indexes a WORD array
+		// x4c7c[] at DSEG 0x4C7C (= x4bae-relative 0xCE). op[1] is a
+		// WORD index, so byte offset = 0x4C7C + op[1] * 2.
+		uint32 varOff = (uint32)0x4C7C + (uint32)op[1] * 2;
 		uint16 stringNum = 0;
-		if ((uint32)varOff + 1 < kVarsSize)
+		if (varOff + 1 < kVarsSize)
 			stringNum = (uint16)_vars[varOff] | ((uint16)_vars[varOff + 1] << 8);
 		_pendingAction = Action::kDialogReply;
 		_pendingString = stringNum;
 		_pendingVar1 = t.var1;
 		_pendingVar2 = t.var2;
 		t.nextOpAddr += 2;
-		// Reset active_dialog_reply matching the DOS op 0x18 behaviour,
-		// same reason as op 0x01.
+		// Same rationale as op 0x01 (DOS scene_real_world.c:301).
 		writeVar8(kVarActiveDialogReply, 0xFF);
 		debugC(2, kDebugScript,
-		       "VM: slot %d op 0x18 dynamic str var[0x%04X]=%u at (%u, %u); reset var[%u]=0xFF",
-		       slot, varOff, stringNum, t.var1, t.var2, kVarActiveDialogReply);
+		       "VM: slot %d op 0x18 dynamic str var[0x%04X]=%u at (%u, %u); reset var[16]=0xFF",
+		       slot, varOff, stringNum, t.var1, t.var2);
 		return true;
 	}
 

@@ -349,17 +349,32 @@ void RealWorldScene::handleEvent(const Common::Event &event) {
 		case Common::KEYCODE_q:
 			_engine->requestQuit();
 			break;
-		case Common::KEYCODE_RIGHT:
-		case Common::KEYCODE_PAGEDOWN:
-		case Common::KEYCODE_SPACE:
-			gotoLevel(+1);
-			break;
-		case Common::KEYCODE_LEFT:
-		case Common::KEYCODE_PAGEUP:
-		case Common::KEYCODE_BACKSPACE:
-			gotoLevel(-1);
-			break;
 
+		// Arrow keys drive the player character, same as the DOS
+		// character_control_handle_kboard (character_control.c:199-232).
+		// Level transitions happen only when the character walks into
+		// an exit rectangle, not from a keyboard shortcut.
+		case Common::KEYCODE_LEFT:  _charDir = kDirLeft;  _charMoving = true; _charLastStepMs = 0; _charFrame = 1; renderCharacterFrame(); break;
+		case Common::KEYCODE_RIGHT: _charDir = kDirRight; _charMoving = true; _charLastStepMs = 0; _charFrame = 1; renderCharacterFrame(); break;
+		case Common::KEYCODE_UP:    _charDir = kDirUp;    _charMoving = true; _charLastStepMs = 0; _charFrame = 1; renderCharacterFrame(); break;
+		case Common::KEYCODE_DOWN:  _charDir = kDirDown;  _charMoving = true; _charLastStepMs = 0; _charFrame = 1; renderCharacterFrame(); break;
+
+		default:
+			break;
+		}
+		return;
+	}
+
+	if (event.type == Common::EVENT_KEYUP) {
+		// Stop walking when the arrow key is released, matching DOS
+		// which polls sfKeyboard_isKeyPressed each tick.
+		switch (event.kbd.keycode) {
+		case Common::KEYCODE_LEFT:
+		case Common::KEYCODE_RIGHT:
+		case Common::KEYCODE_UP:
+		case Common::KEYCODE_DOWN:
+			_charMoving = false;
+			break;
 		default:
 			break;
 		}
@@ -447,13 +462,10 @@ void RealWorldScene::handlePicClick(int x, int y) {
 		}
 	}
 
-	// Edge-zone navigation placeholder kept for rapid browsing.
-	const int kEdgeWidth = 60;
-	if (relX < kEdgeWidth) {
-		gotoLevel(-1);
-	} else if (relX >= 304 - kEdgeWidth) {
-		gotoLevel(+1);
-	}
+	// No edge-zone level hack here: the DOS game changes levels only
+	// when the character walks onto an exit rectangle, not from
+	// arbitrary clicks. The mouse-held walk path (setCharDirFromCursor)
+	// above already handles motion toward the click target.
 }
 
 // Determine the walk direction from a cursor-vs-character comparison, per
