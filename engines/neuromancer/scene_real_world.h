@@ -108,6 +108,12 @@ private:
 	// placeholder for full ROOMPOS-based exit detection.
 	void handlePicClick(int x, int y);
 
+	// Character controller.
+	enum CharDir { kDirNone = -1, kDirUp = 0, kDirRight = 1, kDirDown = 2, kDirLeft = 3 };
+	void updateCharacter(uint32 nowMs);        // per-frame tick
+	void renderCharacterFrame();               // place sprite at current pos
+	void setCharDirFromCursor(int cursorX, int cursorY); // LMB-held direction pick
+
 	// Dialog picker helpers (shared by the T-button UI action and the
 	// VM op-0x17 "enter dialog" path).
 	void openDialogPicker();
@@ -142,6 +148,18 @@ private:
 	int  _dialogCurrentReply; // 0 .. totalReplies-1
 	uint8 _dialogFirst;
 	uint8 _dialogTotal;
+
+	// Character controller state. Mirrors character_control.c in the DOS
+	// build: click-and-hold the LMB over the level image to drive the
+	// player sprite; on release the character goes idle. Position is in
+	// absolute screen pixels (same units as SpriteChain::addSprite).
+	int     _charX;
+	int     _charY;
+	CharDir _charDir;
+	int     _charFrame;   // 0..7 in the current direction's frame table
+	bool    _charMoving;
+	bool    _lmbHeld;
+	uint32  _charLastStepMs;
 
 	// Game state surfaced by the status widget. Defaults are the level 1
 	// start values from the DOS save-slot template (11/16/58, cash=0).

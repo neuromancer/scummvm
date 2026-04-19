@@ -36,6 +36,7 @@
 #include "common/endian.h"
 #include "common/keyboard.h"
 #include "common/str.h"
+#include "common/system.h"
 #include "common/textconsole.h"
 
 namespace Neuromancer {
@@ -119,6 +120,40 @@ void writeImhHeader(byte *buf, int16 dx, int16 dy, uint16 packedW, uint16 h) {
 	WRITE_LE_UINT16(buf + 6, h);
 }
 
+// Character walk-cycle frame offsets inside SPRITES.IMH. Transcribed from
+// Reuromancer/NeuromancerWin64/character_control.c:18-26 (the g_*_frames
+// tables). Each entry is a byte offset to an IMH frame (header + pixels)
+// inside the decompressed spritesheet.
+static const uint16 kUpFrames[8]    = {
+	0x0000, 0x037A, 0x06F4, 0x0A7C, 0x0DE8, 0x1162, 0x14DC, 0x1856
+};
+static const uint16 kRightFrames[8] = {
+	0x1B46, 0x1EA4, 0x20A4, 0x2394, 0x277C, 0x2AE8, 0x2CE8, 0x2FD8
+};
+static const uint16 kDownFrames[8]  = {
+	0x33C0, 0x36B0, 0x3A2A, 0x3DA4, 0x411E, 0x448A, 0x4812, 0x4B8C
+};
+static const uint16 kLeftFrames[8]  = {
+	0x4F06, 0x5272, 0x5472, 0x5762, 0x5B4A, 0x5EB6, 0x6134, 0x6424
+};
+
+static uint16 frameOffsetFor(int dir, int frame) {
+	frame &= 7;
+	switch (dir) {
+	case 0: return kUpFrames[frame];
+	case 1: return kRightFrames[frame];
+	case 2: return kDownFrames[frame];
+	case 3: return kLeftFrames[frame];
+	default: return kDownFrames[0];
+	}
+}
+
+enum {
+	kCharSpeedHort = 5,
+	kCharSpeedVert = 2,
+	kCharFrameCapMs = 100
+};
+
 } // anonymous namespace
 
 RealWorldScene::RealWorldScene(NeuromancerEngine *engine)
@@ -132,6 +167,13 @@ RealWorldScene::RealWorldScene(NeuromancerEngine *engine)
 	  _dialogCurrentReply(0),
 	  _dialogFirst(0),
 	  _dialogTotal(0),
+	  _charX(8 + 304 / 2),
+	  _charY(8 + 112 - 40),
+	  _charDir(kDirUp),
+	  _charFrame(0),
+	  _charMoving(false),
+	  _lmbHeld(false),
+	  _charLastStepMs(0),
 	  _statusMode(kStatusDate),
 	  _cash(0),
 	  _constitution(2000),
@@ -182,6 +224,12 @@ void RealWorldScene::deinit() {
 SceneId RealWorldScene::update() {
 	if (!_textVisible && !_introPending)
 		advanceVmOnce();
+
+	// Character walks while the player holds LMB. Only advance motion
+	// when no blocking widget is up -- matches the DOS game freezing the
+	// character while modal dialogs / bubbles are visible.
+	if (!_textVisible && !_introPending && !_dialogOpen)
+		updateCharacter(g_system->getMillis());
 
 	_engine->render();
 	return _next;
@@ -298,10 +346,33 @@ void RealWorldScene::handleEvent(const Common::Event &event) {
 			_engine->vm()->resume();
 			return;
 		}
-		// PIC area click (8,8 to 312,120) -- scene-level navigation.
+		// PIC area click: start walking in the clicked direction and
+		// latch LMB-held so MOUSEMOVE keeps the walk direction updated.
 		if (event.mouse.x >= 8 && event.mouse.x < 8 + 304 &&
 		    event.mouse.y >= 8 && event.mouse.y < 8 + 112) {
-			handlePicClick(event.mouse.x, event.mouse.y);
+			_lmbHeld = true;
+			setCharDirFromCursor(event.mouse.x, event.mouse.y);
+		}
+		return;
+	}
+
+	if (event.type == Common::EVENT_LBUTTONUP) {
+		_lmbHeld = false;
+		_charMoving = false;
+		return;
+	}
+
+	if (event.type == Common::EVENT_MOUSEMOVE && _lmbHeld &&
+	    !_textVisible && !_introPending && !_dialogOpen) {
+		// Re-evaluate direction while the button is held and the cursor
+		// moves -- matches DOS character_control_handle_mouse reacting
+		// to sfEvtMouseMoved.
+		if (event.mouse.x >= 8 && event.mouse.x < 8 + 304 &&
+		    event.mouse.y >= 8 && event.mouse.y < 8 + 112) {
+			setCharDirFromCursor(event.mouse.x, event.mouse.y);
+		} else {
+			// Cursor left the PIC area while held -- treat as release.
+			_charMoving = false;
 		}
 	}
 }
@@ -338,13 +409,86 @@ void RealWorldScene::handlePicClick(int x, int y) {
 		}
 	}
 
-	// Edge-zone navigation placeholder.
+	// Edge-zone navigation placeholder kept for rapid browsing.
 	const int kEdgeWidth = 60;
 	if (relX < kEdgeWidth) {
 		gotoLevel(-1);
 	} else if (relX >= 304 - kEdgeWidth) {
 		gotoLevel(+1);
 	}
+}
+
+// Determine the walk direction from a cursor-vs-character comparison, per
+// Reuromancer/NeuromancerWin64/character_control.c:148-188. The sprite's
+// "width" hit-area is 2x the IMH header's packedWidth, but since we don't
+// re-parse the header each frame we use a conservative 32 px fallback
+// (character frames are consistent at ~16-32 px wide).
+void RealWorldScene::setCharDirFromCursor(int cursorX, int cursorY) {
+	const int spriteW = 32;
+	const int spriteH = 40;
+
+	if (cursorX < _charX) {
+		_charDir = kDirLeft;
+		_charMoving = true;
+	} else if (cursorX > _charX + spriteW) {
+		_charDir = kDirRight;
+		_charMoving = true;
+	} else if (cursorY < _charY) {
+		_charDir = kDirUp;
+		_charMoving = true;
+	} else if (cursorY > _charY + spriteH) {
+		_charDir = kDirDown;
+		_charMoving = true;
+	} else {
+		// Cursor directly over the character; stop.
+		_charMoving = false;
+	}
+}
+
+// Per-tick update: advance the character one step in its current direction
+// if enough wall time has elapsed since the last step. Frames cycle 0..7
+// per direction; horizontal motion moves 5px/step, vertical 2px/step --
+// matching the DOS character_control_update() constants.
+void RealWorldScene::updateCharacter(uint32 nowMs) {
+	if (!_charMoving) {
+		// Lock to idle pose (frame 0) if we've stopped moving.
+		if (_charFrame != 0) {
+			_charFrame = 0;
+			renderCharacterFrame();
+		}
+		return;
+	}
+
+	if (nowMs - _charLastStepMs < kCharFrameCapMs)
+		return;
+	_charLastStepMs = nowMs;
+
+	// Clamp within the PIC area (8..312, 8..120). The DOS engine checks
+	// against the roompos exit rectangles; without that data for every
+	// level yet, we just keep the character visible inside the image.
+	const int minX = 8, maxX = 312 - 32;
+	const int minY = 8, maxY = 120 - 40;
+
+	switch (_charDir) {
+	case kDirLeft:  if (_charX - kCharSpeedHort >= minX) _charX -= kCharSpeedHort; break;
+	case kDirRight: if (_charX + kCharSpeedHort <= maxX) _charX += kCharSpeedHort; break;
+	case kDirUp:    if (_charY - kCharSpeedVert >= minY) _charY -= kCharSpeedVert; break;
+	case kDirDown:  if (_charY + kCharSpeedVert <= maxY) _charY += kCharSpeedVert; break;
+	default: break;
+	}
+
+	_charFrame = (_charFrame + 1) & 7;
+	renderCharacterFrame();
+}
+
+void RealWorldScene::renderCharacterFrame() {
+	const byte *sheet = _engine->spritesheet();
+	if (!sheet)
+		return;
+	uint16 off = frameOffsetFor((int)_charDir, _charFrame);
+	_engine->spriteChain()->addSprite(kLayerCharacter, _charX, _charY,
+	                                  sheet + off,
+	                                  /*opaque=*/false, /*transKey=*/0);
 }
 
 int RealWorldScene::keyToUiAction(uint16 ascii) const {
@@ -419,20 +563,19 @@ bool RealWorldScene::loadLevel() {
 	_textVisible = false;
 	_introPending = false;
 
-	// Player character: initial pose is UP-facing (DOS roompos_init picks
-	// dir = (transition+2)&3 = CD_UP for first entry, see
-	// Reuromancer/NeuromancerWin64/scene_real_world.c:696). Frame 0 of
-	// g_up_frames[] is at SPRITES.IMH offset 0x0000. Rendered on
-	// kLayerCharacter with transparent key 0 so the sprite's background
-	// pixels show the PIC through.
-	if (const byte *sheet = _engine->spritesheet()) {
-		const uint32 kCharUpFrame0 = 0x0000;
-		int posX = 8 + 304 / 2;
-		int posY = 8 + 112 - 40;
-		_engine->spriteChain()->addSprite(kLayerCharacter, posX, posY,
-		                                  sheet + kCharUpFrame0,
-		                                  /*opaque=*/false, /*transKey=*/0);
-	}
+	// Reset character controller to the level's default entry pose and
+	// place the sprite. The DOS engine picks dir = (transition+2)&3
+	// which evaluates to CD_UP for first entry (see roompos_init in
+	// Reuromancer/NeuromancerWin64/scene_real_world.c:696).
+	_charDir        = kDirUp;
+	_charFrame      = 0;
+	_charMoving     = false;
+	_lmbHeld        = false;
+	_charLastStepMs = 0;
+	// Leave _charX/_charY as they were unless coming from the menu — the
+	// DOS engine preserves them across level reloads so the character
+	// enters from the correct exit.
+	renderCharacterFrame();
 
 	Common::String bihName = Common::String::format("R%d.BIH", lvl + 1);
 	uint32 bihSize = res->load(bihName, _bihData.data());

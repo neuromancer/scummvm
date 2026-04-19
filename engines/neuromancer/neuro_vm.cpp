@@ -213,9 +213,14 @@ bool NeuroVM::step(int slot) {
 		_pendingVar1 = t.var1;
 		_pendingVar2 = t.var2;
 		t.nextOpAddr += 2;
+		// DOS scene_real_world.c:164 resets active_dialog_reply to 0xFF
+		// when yielding on op 0x01. Without this, a script that loops
+		// while checking var[16] re-observes the previous reply and
+		// re-enters the same branch forever.
+		writeVar8(kVarActiveDialogReply, 0xFF);
 		debugC(2, kDebugScript,
-		       "VM: slot %d op 0x01 dialog str=%u at (%u, %u)",
-		       slot, _pendingString, t.var1, t.var2);
+		       "VM: slot %d op 0x01 dialog str=%u at (%u, %u); reset var[%u]=0xFF",
+		       slot, _pendingString, t.var1, t.var2, kVarActiveDialogReply);
 		return true;
 	}
 
@@ -366,9 +371,12 @@ bool NeuroVM::step(int slot) {
 		_pendingVar1 = t.var1;
 		_pendingVar2 = t.var2;
 		t.nextOpAddr += 2;
+		// Reset active_dialog_reply matching the DOS op 0x18 behaviour,
+		// same reason as op 0x01.
+		writeVar8(kVarActiveDialogReply, 0xFF);
 		debugC(2, kDebugScript,
-		       "VM: slot %d op 0x18 dynamic str var[0x%04X]=%u at (%u, %u)",
-		       slot, varOff, stringNum, t.var1, t.var2);
+		       "VM: slot %d op 0x18 dynamic str var[0x%04X]=%u at (%u, %u); reset var[%u]=0xFF",
+		       slot, varOff, stringNum, t.var1, t.var2, kVarActiveDialogReply);
 		return true;
 	}
 
