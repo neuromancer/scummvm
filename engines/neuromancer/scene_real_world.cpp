@@ -126,6 +126,8 @@ RealWorldScene::RealWorldScene(NeuromancerEngine *engine)
 	  _next(kSceneRealWorld),
 	  _textVisible(false),
 	  _introPending(false),
+	  _currentPage(0),
+	  _activeWidget(kWidgetScroll),
 	  _statusMode(kStatusDate),
 	  _cash(0),
 	  _constitution(2000),
@@ -182,8 +184,13 @@ SceneId RealWorldScene::update() {
 
 void RealWorldScene::handleEvent(const Common::Event &event) {
 	if (event.type == Common::EVENT_KEYDOWN) {
-		// Dismiss on any key when a blocking text widget is up.
+		// Dismiss / page through blocking text. Each keypress advances
+		// one page; only the final page completes the widget (resumes VM
+		// or starts it for pre-VM intro).
 		if (_introPending) {
+			if (pageTextForward()) {
+				return; // still more pages to show
+			}
 			clearTextWidgets();
 			_textVisible = false;
 			_introPending = false;
@@ -191,6 +198,9 @@ void RealWorldScene::handleEvent(const Common::Event &event) {
 			return;
 		}
 		if (_textVisible) {
+			if (pageTextForward()) {
+				return;
+			}
 			clearTextWidgets();
 			_textVisible = false;
 			_engine->vm()->resume();
@@ -228,8 +238,9 @@ void RealWorldScene::handleEvent(const Common::Event &event) {
 	}
 
 	if (event.type == Common::EVENT_LBUTTONDOWN) {
-		// A click also dismisses pending text.
+		// A click also pages / dismisses pending text.
 		if (_introPending) {
+			if (pageTextForward()) return;
 			clearTextWidgets();
 			_textVisible = false;
 			_introPending = false;
@@ -237,6 +248,7 @@ void RealWorldScene::handleEvent(const Common::Event &event) {
 			return;
 		}
 		if (_textVisible) {
+			if (pageTextForward()) return;
 			clearTextWidgets();
 			_textVisible = false;
 			_engine->vm()->resume();
@@ -371,50 +383,140 @@ static void buildBorderFrame(byte *pixels, int widthPx, int heightPx) {
 			memset(line, 0x00, packedW);
 		} else {
 			memset(line, 0xFF, packedW);
-			line[0]           = 0x0F; // black-left / white-right
-			line[packedW - 1] = 0xF0; // white-left / black-right
+			line[0]           = 0x0F;
+			line[packedW - 1] = 0xF0;
 		}
 	}
+}
+
+// Split a word-wrapped (newline-separated) body into pages of `linesPerPage`
+// lines each. Trailing empty lines are preserved only in the last page.
+static Common::Array<Common::String> paginate(const Common::String &wrapped, int linesPerPage) {
+	Common::Array<Common::String> pages;
+	if (linesPerPage <= 0 || wrapped.empty()) {
+		pages.push_back(wrapped);
+		return pages;
+	}
+
+	Common::Array<Common::String> lines;
+	Common::String cur;
+	for (uint i = 0; i < wrapped.size(); i++) {
+		char c = wrapped[i];
+		if (c == '\n') {
+			lines.push_back(cur);
+			cur.clear();
+		} else {
+			cur += c;
+		}
+	}
+	if (!cur.empty())
+		lines.push_back(cur);
+
+	for (uint i = 0; i < lines.size(); i += linesPerPage) {
+		Common::String page;
+		for (uint j = i; j < i + linesPerPage && j < lines.size(); j++) {
+			if (j > i) page += '\n';
+			page += lines[j];
+		}
+		pages.push_back(page);
+	}
+	if (pages.empty())
+		pages.push_back(Common::String());
+	return pages;
 }
 
 void RealWorldScene::showText(const char *text, TextWidget widget) {
 	clearTextWidgets();
 
-	if (widget == kWidgetScroll) {
-		// Scroll widget: white-on-black, no frame. Text sits inside the
-		// dark notch in NEURO.IMH at (176, 134).
+	// Expand DOS control codes (0x01 name, 0x02 date, \r -> \n).
+	Common::String expanded = expandText(text, /*playerName*/ "", /*dateString*/ "");
+
+	int columns = (widget == kWidgetScroll) ? kScrollColumns : kBubbleColumns;
+	int rows    = (widget == kWidgetScroll) ? kScrollRows    : kBubbleRows;
+
+	Common::String wrapped = wrapText(expanded.c_str(), columns);
+	_pages        = paginate(wrapped, rows);
+	_currentPage  = 0;
+	_activeWidget = widget;
+	_textVisible  = true;
+
+	debugC(1, kDebugScript, "RealWorldScene: text -> %u page(s) in widget %d",
+	       (uint)_pages.size(), (int)widget);
+
+	renderCurrentPage();
+}
+
+void RealWorldScene::renderCurrentPage() {
+	if (_pages.empty() || _currentPage >= (int)_pages.size())
+		return;
+	const Common::String &page = _pages[_currentPage];
+
+	// Count lines in the page (1 + number of '\n'). Used to size the
+	// bubble widget so its frame fits the content exactly, matching the
+	// DOS formula bottom = lines*8 + 19 (neuro_window_control.c:96).
+	int lines = 1;
+	for (uint i = 0; i < page.size(); i++)
+		if (page[i] == '\n')
+			lines++;
+
+	if (_activeWidget == kWidgetScroll) {
+		// Scroll widget must match DOS build_string behaviour: inside
+		// each character cell, write black (OFF pixels) and white (ON
+		// pixels) verbatim; leave everything OUTSIDE character cells
+		// untouched so the NEURO.IMH chrome at (176, 134) keeps showing.
+		//
+		// We can't just blit with colour 0 as the transparent key, since
+		// black IS used for OFF pixels inside glyphs. Instead we fill
+		// the sprite with sentinel colour 14 (packed byte 0xEE), let
+		// drawString overwrite each drawn character's 4x8 packed region
+		// with the font pattern (0x00/0x0F/0xF0/0xFF), and transBlit
+		// with 14 as the key -- so drawn cells composite as black+white
+		// and undrawn cells stay transparent.
 		byte *pixels = _scrollSprite.data() + sizeof(ImhHeader);
-		memset(pixels, 0, kScrollBytes);
-
-		Common::String wrapped = wrapText(text, kScrollColumns);
-		drawString(wrapped.c_str(), kScrollWidthPx, kScrollHeightPx, 0, 0, pixels);
-
+		memset(pixels, 0xEE, kScrollBytes);
+		drawString(page.c_str(), kScrollWidthPx, kScrollHeightPx, 0, 0, pixels);
 		_engine->spriteChain()->addSprite(kLayerNeuroMenu, kScrollX, kScrollY,
-		                                  _scrollSprite.data(), true);
-	} else {
-		// Bubble widget: bordered white frame with black text inside.
-		// Same visual style as the main-menu NeuroMenu but full-screen
-		// width at top=4. Text is XOR-ed into the white interior so
-		// drawString's colour-15 pixels flip to colour-0 (black).
-		byte *pixels = _bubbleSprite.data() + sizeof(ImhHeader);
-		buildBorderFrame(pixels, kBubbleWidthPx, kBubbleHeightPx);
-
-		Common::Array<byte> scratch;
-		scratch.resize(kBubbleBytes);
-		memset(scratch.data(), 0, scratch.size());
-
-		Common::String wrapped = wrapText(text, kBubbleColumns);
-		drawString(wrapped.c_str(), kBubbleWidthPx, kBubbleHeightPx,
-		           kBubbleInnerLeft, kBubbleInnerTop, scratch.data());
-
-		for (int i = 0; i < (int)kBubbleBytes; i++)
-			pixels[i] ^= scratch[i];
-
-		_engine->spriteChain()->addSprite(kLayerDialogBubble, kBubbleX, kBubbleY,
-		                                  _bubbleSprite.data(), true);
+		                                  _scrollSprite.data(),
+		                                  /*opaque=*/false, /*transKey=*/14);
+		return;
 	}
 
-	_textVisible = true;
+	// Bubble widget: size dynamically to the current page's line count.
+	// height = lines*8 + 16 (inner text) + 2 border rows; clamp to the
+	// pre-allocated buffer so we never overflow.
+	int desiredH = lines * 8 + 16;
+	if (desiredH > (int)kBubbleHeightPx) desiredH = (int)kBubbleHeightPx;
+	int packedW = kBubbleWidthPx / 2;
+	int usedBytes = packedW * desiredH;
+
+	// Update the IMH header in the sprite buffer to reflect the tighter
+	// size. width stays at packedW; height is the per-page height.
+	WRITE_LE_UINT16(_bubbleSprite.data() + 6, (uint16)desiredH);
+
+	byte *pixels = _bubbleSprite.data() + sizeof(ImhHeader);
+	buildBorderFrame(pixels, kBubbleWidthPx, desiredH);
+
+	Common::Array<byte> scratch;
+	scratch.resize(usedBytes);
+	memset(scratch.data(), 0, scratch.size());
+	drawString(page.c_str(), kBubbleWidthPx, desiredH,
+	           kBubbleInnerLeft, kBubbleInnerTop, scratch.data());
+	for (int i = 0; i < usedBytes; i++)
+		pixels[i] ^= scratch[i];
+
+	_engine->spriteChain()->addSprite(kLayerDialogBubble, kBubbleX, kBubbleY,
+	                                  _bubbleSprite.data(), /*opaque=*/true);
+}
+
+// Advance to the next page. Returns true if there was more to show (caller
+// should not dismiss the widget), false if the final page was already
+// visible (caller should clear + resume VM).
+bool RealWorldScene::pageTextForward() {
+	if (_currentPage + 1 >= (int)_pages.size())
+		return false;
+	_currentPage++;
+	renderCurrentPage();
+	return true;
 }
 
 // Renders the current status-panel string in a small 64x8 sprite placed at
@@ -458,10 +560,11 @@ void RealWorldScene::updateStatusWidget() {
 
 	drawString(buf, kStatusWidthPx, kStatusHeightPx, 0, 0, pixels);
 
-	// Sits below the NEURO.IMH background but above most other layers;
-	// kLayerCharacter has no other tenant in this stub. Transparent so
-	// black background pixels show through to the UI chrome behind.
-	_engine->spriteChain()->addSprite(kLayerCharacter, kStatusX, kStatusY, _statusSprite.data(), false);
+	// Opaque so the 64x8 patch fully replaces whatever NEURO.IMH chrome
+	// sits under it: both white text pixels AND black glyph-interior pixels
+	// need to render, which matches the DOS build_string's behaviour of
+	// overwriting the underlying g_seg010.background bytes in place.
+	_engine->spriteChain()->addSprite(kLayerCharacter, kStatusX, kStatusY, _statusSprite.data(), true);
 }
 
 void RealWorldScene::advanceVmOnce() {

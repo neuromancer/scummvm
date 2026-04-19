@@ -68,13 +68,16 @@ Graphics::ManagedSurface *unpackImh4bpp(const byte *imh, int16 &dxOut, int16 &dy
 struct SpriteLayer {
 	bool active;
 	bool opaque;
-	int left;    // screen-space top-left origin
+	byte transKey; // palette index used as the transparency key when !opaque
+	int left;      // screen-space top-left origin
 	int top;
-	int16 dx;    // from the IMH header -- subtracted from (left, top)
+	int16 dx;      // from the IMH header -- subtracted from (left, top)
 	int16 dy;
 	Graphics::ManagedSurface *surface; // owned; 8bpp indexed; nullptr when inactive
 
-	SpriteLayer() : active(false), opaque(false), left(0), top(0), dx(0), dy(0), surface(nullptr) {}
+	SpriteLayer()
+		: active(false), opaque(false), transKey(0),
+		  left(0), top(0), dx(0), dy(0), surface(nullptr) {}
 };
 
 // Manages the 11 composition layers and pushes composited frames to the
@@ -87,8 +90,12 @@ public:
 	~SpriteChain();
 
 	// Unpacks `imhData` into a surface owned by this layer. Any previous
-	// surface on the layer is freed first.
-	void addSprite(int layerIdx, int left, int top, const byte *imhData, bool opaque);
+	// surface on the layer is freed first. `transKey` is used as the
+	// transparent colour index when `opaque` is false; defaults to 0
+	// (matching the DOS sprite chain's "black passes through" convention
+	// for partial-cover layers like the mouse cursor).
+	void addSprite(int layerIdx, int left, int top, const byte *imhData,
+	               bool opaque, byte transKey = 0);
 	void clearSprite(int layerIdx);
 	void clearAll();
 

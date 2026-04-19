@@ -95,7 +95,8 @@ SpriteChain::~SpriteChain() {
 	clearAll();
 }
 
-void SpriteChain::addSprite(int layerIdx, int left, int top, const byte *imhData, bool opaque) {
+void SpriteChain::addSprite(int layerIdx, int left, int top, const byte *imhData,
+                            bool opaque, byte transKey) {
 	if (layerIdx < 0 || layerIdx >= kNumLayers) {
 		warning("Neuromancer: SpriteChain::addSprite invalid layer %d", layerIdx);
 		return;
@@ -103,11 +104,12 @@ void SpriteChain::addSprite(int layerIdx, int left, int top, const byte *imhData
 
 	SpriteLayer &layer = _layers[layerIdx];
 	delete layer.surface;
-	layer.surface = unpackImh4bpp(imhData, layer.dx, layer.dy);
-	layer.active  = true;
-	layer.opaque  = opaque;
-	layer.left    = left;
-	layer.top     = top;
+	layer.surface  = unpackImh4bpp(imhData, layer.dx, layer.dy);
+	layer.active   = true;
+	layer.opaque   = opaque;
+	layer.transKey = transKey;
+	layer.left     = left;
+	layer.top      = top;
 }
 
 void SpriteChain::clearSprite(int layerIdx) {
@@ -137,7 +139,7 @@ void SpriteChain::renderToScreen() {
 		if (layer.opaque)
 			_frame.blitFrom(*layer.surface, dest);
 		else
-			_frame.transBlitFrom(*layer.surface, dest, kTransparentKey);
+			_frame.transBlitFrom(*layer.surface, dest, layer.transKey);
 	}
 
 	g_system->copyRectToScreen(_frame.getPixels(), _frame.pitch,

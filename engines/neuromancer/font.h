@@ -53,6 +53,16 @@ void drawString(const char *string, int widthPx, int heightPx,
 // text-output panel which shows VM-emitted strings in the 38-column area.
 Common::String wrapText(const char *text, int columns);
 
+// Expand the control codes used by the DOS text section:
+//   '\r'  -> '\n'  (hard line break)
+//   0x01  -> player name ( `playerName`; empty if null)
+//   0x02  -> current date string (`dateString`; empty if null)
+// Other control bytes < 0x20 other than '\n' are stripped. See
+// Reuromancer/NeuromancerWin64/utilities.c:71-95 for the DOS decoder.
+Common::String expandText(const char *raw,
+                          const char *playerName = nullptr,
+                          const char *dateString = nullptr);
+
 } // End of namespace Neuromancer
 
 #endif // NEUROMANCER_FONT_H

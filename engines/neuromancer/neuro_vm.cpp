@@ -261,12 +261,15 @@ bool NeuroVM::step(int slot) {
 		// stored little-endian across [idx, idx+1].
 		uint16 idx = READ_LE_UINT16(op + 1);
 		uint16 val = READ_LE_UINT16(op + 3);
-		if (idx + 1 < sizeof(_vars)) {
+		if (idx + 1 < kVarsSize) {
 			_vars[idx]     = (uint8)(val & 0xFF);
 			_vars[idx + 1] = (uint8)(val >> 8);
+		} else {
+			warning("NeuroVM: set-var idx 0x%04X out of range (max 0x%04X)",
+			        idx, (uint32)kVarsSize);
 		}
 		t.nextOpAddr += 5;
-		debugC(3, kDebugScript, "VM: slot %d op 0x%02X var[%u]=%u", slot, code, idx, val);
+		debugC(3, kDebugScript, "VM: slot %d op 0x%02X var[0x%04X]=%u", slot, code, idx, val);
 		break;
 	}
 
@@ -296,11 +299,13 @@ bool NeuroVM::step(int slot) {
 		// 16-bit add-to-variable (little-endian).
 		uint16 idx = READ_LE_UINT16(op + 1);
 		uint16 val = READ_LE_UINT16(op + 3);
-		if (idx + 1 < sizeof(_vars)) {
+		if (idx + 1 < kVarsSize) {
 			uint16 cur = _vars[idx] | ((uint16)_vars[idx + 1] << 8);
 			uint16 sum = cur + val;
 			_vars[idx]     = (uint8)(sum & 0xFF);
 			_vars[idx + 1] = (uint8)(sum >> 8);
+		} else {
+			warning("NeuroVM: add-var idx 0x%04X out of range", idx);
 		}
 		t.nextOpAddr += 5;
 		break;
@@ -322,10 +327,22 @@ bool NeuroVM::step(int slot) {
 		return true;
 
 	case 0x18: {
+		// Dynamic string output: the operand indexes an array of 16-bit
+		// string IDs that lives in game state. In the DOS build the
+		// pointer is `&g_4bae.x4c7c`, at DSEG 0x4C7C -- offset 0xCE
+		// inside the x4bae_t struct; op[1] is a WORD index, so the byte
+		// offset into our _vars[] is 0xCE + op[1] * 2.
+		uint16 baseOff = 0xCE;
+		uint16 varOff  = (uint16)(baseOff + (uint16)op[1] * 2);
+		uint16 stringNum = 0;
+		if ((uint32)varOff + 1 < kVarsSize)
+			stringNum = (uint16)_vars[varOff] | ((uint16)_vars[varOff + 1] << 8);
 		_pendingAction = Action::kDialogReply;
-		_pendingString = op[1];
+		_pendingString = stringNum;
 		t.nextOpAddr += 2;
-		debugC(2, kDebugScript, "VM: slot %d op 0x18 dynamic str=%u", slot, _pendingString);
+		debugC(2, kDebugScript,
+		       "VM: slot %d op 0x18 dynamic str var[0x%04X]=%u",
+		       slot, varOff, stringNum);
 		return true;
 	}
 

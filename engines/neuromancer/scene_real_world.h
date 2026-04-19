@@ -90,7 +90,12 @@ private:
 	void showLevelIntro();
 	void startVmForCurrentLevel();
 
+	// `text` is raw BIH text: it may contain DOS control codes (\r, 0x01
+	// for name, 0x02 for date). The helper wraps, splits into pages, and
+	// shows page 0. Subsequent pages are shown by pageTextForward().
 	void showText(const char *text, TextWidget widget);
+	bool pageTextForward(); // true if more pages remain; false if done
+	void renderCurrentPage();
 	void clearTextWidgets();
 
 	void updateStatusWidget();
@@ -108,6 +113,13 @@ private:
 	SceneId _next;
 	bool _textVisible;
 	bool _introPending;
+
+	// Paging state for the active text widget: the BIH strings exceed the
+	// 17x7 scroll box and 38x8 bubble box, so we split wrapped text into
+	// pages and advance one per keypress.
+	Common::Array<Common::String> _pages;
+	int        _currentPage;
+	TextWidget _activeWidget;
 
 	// Game state surfaced by the status widget. Defaults are the level 1
 	// start values from the DOS save-slot template (11/16/58, cash=0).

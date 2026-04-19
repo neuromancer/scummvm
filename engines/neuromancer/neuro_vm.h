@@ -129,10 +129,14 @@ private:
 	VmThread _threads[4];
 	int _currentThread;
 
-	// Game-state byte array (x4bae[] in the DOS build). Opcodes 0x05-0x08
-	// read single bytes; 0x0E/0x0F/0x15 read/write 16-bit LE pairs starting
-	// at the given byte index.
-	uint8 _vars[256];
+	// Game-state byte array (x4bae[] in the DOS build). The original struct
+	// is ~24 KB; fields are addressed by absolute byte offset inside that
+	// region. Opcodes 0x05-0x08 read single bytes; 0x0E/0x0F/0x15 read/write
+	// 16-bit LE pairs starting at the given byte index.
+	static const uint32 kVarsSize = 0x4000; // 16 KB -- covers all known
+	                                        // offsets used by the shipped
+	                                        // BIH scripts up to the PAX area.
+	uint8 _vars[kVarsSize];
 	int   _updateHold;
 
 	Action _pendingAction;

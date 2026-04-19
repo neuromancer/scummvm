@@ -179,6 +179,29 @@ static void buildCharacter(byte c, byte *dst) {
 	}
 }
 
+Common::String expandText(const char *raw,
+                          const char *playerName,
+                          const char *dateString) {
+	if (!raw)
+		return Common::String();
+	Common::String out;
+	while (*raw) {
+		byte b = (byte)*raw++;
+		if (b == 0x01) {
+			if (playerName) out += playerName;
+		} else if (b == 0x02) {
+			if (dateString) out += dateString;
+		} else if (b == '\r') {
+			out += '\n';
+		} else if (b == '\n' || b >= 0x20) {
+			// Printable or already-newline: pass through.
+			out += (char)b;
+		}
+		// Other control bytes (< 0x20, not \r/\n): drop silently.
+	}
+	return out;
+}
+
 Common::String wrapText(const char *text, int columns) {
 	if (!text || columns <= 0)
 		return Common::String();
