@@ -29,58 +29,314 @@
 #include "neuromancer/neuromancer.h"
 
 #include "common/debug.h"
+#include "common/endian.h"
+#include "common/textconsole.h"
 
 namespace Neuromancer {
 
-NeuroVM::NeuroVM(NeuromancerEngine *engine)
-	: _engine(engine), _activeThread(3) {
-	reset();
-}
+// --------------------------------------------------------------------------
+// Bih
+// --------------------------------------------------------------------------
 
-NeuroVM::~NeuroVM() = default;
-
-void NeuroVM::reset() {
-	for (int i = 0; i < 4; i++) {
-		_threads[i].nextOpAddr = 0;
-		_threads[i].var1 = 0;
-		_threads[i].var2 = 0;
-		_threads[i].flag = 0;
-		_threads[i].mark = 0xFF;
-	}
-	_activeThread = 3;
-}
-
-void NeuroVM::tick() {
-	// Stub. The full opcode table (0x00-0x18) lives in the Reuromancer
-	// neuro_vm() function; opcodes 0x16 (exec) and level init/update/deinit
-	// call-outs are the only ones that need LevelHandlers dispatch. The
-	// other opcodes are pure data manipulation on VmThread and game state,
-	// portable as-is.
-	debugC(3, kDebugScript, "NeuroVM::tick (stub)");
-}
-
-void NeuroVM::runLevelPhase(VmPhase phase) {
-	uint8 level = _engine->currentLevel();
-	debugC(1, kDebugLevel, "NeuroVM::runLevelPhase level=%u phase=%d", level, (int)phase);
-
-	LevelHandlers *handlers = _engine->levelHandlers();
-	if (!handlers)
+void Bih::attach(const byte *bytes, uint32 size) {
+	_bytes = bytes;
+	_size = size;
+	memset(&_hdr, 0, sizeof(_hdr));
+	if (!bytes || size < 0x28)
 		return;
-
-	switch (phase) {
-	case kPhaseInit:   handlers->init(level, _engine);   break;
-	case kPhaseUpdate: handlers->update(level, _engine); break;
-	case kPhaseDeinit: handlers->deinit(level, _engine); break;
-	}
+	_hdr.cbOffset        = READ_LE_UINT16(bytes + 0x00);
+	_hdr.cbSegment       = READ_LE_UINT16(bytes + 0x02);
+	_hdr.ctrlStructAddr  = READ_LE_UINT16(bytes + 0x04);
+	_hdr.textOffset      = READ_LE_UINT16(bytes + 0x06);
+	_hdr.bytecodeArrayOffset[0] = READ_LE_UINT16(bytes + 0x08);
+	_hdr.bytecodeArrayOffset[1] = READ_LE_UINT16(bytes + 0x0A);
+	_hdr.bytecodeArrayOffset[2] = READ_LE_UINT16(bytes + 0x0C);
+	_hdr.initObjCodeOffset[0]   = READ_LE_UINT16(bytes + 0x0E);
+	_hdr.initObjCodeOffset[1]   = READ_LE_UINT16(bytes + 0x10);
+	_hdr.initObjCodeOffset[2]   = READ_LE_UINT16(bytes + 0x12);
+	for (int i = 0; i < 10; i++)
+		_hdr.unknown[i] = READ_LE_UINT16(bytes + 0x14 + i * 2);
 }
 
-void NeuroVM::execTarget(uint16 bihOffset) {
-	uint8 level = _engine->currentLevel();
-	debugC(1, kDebugLevel, "NeuroVM::execTarget level=%u offset=0x%04X", level, bihOffset);
+const char *Bih::textString(uint16 n) const {
+	if (!_bytes || _hdr.textOffset >= _size)
+		return "";
+	const byte *p   = _bytes + _hdr.textOffset;
+	const byte *end = _bytes + _size;
+	for (uint16 i = 0; i < n && p < end; i++) {
+		while (p < end && *p != 0)
+			p++;
+		if (p < end)
+			p++; // skip terminator
+	}
+	if (p >= end)
+		return "";
+	return (const char *)p;
+}
 
-	LevelHandlers *handlers = _engine->levelHandlers();
-	if (handlers)
-		handlers->execTarget(level, bihOffset, _engine);
+uint16 Bih::programAddress(uint8 tableIdx, uint8 progIdx) const {
+	if (!_bytes || tableIdx >= 3)
+		return 0;
+	uint32 tblOff = _hdr.bytecodeArrayOffset[tableIdx];
+	if (tblOff + (uint32)(progIdx + 1) * 2 > _size)
+		return 0;
+	return READ_LE_UINT16(_bytes + tblOff + (uint32)progIdx * 2);
+}
+
+// --------------------------------------------------------------------------
+// NeuroVM
+// --------------------------------------------------------------------------
+
+NeuroVM::NeuroVM(NeuromancerEngine *engine)
+	: _engine(engine),
+	  _currentThread(3),
+	  _updateHold(0),
+	  _pendingAction(Action::kIdle),
+	  _pendingString(0),
+	  _pendingLevel(0) {
+	memset(_threads, 0, sizeof(_threads));
+	memset(_vars, 0, sizeof(_vars));
+}
+
+void NeuroVM::attach(const byte *bihData, uint32 size) {
+	_bih.attach(bihData, size);
+	resetThreads();
+	debugC(1, kDebugScript,
+	       "NeuroVM attached: text=0x%04X bytecode=[0x%04X,0x%04X,0x%04X] init=[0x%04X,0x%04X,0x%04X]",
+	       _bih.header().textOffset,
+	       _bih.header().bytecodeArrayOffset[0],
+	       _bih.header().bytecodeArrayOffset[1],
+	       _bih.header().bytecodeArrayOffset[2],
+	       _bih.header().initObjCodeOffset[0],
+	       _bih.header().initObjCodeOffset[1],
+	       _bih.header().initObjCodeOffset[2]);
+}
+
+void NeuroVM::resetThreads() {
+	for (int i = 0; i < 4; i++) {
+		_threads[i].active     = false;
+		_threads[i].nextOpAddr = 0;
+		_threads[i].var1       = 0;
+		_threads[i].var2       = 0;
+		_threads[i].flag       = 0;
+	}
+	_currentThread   = 3;
+	_pendingAction   = Action::kIdle;
+	_pendingString   = 0;
+	_pendingLevel    = 0;
+	_updateHold      = 0;
+}
+
+void NeuroVM::startDefaultThread(int slot, uint8 flagTable) {
+	if (slot < 0 || slot >= 4)
+		return;
+	VmThread &t = _threads[slot];
+	t.active     = true;
+	t.flag       = flagTable;
+	t.var1       = 0;
+	t.var2       = 0;
+	t.nextOpAddr = _bih.programAddress(flagTable & 3, 0);
+	debugC(1, kDebugScript, "NeuroVM: slot %d started at 0x%04X (table %u)",
+	       slot, t.nextOpAddr, flagTable);
+}
+
+void NeuroVM::resume() {
+	_pendingAction = Action::kIdle;
+}
+
+NeuroVM::TickResult NeuroVM::tick() {
+	TickResult r = { Action::kIdle, 0, 0 };
+
+	if (_pendingAction != Action::kIdle) {
+		r.action    = _pendingAction;
+		r.stringNum = _pendingString;
+		r.levelN    = _pendingLevel;
+		return r;
+	}
+
+	// Bound total opcodes per tick so a self-jump or similar bug can't hang
+	// the main loop.
+	const int kOpcodeBudget = 1024;
+	int budget = kOpcodeBudget;
+
+	while (budget-- > 0) {
+		bool anyActive = false;
+		for (int slot = 3; slot >= 0; slot--) {
+			if (!_threads[slot].active)
+				continue;
+			anyActive = true;
+
+			if (step(slot)) {
+				r.action    = _pendingAction;
+				r.stringNum = _pendingString;
+				r.levelN    = _pendingLevel;
+				return r;
+			}
+		}
+		if (!anyActive)
+			break;
+	}
+
+	return r;
+}
+
+bool NeuroVM::step(int slot) {
+	VmThread &t = _threads[slot];
+	if (t.nextOpAddr == 0 || t.nextOpAddr >= _bih.size()) {
+		warning("NeuroVM: slot %d PC 0x%04X out of BIH (size 0x%04X), deactivating",
+		        slot, t.nextOpAddr, _bih.size());
+		t.active = false;
+		return false;
+	}
+
+	const byte *op = _bih.bytes() + t.nextOpAddr;
+	byte code = op[0];
+
+	switch (code) {
+	case 0x00: {
+		uint16 addr = _bih.programAddress(t.flag & 3, 0);
+		debugC(3, kDebugScript, "VM: slot %d op 0x00 -> default prog 0x%04X", slot, addr);
+		t.nextOpAddr = addr;
+		break;
+	}
+
+	case 0x01: {
+		_pendingAction = Action::kDialogReply;
+		_pendingString = op[1];
+		t.nextOpAddr += 2;
+		debugC(2, kDebugScript, "VM: slot %d op 0x01 dialog str=%u", slot, _pendingString);
+		return true;
+	}
+
+	case 0x02: {
+		_pendingAction = Action::kTextOutput;
+		_pendingString = op[1];
+		t.nextOpAddr += 2;
+		debugC(2, kDebugScript, "VM: slot %d op 0x02 text str=%u", slot, _pendingString);
+		return true;
+	}
+
+	case 0x03: {
+		uint16 addr = _bih.programAddress(t.flag & 3, op[1]);
+		debugC(3, kDebugScript, "VM: slot %d op 0x03 prog[%u] -> 0x%04X", slot, op[1], addr);
+		t.nextOpAddr = addr;
+		break;
+	}
+
+	case 0x04: {
+		int16 offset = (int16)READ_LE_UINT16(op + 1);
+		t.nextOpAddr = (uint16)(t.nextOpAddr + offset + 1);
+		debugC(3, kDebugScript, "VM: slot %d op 0x04 goto %+d -> 0x%04X", slot, offset, t.nextOpAddr);
+		break;
+	}
+
+	case 0x05: case 0x06: case 0x07: case 0x08: {
+		// [op][idx][_][val][offLo][offHi] -- 6 bytes total.
+		// Condition MET -> advance past the instruction (fallthrough).
+		// Condition NOT MET -> take the alternate branch by `offset + 4`.
+		// This is inverted from a typical assembler JE; the DOS scripts use
+		// these as "if X == Y then continue-here else goto else-branch".
+		uint8 idx = op[1];
+		uint8 val = op[3];
+		int16 offset = (int16)READ_LE_UINT16(op + 4);
+		uint8 got = _vars[idx];
+		bool met = false;
+		switch (code) {
+		case 0x05: met = (got == val); break; // "equal"
+		case 0x06: met = (got != val); break; // "not equal"
+		case 0x07: met = (got <  val); break; // "less"
+		case 0x08: met = (got >= val); break; // "greater-or-equal"
+		}
+		if (met)
+			t.nextOpAddr += 6;
+		else
+			t.nextOpAddr = (uint16)(t.nextOpAddr + offset + 4);
+		debugC(3, kDebugScript, "VM: slot %d cond 0x%02X var[%u]=%u vs %u -> %s",
+		       slot, code, idx, got, val, met ? "fallthrough" : "jump");
+		break;
+	}
+
+	case 0x0E: case 0x0F: {
+		// 16-bit variable write. idx is a byte offset into _vars; value is
+		// stored little-endian across [idx, idx+1].
+		uint16 idx = READ_LE_UINT16(op + 1);
+		uint16 val = READ_LE_UINT16(op + 3);
+		if (idx + 1 < sizeof(_vars)) {
+			_vars[idx]     = (uint8)(val & 0xFF);
+			_vars[idx + 1] = (uint8)(val >> 8);
+		}
+		t.nextOpAddr += 5;
+		debugC(3, kDebugScript, "VM: slot %d op 0x%02X var[%u]=%u", slot, code, idx, val);
+		break;
+	}
+
+	case 0x10: {
+		_pendingAction = Action::kChangeLevel;
+		_pendingLevel = op[1];
+		t.nextOpAddr += 2;
+		debugC(2, kDebugScript, "VM: slot %d op 0x10 level=%u", slot, _pendingLevel);
+		return true;
+	}
+
+	case 0x11:
+		_updateHold++;
+		t.nextOpAddr++;
+		break;
+
+	case 0x12:
+		_updateHold = 0;
+		t.nextOpAddr++;
+		break;
+
+	case 0x13:
+		t.nextOpAddr += 4;
+		break;
+
+	case 0x15: {
+		// 16-bit add-to-variable (little-endian).
+		uint16 idx = READ_LE_UINT16(op + 1);
+		uint16 val = READ_LE_UINT16(op + 3);
+		if (idx + 1 < sizeof(_vars)) {
+			uint16 cur = _vars[idx] | ((uint16)_vars[idx + 1] << 8);
+			uint16 sum = cur + val;
+			_vars[idx]     = (uint8)(sum & 0xFF);
+			_vars[idx + 1] = (uint8)(sum >> 8);
+		}
+		t.nextOpAddr += 5;
+		break;
+	}
+
+	case 0x16: {
+		uint16 offset = READ_LE_UINT16(op + 1);
+		debugC(2, kDebugScript, "VM: slot %d op 0x16 exec offset=0x%04X", slot, offset);
+		if (LevelHandlers *h = _engine->levelHandlers())
+			h->execTarget(_engine->currentLevel(), offset, _engine);
+		t.nextOpAddr += 3;
+		break;
+	}
+
+	case 0x17:
+		_pendingAction = Action::kEnterDialog;
+		t.nextOpAddr++;
+		debugC(2, kDebugScript, "VM: slot %d op 0x17 enter dialog", slot);
+		return true;
+
+	case 0x18: {
+		_pendingAction = Action::kDialogReply;
+		_pendingString = op[1];
+		t.nextOpAddr += 2;
+		debugC(2, kDebugScript, "VM: slot %d op 0x18 dynamic str=%u", slot, _pendingString);
+		return true;
+	}
+
+	default:
+		warning("NeuroVM: slot %d unknown opcode 0x%02X at 0x%04X, deactivating",
+		        slot, code, t.nextOpAddr);
+		t.active = false;
+		break;
+	}
+
+	return false;
 }
 
 } // End of namespace Neuromancer

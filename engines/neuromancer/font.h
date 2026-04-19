@@ -26,6 +26,7 @@
 #define NEUROMANCER_FONT_H
 
 #include "common/scummsys.h"
+#include "common/str.h"
 
 namespace Neuromancer {
 
@@ -46,6 +47,11 @@ enum {
 // the next line at column 0.
 void drawString(const char *string, int widthPx, int heightPx,
                 int leftPx, int topPx, byte *dst);
+
+// Word-wrap a paragraph to at most `columns` characters per line. Returns
+// the wrapped form with '\n' separators. Used by the real-world scene's
+// text-output panel which shows VM-emitted strings in the 38-column area.
+Common::String wrapText(const char *text, int columns);
 
 } // End of namespace Neuromancer
 

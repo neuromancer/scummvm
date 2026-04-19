@@ -28,13 +28,24 @@
 #include "neuromancer/scene.h"
 
 #include "common/array.h"
+#include "common/str.h"
 
 namespace Neuromancer {
 
-// Minimal port of scene_real_world.c:init(): loads NEURO.IMH as the UI
-// background and R{N+1}.PIC as the level image, composited at (8, 8).
-// Full scene (movement, animations, VM) will be added in later phases.
-// Esc returns to the main menu.
+// Real-world scene: UI frame (NEURO.IMH) + per-level PIC + neuro-VM tick.
+//
+// Interaction flow:
+//   - On level entry, load NEURO.IMH + R{N+1}.PIC + R{N+1}.BIH.
+//   - Attach the BIH to the NeuroVM and start thread 0 at the default
+//     program of the first bytecode table (the original engine's
+//     opcode-0x00 equivalent).
+//   - Each frame: tick the VM. If it yields kTextOutput or kDialogReply,
+//     render the string on top of the PIC and wait for a keypress to
+//     resume. Level-change requests (opcode 0x10) update the engine's
+//     current level and re-init the scene.
+//
+// Navigation keys (Left/Right/PageUp/PageDown) remain active for rapid
+// browsing of level backgrounds until the VM takes over.
 class RealWorldScene : public Scene {
 public:
 	explicit RealWorldScene(NeuromancerEngine *engine);
@@ -48,10 +59,24 @@ public:
 	void handleEvent(const Common::Event &event) override;
 
 private:
-	Common::Array<byte> _neuroImh;  // full decompressed NEURO.IMH
-	Common::Array<byte> _picSprite; // synthesized IMH buffer (header + PIC pixels)
+	bool loadLevel(); // loads BIH, PIC, and queues the intro text
+	void showLevelIndicator();
+	void clearTextPanel();
+	void renderTextPanel(const char *rawText);
+	void gotoLevel(int delta);
+	void advanceVmOnce();
+	void showLevelIntro();
+	void startVmForCurrentLevel();
+
+	Common::Array<byte> _neuroImh;
+	Common::Array<byte> _picSprite;       // [ImhHeader][PIC pixels]
+	Common::Array<byte> _bihData;         // decompressed BIH bytes
+	Common::Array<byte> _textPanelSprite; // IMH buffer for the text overlay
+	Common::Array<byte> _indicatorSprite; // IMH buffer for "Level N" label
 
 	SceneId _next;
+	bool _textVisible;
+	bool _introPending; // true while the pre-VM intro text is queued/displayed
 };
 
 } // End of namespace Neuromancer

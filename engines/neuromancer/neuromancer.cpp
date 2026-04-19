@@ -52,7 +52,21 @@ NeuromancerEngine::NeuromancerEngine(OSystem *syst, const ADGameDescription *gd)
 	  _mouseX(kScreenWidth / 2),
 	  _mouseY(kScreenHeight / 2),
 	  _currentLevel(0),
-	  _exitGame(false) {}
+	  _exitGame(false) {
+	memset(_visitedLevels, 0, sizeof(_visitedLevels));
+}
+
+bool NeuromancerEngine::isLevelVisited(uint8 level) const {
+	if (level >= 64) return true;
+	uint8 mask = (uint8)(0x80 >> (level & 7));
+	return (_visitedLevels[level >> 3] & mask) != 0;
+}
+
+void NeuromancerEngine::markLevelVisited(uint8 level) {
+	if (level >= 64) return;
+	uint8 mask = (uint8)(0x80 >> (level & 7));
+	_visitedLevels[level >> 3] |= mask;
+}
 
 NeuromancerEngine::~NeuromancerEngine() {
 	delete _scene;

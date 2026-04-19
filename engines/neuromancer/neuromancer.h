@@ -54,6 +54,12 @@ public:
 	uint8 currentLevel() const { return _currentLevel; }
 	void setCurrentLevel(uint8 level) { _currentLevel = level; }
 
+	// Persistent "has the player been here before" bit per level, used by
+	// setup_intro() to choose long (first-visit) or short (revisit) text.
+	// Mirrors g_visited_levels_bitstring in the DOS build.
+	bool isLevelVisited(uint8 level) const;
+	void markLevelVisited(uint8 level);
+
 	// Scenes call this to exit the engine (e.g. the user selects "Quit").
 	void requestQuit() { _exitGame = true; }
 
@@ -76,6 +82,7 @@ private:
 	int _mouseX, _mouseY;
 
 	uint8 _currentLevel;
+	uint8 _visitedLevels[8]; // 64 bits; bit(level) = visited
 	bool _exitGame;
 };
 

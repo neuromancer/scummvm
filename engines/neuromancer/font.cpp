@@ -179,6 +179,46 @@ static void buildCharacter(byte c, byte *dst) {
 	}
 }
 
+Common::String wrapText(const char *text, int columns) {
+	if (!text || columns <= 0)
+		return Common::String();
+
+	Common::String out;
+	int lineLen = 0;
+
+	while (*text) {
+		if (*text == '\n') {
+			out += '\n';
+			lineLen = 0;
+			text++;
+			continue;
+		}
+
+		const char *wordStart = text;
+		while (*text && *text != ' ' && *text != '\n')
+			text++;
+		int wordLen = (int)(text - wordStart);
+
+		// Start a new line if this word wouldn't fit (including the
+		// leading space we'd need to add).
+		if (lineLen > 0 && lineLen + 1 + wordLen > columns) {
+			out += '\n';
+			lineLen = 0;
+		}
+
+		if (lineLen > 0) {
+			out += ' ';
+			lineLen++;
+		}
+		out += Common::String(wordStart, wordLen);
+		lineLen += wordLen;
+
+		if (*text == ' ') text++;
+	}
+
+	return out;
+}
+
 void drawString(const char *string, int widthPx, int heightPx,
                 int leftPx, int topPx, byte *dst) {
 	(void)heightPx; // caller guarantees buffer extent; no clipping here.

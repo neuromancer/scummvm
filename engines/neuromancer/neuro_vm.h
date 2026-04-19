@@ -25,69 +25,119 @@
 #ifndef NEUROMANCER_NEURO_VM_H
 #define NEUROMANCER_NEURO_VM_H
 
+#include "common/array.h"
 #include "common/scummsys.h"
 
 namespace Neuromancer {
 
 class NeuromancerEngine;
 
-// BIH header layout (first 30 bytes of a decompressed BIH resource).
-// Preserved for documentation; numeric offsets match the original DOS layout
-// as decoded in Reuromancer/NeuromancerWin64/data.h.
+// BIH header layout. Mirrors bih_hdr_t in Reuromancer/NeuromancerWin64/data.h.
 struct BihHeader {
-	uint16 cbOffset;              // 0xa8e8: callback far ptr (unused in C++ port)
-	uint16 cbSegment;             // 0xa8ea
-	uint16 ctrlStructAddr;        // 0xa8ec
-	uint16 textOffset;            // 0xa8ee: offset of per-line text within BIH body
-	uint16 bytecodeArrayOffset[3];// 0xa8f0: per-phase dispatch tables
-	uint16 initObjCodeOffset[3];  // 0xa8f6: init/update/deinit entry points (x86 in DOS)
-	uint16 unknown[10];           // 0xa8fc
+	uint16 cbOffset;                 // 0x00
+	uint16 cbSegment;                // 0x02
+	uint16 ctrlStructAddr;           // 0x04
+	uint16 textOffset;               // 0x06 -- start of the string table
+	uint16 bytecodeArrayOffset[3];   // 0x08..0x0C -- 3 program-table offsets
+	uint16 initObjCodeOffset[3];     // 0x0E..0x12 -- native init/update/deinit
+	uint16 unknown[10];              // 0x14..0x27
 };
 
-// Per-thread script state. The real engine keeps 4 of these in-flight at once.
+// Non-owning view over a decompressed BIH buffer. Provides header access,
+// null-terminated string lookup, and program-address lookup.
+class Bih {
+public:
+	Bih() : _bytes(nullptr), _size(0) {}
+
+	void attach(const byte *bytes, uint32 size);
+
+	const BihHeader &header() const { return _hdr; }
+	const byte *bytes() const { return _bytes; }
+	uint32 size() const { return _size; }
+
+	// Returns the null-terminated string at text-section index `n`, or ""
+	// if the index walks past the end of the buffer.
+	const char *textString(uint16 n) const;
+
+	// BIH-relative offset of program `progIdx` inside table `tableIdx`
+	// (0..2). Each table entry is a 16-bit little-endian offset.
+	uint16 programAddress(uint8 tableIdx, uint8 progIdx) const;
+
+private:
+	const byte *_bytes;
+	uint32 _size;
+	BihHeader _hdr;
+};
+
+// One VM thread.
 struct VmThread {
-	uint16 nextOpAddr;  // offset within the BIH body of the next opcode to execute
+	bool   active;
+	uint16 nextOpAddr;  // BIH-relative offset of the next opcode
 	uint16 var1;
 	uint16 var2;
-	uint8  flag;
-	uint8  mark;
+	uint8  flag;        // low 2 bits select the program table
 };
 
-enum VmPhase {
-	kPhaseInit   = 0,
-	kPhaseUpdate = 1,
-	kPhaseDeinit = 2
-};
-
-// neuro-VM: high-level bytecode interpreter (~20 opcodes). See the opcode
-// switch in Reuromancer/NeuromancerWin64/scene_real_world.c:129+ for reference.
+// Bytecode interpreter from scene_real_world.c:neuro_vm().
 //
-// This replaces *only* the high-level script dispatch. The per-level init/
-// update/deinit hooks that the original DOS build implemented as compiled
-// 8086 code are delegated to LevelHandlers (per-level C++ functions).
+// Dispatch is cooperative: tick() runs opcodes round-robin (slot 3 down to
+// 0) until a blocking opcode yields. Blocking opcodes are text output,
+// dialog, and level change; the caller inspects TickResult and calls
+// resume() once the user has acknowledged.
 class NeuroVM {
 public:
 	explicit NeuroVM(NeuromancerEngine *engine);
-	~NeuroVM();
 
-	// Reset all active threads on the current level.
-	void reset();
+	// Attach a BIH byte buffer (must outlive the VM or be replaced).
+	// Clears all thread state.
+	void attach(const byte *bihData, uint32 size);
 
-	// Run one VM cycle (up to 4 threads, round-robin).
-	void tick();
+	// Activate thread `slot` at the default program of table `flagTable`.
+	// Equivalent to the engine issuing opcode 0x00 once on entry.
+	void startDefaultThread(int slot, uint8 flagTable);
 
-	// Entry points invoked at level boundaries. These dispatch to
-	// LevelHandlers, replacing the original cpu_reset/cpu_run pattern.
-	void runLevelPhase(VmPhase phase);
+	void resetThreads();
 
-	// opcode 0x16: "exec" -- call a per-level entry point by BIH offset.
-	// Delegates to LevelHandlers::execTarget.
-	void execTarget(uint16 bihOffset);
+	enum class Action {
+		kIdle,
+		kTextOutput,
+		kDialogReply,
+		kEnterDialog,
+		kChangeLevel
+	};
+
+	struct TickResult {
+		Action action;
+		uint16 stringNum;
+		uint8  levelN;
+	};
+
+	// Run opcodes until a thread yields or all are idle.
+	TickResult tick();
+
+	// Clear the pending action so the next tick can resume.
+	void resume();
+
+	const Bih &bih() const { return _bih; }
 
 private:
+	bool step(int slot);
+
 	NeuromancerEngine *_engine;
+	Bih _bih;
+
 	VmThread _threads[4];
-	int _activeThread;
+	int _currentThread;
+
+	// Game-state byte array (x4bae[] in the DOS build). Opcodes 0x05-0x08
+	// read single bytes; 0x0E/0x0F/0x15 read/write 16-bit LE pairs starting
+	// at the given byte index.
+	uint8 _vars[256];
+	int   _updateHold;
+
+	Action _pendingAction;
+	uint16 _pendingString;
+	uint8  _pendingLevel;
 };
 
 } // End of namespace Neuromancer
