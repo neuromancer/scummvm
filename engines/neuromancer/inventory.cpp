@@ -58,6 +58,38 @@ enum {
 // active_item and cash_withdrawal.
 const uint8 kItemCodeCredits = 0x7F;
 
+// Item-name lookup, transcribed from DOS items.c:5-92 (g_item_names[104]).
+// Empty strings mark unused codes; we display "(item NN)" for those.
+static const char *const kItemNames[104] = {
+	"Mimic", "Jammies", "ThunderHead", "Vaccine", "Blammo", "DoorStop",
+	"Decoder", "Sequencer", "ArmorAll", "KGB", "Comlink", "BlowTorch",
+	"Probe", "Drill", "Hammer", "Python", "Acid", "Injector",
+	"DepthCharge", "Concrete", "EasyRider", "LogicBomb", "Cyberspace",
+	"Slow", "BattleChess", "BattleChess", "Scout", "Hemlock",
+	"KuangEleven", "Hiki Gaeru", "Gaijin", "Bushido", "Edokko", "Katana",
+	"Tofu", "Shogun", "188BJB", "350SL",
+	"", "",
+	"UXB", "",
+	"ZXB", "Cyberspace II", "Cyberspace III", "",
+	"Cyberspace VII", "Ninja 2000", "Ninja 3000", "Ninja 4000",
+	"Ninja 5000", "Blue Light Spec.", "Samurai Seven",
+	"", "", "", "", "", "", "",
+	"", "", "", "", "", "", "",
+	"Bargaining", "CopTalk", "Warez Analysis", "Debug", "Hardware Repair",
+	"ICE Breaking", "Evasion", "Cryptology", "Japanese", "Logic",
+	"Psychoanalysis", "Phenomenology", "Philosophy", "Sophistry", "Zen",
+	"Musicianship", "CyberEyes",
+	"", "",
+	"guest pass",
+	"", "",
+	"joystick",
+	"", "", "", "",
+	"caviar", "pawn ticket", "Security Pass", "Zion ticket",
+	"Freeside ticket", "",
+	"Chiba ticket", "gas mask", "",
+	"sake"
+};
+
 // DSEG addresses written by the DOS Give Credits path (data.h:217-220).
 // active_item is a uint16 at 0x4BC0; cash_withdrawal is a uint32 at 0x4BC2.
 // x4bbf (at 0x4BBF) is flagged to 1 to mark "credits offered this level".
@@ -80,17 +112,78 @@ Inventory::Inventory(NeuromancerEngine *engine, RealWorldScene *scene)
 	  _active(false),
 	  _state(kStateItemList),
 	  _selectedItemCode(0),
-	  _amountLen(0) {
+	  _selectedSlot(-1),
+	  _amountLen(0),
+	  _pageStart(0),
+	  _pageCount(0),
+	  _viewingSoftware(false) {
 	_sprite.resize(sizeof(ImhHeader) + kWindowBytes);
 	writeImhHeader(_sprite.data(), 0, 0, kWindowPackedW, kWindowHeightPx);
 	memset(_amount, 0, sizeof(_amount));
+	for (int i = 0; i < 4; i++) { _pageSlots[i] = -1; _pageCodes[i] = 0xFF; }
 }
 
 void Inventory::open() {
-	_active = true;
-	_state  = kStateItemList;
+	_active          = true;
+	_state           = kStateItemList;
+	_pageStart       = 0;
+	_viewingSoftware = false;
 	drawItemList();
 	debugC(1, kDebugGeneral, "Inventory: opened");
+}
+
+int Inventory::countItems() const {
+	int count = 0;
+	const uint8 *slots = _viewingSoftware ?
+		_scene->softwareSlots() : _scene->itemSlots();
+	for (int i = 0; i < 32; i++) {
+		if (slots[i * 4] != 0xFF)
+			count++;
+	}
+	return count;
+}
+
+// Fill _pageSlots / _pageCodes with up to 4 entries for the current page.
+// The very first page reserves row 0 for the virtual Credits entry (slot
+// = -1, code = 0x7F); subsequent pages skip it. Empty slots are skipped
+// so the page always packs contiguous visible items.
+int Inventory::rebuildPage() {
+	_pageCount = 0;
+	for (int i = 0; i < 4; i++) { _pageSlots[i] = -1; _pageCodes[i] = 0xFF; }
+
+	int cursor = _pageStart;
+	if (!_viewingSoftware && _pageStart == 0) {
+		// Items view first page: Credits gets row 0.
+		_pageSlots[_pageCount] = -1;
+		_pageCodes[_pageCount] = kItemCodeCredits;
+		_pageCount++;
+		cursor = 0; // real items still start at slot 0
+	}
+
+	const uint8 *slots = _viewingSoftware ?
+		_scene->softwareSlots() : _scene->itemSlots();
+	int seen = 0;
+	for (int i = 0; i < 32 && _pageCount < 4; i++) {
+		if (slots[i * 4] == 0xFF)
+			continue;
+		if (seen < cursor) {
+			seen++;
+			continue;
+		}
+		_pageSlots[_pageCount] = i;
+		_pageCodes[_pageCount] = slots[i * 4];
+		_pageCount++;
+		seen++;
+	}
+	return _pageCount;
+}
+
+Common::String Inventory::itemDisplayName(uint8 code) const {
+	if (code == kItemCodeCredits)
+		return Common::String::format("Credits %d", _scene->cash());
+	if (code < 104 && kItemNames[code][0] != 0)
+		return Common::String(kItemNames[code]);
+	return Common::String::format("(item %u)", code);
 }
 
 void Inventory::close() {
@@ -113,20 +206,36 @@ bool Inventory::handleEvent(const Common::Event &event) {
 
 	if (event.type == Common::EVENT_KEYDOWN) {
 		if (event.kbd.keycode == Common::KEYCODE_ESCAPE) {
-			// Escape from any sub-menu backs out to the item list; from the
-			// list it closes the inventory entirely.
-			if (_state == kStateItemList) {
+			// Escape walks back one level: erase-confirm -> software list,
+			// software list -> items list, anything else -> items list,
+			// items list -> close inventory.
+			switch (_state) {
+			case kStateItemList:
 				close();
-			} else {
+				break;
+			case kStateSoftwareErase:
+				drawSoftwareList();
+				break;
+			case kStateSoftwareList:
+				_viewingSoftware = false;
+				_pageStart = 0;
 				drawItemList();
+				break;
+			default:
+				drawItemList();
+				break;
 			}
 			return true;
 		}
 
 		char key = (char)tolower((byte)(event.kbd.ascii & 0x7F));
 		switch (_state) {
-		case kStateItemList:    return dispatchItemList(key);
-		case kStateItemOptions: return dispatchItemOptions(key);
+		case kStateItemList:      return dispatchItemList(key);
+		case kStateItemOptions:   return dispatchItemOptions(key);
+		case kStateDiscard:       return dispatchDiscardConfirm(key);
+		case kStateSoftwareList:  return dispatchSoftwareList(key);
+		case kStateSoftwareErase: return dispatchSoftwareEraseConfirm(key);
+		case kStateGiveItem:      return dispatchGiveItemConfirm(key);
 		default: break;
 		}
 	}
@@ -136,17 +245,21 @@ bool Inventory::handleEvent(const Common::Event &event) {
 		int y = event.mouse.y;
 		switch (_state) {
 		case kStateItemList: {
-			// DOS item rows: "1. Credits N" drawn at (8, 16) inside the
-			// window -> screen (64, 144), row height 8. The button rect
-			// is dynamic (rw_state_inventory.c:148-152) -- for our single
-			// Credits item it covers (64, 136 + 1*8) ~= (64, 144)..(223, 151).
-			int rowTop = kWindowY + 16;
-			int rowBottom = rowTop + 7;
-			if (x >= 64 && x <= 223 && y >= rowTop && y <= rowBottom)
-				return dispatchItemList('1');
-			// "exit" at (96, 176)..(127, 183) from g_inv_buttons.exit.
-			if (x >= 96 && x <= 127 && y >= 176 && y <= 183)
+			// Item rows at screen y = kWindowY + 16 + (i+1)*8. Rows span
+			// x 64..223 (DOS g_inv_buttons uses left=64, right=223).
+			for (int i = 0; i < _pageCount; i++) {
+				int rowTop    = kWindowY + 16 + (i + 1) * 8;
+				int rowBottom = rowTop + 7;
+				if (x >= 64 && x <= 223 && y >= rowTop && y <= rowBottom)
+					return dispatchItemList((char)('1' + i));
+			}
+			// Footer row at y=48 (inside window) -> screen y = 176.
+			int footerTop = kWindowY + 48;
+			int footerBottom = footerTop + 7;
+			if (x >= 96 && x <= 127 && y >= footerTop && y <= footerBottom)
 				return dispatchItemList('x');
+			if (x >= 136 && x <= 167 && y >= footerTop && y <= footerBottom)
+				return dispatchItemList('m');
 			break;
 		}
 		case kStateItemOptions: {
@@ -160,6 +273,45 @@ bool Inventory::handleEvent(const Common::Event &event) {
 				return dispatchItemOptions('d');
 			if (x >= 64 && x <= 199 && y >= 168 && y <= 175)
 				return dispatchItemOptions('g');
+			break;
+		}
+		case kStateDiscard: {
+			// DOS yes/no rects from g_inv_disc_buttons (data.c:184). The
+			// rects land at screen (176,168..183,175) and (192,168..199,175).
+			if (x >= 176 && x <= 183 && y >= 168 && y <= 175)
+				return dispatchDiscardConfirm('y');
+			if (x >= 192 && x <= 199 && y >= 168 && y <= 175)
+				return dispatchDiscardConfirm('n');
+			break;
+		}
+		case kStateSoftwareList: {
+			// Same row layout as the items list (y = kWindowY + 16 + (i+1)*8).
+			for (int i = 0; i < _pageCount; i++) {
+				int rowTop    = kWindowY + 16 + (i + 1) * 8;
+				int rowBottom = rowTop + 7;
+				if (x >= 64 && x <= 223 && y >= rowTop && y <= rowBottom)
+					return dispatchSoftwareList((char)('1' + i));
+			}
+			int footerTop = kWindowY + 48;
+			int footerBottom = footerTop + 7;
+			if (x >= 96 && x <= 127 && y >= footerTop && y <= footerBottom)
+				return dispatchSoftwareList('x');
+			if (x >= 136 && x <= 167 && y >= footerTop && y <= footerBottom)
+				return dispatchSoftwareList('m');
+			break;
+		}
+		case kStateSoftwareErase: {
+			if (x >= 176 && x <= 183 && y >= 168 && y <= 175)
+				return dispatchSoftwareEraseConfirm('y');
+			if (x >= 192 && x <= 199 && y >= 168 && y <= 175)
+				return dispatchSoftwareEraseConfirm('n');
+			break;
+		}
+		case kStateGiveItem: {
+			if (x >= 176 && x <= 183 && y >= 168 && y <= 175)
+				return dispatchGiveItemConfirm('y');
+			if (x >= 192 && x <= 199 && y >= 168 && y <= 175)
+				return dispatchGiveItemConfirm('n');
 			break;
 		}
 		default: break;
@@ -192,6 +344,7 @@ void Inventory::drawWindowFrame() {
 
 void Inventory::drawItemList() {
 	_state = kStateItemList;
+	rebuildPage();
 	drawWindowFrame();
 
 	byte *pixels = _sprite.data() + sizeof(ImhHeader);
@@ -200,12 +353,27 @@ void Inventory::drawItemList() {
 	// neuro_window_draw_string("Items", 56, 8) at rw_state_inventory.c:87.
 	drawString("Items", kWindowWidthPx, kWindowHeightPx, 56, 8, pixels);
 
-	// Item row 0: Credits. DOS format "1.  Credits %d" at (8, 16).
-	Common::String row = Common::String::format("1.  Credits %d", _scene->cash());
-	drawString(row.c_str(), kWindowWidthPx, kWindowHeightPx, 8, 16, pixels);
+	// Each row spans 8 pixels, starting at window-relative y=16.
+	// DOS pattern: "N. [flag-char]name". flag-char is ' ' for normal or
+	// '-' for items marked inactive (slot byte 2 != 0).
+	const uint8 *slots = _scene->itemSlots();
+	for (int i = 0; i < _pageCount; i++) {
+		Common::String name = itemDisplayName(_pageCodes[i]);
+		char prefix = ' ';
+		if (_pageSlots[i] >= 0 && slots[_pageSlots[i] * 4 + 2] != 0)
+			prefix = '-';
+		Common::String row = Common::String::format("%d. %c%s",
+		                                             i + 1, prefix, name.c_str());
+		drawString(row.c_str(), kWindowWidthPx, kWindowHeightPx,
+		           8, 16 + (i + 1) * 8, pixels);
+	}
 
-	// Footer: "exit" at window-relative (40, 48) per rw_state_inventory.c:159.
+	// Footer. DOS draws "exit" at (40, 48) and adds "more" at (80, 48) if
+	// there are more items than fit on the current page.
 	drawString("exit", kWindowWidthPx, kWindowHeightPx, 40, 48, pixels);
+	int totalVisible = countItems() + 1; // +1 for Credits
+	if (totalVisible > _pageStart + _pageCount)
+		drawString("more", kWindowWidthPx, kWindowHeightPx, 80, 48, pixels);
 
 	pushSprite();
 }
@@ -216,12 +384,8 @@ void Inventory::drawItemOptions() {
 
 	byte *pixels = _sprite.data() + sizeof(ImhHeader);
 
-	// Header: item name (or "Credits N" for the virtual credits entry).
-	Common::String header;
-	if (_selectedItemCode == kItemCodeCredits)
-		header = Common::String::format("Credits %d", _scene->cash());
-	else
-		header = "(item)";
+	// Header: currently-selected item's display name.
+	Common::String header = itemDisplayName(_selectedItemCode);
 	drawString(header.c_str(), kWindowWidthPx, kWindowHeightPx, 8, 8, pixels);
 
 	// DOS lays out X / Operate / Discard / (Give) rows vertically with
@@ -229,7 +393,43 @@ void Inventory::drawItemOptions() {
 	drawString("X. Exit",           kWindowWidthPx, kWindowHeightPx, 8, 16, pixels);
 	drawString("O. Operate Item",   kWindowWidthPx, kWindowHeightPx, 8, 24, pixels);
 	drawString("D. Discard Item",   kWindowWidthPx, kWindowHeightPx, 8, 32, pixels);
-	drawString("G. Give Credits",   kWindowWidthPx, kWindowHeightPx, 8, 40, pixels);
+	// DOS shows "Give Item" only when there's an NPC on the current level
+	// that can receive it (g_a8e0.a8e0[] has an active thread) or level
+	// 55. We don't yet track per-level NPC threads, so we unconditionally
+	// offer Give. VM scripts on levels without a valid receiver will
+	// simply ignore the active_item write.
+	if (_selectedItemCode == kItemCodeCredits)
+		drawString("G. Give Credits", kWindowWidthPx, kWindowHeightPx, 8, 40, pixels);
+	else
+		drawString("G. Give Item",    kWindowWidthPx, kWindowHeightPx, 8, 40, pixels);
+
+	// "E. Erase Software" is only offered for CyberEyes (0x53) and the
+	// cyberdeck range 0x1D..0x34 (DOS rw_state_inventory.c:220). Picking
+	// it jumps to the software list.
+	bool isEraseCapable = (_selectedItemCode == 0x53) ||
+		(_selectedItemCode >= 0x1D && _selectedItemCode <= 0x34);
+	if (isEraseCapable)
+		drawString("E. Erase Software", kWindowWidthPx, kWindowHeightPx, 8, 48, pixels);
+
+	pushSprite();
+}
+
+void Inventory::drawDiscardConfirm() {
+	_state = kStateDiscard;
+	drawWindowFrame();
+
+	byte *pixels = _sprite.data() + sizeof(ImhHeader);
+
+	// DOS discard screen: "Discard" label at (72, 8), item name at (16, 24),
+	// "Are you sure (Y/N)" at (8, 40). We compress a bit for our narrower
+	// window.
+	Common::String name = itemDisplayName(_selectedItemCode);
+	Common::String head = Common::String::format(
+		"Discard\n\n"
+		"  %s\n\n"
+		"Are you sure (Y/N)?",
+		name.c_str());
+	drawString(head.c_str(), kWindowWidthPx, kWindowHeightPx, 8, 8, pixels);
 
 	pushSprite();
 }
@@ -269,10 +469,28 @@ bool Inventory::dispatchItemList(char code) {
 	case 'x':
 		close();
 		return true;
-	case '1': // Credits item
-		_selectedItemCode = kItemCodeCredits;
+	case 'm': {
+		// "more": advance past the items we just showed. DOS formula:
+		// first page shows Credits + 3 items (advance 3); later pages
+		// show 4 items (advance 4). We use _pageCount minus the virtual
+		// Credits row on page 0 to compute the advance.
+		int advance = _pageCount;
+		if (_pageStart == 0 && _pageCount > 0) advance = _pageCount - 1;
+		int totalItems = countItems();
+		_pageStart += advance;
+		if (_pageStart >= totalItems) _pageStart = 0;
+		drawItemList();
+		return true;
+	}
+	case '1': case '2': case '3': case '4': {
+		int idx = code - '1';
+		if (idx >= _pageCount)
+			return false;
+		_selectedItemCode = _pageCodes[idx];
+		_selectedSlot     = _pageSlots[idx];
 		drawItemOptions();
 		return true;
+	}
 	default:
 		return false;
 	}
@@ -284,25 +502,176 @@ bool Inventory::dispatchItemOptions(char code) {
 		drawItemList();
 		return true;
 	case 'o':
-		// DOS behaviour for credits: no-op message + return to list.
-		// Phase 2 will dispatch item-specific op codes for real items.
+		// Operate: DOS runs an item-specific handler (item_op table). For
+		// non-software items most are no-ops; the ones that do something
+		// show text or set game-state flags that BIH scripts read. Phase 2
+		// ack-and-bounce is a safe default; Phase 3 wires the software
+		// list to its proper Operate behaviour.
+		debugC(1, kDebugGeneral,
+		       "Inventory: operate item 0x%02X (stub)", _selectedItemCode);
 		drawItemList();
 		return true;
 	case 'd':
-		// Discard: for credits DOS just bounces back to the item list
-		// (rw_state_inventory.c:565-568). Real items will go through a
-		// Y/N confirmation in Phase 2.
-		drawItemList();
+		// Discard: credits can't be discarded; real items go through a
+		// Y/N confirmation. DOS behaviour from rw_state_inventory.c:565.
+		if (_selectedItemCode == kItemCodeCredits || _selectedSlot < 0) {
+			drawItemList();
+			return true;
+		}
+		drawDiscardConfirm();
 		return true;
 	case 'g':
 		if (_selectedItemCode == kItemCodeCredits) {
 			memset(_amount, 0, sizeof(_amount));
 			_amountLen = 0;
 			drawGiveCredits();
+		} else if (_selectedSlot >= 0) {
+			drawGiveItemConfirm();
 		} else {
-			// Give (other items) -- Phase 4. Bounce back for now.
 			drawItemList();
 		}
+		return true;
+	case 'e': {
+		// Jump to the software list. Only valid for erase-capable items
+		// (CyberEyes / cyberdeck range); bounce otherwise.
+		bool isEraseCapable = (_selectedItemCode == 0x53) ||
+			(_selectedItemCode >= 0x1D && _selectedItemCode <= 0x34);
+		if (!isEraseCapable) {
+			drawItemList();
+			return true;
+		}
+		_viewingSoftware = true;
+		_pageStart       = 0;
+		drawSoftwareList();
+		return true;
+	}
+	default:
+		return false;
+	}
+}
+
+bool Inventory::dispatchDiscardConfirm(char code) {
+	switch (code) {
+	case 'y':
+		// Clear the slot so rebuildPage skips it next time.
+		if (_selectedSlot >= 0) {
+			_scene->itemSlots()[_selectedSlot * 4] = 0xFF;
+			debugC(1, kDebugGeneral,
+			       "Inventory: discarded slot %d (code 0x%02X)",
+			       _selectedSlot, _selectedItemCode);
+		}
+		_selectedSlot = -1;
+		_selectedItemCode = 0;
+		drawItemList();
+		return true;
+	case 'n':
+		drawItemList();
+		return true;
+	default:
+		return false;
+	}
+}
+
+// -------------------------------------------------------------------------
+// Software list + Erase Software
+// -------------------------------------------------------------------------
+
+void Inventory::drawSoftwareList() {
+	_state           = kStateSoftwareList;
+	_viewingSoftware = true;
+	rebuildPage();
+	drawWindowFrame();
+
+	byte *pixels = _sprite.data() + sizeof(ImhHeader);
+
+	drawString("Software", kWindowWidthPx, kWindowHeightPx, 8, 8, pixels);
+
+	const uint8 *slots = _scene->softwareSlots();
+	for (int i = 0; i < _pageCount; i++) {
+		int slot = _pageSlots[i];
+		Common::String name = itemDisplayName(_pageCodes[i]);
+		uint8 version = (slot >= 0) ? slots[slot * 4 + 1] : 0;
+		char prefix = ' ';
+		if (slot >= 0 && slots[slot * 4 + 2] != 0)
+			prefix = '-';
+		// DOS format: "N. flag-name VV.0"; version comes from slot byte 1.
+		Common::String row = Common::String::format("%d. %c%-11s %2u.0",
+		                                             i + 1, prefix, name.c_str(),
+		                                             version);
+		drawString(row.c_str(), kWindowWidthPx, kWindowHeightPx,
+		           8, 16 + (i + 1) * 8, pixels);
+	}
+
+	drawString("exit", kWindowWidthPx, kWindowHeightPx, 40, 48, pixels);
+	int totalVisible = countItems();
+	if (totalVisible > _pageStart + _pageCount)
+		drawString("more", kWindowWidthPx, kWindowHeightPx, 80, 48, pixels);
+
+	pushSprite();
+}
+
+void Inventory::drawSoftwareEraseConfirm() {
+	_state = kStateSoftwareErase;
+	drawWindowFrame();
+
+	byte *pixels = _sprite.data() + sizeof(ImhHeader);
+
+	const uint8 *slots = _scene->softwareSlots();
+	uint8 version = (_selectedSlot >= 0) ? slots[_selectedSlot * 4 + 1] : 0;
+	Common::String head = Common::String::format(
+		"ERASE\n\n"
+		"  %s %u.0\n\n"
+		"Are you sure (Y/N)?",
+		itemDisplayName(_selectedItemCode).c_str(), version);
+	drawString(head.c_str(), kWindowWidthPx, kWindowHeightPx, 8, 8, pixels);
+
+	pushSprite();
+}
+
+bool Inventory::dispatchSoftwareList(char code) {
+	switch (code) {
+	case 'x':
+		// Back to items list.
+		_viewingSoftware = false;
+		_pageStart       = 0;
+		drawItemList();
+		return true;
+	case 'm': {
+		int totalItems = countItems();
+		_pageStart += _pageCount;
+		if (_pageStart >= totalItems) _pageStart = 0;
+		drawSoftwareList();
+		return true;
+	}
+	case '1': case '2': case '3': case '4': {
+		int idx = code - '1';
+		if (idx >= _pageCount || _pageSlots[idx] < 0)
+			return false;
+		_selectedSlot     = _pageSlots[idx];
+		_selectedItemCode = _pageCodes[idx];
+		drawSoftwareEraseConfirm();
+		return true;
+	}
+	default:
+		return false;
+	}
+}
+
+bool Inventory::dispatchSoftwareEraseConfirm(char code) {
+	switch (code) {
+	case 'y':
+		if (_selectedSlot >= 0) {
+			_scene->softwareSlots()[_selectedSlot * 4] = 0xFF;
+			debugC(1, kDebugGeneral,
+			       "Inventory: erased software slot %d (code 0x%02X)",
+			       _selectedSlot, _selectedItemCode);
+		}
+		_selectedSlot     = -1;
+		_selectedItemCode = 0;
+		drawSoftwareList();
+		return true;
+	case 'n':
+		drawSoftwareList();
 		return true;
 	default:
 		return false;
@@ -378,6 +747,57 @@ void Inventory::commitGiveCredits() {
 	       val, _selectedItemCode, _scene->cash());
 
 	close();
+}
+
+// -------------------------------------------------------------------------
+// Give Item (non-credits): hand the selected item to whoever is talking.
+// -------------------------------------------------------------------------
+
+void Inventory::drawGiveItemConfirm() {
+	_state = kStateGiveItem;
+	drawWindowFrame();
+
+	byte *pixels = _sprite.data() + sizeof(ImhHeader);
+
+	Common::String name = itemDisplayName(_selectedItemCode);
+	Common::String head = Common::String::format(
+		"GIVE\n\n"
+		"  %s\n\n"
+		"Are you sure (Y/N)?",
+		name.c_str());
+	drawString(head.c_str(), kWindowWidthPx, kWindowHeightPx, 8, 8, pixels);
+
+	pushSprite();
+}
+
+// Mirrors DOS on_inventory_give_item_button (rw_state_inventory.c:516):
+// on Y the slot is cleared, active_item + x4bbf are written to DSEG, and
+// the inventory closes so the VM resumes and per-level scripts can react
+// to the gift.
+bool Inventory::dispatchGiveItemConfirm(char code) {
+	switch (code) {
+	case 'y': {
+		if (_selectedSlot >= 0)
+			_scene->itemSlots()[_selectedSlot * 4] = 0xFF;
+
+		NeuroVM *vm = _engine->vm();
+		vm->writeVar16(kVarActiveItem, _selectedItemCode);
+		vm->writeVar8(kVarX4BBF, 1);
+		debugC(1, kDebugGeneral,
+		       "Inventory: gave item 0x%02X (slot %d)",
+		       _selectedItemCode, _selectedSlot);
+
+		_selectedSlot     = -1;
+		_selectedItemCode = 0;
+		close();
+		return true;
+	}
+	case 'n':
+		drawItemList();
+		return true;
+	default:
+		return false;
+	}
 }
 
 } // End of namespace Neuromancer

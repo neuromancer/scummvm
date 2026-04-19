@@ -191,6 +191,22 @@ RealWorldScene::RealWorldScene(NeuromancerEngine *engine)
 	  _pax(engine, this),
 	  _inventory(engine, this) {
 	for (int i = 0; i < 4; i++) { _bankTx[i].op = 0; _bankTx[i].amount = 0; }
+
+	// Empty all inventory slots, then seed the DOS save-slot defaults
+	// (data.c:293-313). Each slot is 4 bytes: [code, version, flag, aux].
+	// 0xFF in the code byte means the slot is unused.
+	memset(_invItems,    0xFF, sizeof(_invItems));
+	memset(_invSoftware, 0xFF, sizeof(_invSoftware));
+	for (int i = 0; i < 32; i++) {
+		_invItems[i * 4 + 1] = _invItems[i * 4 + 2] = _invItems[i * 4 + 3] = 0;
+		_invSoftware[i * 4 + 1] = _invSoftware[i * 4 + 2] = _invSoftware[i * 4 + 3] = 0;
+	}
+	// items[0] = pawn ticket (0x5F), items[1] = CyberEyes (0x53)
+	_invItems[0 * 4 + 0] = 0x5F;
+	_invItems[1 * 4 + 0] = 0x53;
+	// software[0] = Mimic v1 (code 0x00, version 1)
+	_invSoftware[0 * 4 + 0] = 0x00;
+	_invSoftware[0 * 4 + 1] = 0x01;
 }
 
 RealWorldScene::~RealWorldScene() = default;

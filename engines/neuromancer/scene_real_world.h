@@ -79,6 +79,17 @@ public:
 	int16 dateDay() const { return _dateDay; }
 	const Common::String &playerName() const { return _playerName; }
 
+	// Inventory slots. 32 slots of 4 bytes each (item code, version /
+	// sub-value, flag, aux) -- matches DOS g_3f85.inventory.items /
+	// .software at offset 0x41D7 in data.h:179. code == 0xFF = empty.
+	// The Inventory sub-module reads / writes through these helpers so
+	// the rest of the scene (and future save / load) can stay agnostic
+	// to the exact packing.
+	uint8 *itemSlots()           { return _invItems;    }
+	const uint8 *itemSlots() const { return _invItems;  }
+	uint8 *softwareSlots()       { return _invSoftware; }
+	const uint8 *softwareSlots() const { return _invSoftware; }
+
 private:
 	enum TextWidget {
 		kWidgetScroll,  // lower 136x56 box -- intro + opcode 0x02
@@ -226,6 +237,13 @@ private:
 	// "{@Case\0..." with two leading decoration bytes; we store only the
 	// printable part.
 	Common::String _playerName;
+
+	// Inventory slot arrays (32 * 4 bytes each), matching DOS
+	// neuro_inventory_t at DSEG 0x41D7. Initial contents set in the
+	// constructor to the DOS save-slot defaults: items[0]=0x5F (pawn
+	// ticket), items[1]=0x53 (CyberEyes), software[0]=0x00 (Mimic v1).
+	uint8 _invItems[128];
+	uint8 _invSoftware[128];
 
 	// Wall-clock of the last in-game minute tick. The DOS ui_panel_update
 	// bumps time_m every ~1 real second (scene_real_world.c:601).
