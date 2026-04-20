@@ -598,6 +598,7 @@ bool Inventory::dispatchDiscardConfirm(char code) {
 		// Clear the slot so rebuildPage skips it next time.
 		if (_selectedSlot >= 0) {
 			_scene->itemSlots()[_selectedSlot * 4] = 0xFF;
+			_scene->mirrorInventory();
 			debugC(1, kDebugGeneral,
 			       "Inventory: discarded slot %d (code 0x%02X)",
 			       _selectedSlot, _selectedItemCode);
@@ -704,6 +705,7 @@ bool Inventory::dispatchSoftwareEraseConfirm(char code) {
 	case 'y':
 		if (_selectedSlot >= 0) {
 			_scene->softwareSlots()[_selectedSlot * 4] = 0xFF;
+			_scene->mirrorInventory();
 			debugC(1, kDebugGeneral,
 			       "Inventory: erased software slot %d (code 0x%02X)",
 			       _selectedSlot, _selectedItemCode);
@@ -819,8 +821,10 @@ void Inventory::drawGiveItemConfirm() {
 bool Inventory::dispatchGiveItemConfirm(char code) {
 	switch (code) {
 	case 'y': {
-		if (_selectedSlot >= 0)
+		if (_selectedSlot >= 0) {
 			_scene->itemSlots()[_selectedSlot * 4] = 0xFF;
+			_scene->mirrorInventory();
+		}
 
 		NeuroVM *vm = _engine->vm();
 		vm->writeVar16(kVarActiveItem, _selectedItemCode);
@@ -893,19 +897,25 @@ void Inventory::operateSelectedItem() {
 			// Skill chip: add to skills[] at index (code - 0x43), consume
 			// the item slot. DOS rw_state_inventory.c:351.
 			int skillIdx = (int)_selectedItemCode - 0x43;
+			Common::String msg = "Skill chip implanted.";
 			if (skillIdx >= 0 && skillIdx < 16) {
 				_scene->skills()[skillIdx] = 0;
+				// Name the acquired skill so the player knows which one
+				// they just unlocked (DOS shows only the generic string).
+				msg = Common::String::format("%s chip implanted.",
+				                             itemName(_selectedItemCode));
 			}
 			if (_selectedSlot >= 0)
 				_scene->itemSlots()[_selectedSlot * 4] = 0xFF;
-			drawMessage("Skill chip implanted.", /*closesInv=*/false);
+			_scene->mirrorInventory();
+			drawMessage(msg.c_str(), /*closesInv=*/false);
 			return;
 		}
 		case 2: {
-			// Gas mask toggle (DOS rw_state_inventory.c:357).
+			// Gas mask toggle (DOS rw_state_inventory.c:357). The scene
+			// setter mirrors to DSEG 0x4C19 automatically.
 			bool on = !_scene->gasMaskOn();
 			_scene->setGasMaskOn(on);
-			vm->writeVar8(kVarGasMaskIsOn, on ? 1 : 0);
 			drawMessage(on ? "Gas mask is on." : "Gas mask is off.",
 			            /*closesInv=*/false);
 			return;
@@ -913,13 +923,16 @@ void Inventory::operateSelectedItem() {
 		case 0:
 			// Deck: DOS opens a software picker here so the player can
 			// Operate one of their uploaded programs inside cyberspace
-			// (rw_state_inventory.c:346-349). Cyberspace isn't ported
-			// yet, so bounce with a message instead of sending the
-			// player into the Erase-software list by accident.
-			drawMessage("Jack into cyberspace to run programs.",
-			            /*closesInv=*/true);
+			// (rw_state_inventory.c:346-349). We route this to the
+			// CyberspaceScene entry so the deck acts as the jack-in
+			// trigger. Matches DOS item_use_dispatch mode-0 + sub_idx!=0
+			// which calls cyberspace_main_loop directly.
+			close();
+			_scene->enterCyberspace();
 			return;
 		default:
+			// DOS rw_state_inventory.c:363-368 also returns "Not
+			// implemented Yet." for hardware sub-index 3..5. Matches.
 			drawMessage("Not implemented yet.", /*closesInv=*/true);
 			return;
 		}
@@ -933,16 +946,45 @@ void Inventory::operateSelectedItem() {
 		drawMessage("Database only.", /*closesInv=*/true);
 		return;
 	case 0x20:
-		// Cyberspace-only items (DOS line 374).
-		drawMessage("Cyberspace only.", /*closesInv=*/true);
+		// Cyberspace-only items. In DOS these dispatch through the
+		// DS:0x3F5E vtable when already jacked in; from the real-world
+		// inventory we treat Operate as "bring up cyberspace so the
+		// program can run". The program itself won't fire until the
+		// CyberspaceScene picks it up (future work -- see cyberspace.md
+		// phase 3 on overlay-loaded software effects).
+		close();
+		_scene->enterCyberspace();
 		return;
 	default:
-		// cat == 0x00 -> jackable items (need an NPC on the current level).
-		// We don't yet have per-level NPC tracking, so err on the safe
-		// side -- DOS says "No jack here." (line 424).
-		drawMessage("No jack here.", /*closesInv=*/true);
+		// cat == 0x00 -> jackable items (comlink / cyberdeck variants).
+		// DOS rw_state_inventory.c:399-426 gates on is_jack_on_level()
+		// which scans the BIH capability list for a `2` byte. Then the
+		// item's sub-index routes: sub_idx == 0 -> comlink (sub_189AE,
+		// same bulletin-board UI as PAX), sub_idx != 0 -> cyberspace
+		// (sub_19E32).
+		if (!vm->bih().hasCapability(/*jack=*/2)) {
+			drawMessage("No jack here.", /*closesInv=*/true);
+			return;
+		}
+		close();
+		if ((itemOp & 0x0F) == 0)
+			_scene->openPax();
+		else
+			_scene->enterCyberspace();
 		return;
 	}
+}
+
+uint8 Inventory::itemOp(uint8 itemCode) {
+	return itemCode < 128 ? kItemOperations[itemCode] : 0xFF;
+}
+
+const char *Inventory::itemName(uint8 itemCode) {
+	if (itemCode == kItemCodeCredits)
+		return "Credits";
+	if (itemCode < 104 && kItemNames[itemCode][0] != 0)
+		return kItemNames[itemCode];
+	return "?";
 }
 
 } // End of namespace Neuromancer

@@ -53,8 +53,12 @@ static const byte kEgaPalette[16 * 3] = {
 };
 
 // Transparent-key colour index. Matches the DOS sprite chain which treats
-// index 0 as "see-through" for non-opaque layers.
+// index 0 as "see-through" for non-opaque layers. Exposed via the
+// default transBlitFrom key where needed (SpriteChain::addSprite uses a
+// runtime transKey param, so the constant is retained as documentation).
+#if 0
 static const byte kTransparentKey = 0;
+#endif
 
 void setEgaPalette() {
 	byte palette[256 * 3];

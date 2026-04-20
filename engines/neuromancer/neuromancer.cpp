@@ -57,6 +57,7 @@ NeuromancerEngine::NeuromancerEngine(OSystem *syst, const ADGameDescription *gd)
 	  _speaker(nullptr),
 	  _musicPlayer(nullptr),
 	  _scene(nullptr),
+	  _pausedScene(nullptr),
 	  _lastMusicTickMs(0),
 	  _mouseX(kScreenWidth / 2),
 	  _mouseY(kScreenHeight / 2),
@@ -78,6 +79,7 @@ void NeuromancerEngine::markLevelVisited(uint8 level) {
 }
 
 NeuromancerEngine::~NeuromancerEngine() {
+	delete _pausedScene;
 	delete _scene;
 	delete _spriteChain;
 	delete _vm;
@@ -150,6 +152,12 @@ Common::Error NeuromancerEngine::syncGame(Common::Serializer &s) {
 	// real-world scene BEFORE its syncGame runs so the destination scene
 	// exists. loadLevel happens later inside reinitializeAfterLoad.
 	if (s.isLoading()) {
+		// Drop any cyberspace-pause state; save/load replaces the scene.
+		if (_pausedScene) {
+			_pausedScene->deinit();
+			delete _pausedScene;
+			_pausedScene = nullptr;
+		}
 		if (!_scene || _scene->id() != kSceneRealWorld) {
 			if (_scene) {
 				_scene->deinit();
@@ -161,8 +169,13 @@ Common::Error NeuromancerEngine::syncGame(Common::Serializer &s) {
 		}
 	}
 
-	// Scene state (player pose, cash, inventory, ...).
+	// Scene state (player pose, cash, inventory, ...). When the player
+	// is jacked into cyberspace, `_scene` is a CyberspaceScene; the
+	// live real-world state lives on `_pausedScene`. Pick whichever
+	// actually holds the RealWorld instance.
 	RealWorldScene *rw = dynamic_cast<RealWorldScene *>(_scene);
+	if (!rw)
+		rw = dynamic_cast<RealWorldScene *>(_pausedScene);
 	if (!rw) {
 		warning("Neuromancer: save/load without a real-world scene");
 		return Common::kReadingFailed;
@@ -265,15 +278,51 @@ Common::Error NeuromancerEngine::run() {
 
 		SceneId next = _scene->update();
 		if (next != _scene->id()) {
-			_scene->deinit();
-			delete _scene;
-			_scene = createScene(next, this);
-			if (!_scene) {
-				debugC(1, kDebugGeneral, "Neuromancer: target scene %d unavailable, staying in menu", (int)next);
-				_scene = createScene(kSceneMainMenu, this);
+			// Cyberspace round-trip: keep the real-world scene alive
+			// while the player is jacked in. DOS cyberspace_main_loop
+			// never tears down the real-world state either -- it just
+			// overlays its own UI on top of the same in-memory scene.
+			const bool toCyberspaceFromRW =
+				_scene->id() == kSceneRealWorld && next == kSceneCyberspace;
+			const bool backToRWFromCyberspace =
+				_scene->id() == kSceneCyberspace && next == kSceneRealWorld
+				&& _pausedScene && _pausedScene->id() == kSceneRealWorld;
+
+			if (toCyberspaceFromRW) {
+				// Deinit releases only sprite layers; the scene's
+				// state members stay intact until the destructor.
+				_scene->deinit();
+				_pausedScene = _scene;
+				_scene = createScene(next, this);
+				if (_scene)
+					_scene->init();
+			} else if (backToRWFromCyberspace) {
+				_scene->deinit();
+				delete _scene;
+				_scene = _pausedScene;
+				_pausedScene = nullptr;
+				// resume() re-acquires sprite layers WITHOUT resetting
+				// the player position, level, or VM program counter.
+				_scene->resume();
+			} else {
+				_scene->deinit();
+				delete _scene;
+				// If we had a paused scene that isn't the transition
+				// target, drop it now -- save/load or main-menu reset
+				// means the old state is stale.
+				if (_pausedScene) {
+					_pausedScene->deinit();
+					delete _pausedScene;
+					_pausedScene = nullptr;
+				}
+				_scene = createScene(next, this);
+				if (!_scene) {
+					debugC(1, kDebugGeneral, "Neuromancer: target scene %d unavailable, staying in menu", (int)next);
+					_scene = createScene(kSceneMainMenu, this);
+				}
+				if (_scene)
+					_scene->init();
 			}
-			if (_scene)
-				_scene->init();
 		}
 
 		// Pump music forward by the elapsed wall time since the last tick.

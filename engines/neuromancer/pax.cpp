@@ -249,6 +249,12 @@ void Pax::open() {
 void Pax::close() {
 	_active = false;
 	_engine->spriteChain()->clearSprite(kLayerPaxWindow);
+	// Reset the cyberspace/comlink flag in DSEG to "out". DOS sub_189AE
+	// and the comlink-open path both clear g_a61a to 0xFF when the
+	// player exits. Real-world scripts that gate on the flag will see
+	// the off state again.
+	if (NeuroVM *vm = _engine->vm())
+		vm->writeVar8(0xA61A, 0xFF);
 	debugC(1, kDebugGeneral, "Pax: closed");
 }
 
@@ -613,10 +619,12 @@ void Pax::drawBankTransactions() {
 		if (op == 0 && amount == 0) {
 			row = "  (empty)";
 		} else {
-			// Day field is the low 6 bits of op -- DOS format is just the
-			// raw day offset for now (real build_date_string is mm/dd/yy).
-			row = Common::String::format("%02d       %-10s %8u",
-			                             (op & 0x3F), kind, amount);
+			// Day field is the low 6 bits of op -- DOS build_date_string
+			// formats that as mm/dd/yy (scene_real_world.c:567-593).
+			Common::String date =
+				RealWorldScene::dateStringForDay((int)(op & 0x3F));
+			row = Common::String::format("%s %-10s %8u",
+			                             date.c_str(), kind, amount);
 		}
 		drawString(row.c_str(), kWindowWidthPx, kWindowHeightPx,
 		           8, 32 + i * 8, pixels);

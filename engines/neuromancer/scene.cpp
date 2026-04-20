@@ -24,6 +24,7 @@
 
 #include "neuromancer/scene.h"
 
+#include "neuromancer/scene_cyberspace.h"
 #include "neuromancer/scene_main_menu.h"
 #include "neuromancer/scene_real_world.h"
 
@@ -37,6 +38,8 @@ Scene *createScene(SceneId id, NeuromancerEngine *engine) {
 		return new MainMenuScene(engine);
 	case kSceneRealWorld:
 		return new RealWorldScene(engine);
+	case kSceneCyberspace:
+		return new CyberspaceScene(engine);
 	default:
 		warning("Neuromancer: scene id %d not implemented", (int)id);
 		return nullptr;

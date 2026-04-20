@@ -37,7 +37,8 @@ enum SceneId {
 	kSceneNone       = -1,
 	kSceneMainMenu   = 0,
 	kSceneRealWorld  = 1,
-	// Additional scenes (cyberspace, endgame, ...) will be added as ported.
+	kSceneCyberspace = 2,
+	// Additional scenes (endgame, ...) will be added as ported.
 };
 
 // Base class mirroring `scene_control_t`: the engine runs exactly one scene
@@ -53,6 +54,15 @@ public:
 
 	virtual void init()   = 0;
 	virtual void deinit() = 0;
+
+	// Called when the scene is reactivated after being paused by a
+	// temporary side-scene (e.g. the real-world scene resuming after a
+	// cyberspace round-trip). Default delegates to init(); scenes that
+	// hold persistent state across the pause should override to
+	// re-acquire sprite layers without resetting member state. Called
+	// exactly once, between the pause scene's deinit and the next
+	// update() call.
+	virtual void resume() { init(); }
 
 	// Called once per frame; return the scene id that should run next.
 	// Returning the current id keeps the scene active.

@@ -25,8 +25,10 @@
 #include "neuromancer/bih_script.h"
 
 #include "neuromancer/detection.h"
+#include "neuromancer/inventory.h"
 #include "neuromancer/neuromancer.h"
 #include "neuromancer/neuro_vm.h"
+#include "neuromancer/scene_real_world.h"
 
 #include "common/debug.h"
 #include "common/textconsole.h"
@@ -637,7 +639,144 @@ void BihScript::dispatchCallback() {
 	uint16 arg2 = readMem16((uint16)(sp + 8));
 	debugC(1, kDebugScript, "BihScript: callback cmd=%u arg1=0x%04X arg2=0x%04X",
 	       cmd, arg1, arg2);
-	(void)cmd; (void)arg1; (void)arg2; // TODO: route to engine services
+
+	// DOS command codes (Reuromancer scene_real_world.c:349-357):
+	enum {
+		kCbResetVM       = 0,
+		kCbHasItem       = 2,
+		kCbRemoveItem    = 3,
+		kCbNpcReply      = 5,
+		kCbSellBodyPart  = 8,
+		kCbBuyBodyPart   = 9,
+		kCbPrepareAnim   = 31
+	};
+	const uint16 kVarX4C82 = 0x4C82; // DOS g_4bae.x4c82 scratch result
+
+	RealWorldScene *rw = dynamic_cast<RealWorldScene *>(_engine->scene());
+
+	switch (cmd) {
+	case kCbResetVM:
+		// Mark all VM threads inactive (DOS reset_vm clears .mark on the
+		// 4 entries in g_a8e0.a8e0). Our equivalent lives on NeuroVM.
+		if (NeuroVM *vm = _engine->vm())
+			vm->resetThreads();
+		return;
+
+	case kCbHasItem: {
+		// Scan the appropriate inventory bucket for `arg1`, set DSEG
+		// g_4bae.x4c82 = 1 if found, else 0. Hardware bucket (op & 0xC0)
+		// searches items[], otherwise software[].
+		if (!rw) {
+			warning("BihScript: HAS_ITEM without RealWorldScene");
+			return;
+		}
+		uint8 op = Inventory::itemOp((uint8)arg1);
+		const uint8 *bucket = (op & 0xC0) ? rw->itemSlots() : rw->softwareSlots();
+		uint8 found = 0;
+		for (int i = 0; i < 32; ++i) {
+			if (bucket[i * 4] == (uint8)arg1) { found = 1; break; }
+		}
+		if (NeuroVM *vm = _engine->vm())
+			vm->writeVar8(kVarX4C82, found);
+		return;
+	}
+
+	case kCbRemoveItem: {
+		// Remove up to `arg2` occurrences of `arg1` from the matching
+		// bucket. Same bucket selection as HAS_ITEM.
+		if (!rw) {
+			warning("BihScript: REMOVE_ITEM without RealWorldScene");
+			return;
+		}
+		uint8 op = Inventory::itemOp((uint8)arg1);
+		uint8 *bucket = (op & 0xC0) ? rw->itemSlots() : rw->softwareSlots();
+		uint16 remaining = arg2 ? arg2 : 32;
+		bool changed = false;
+		for (int i = 0; i < 32 && remaining > 0; ++i) {
+			if (bucket[i * 4] == (uint8)arg1) {
+				bucket[i * 4] = 0xFF;
+				--remaining;
+				changed = true;
+			}
+		}
+		if (changed)
+			rw->mirrorInventory();
+		return;
+	}
+
+	case kCbNpcReply: {
+		// Walk `arg2` null-terminated strings starting at DSEG offset
+		// `arg1`, case-insensitively compare to the live dialog input.
+		// Store the index of the first match (or arg2 if none) into
+		// DSEG `g_4bae.x4c82`. Matches DOS Reuromancer
+		// scene_real_world.c:419-433.
+		NeuroVM *vm = _engine->vm();
+		if (!vm) return;
+		Common::String input;
+		if (rw) input = rw->dialogInput();
+		uint16 offset = arg1;
+		uint16 num = arg2;
+		uint16 hit = num;
+		for (uint16 u = 0; u < num; ++u) {
+			Common::String candidate;
+			// Slurp the next null-terminated DSEG string. Cap at 64
+			// chars as a safety net against runaway reads.
+			for (int cap = 0; cap < 64; ++cap) {
+				uint8 c = vm->readVar8(offset++);
+				if (c == 0) break;
+				candidate += (char)c;
+			}
+			if (!input.empty() && candidate.equalsIgnoreCase(input)) {
+				hit = u;
+				break;
+			}
+		}
+		vm->writeVar8(kVarX4C82, (uint8)hit);
+		debugC(1, kDebugScript, "BihScript: NPC_REPLY input='%s' -> %u",
+		       input.c_str(), hit);
+		return;
+	}
+
+	case kCbPrepareAnim: {
+		// Queue a background animation. DOS bg_animation_control_prepare
+		// just writes g_a54c[arg1] = arg2 (bg_animation_control.c:17-21)
+		// and flags the update tick. Our bg animation subsystem isn't
+		// ported yet, so we only mirror the DSEG write; scripts that
+		// poll g_a54c[i] for progression will see their value appear
+		// but no actual sprite animation plays. arg1 is 0..3 (4 slots).
+		NeuroVM *vm = _engine->vm();
+		if (!vm) return;
+		if (arg1 < 4) {
+			const uint16 kVarGA54C = 0xA54C;
+			vm->writeVar16((uint16)(kVarGA54C + arg1 * 2), arg2);
+		} else {
+			warning("BihScript: PREPARE_ANIM slot %u out of range", arg1);
+		}
+		return;
+	}
+
+	case kCbSellBodyPart:
+	case kCbBuyBodyPart:
+		// Dr. Chrome's body-parts shop. DOS rw_state_body_parts_shop.c
+		// opens a modal sub-scene, stops the VM (CPU_STOPPED), and
+		// routes to sell (cmd 8) or buy (cmd 9) mode. We open the
+		// sub-module on the RealWorldScene; the scene itself blocks
+		// the VM tick while the shop is active, and
+		// BodyPartsShop::close() calls vm->resume() to continue.
+		if (rw) {
+			if (cmd == kCbSellBodyPart)
+				rw->bodyPartsShop().openSell();
+			else
+				rw->bodyPartsShop().openBuy(/*discounted=*/arg1 != 0);
+		} else {
+			warning("BihScript: body-parts callback without RealWorldScene");
+		}
+		return;
+
+	default:
+		warning("BihScript: unknown callback cmd %u", cmd);
+		return;
+	}
 }
 
 } // End of namespace Neuromancer

@@ -106,7 +106,13 @@ void MainMenuScene::onButton(int code) {
 		_next = kSceneRealWorld;
 		break;
 	case 1: // Load
-		debugC(1, kDebugGeneral, "MainMenuScene: Load (not implemented)");
+		// Hand off to the ScummVM load-game dialog. On a successful
+		// load the engine replaces our scene (syncGame spins up a
+		// fresh RealWorldScene and deserialises into it), so we don't
+		// need to do anything else here. Cancelling leaves us at the
+		// main menu.
+		debugC(1, kDebugGeneral, "MainMenuScene: Load -> loadGameDialog");
+		_engine->loadGameDialog();
 		break;
 	default:
 		break;

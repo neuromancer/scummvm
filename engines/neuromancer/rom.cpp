@@ -198,10 +198,11 @@ bool Rom::dispatchMainMenu(char key) {
 	case '1':
 		// "Software Debug": DOS rom_software_debug (FUN_1000_d989) opens
 		// a software picker and runs the Debug skill on the selected
-		// slot. That requires the cyberspace engine to actually do
-		// anything interesting, so we just echo the DOS "only in
-		// cyberspace" message here.
-		drawMessage("Only in cyberspace.");
+		// slot. From this panel (outside cyberspace proper) we jack in
+		// so the player reaches the cyberspace scene where the debug
+		// loop actually runs.
+		close();
+		_scene->enterCyberspace();
 		return true;
 	case '2':
 		// "Software Analysis": DOS rom_software_analysis is a thin
@@ -212,8 +213,12 @@ bool Rom::dispatchMainMenu(char key) {
 		_scene->openSkillsMenu();
 		return true;
 	case '3':
-		// "Monitor Mode": same -- cyberspace only.
-		drawMessage("Only in cyberspace.");
+		// "Monitor Mode": jacks the player into cyberspace. DOS
+		// rom_main_loop case 3 calls FUN_1000_85AA which opens this
+		// panel when not yet in cyberspace; here the panel is already
+		// open and the user picked Monitor, so switch scenes.
+		close();
+		_scene->enterCyberspace();
 		return true;
 	default:
 		return false;

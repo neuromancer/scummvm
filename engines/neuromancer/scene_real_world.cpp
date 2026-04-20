@@ -206,6 +206,7 @@ RealWorldScene::RealWorldScene(NeuromancerEngine *engine)
 	  _dialogCurrentReply(0),
 	  _dialogFirst(0),
 	  _dialogTotal(0),
+	  _dialogTextInput(false),
 	  _charX(160),
 	  _charY(117),
 	  _charDir(kDirUp),
@@ -228,8 +229,19 @@ RealWorldScene::RealWorldScene(NeuromancerEngine *engine)
 	  _pax(engine, this),
 	  _inventory(engine, this),
 	  _skillsMenu(engine, this),
-	  _rom(engine, this) {
-	for (int i = 0; i < 4; i++) { _bankTx[i].op = 0; _bankTx[i].amount = 0; }
+	  _rom(engine, this),
+	  _bodyPartsShop(engine, this) {
+	// DOS save-slot defaults for the 4-entry bank-transaction ring
+	// buffer (data.c:472-475). First 3 records are uploads of 120/56/75
+	// credits, last is a 1000-credit fined/withdrawn marker. The PAX
+	// banking screen reads these to display Case's transaction history.
+	static const struct { uint8 op; uint32 amount; } kInitialTx[4] = {
+		{ 0x40, 120 }, { 0x40, 56 }, { 0x40, 75 }, { 0xC0, 1000 }
+	};
+	for (int i = 0; i < 4; i++) {
+		_bankTx[i].op = kInitialTx[i].op;
+		_bankTx[i].amount = kInitialTx[i].amount;
+	}
 
 	// Empty all inventory slots, then seed the DOS save-slot defaults
 	// (data.c:293-313). Each slot is 4 bytes: [code, version, flag, aux].
@@ -237,13 +249,14 @@ RealWorldScene::RealWorldScene(NeuromancerEngine *engine)
 	memset(_exitZones,   0,    sizeof(_exitZones));
 	memset(_invItems,    0xFF, sizeof(_invItems));
 	memset(_invSoftware, 0xFF, sizeof(_invSoftware));
-	// DOS save-slot default (data.c g_3f85.skills): Case starts with
-	// every skill available. 0xFF means "not acquired" which would leave
-	// the Skills menu empty; the in-game progression expects the full
-	// set from the start, with chips raising the level.
+	// DOS save-slot default (data.c:331-334 g_3f85.skills): Case starts
+	// with only Bargaining (idx 0) and Debug (idx 3) at level 0; every
+	// other skill is 0xFF (not acquired). The player picks up chips
+	// through gameplay. Matching DOS exactly so the skills picker shows
+	// the intended initial list.
 	static const uint8 kStartSkills[16] = {
-		0x01, 0x00, 0x00, 0x01, 0x01, 0x01, 0x01, 0x01,
-		0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x00, 0x01
+		0x00, 0xFF, 0xFF, 0x00, 0xFF, 0xFF, 0xFF, 0xFF,
+		0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
 	};
 	memcpy(_skills, kStartSkills, sizeof(_skills));
 	_gasMaskOn = false;
@@ -286,6 +299,22 @@ void RealWorldScene::init() {
 	chain->addSprite(kLayerBackground, 0, 0, _neuroImh.data(), true);
 
 	loadLevel();
+
+	// Seed the DSEG mirror of the cash / CON / bank / name fields so
+	// BIH scripts that query them on the opening level see the real
+	// starting values instead of the zero-initialised BSS the VM gave
+	// them. Must happen AFTER loadLevel() since loadLevel attaches the
+	// BIH buffer (which fills the opening ~40K of DSEG). The save-load
+	// path uses the same setters from syncGame to keep this symmetric.
+	setCash(_cash);
+	setConstitution(_constitution);
+	setBankAccount(_bankAccount);
+	setBankTxIndex(_bankTxIndex);
+	setPlayerName(_playerName);
+	setGasMaskOn(_gasMaskOn);
+	mirrorClockToDseg();
+	mirrorRoomposToDseg();
+	mirrorInventoryToDseg();
 	updateStatusWidget();
 }
 
@@ -300,9 +329,117 @@ void RealWorldScene::deinit() {
 	chain->clearSprite(kLayerDebugOverlay);
 }
 
+// Called when the real-world scene is resumed after a cyberspace
+// round-trip. The scene instance was preserved across the swap so all
+// member state (level, inventory, VM counters, character pose) is still
+// intact -- we only need to re-push the sprite layers that deinit()
+// cleared. Deliberately does NOT call loadLevel() / init(): those would
+// reset the player to the spawn point and re-queue the level intro.
+void RealWorldScene::resume() {
+	SpriteChain *chain = _engine->spriteChain();
+
+	// Re-install the persistent UI sprites. Buffer contents were kept
+	// in memory across the pause; we just re-register them with the
+	// chain that was cleared by deinit().
+	if (!_neuroImh.empty())
+		chain->addSprite(kLayerBackground, 0, 0, _neuroImh.data(), true);
+
+	// The level PIC (kLayerLevelBg) was pushed by the most recent
+	// loadLevel() but deinit cleared it. Push it back using the still-
+	// cached sprite buffer so the player sees the level art on return
+	// from cyberspace, not a blank background.
+	if (!_picSprite.empty())
+		chain->addSprite(kLayerLevelBg, 8, 8, _picSprite.data(), true);
+
+	// Re-render current-level artwork, character, and status widget
+	// from the preserved state.
+	renderCurrentPage();
+	renderCharacterFrame();
+	updateStatusWidget();
+}
+
 // Save / load hook. Persists the bits of player-facing state the scene
 // owns directly. The engine is responsible for currentLevel / visited
 // bits; the VM serializes its own DSEG + threads.
+// Cash and constitution both have mirrors in the DSEG that the VM /
+// BIH scripts can read via readVar*. Mirror both ways so a direct
+// setter call updates the HUD *and* any script branching on the DSEG
+// view. DSEG offsets from DOS data.h:
+//   cash          = 0x4C78 (uint32)
+//   constitution  = 0x4C9F (uint16)
+void RealWorldScene::setCash(int32 v) {
+	_cash = v;
+	if (NeuroVM *vm = _engine->vm()) {
+		uint32 u = (uint32)v;
+		vm->writeVar16(0x4C78, (uint16)(u & 0xFFFF));
+		vm->writeVar16(0x4C7A, (uint16)(u >> 16));
+	}
+	updateStatusWidget();
+}
+
+void RealWorldScene::setConstitution(int16 v) {
+	_constitution = v;
+	if (NeuroVM *vm = _engine->vm())
+		vm->writeVar16(0x4C9F, (uint16)v);
+	updateStatusWidget();
+}
+
+// DSEG-mirrored bank / name setters. Same DSEG layout as init():
+//   bank_account    = 0x4C89 (uint32)
+//   bank_tx_index   = 0x4C8D (uint8, low 2 bits active)
+//   name[13]        = 0x4C92..0x4C9E (null-padded 13-byte buffer)
+void RealWorldScene::setBankAccount(int32 v) {
+	_bankAccount = v;
+	if (NeuroVM *vm = _engine->vm()) {
+		uint32 u = (uint32)v;
+		vm->writeVar16(0x4C89, (uint16)(u & 0xFFFF));
+		vm->writeVar16(0x4C8B, (uint16)(u >> 16));
+	}
+}
+
+void RealWorldScene::setBankTxIndex(uint8 v) {
+	_bankTxIndex = v & 3;
+	if (NeuroVM *vm = _engine->vm())
+		vm->writeVar8(0x4C8D, _bankTxIndex);
+}
+
+Common::String RealWorldScene::dateStringForDay(int dateDay) {
+	int day = 16, month = 11, year = 58;
+	if (dateDay > 14) {
+		if (day + dateDay > 61) {
+			year = 59; month = 1; day = day + dateDay - 61;
+		} else {
+			month = 12; day = day + dateDay - 30;
+		}
+	} else {
+		day += dateDay;
+	}
+	return Common::String::format("%02d/%02d/%02d", month, day, year);
+}
+
+void RealWorldScene::setGasMaskOn(bool on) {
+	_gasMaskOn = on;
+	if (NeuroVM *vm = _engine->vm())
+		vm->writeVar8(0x4C19, on ? 1 : 0);
+}
+
+void RealWorldScene::setPlayerName(const Common::String &v) {
+	_playerName = v;
+	if (NeuroVM *vm = _engine->vm()) {
+		// DOS keeps name[0..1] = "{@" as decoration; displayable text
+		// starts at name+2 (see Reuromancer scene_main_menu.c:39 and
+		// rw_state_pax.c:435 -- every reader uses `g_4bae.name + 2`).
+		// Mirror that layout so dialog text splicing `@name` picks up
+		// the right characters.
+		char buf[13] = { 0 };
+		buf[0] = '{';
+		buf[1] = '@';
+		Common::strlcpy(buf + 2, _playerName.c_str(), sizeof(buf) - 2);
+		for (int i = 0; i < 13; ++i)
+			vm->writeVar8((uint16)(0x4C92 + i), (uint8)buf[i]);
+	}
+}
+
 void RealWorldScene::syncGame(Common::Serializer &s) {
 	// Player name. DOS stores this as a fixed 13-char field; we use a
 	// Common::String backed by a fixed-size buffer for portability.
@@ -357,6 +494,21 @@ void RealWorldScene::syncGame(Common::Serializer &s) {
 		s.syncAsByte(gas);
 		if (s.isLoading()) _gasMaskOn = (gas != 0);
 	}
+
+	// On load: push cash / constitution / bank / name into the VM's
+	// DSEG mirror so any BIH script that reads them directly sees the
+	// restored values. Symmetrical with init()'s first-run seeding.
+	if (s.isLoading()) {
+		setCash(_cash);
+		setConstitution(_constitution);
+		setBankAccount(_bankAccount);
+		setBankTxIndex(_bankTxIndex);
+		setPlayerName(_playerName);
+		setGasMaskOn(_gasMaskOn);
+		mirrorClockToDseg();
+		mirrorRoomposToDseg();
+		mirrorInventoryToDseg();
+	}
 }
 
 // Direct Skills entry point. DOS rom_software_analysis
@@ -369,6 +521,26 @@ void RealWorldScene::openSkillsMenu() {
 	_introPending = false;
 	_dialogOpen   = false;
 	_skillsMenu.open();
+}
+
+void RealWorldScene::enterCyberspace() {
+	clearTextWidgets();
+	_textVisible  = false;
+	_introPending = false;
+	_dialogOpen   = false;
+	_next = kSceneCyberspace;
+}
+
+void RealWorldScene::openPax() {
+	clearTextWidgets();
+	_textVisible  = false;
+	_introPending = false;
+	_dialogOpen   = false;
+	// DOS sub_189AE writes g_a61a = 2 ("in comlink") on open; mirror
+	// that to DSEG so scripts see the comlink-active state.
+	if (NeuroVM *vm = _engine->vm())
+		vm->writeVar8(0xA61A, 2);
+	_pax.open();
 }
 
 // After a save-file load the engine re-activates this scene. We need to
@@ -443,6 +615,16 @@ SceneId RealWorldScene::update() {
 	// freezes the character controller while the panel is up.
 	if (_rom.isActive()) {
 		_rom.update();
+		tickGameClock(nowMs);
+		_engine->render();
+		return _next;
+	}
+
+	// Body-parts shop: exclusive focus while active (matches DOS
+	// RWS_BODY_PARTS_SHOP state which returns CPU_STOPPED until the
+	// player exits).
+	if (_bodyPartsShop.isActive()) {
+		_bodyPartsShop.update();
 		tickGameClock(nowMs);
 		_engine->render();
 		return _next;
@@ -540,6 +722,9 @@ void RealWorldScene::restoreCharacterAfterPax() {
 void RealWorldScene::tickGameClock(uint32 nowMs) {
 	if (_lastClockTickMs == 0) {
 		_lastClockTickMs = nowMs;
+		// First tick -- seed DSEG so scripts reading the clock on level
+		// 1 see the starting 07:15, 11/16/58 values instead of zeros.
+		mirrorClockToDseg();
 		return;
 	}
 	if (nowMs - _lastClockTickMs < 1000)
@@ -556,6 +741,7 @@ void RealWorldScene::tickGameClock(uint32 nowMs) {
 			}
 		}
 	}
+	mirrorClockToDseg();
 
 	// Only redraw the status widget when it's showing a field that just
 	// changed; saves a sprite-unpack per second.
@@ -563,6 +749,48 @@ void RealWorldScene::tickGameClock(uint32 nowMs) {
 	    (_statusMode == kStatusDate && _timeH == 0 && _timeM == 0)) {
 		updateStatusWidget();
 	}
+}
+
+// Mirror the current clock values into the DSEG slots the DOS binary
+// uses (data.h:221-223). Scripts that query the time (e.g. to gate
+// evening-only dialog) read from these offsets directly.
+void RealWorldScene::mirrorClockToDseg() {
+	NeuroVM *vm = _engine->vm();
+	if (!vm) return;
+	vm->writeVar16(0x4BC6, (uint16)_timeM);   // time_m
+	vm->writeVar8 (0x4BC8, (uint8)_timeH);    // time_h
+	vm->writeVar8 (0x4BC9, (uint8)_dateDay);  // date_day
+}
+
+// Mirror the player's current level and (charX, charY) into the DSEG
+// slots BIH scripts read for geometric gates. DOS data.h:296-298:
+//   level_n   = 0x4CA1 (uint16)
+//   roompos_x = 0x4CA3 (uint16)
+//   roompos_y = 0x4CA5 (uint16)
+void RealWorldScene::mirrorRoomposToDseg() {
+	NeuroVM *vm = _engine->vm();
+	if (!vm) return;
+	vm->writeVar16(0x4CA1, (uint16)_engine->currentLevel());
+	vm->writeVar16(0x4CA3, (uint16)_charX);
+	vm->writeVar16(0x4CA5, (uint16)_charY);
+}
+
+// Mirror the 128-byte items + 128-byte software + 16-byte skills
+// arrays into DSEG. DOS data.h:190-197:
+//   items[128]    = 0x41D7  (32 slots x 4 bytes -- code/version/flag/aux)
+//   software[128] = 0x4257
+//   skills[16]    = 0x42D7
+// BIH scripts read these when gating on "has Case sold the sky-level
+// cyberdeck?" etc.
+void RealWorldScene::mirrorInventoryToDseg() {
+	NeuroVM *vm = _engine->vm();
+	if (!vm) return;
+	for (int i = 0; i < 128; ++i) {
+		vm->writeVar8((uint16)(0x41D7 + i), _invItems[i]);
+		vm->writeVar8((uint16)(0x4257 + i), _invSoftware[i]);
+	}
+	for (int i = 0; i < 16; ++i)
+		vm->writeVar8((uint16)(0x42D7 + i), _skills[i]);
 }
 
 void RealWorldScene::handleEvent(const Common::Event &event) {
@@ -590,9 +818,40 @@ void RealWorldScene::handleEvent(const Common::Event &event) {
 		return;
 	}
 
-	// Dialog picker takes absolute priority: Enter accepts the current
-	// reply, any other key advances to the next reply in the list.
+	if (_bodyPartsShop.isActive()) {
+		(void)_bodyPartsShop.handleEvent(event);
+		return;
+	}
+
+	// Dialog picker takes absolute priority. Two sub-modes:
+	//   - normal "cycle then accept": Enter accepts, other keys cycle.
+	//   - text-input: the accepted reply was '@'-prefixed; printable
+	//     keys append to _dialogTyped (16-char cap), backspace shrinks,
+	//     Enter commits to _dialogInput and finalises the accept.
 	if (_dialogOpen && event.type == Common::EVENT_KEYDOWN) {
+		if (_dialogTextInput) {
+			if (event.kbd.keycode == Common::KEYCODE_RETURN ||
+			    event.kbd.keycode == Common::KEYCODE_KP_ENTER) {
+				setDialogInput(_dialogTyped);
+				_dialogTextInput = false;
+				_dialogTyped.clear();
+				acceptDialogReply();
+			} else if (event.kbd.keycode == Common::KEYCODE_ESCAPE) {
+				_dialogTextInput = false;
+				_dialogTyped.clear();
+				_dialogOpen = false;
+				clearTextWidgets();
+			} else if (event.kbd.keycode == Common::KEYCODE_BACKSPACE) {
+				if (!_dialogTyped.empty())
+					_dialogTyped.deleteLastChar();
+				renderDialogPicker();
+			} else if (event.kbd.ascii >= 0x20 && event.kbd.ascii < 0x7F &&
+			           _dialogTyped.size() < 16) {
+				_dialogTyped += (char)event.kbd.ascii;
+				renderDialogPicker();
+			}
+			return;
+		}
 		if (event.kbd.keycode == Common::KEYCODE_RETURN ||
 		    event.kbd.keycode == Common::KEYCODE_KP_ENTER) {
 			acceptDialogReply();
@@ -600,16 +859,37 @@ void RealWorldScene::handleEvent(const Common::Event &event) {
 			// Cancel: close picker, don't write game state.
 			_dialogOpen = false;
 			clearTextWidgets();
+		} else if (event.kbd.keycode == Common::KEYCODE_UP ||
+		           event.kbd.keycode == Common::KEYCODE_LEFT) {
+			// Bidirectional cycle: step backwards through the reply
+			// list. DOS advances only forward, but the reverse step
+			// is a free quality-of-life improvement since the picker
+			// state is entirely local.
+			if (_dialogTotal > 0) {
+				_dialogCurrentReply = (_dialogCurrentReply - 1 +
+				                       (int)_dialogTotal) % (int)_dialogTotal;
+				renderDialogPicker();
+			}
+		} else if (event.kbd.keycode == Common::KEYCODE_DOWN ||
+		           event.kbd.keycode == Common::KEYCODE_RIGHT) {
+			advanceDialogReply();
 		} else {
 			advanceDialogReply();
 		}
 		return;
 	}
 	if (_dialogOpen && event.type == Common::EVENT_LBUTTONDOWN) {
+		// While typing into an '@'-prefix reply, mouse clicks are inert
+		// so the player can type uninterrupted. Matches DOS which does
+		// not cycle replies after text-input mode is armed.
+		if (_dialogTextInput)
+			return;
 		advanceDialogReply();
 		return;
 	}
 	if (_dialogOpen && event.type == Common::EVENT_RBUTTONDOWN) {
+		if (_dialogTextInput)
+			return;
 		acceptDialogReply();
 		return;
 	}
@@ -823,6 +1103,11 @@ void RealWorldScene::updateCharacter(uint32 nowMs) {
 	_charFrame = (_charFrame + 1) & 7;
 	renderCharacterFrame();
 
+	// Mirror player pixel position + current level into DSEG so BIH
+	// scripts that geometry-gate on "is the player at the bar?" or
+	// "did Case walk past the curtain?" see the live values.
+	mirrorRoomposToDseg();
+
 	debugC(3, kDebugGeneral,
 	       "char: dir=%d pos=(%d, %d) frame=%d",
 	       (int)_charDir, _charX, _charY, _charFrame);
@@ -1013,6 +1298,14 @@ void RealWorldScene::onUiAction(int code) {
 		break;
 	}
 	case kUiPax: {
+		// Only open the PAX panel if the current level actually hosts
+		// a terminal. DOS setup_ui_buttons hides the PAX icon otherwise
+		// (scene_real_world.c:549-551). We don't gate the icon itself
+		// yet, but the Operate path respects the capability list.
+		if (!_engine->vm()->bih().hasCapability(/*pax=*/1)) {
+			showText("No PAX terminal here.", kWidgetScroll);
+			break;
+		}
 		// Dismiss any blocking text widget first so the VM isn't stuck
 		// mid-yield while the player is in the PAX panel.
 		clearTextWidgets();
@@ -1046,7 +1339,18 @@ void RealWorldScene::onUiAction(int code) {
 		_rom.open();
 		break;
 	}
-	case kUiDisk:      showText("Disk options (not yet implemented).", kWidgetScroll); break;
+	case kUiDisk:
+		// "Disk Options" in DOS opened a Save / Load / Quit menu. The
+		// ScummVM equivalent is the main-menu dialog (same one reachable
+		// via F5): it hosts save, load, quit, and preferences in one
+		// place. We open it here so the in-game Disk button offers the
+		// expected functionality without us re-implementing a custom UI.
+		clearTextWidgets();
+		_textVisible  = false;
+		_introPending = false;
+		_dialogOpen   = false;
+		_engine->openMainMenuDialog();
+		break;
 
 	default:
 		debugC(1, kDebugGeneral, "RealWorldScene: unknown UI code 0x%02X", code);
@@ -1084,6 +1388,9 @@ bool RealWorldScene::loadLevel() {
 	_textVisible = false;
 	_introPending = false;
 	_dialogOpen = false;
+	_dialogTextInput = false;
+	_dialogTyped.clear();
+	_dialogInput.clear();
 	_dialogCurrentReply = 0;
 	_pages.clear();
 	_currentPage = 0;
@@ -1098,6 +1405,11 @@ bool RealWorldScene::loadLevel() {
 	_charLastStepMs = 0;
 
 	applyRoomposForCurrentLevel();
+
+	// New level = new player position + new level id. Push both to DSEG
+	// right away so the level's init/update BIH script sees the right
+	// pose on its first tick (before updateCharacter runs).
+	mirrorRoomposToDseg();
 
 	// Log the character sprite's header so we can see what dx/dy offsets
 	// the artwork was authored with. Mismatched dy is the typical cause
@@ -1211,8 +1523,11 @@ static Common::Array<Common::String> paginate(const Common::String &wrapped, int
 void RealWorldScene::showText(const char *text, TextWidget widget) {
 	clearTextWidgets();
 
-	// Expand DOS control codes (0x01 name, 0x02 date, \r -> \n).
-	Common::String expanded = expandText(text, /*playerName*/ "", /*dateString*/ "");
+	// Expand DOS control codes (0x01 name, 0x02 date, \r -> \n). DOS
+	// splices these at text-fetch time -- we pass the live player name
+	// and the formatted date so NPCs correctly address Case by name.
+	const Common::String dateStr = dateString();
+	Common::String expanded = expandText(text, _playerName.c_str(), dateStr.c_str());
 
 	_activeWidget = widget;
 	_textVisible  = true;
@@ -1347,16 +1662,30 @@ void RealWorldScene::openDialogPicker() {
 	renderDialogPicker();
 }
 
-// Render the currently-highlighted reply into the bubble widget, tagged
-// "[n/total]" so the player sees which option is up. Reuses the bubble
-// widget's bordered frame + XOR-ed black text.
+// Render the currently-highlighted reply into the bubble widget. In
+// cycle mode this shows "[n/total] <reply text>"; in text-input mode
+// it shows the prompt plus the typed buffer with a trailing cursor.
 void RealWorldScene::renderDialogPicker() {
 	const char *raw = _engine->vm()->bih().textString(_dialogFirst + _dialogCurrentReply);
-	Common::String expanded = expandText(raw, "", "");
-	Common::String header = Common::String::format("[%d/%d] ",
-	                                               _dialogCurrentReply + 1,
-	                                               (int)_dialogTotal);
-	header += expanded;
+	// DOS strips the '@' marker before storing in g_4bae but keeps it
+	// visible in the BIH text table -- skip it here so the player sees
+	// just the prompt text.
+	if (raw && raw[0] == '@') ++raw;
+	const Common::String dateStr = dateString();
+	Common::String expanded = expandText(raw, _playerName.c_str(), dateStr.c_str());
+	Common::String header;
+
+	if (_dialogTextInput) {
+		header = expanded;
+		header += "\n< ";
+		header += _dialogTyped;
+		header += "_";
+	} else {
+		header = Common::String::format("[%d/%d] ",
+		                                _dialogCurrentReply + 1,
+		                                (int)_dialogTotal);
+		header += expanded;
+	}
 
 	// Pack into a single-page bubble and render immediately.
 	Common::String wrapped = wrapText(header.c_str(), kBubbleColumns);
@@ -1378,14 +1707,32 @@ void RealWorldScene::advanceDialogReply() {
 // var[0], matching the DOS on_dialog_accept_reply end state. Then closes
 // the picker and resumes the VM so it picks up the new state.
 void RealWorldScene::acceptDialogReply() {
+	// If the accepted reply starts with '@' and we're not already in
+	// text-input mode, flip modes and wait for the player's keyboard
+	// entry instead of closing the picker. Matches DOS rw_state_dialog.c
+	// which gates on g_dlg_with_user_input (set when the reply carries
+	// a leading '@' per utilities.c:180-185).
+	if (!_dialogTextInput) {
+		const char *raw =
+			_engine->vm()->bih().textString(_dialogFirst + _dialogCurrentReply);
+		if (raw && raw[0] == '@') {
+			_dialogTextInput = true;
+			_dialogTyped.clear();
+			setDialogInput(Common::String()); // reset the previous answer
+			renderDialogPicker();
+			return;
+		}
+	}
+
 	uint8 replyId = (uint8)(_dialogFirst + _dialogCurrentReply);
 	NeuroVM *vm   = _engine->vm();
 	vm->writeVar8(NeuroVM::kVarActiveDialogReply, replyId);
 	vm->writeVar8(NeuroVM::kVarDialogWaitFlag, 0);
 
 	debugC(1, kDebugScript,
-	       "RealWorldScene: dialog accept reply %u -> var[%u]=%u",
-	       replyId, NeuroVM::kVarActiveDialogReply, replyId);
+	       "RealWorldScene: dialog accept reply %u -> var[%u]=%u input='%s'",
+	       replyId, NeuroVM::kVarActiveDialogReply, replyId,
+	       _dialogInput.c_str());
 
 	_dialogOpen = false;
 	_textVisible = false;
@@ -1419,22 +1766,9 @@ void RealWorldScene::updateStatusWidget() {
 	case kStatusTime:
 		snprintf(buf, sizeof(buf), "   %02d:%02d", _timeH, _timeM);
 		break;
-	case kStatusDate: {
-		// build_date_string(dst, date_day): day 0 => 11/16/58, wraps to
-		// 12/dd/58 past 14, 01/dd/59 past 45. See scene_real_world.c:567-593.
-		int day = 16, month = 11, year = 58;
-		if (_dateDay > 14) {
-			if (day + _dateDay > 61) {
-				year = 59; month = 1; day = day + _dateDay - 61;
-			} else {
-				month = 12; day = day + _dateDay - 30;
-			}
-		} else {
-			day += _dateDay;
-		}
-		snprintf(buf, sizeof(buf), "%02d/%02d/%02d", month, day, year);
+	case kStatusDate:
+		snprintf(buf, sizeof(buf), "%s", dateString().c_str());
 		break;
-	}
 	}
 
 	drawString(buf, kStatusWidthPx, kStatusHeightPx, 0, 0, pixels);

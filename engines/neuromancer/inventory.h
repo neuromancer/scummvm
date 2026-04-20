@@ -53,6 +53,20 @@ public:
 	void update();
 	bool handleEvent(const Common::Event &event);
 
+	// Returns the DOS item-operation byte for a given item code, or
+	// 0xFF for out-of-range codes. The byte encodes category bits:
+	//   0x80 = hardware (picks items[] array; else software[] array)
+	//   0x30 = cyberspace/database mode bits
+	//   0x0F = sub-index into the dispatch vtable
+	// Scripts use this to know which inventory bucket holds an item
+	// without duplicating the 128-byte dispatch table.
+	static uint8 itemOp(uint8 itemCode);
+
+	// Display name for an item code, or "(item N)" for out-of-range.
+	// Credits (0x7F) returns "Credits" without amount -- callers that
+	// want the amount should read cash() themselves.
+	static const char *itemName(uint8 itemCode);
+
 private:
 	// DOS inventory_state_t subset. Later phases will add kStateDiscard,
 	// kStateSoftwareList, etc.

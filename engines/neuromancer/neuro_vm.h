@@ -64,6 +64,13 @@ public:
 	// (0..2). Each table entry is a 16-bit little-endian offset.
 	uint16 programAddress(uint8 tableIdx, uint8 progIdx) const;
 
+	// Scan the capability list that sits right after the BIH header
+	// (DOS walks bih.bytes + sizeof(bih_hdr_t) in scene_real_world.c:
+	// is_pax_on_level and is_jack_on_level). Each byte is a capability
+	// code; the list is terminated by 0. Returns true if `code` appears
+	// before the terminator. `1` = PAX terminal, `2` = jack point.
+	bool hasCapability(uint8 code) const;
+
 private:
 	const byte *_bytes;
 	uint32 _size;

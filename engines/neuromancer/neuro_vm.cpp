@@ -84,6 +84,22 @@ uint16 Bih::programAddress(uint8 tableIdx, uint8 progIdx) const {
 	return READ_LE_UINT16(_bytes + tblOff + (uint32)progIdx * 2);
 }
 
+bool Bih::hasCapability(uint8 code) const {
+	if (!_bytes)
+		return false;
+	// DOS uses sizeof(bih_hdr_t) = 0x28 (= 40 bytes) as the list start.
+	// Scan until 0 (terminator) or until we fall off the buffer.
+	uint32 off = sizeof(BihHeader);
+	while (off < _size) {
+		uint8 b = _bytes[off++];
+		if (b == 0)
+			return false;
+		if (b == code)
+			return true;
+	}
+	return false;
+}
+
 // --------------------------------------------------------------------------
 // NeuroVM
 // --------------------------------------------------------------------------

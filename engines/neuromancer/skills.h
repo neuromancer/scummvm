@@ -55,18 +55,36 @@ public:
 
 private:
 	enum State {
-		kStateList       = 0,  // DOS SS_SKILLS_PAGE
-		kStateNoSkills   = 1,  // DOS SS_NO_SKILLS_WFI
-		kStateDescription = 2  // local: skill details + "Nothing happens."
+		kStateList         = 0, // DOS SS_SKILLS_PAGE
+		kStateNoSkills     = 1, // DOS SS_NO_SKILLS_WFI
+		kStateDescription  = 2, // local: skill details + "Nothing happens."
+		kStateMusicianship = 3, // DOS SS_SKILL_MUSICIANSHIP
+		kStateCryptology   = 4, // DOS SS_SKILL_CRYPTOLOGY (text input)
+		kStateCryptologyResult = 5, // DOS SS_SKILL_CRYPTOLOGY_WFI
+		kStateItemPicker   = 6, // DOS SS_SKILL_HW_REPAIR_ITEM_PAGE / WAREZ / DEBUG
+		kStateItemResult   = 7  // DOS SS_SKILL_HW_REPAIR_WFI / WAREZ / DEBUG WFI
 	};
 
 	void drawWindowFrame();
 	void drawList();
 	void drawNoSkills();
 	void drawDescription();
+	void drawMusicianship();
+	void drawCryptology();          // input prompt
+	void drawCryptologyResult();    // decoded / fail screen
+	void drawItemPicker();          // HW Repair / Warez / Debug list
+	void drawItemResult();          // per-skill apply outcome
 	void pushSprite();
 
 	bool dispatchList(char code);
+	bool dispatchMusicianship(char code);
+	bool dispatchCryptology(const Common::Event &ev);
+	bool dispatchItemPicker(char code);
+
+	// Apply the current skill to the selected inventory slot and set
+	// _itemResult for drawItemResult. Returns true if the state should
+	// advance to kStateItemResult; false if the call was invalid.
+	bool applyItemSkill(int slotIdx);
 
 	// Rebuild _pageSkills from the scene's _skills[16] array, honouring
 	// the current _pageStart offset. Sets _pageCount (0..4).
@@ -88,6 +106,23 @@ private:
 	int _pageSkills[4];
 
 	int _selectedSkill; // 0..15 -- skill index for the description screen
+
+	// Cryptology text-input state. `_crypTyped` accumulates the word
+	// being entered; `_crypResult` is set when the user hits Enter so
+	// drawCryptologyResult can show either the decoded word or a fail
+	// message.
+	Common::String _crypTyped;
+	Common::String _crypResult;
+	bool           _crypDecoded;
+
+	// Inventory item-picker state (HW Repair / Warez / Debug).
+	// _pickerSoftware chooses which DOS bucket the picker iterates:
+	// false = items[] (HW Repair), true = software[] (Warez / Debug).
+	bool           _pickerSoftware;
+	int            _pickerPageStart;   // first visible slot index
+	int            _pickerSlots[4];    // slot indices (0..31) on current page
+	int            _pickerCount;       // entries in _pickerSlots
+	Common::String _itemResult;        // text for kStateItemResult
 };
 
 } // End of namespace Neuromancer

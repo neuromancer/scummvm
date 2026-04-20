@@ -25,6 +25,7 @@
 #ifndef NEUROMANCER_SCENE_REAL_WORLD_H
 #define NEUROMANCER_SCENE_REAL_WORLD_H
 
+#include "neuromancer/body_parts_shop.h"
 #include "neuromancer/inventory.h"
 #include "neuromancer/pax.h"
 #include "neuromancer/rom.h"
@@ -63,6 +64,7 @@ public:
 
 	void init() override;
 	void deinit() override;
+	void resume() override;
 	SceneId update() override;
 	void handleEvent(const Common::Event &event) override;
 
@@ -82,13 +84,42 @@ public:
 	// jump into the shared skill picker (FUN_1000_b679 -> FUN_1000_7e62).
 	void openSkillsMenu();
 
+	// The most recent free-form text the player typed at a dialog
+	// "@"-prefixed reply. Mirrors DOS g_dialog_user_input (a 16-byte
+	// buffer). BIH-script callback CB_CMD_NPC_REPLY (cmd 5) compares
+	// this against a DSEG-hosted string list. Empty when no text has
+	// been submitted since the last reset.
+	const Common::String &dialogInput() const { return _dialogInput; }
+	void setDialogInput(const Common::String &text) { _dialogInput = text; }
+
+	// Request a transition into the cyberspace scene. Used by the ROM
+	// panel's "Software Debug" / "Monitor Mode" options and by
+	// Operating a deck item -- the DOS item_use_dispatch (1000:D846)
+	// dispatches to cyberspace_main_loop for these cases.
+	void enterCyberspace();
+
+	// Open the PAX sub-module directly. Used by the comlink path from
+	// the inventory (DOS item_use_dispatch mode-0 sub_idx-0 calls
+	// sub_189AE, which shares the same bulletin-board UI that our PAX
+	// implements). Sub-modules that need to bring up the PAX panel
+	// outside of the real-world UI button can call this.
+	void openPax();
+
+	// Push the current inventory (items[128] + software[128] +
+	// skills[16]) into the VM's DSEG at the DOS g_3f85 offsets. Call
+	// after any direct mutation of itemSlots() / softwareSlots() /
+	// skills() so the DSEG view stays in sync for BIH-script queries.
+	void mirrorInventory() { mirrorInventoryToDseg(); }
+
 	// ---- Game state accessors (used by PAX / Inventory sub-modules) -----
 	int32 cash() const { return _cash; }
-	void  setCash(int32 v) { _cash = v; updateStatusWidget(); }
+	void  setCash(int32 v);
+	int16 constitution() const { return _constitution; }
+	void  setConstitution(int16 v);
 	int32 bankAccount() const { return _bankAccount; }
-	void  setBankAccount(int32 v) { _bankAccount = v; }
+	void  setBankAccount(int32 v);
 	uint8 bankTxIndex() const { return _bankTxIndex; }
-	void  setBankTxIndex(uint8 v) { _bankTxIndex = v & 3; }
+	void  setBankTxIndex(uint8 v);
 	uint8 bankTxOp(int i) const { return _bankTx[i & 3].op; }
 	uint32 bankTxAmount(int i) const { return _bankTx[i & 3].amount; }
 	void  setBankTxRecord(int i, uint8 op, uint32 amount) {
@@ -97,6 +128,18 @@ public:
 	}
 	int16 dateDay() const { return _dateDay; }
 	const Common::String &playerName() const { return _playerName; }
+	void setPlayerName(const Common::String &v);
+
+	// Render the current game-world date as "mm/dd/yy" (e.g. "11/16/58"
+	// on day 0). Matches DOS build_date_string
+	// (scene_real_world.c:567-593), used by the status widget and any
+	// text-widget that splices opcode 0x02 (date) into the output.
+	Common::String dateString() const { return dateStringForDay((int)_dateDay); }
+
+	// Same formatter, but for an arbitrary day offset. Used e.g. by PAX
+	// banking to format each transaction's date (low 6 bits of the op
+	// byte) without duplicating the calendar wrap math.
+	static Common::String dateStringForDay(int dateDay);
 
 	// Inventory slots. 32 slots of 4 bytes each (item code, version /
 	// sub-value, flag, aux) -- matches DOS g_3f85.inventory.items /
@@ -117,10 +160,10 @@ public:
 	uint8 *skills()              { return _skills;     }
 	const uint8 *skills() const  { return _skills;     }
 
-	// Gas-mask toggle state (DOS g_4bae.gas_mask_is_on at 0x4C19).
+	// Gas-mask toggle state (DOS g_4bae.gas_mask_is_on at DSEG 0x4C19).
 	// Toggled via Operate on the gas-mask item.
 	bool gasMaskOn() const       { return _gasMaskOn; }
-	void setGasMaskOn(bool on)   { _gasMaskOn = on;   }
+	void setGasMaskOn(bool on);
 
 private:
 	enum TextWidget {
@@ -226,6 +269,15 @@ private:
 	uint8 _dialogFirst;
 	uint8 _dialogTotal;
 
+	// Text-input sub-state of the dialog picker. DOS dialog replies
+	// that begin with '@' (e.g. "@Enter password") switch from the
+	// cycle-through picker to a free-form text entry widget; the typed
+	// string is stashed in _dialogInput and checked by BIH-script
+	// callback CB_CMD_NPC_REPLY. While active, key events append
+	// printable chars (cap at 16), backspace shortens, enter commits.
+	bool           _dialogTextInput;
+	Common::String _dialogTyped;
+
 	// Character controller state. Mirrors character_control.c in the DOS
 	// build: click-and-hold the LMB over the level image to drive the
 	// player sprite; on release the character goes idle. Position is in
@@ -293,6 +345,12 @@ private:
 	// printable part.
 	Common::String _playerName;
 
+	// Free-form text captured from an "@"-prefixed dialog reply. DOS
+	// stores 16 chars in g_dialog_user_input; using Common::String lets
+	// us handle upper/lower-case without a second buffer. Empty string
+	// means no current input.
+	Common::String _dialogInput;
+
 	// Inventory slot arrays (32 * 4 bytes each), matching DOS
 	// neuro_inventory_t at DSEG 0x41D7. Initial contents set in the
 	// constructor to the DOS save-slot defaults: items[0]=0x5F (pawn
@@ -313,6 +371,9 @@ private:
 	uint32 _lastClockTickMs;
 
 	void tickGameClock(uint32 nowMs);
+	void mirrorClockToDseg();
+	void mirrorRoomposToDseg();
+	void mirrorInventoryToDseg();
 
 	// PAX ("Public Access eXchange") sub-module. Activated by the PAX UI
 	// button; while _pax.isActive() the scene freezes VM / character ticks
@@ -336,6 +397,16 @@ private:
 	// "Only in cyberspace." message; "Software Analysis" re-routes
 	// into the Skills picker.
 	Rom _rom;
+
+public:
+	// Body-parts shop sub-module. Opened by BIH-script callbacks
+	// 8 (sell) / 9 (buy) which interrupt the VM and hand control to
+	// Dr. Chrome's menu. Currently a minimum-viable panel; real
+	// inventory / cash / constitution mutations land in follow-ups.
+	BodyPartsShop &bodyPartsShop() { return _bodyPartsShop; }
+
+private:
+	BodyPartsShop _bodyPartsShop;
 };
 
 } // End of namespace Neuromancer

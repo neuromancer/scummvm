@@ -102,6 +102,21 @@ public:
 	// Scenes call this to exit the engine (e.g. the user selects "Quit").
 	void requestQuit() { _exitGame = true; }
 
+	// Access the scene that was temporarily pushed aside for a
+	// cyberspace round-trip. Returns nullptr when no scene is paused.
+	// Used by CyberspaceScene to read live real-world state (cash,
+	// bank, player name) for the Role / Monitor readout.
+	Scene *pausedScene() const { return _pausedScene; }
+
+	// Active scene. BIH-script callbacks (bih_script.cpp) use this to
+	// reach the RealWorldScene inventory / skills state when handling
+	// neuro_cb commands (CB_CMD_HAS_ITEM, CB_CMD_REMOVE_ITEM, ...).
+	Scene *scene() const { return _scene; }
+
+	// The ADGameDescription record that detection selected. Engines
+	// can inspect this for language / platform-specific behaviour.
+	const ADGameDescription *gameDescription() const { return _gameDescription; }
+
 	// Composite cursor on top of the current scene and push to the screen.
 	// Scenes should call this instead of SpriteChain::renderToScreen() so
 	// the cursor stays consistent across scene transitions.
@@ -118,6 +133,12 @@ private:
 	Audio::PCSpeaker *_speaker;
 	MusicPlayer *_musicPlayer;
 	Scene *_scene;
+	// Optional "paused" scene held across a temporary scene swap. Used by
+	// the cyberspace round-trip: the real-world scene is kept alive (not
+	// deinit'd) so its state -- cash, inventory, VM program counter,
+	// level contents -- survives the jack-in. On return the engine
+	// reinstates _pausedScene as _scene instead of creating a fresh one.
+	Scene *_pausedScene;
 	uint32 _lastMusicTickMs;
 
 	Common::Array<byte> _cursorsImh;  // decompressed CURSORS.IMH

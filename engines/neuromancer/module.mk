@@ -2,6 +2,7 @@ MODULE := engines/neuromancer
 
 MODULE_OBJS := \
 	bih_script.o \
+	body_parts_shop.o \
 	decompress.o \
 	font.o \
 	gfx.o \
@@ -17,6 +18,7 @@ MODULE_OBJS := \
 	resource.o \
 	rom.o \
 	scene.o \
+	scene_cyberspace.o \
 	scene_main_menu.o \
 	scene_real_world.o \
 	skills.o \
