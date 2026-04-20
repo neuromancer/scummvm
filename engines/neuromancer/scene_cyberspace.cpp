@@ -31,6 +31,7 @@
 #include "neuromancer/inventory.h"
 #include "neuromancer/neuro_vm.h"
 #include "neuromancer/neuromancer.h"
+#include "neuromancer/resource.h"
 #include "neuromancer/scene_real_world.h"
 
 #include "common/debug.h"
@@ -191,7 +192,23 @@ void CyberspaceScene::init() {
 	_state = kStateRoaming;
 	_jackingOut = false;
 	_nextScene = kSceneCyberspace;
+
+	// Seed a full-screen black background so the layers cleared by
+	// RealWorldScene::deinit don't leave stale pixels under the
+	// cyberspace UI. The viewport / HUD / menu overlay fill in over
+	// this layer; everything else stays matte-black (matches DOS
+	// cyberspace's flat-black backdrop).
+	if (_bgSprite.empty()) {
+		_bgSprite.resize(sizeof(ImhHeader) + (kScreenWidth / 2) * kScreenHeight);
+		writeImhHeader(_bgSprite.data(), 0, 0, kScreenWidth / 2, kScreenHeight);
+		memset(_bgSprite.data() + sizeof(ImhHeader), 0x00,
+		       (kScreenWidth / 2) * kScreenHeight);
+	}
+	_engine->spriteChain()->addSprite(kLayerBackground, 0, 0,
+	                                  _bgSprite.data(), /*opaque=*/true);
+
 	renderFrame();
+	_engine->render();
 }
 
 void CyberspaceScene::deinit() {
@@ -229,6 +246,12 @@ SceneId CyberspaceScene::update() {
 	}
 
 	renderFrame();
+	// The engine's main loop doesn't auto-composite -- scenes drive
+	// the sprite-chain -> screen push themselves. RealWorldScene does
+	// the same thing at every update path. Without this call the
+	// scene would appear frozen because addSprite only dirties the
+	// layer without flushing.
+	_engine->render();
 	return kSceneCyberspace;
 }
 
@@ -307,13 +330,11 @@ void CyberspaceScene::handleEvent(const Common::Event &event) {
 // -------------------------------------------------------------------------
 
 void CyberspaceScene::loadGrid() {
-	// TODO: parse the real DB grid (DS:0x1544 in DOS). The loader chain
-	// is still unresolved -- FUN_1000_E6BC turns out to be printf, not
-	// a file loader, and FUN_1000_53FD only rotates sprite pages. The
-	// grid may be statically initialised in the binary (inside the BSS
-	// segment that maps to DS:0x1544). Until that's confirmed, populate
-	// a development placeholder keyed on _currentDb so each DB looks
-	// distinct during playtesting.
+	// DB{N}.BIH contains the per-database TEXT (site names, messages,
+	// scripts), not the 32x32 grid -- the grid layout lives somewhere
+	// else (still RE in progress). For now populate a visible sparse
+	// placeholder so the scene is navigable; DB-file parsing for real
+	// grid + site scripts comes in a follow-up.
 	debugC(1, kDebugGeneral, "CyberspaceScene::loadGrid db=%d", _currentDb);
 	memset(_grid, 0xFF, sizeof(_grid));
 
@@ -398,14 +419,15 @@ void CyberspaceScene::renderGridWindow() {
 	                                  _viewSprite.data(), /*opaque=*/true);
 }
 
+// drawString renders black ink (index 0). Cyberspace widgets need a
+// light-coloured background so the text shows up -- fill the interior
+// with white (0xFF packed = two index-15 pixels) before drawing.
+
 void CyberspaceScene::renderHud() {
 	byte *pixels = _hudSprite.data() + sizeof(ImhHeader);
-	memset(pixels, 0, kHudPackedW * kHudHeightPx);
+	memset(pixels, 0xFF, kHudPackedW * kHudHeightPx);
 
-	// Zone = (px >= 0x100) * 1 + (py >= 0x100) * 2, matching DOS
-	// FUN_1000_A11F (earlier RE pass).
 	int zone = (_playerPx >= 0x100 ? 1 : 0) + (_playerPy >= 0x100 ? 2 : 0);
-
 	char buf[64];
 	Common::sprintf_s(buf, sizeof(buf), "X:%03d Y:%03d Zone:%d",
 	                  _playerPx, _playerPy, zone);
@@ -417,25 +439,22 @@ void CyberspaceScene::renderHud() {
 
 void CyberspaceScene::renderMenuOverlay() {
 	byte *pixels = _menuSprite.data() + sizeof(ImhHeader);
-	memset(pixels, 0, kMenuPackedW * kMenuHeightPx);
+	memset(pixels, 0xFF, kMenuPackedW * kMenuHeightPx);
 
-	// 1-pixel cyan frame.
-	fillRect(pixels, kMenuPackedW, kMenuHeightPx, 0, 0, kMenuWidthPx, 1, kColCyan);
-	fillRect(pixels, kMenuPackedW, kMenuHeightPx, 0, kMenuHeightPx - 1, kMenuWidthPx, 1, kColCyan);
-	fillRect(pixels, kMenuPackedW, kMenuHeightPx, 0, 0, 1, kMenuHeightPx, kColCyan);
-	fillRect(pixels, kMenuPackedW, kMenuHeightPx, kMenuWidthPx - 1, 0, 1, kMenuHeightPx, kColCyan);
+	// 1-pixel black frame on the white background for contrast.
+	fillRect(pixels, kMenuPackedW, kMenuHeightPx, 0, 0, kMenuWidthPx, 1, kColBlack);
+	fillRect(pixels, kMenuPackedW, kMenuHeightPx, 0, kMenuHeightPx - 1, kMenuWidthPx, 1, kColBlack);
+	fillRect(pixels, kMenuPackedW, kMenuHeightPx, 0, 0, 1, kMenuHeightPx, kColBlack);
+	fillRect(pixels, kMenuPackedW, kMenuHeightPx, kMenuWidthPx - 1, 0, 1, kMenuHeightPx, kColBlack);
 
-	// Six labelled buttons. Layout mirrors DOS cyb_ui_setup:
-	//   (A0,7E)-(B1,8B) = 'i'    (B8,7E)-(C7,8B) = 's'
-	//   (A0,8D)-(B1,9B) = 'r'    (B8,8D)-(C7,9B) = 'd'
-	//   (A0,9D)-(C7,A7) = 'e'
-	//   (A0,A9)-(C7,B2) = 'x'
-	drawString("i Debug ", kMenuWidthPx, kMenuHeightPx, 3, 3,  pixels);
-	drawString("s Analy ", kMenuWidthPx, kMenuHeightPx, 3, 12, pixels);
-	drawString("r Role  ", kMenuWidthPx, kMenuHeightPx, 3, 21, pixels);
-	drawString("d Disk  ", kMenuWidthPx, kMenuHeightPx, 3, 30, pixels);
-	drawString("e Erase ", kMenuWidthPx, kMenuHeightPx, 3, 38, pixels);
-	drawString("x Exit  ", kMenuWidthPx, kMenuHeightPx, 3, 46, pixels);
+	// Menu layout: the 40x54 window fits 5 chars per row at 8px, so the
+	// labels are abbreviated. Each row is 8 px tall.
+	drawString("iDebug", kMenuWidthPx, kMenuHeightPx, 2, 3,  pixels);
+	drawString("sAnaly", kMenuWidthPx, kMenuHeightPx, 2, 11, pixels);
+	drawString("rRole",  kMenuWidthPx, kMenuHeightPx, 2, 19, pixels);
+	drawString("dDisk",  kMenuWidthPx, kMenuHeightPx, 2, 27, pixels);
+	drawString("eErase", kMenuWidthPx, kMenuHeightPx, 2, 35, pixels);
+	drawString("xExit",  kMenuWidthPx, kMenuHeightPx, 2, 43, pixels);
 
 	_engine->spriteChain()->addSprite(kLayerPaxWindow, kMenuX, kMenuY,
 	                                  _menuSprite.data(), /*opaque=*/true);
@@ -443,13 +462,12 @@ void CyberspaceScene::renderMenuOverlay() {
 
 void CyberspaceScene::renderSiteScreen() {
 	byte *pixels = _siteScreen.data() + sizeof(ImhHeader);
-	memset(pixels, 0, kSitePackedW * kSiteHeightPx);
+	memset(pixels, 0xFF, kSitePackedW * kSiteHeightPx);
 
-	// Cyan 1-pixel frame.
-	fillRect(pixels, kSitePackedW, kSiteHeightPx, 0, 0, kSiteWidthPx, 1, kColCyan);
-	fillRect(pixels, kSitePackedW, kSiteHeightPx, 0, kSiteHeightPx - 1, kSiteWidthPx, 1, kColCyan);
-	fillRect(pixels, kSitePackedW, kSiteHeightPx, 0, 0, 1, kSiteHeightPx, kColCyan);
-	fillRect(pixels, kSitePackedW, kSiteHeightPx, kSiteWidthPx - 1, 0, 1, kSiteHeightPx, kColCyan);
+	fillRect(pixels, kSitePackedW, kSiteHeightPx, 0, 0, kSiteWidthPx, 1, kColBlack);
+	fillRect(pixels, kSitePackedW, kSiteHeightPx, 0, kSiteHeightPx - 1, kSiteWidthPx, 1, kColBlack);
+	fillRect(pixels, kSitePackedW, kSiteHeightPx, 0, 0, 1, kSiteHeightPx, kColBlack);
+	fillRect(pixels, kSitePackedW, kSiteHeightPx, kSiteWidthPx - 1, 0, 1, kSiteHeightPx, kColBlack);
 
 	drawString(_siteText.c_str(), kSiteWidthPx, kSiteHeightPx, 6, 8, pixels);
 	drawString("Press any key to jack out.",
@@ -461,13 +479,12 @@ void CyberspaceScene::renderSiteScreen() {
 
 void CyberspaceScene::renderSitePrompt() {
 	byte *pixels = _promptSprite.data() + sizeof(ImhHeader);
-	memset(pixels, 0, kPromptPackedW * kPromptHeightPx);
+	memset(pixels, 0xFF, kPromptPackedW * kPromptHeightPx);
 
-	// 1-pixel white frame.
-	fillRect(pixels, kPromptPackedW, kPromptHeightPx, 0, 0, kPromptWidthPx, 1, kColWhite);
-	fillRect(pixels, kPromptPackedW, kPromptHeightPx, 0, kPromptHeightPx - 1, kPromptWidthPx, 1, kColWhite);
-	fillRect(pixels, kPromptPackedW, kPromptHeightPx, 0, 0, 1, kPromptHeightPx, kColWhite);
-	fillRect(pixels, kPromptPackedW, kPromptHeightPx, kPromptWidthPx - 1, 0, 1, kPromptHeightPx, kColWhite);
+	fillRect(pixels, kPromptPackedW, kPromptHeightPx, 0, 0, kPromptWidthPx, 1, kColBlack);
+	fillRect(pixels, kPromptPackedW, kPromptHeightPx, 0, kPromptHeightPx - 1, kPromptWidthPx, 1, kColBlack);
+	fillRect(pixels, kPromptPackedW, kPromptHeightPx, 0, 0, 1, kPromptHeightPx, kColBlack);
+	fillRect(pixels, kPromptPackedW, kPromptHeightPx, kPromptWidthPx - 1, 0, 1, kPromptHeightPx, kColBlack);
 
 	drawString("Cant do that here?", kPromptWidthPx, kPromptHeightPx, 6, 6,  pixels);
 	drawString("Y / N",              kPromptWidthPx, kPromptHeightPx, 6, 18, pixels);

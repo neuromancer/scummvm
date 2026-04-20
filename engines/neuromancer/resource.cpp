@@ -188,6 +188,52 @@ const ResourceEntry kBihResources[] = {
 	{ 1, "R56.BIH",      0x53BC2, 0x0388 },
 	{ 1, "R57.BIH",      0x5555C, 0x0209 },
 	{ 1, "R58.BIH",      0x56D5C, 0x00B3 },
+
+	// Cyberspace database files. Offsets + lengths from the in-binary
+	// directory table at DS:0x2F63 (22-byte records: name[14] + off32 +
+	// len32). These are the per-DB grid / site definitions -- previously
+	// blocked on runtime tracing, now reachable via the shared
+	// resource-manager path.
+	{ 1, "DB0.BIH",      0x0076D, 0x09F2 },
+	{ 1, "DB1.BIH",      0x0115F, 0x0EC5 },
+	{ 1, "DB2.BIH",      0x02024, 0x0514 },
+	{ 1, "DB3.BIH",      0x02538, 0x0920 },
+	{ 1, "DB4.BIH",      0x02E58, 0x0665 },
+	{ 1, "DB5.BIH",      0x034BD, 0x076D },
+	{ 1, "DB6.BIH",      0x03C2A, 0x0811 },
+	{ 1, "DB7.BIH",      0x0443B, 0x0A02 },
+	{ 1, "DB8.BIH",      0x04E3D, 0x089D },
+	{ 1, "DB9.BIH",      0x056DA, 0x0129 },
+	{ 1, "DB10.BIH",     0x05803, 0x0768 },
+	{ 1, "DB11.BIH",     0x05F6B, 0x0BB5 },
+	{ 1, "DB12.BIH",     0x06B20, 0x0880 },
+	{ 1, "DB13.BIH",     0x073A0, 0x0778 },
+	{ 1, "DB14.BIH",     0x07B18, 0x0E2C },
+	{ 1, "DB15.BIH",     0x08944, 0x0AE6 },
+	{ 1, "DB16.BIH",     0x0942A, 0x0A4A },
+	{ 1, "DB17.BIH",     0x09E74, 0x091F },
+	{ 1, "DB18.BIH",     0x0A793, 0x0D5A },
+	{ 1, "DB19.BIH",     0x0B4ED, 0x0A99 },
+	{ 1, "DB20.BIH",     0x0BF86, 0x07B5 },
+	{ 1, "DB21.BIH",     0x0C73B, 0x0A85 },
+	{ 1, "DB22.BIH",     0x0D1C0, 0x05F0 },
+	{ 1, "DB23.BIH",     0x0D7B0, 0x0508 },
+	{ 1, "DB24.BIH",     0x0DCB8, 0x09B2 },
+	{ 1, "DB25.BIH",     0x0E66A, 0x0A29 },
+	{ 1, "DB26.BIH",     0x0F093, 0x02E1 },
+	{ 1, "DB27.BIH",     0x0F374, 0x069A },
+	{ 1, "DB28.BIH",     0x0FA0E, 0x03F1 },
+	{ 1, "DB29.BIH",     0x0FDFF, 0x0AD2 },
+	{ 1, "DB30.BIH",     0x108D1, 0x0C90 },
+	{ 1, "DB31.BIH",     0x11561, 0x0793 },
+	{ 1, "DB32.BIH",     0x11CF4, 0x0953 },
+	{ 1, "DB33.BIH",     0x12647, 0x087F },
+	{ 1, "DB34.BIH",     0x12EC6, 0x086D },
+	{ 1, "DB35.BIH",     0x13733, 0x02DB },
+	{ 1, "DB36.BIH",     0x13A0E, 0x0627 },
+	{ 1, "DB37.BIH",     0x14035, 0x0967 },
+	{ 1, "DB38.BIH",     0x1499C, 0x001B },
+
 	{ 0xFF, nullptr, 0, 0 }
 };
 

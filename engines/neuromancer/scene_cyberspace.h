@@ -144,6 +144,12 @@ private:
 	// will be pulled from MATRIX per active DB.
 	uint8 _grid[kGridCols * kGridRows];
 
+	// Full-screen black backdrop that the cyberspace UI renders on top
+	// of. Allocated lazily on first init() since most of the 320x200
+	// region is simply matte black and the view/menu/HUD overlay cover
+	// the rest.
+	Common::Array<byte> _bgSprite;
+
 	// Packed 4bpp IMH sprite for the 5x3 grid viewport and the HUD band.
 	// Regenerated every frame so movement shows immediately.
 	Common::Array<byte> _viewSprite;
