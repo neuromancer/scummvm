@@ -30,6 +30,8 @@
 
 #include "interspective/actor.h"
 #include "interspective/exit.h"
+#include "interspective/innocent.h"
+#include "interspective/logic.h"
 #include "interspective/resources.h"
 #include "interspective/util.h"
 #include "interspective/value.h"
@@ -71,6 +73,11 @@ void Program::loadActors(Interpreter *in) {
 }
 
 Program::~Program() {
+	for (Common::List<Actor *>::iterator it = _actors.begin(); it != _actors.end(); ++it) {
+		Logic::instance().removeAnimation(*it);
+		delete *it;
+	}
+	_actors.clear();
 	delete[] _code;
 	clearExits();
 }

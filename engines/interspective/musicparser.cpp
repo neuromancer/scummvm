@@ -205,7 +205,7 @@ void Beat::tick() {
 		_channels[i].tick();
 }
 
-Channel::Channel() : _active(false) {}
+Channel::Channel() : _active(false), _not_initialized(false), _initnote(0), _chanidx(0) {}
 
 Channel::Channel(const byte *def, const byte *tune, byte chanidx) {
 	for (int i = 0; i < 4; i++) {
@@ -244,6 +244,9 @@ enum {
 };
 
 void Channel::tick() {
+	unless (_active)
+		return;
+
 	if (_not_initialized) {
 		for (byte i = 0; i < 4; i++)
 			_init[i].exec(_chanidx);
