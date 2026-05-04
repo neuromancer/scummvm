@@ -49,6 +49,8 @@ Actor::Actor(const CodePointer &code) : Animation(code, Common::Point()) {
 	_confused = false;
 	_nextAnimator = 0;
 	_nextDirection = kDirNone;
+	_actorCallbackSeg = 0xffff;
+	_actorCallbackOff = 0xffff;
 
 	Engine::instance().logic()->addAnimation(this);
 
@@ -299,6 +301,24 @@ void Actor::setRoom(uint16 r, uint16 frame, uint16 next_frame) {
 	setFrame(frame);
 
 	setAnimation(CodePointer(_puppeteer.mainCodeOffset(), Log.mainInterpreter()));
+}
+
+void Actor::placeIn(uint16 r, uint16 frame, uint16 next_frame) {
+	// Mirrors DOS Op_7a's prelude (CS:0x4443):
+	//   actor.field+0x59 = room
+	//   actor.field+0x61 = frame   (current)
+	//   actor.field+0x62 = nextFrame (target; same as frame for Op_79/protagonist seed)
+	//   actor.field+0x6b = 0       (walk speed reset)
+	// Then SetActorPosition copies frame's X/Y into actor.field+0x4/+0x6.
+	// Crucially, the script PC (segment/offset) is NOT touched — so any
+	// in-flight animation continues, and the puppeteer.mainCode jump
+	// (which crashes when the puppeteer isn't loaded for the actor)
+	// never happens.
+	_room = r;
+	if (!next_frame)
+		next_frame = frame;
+	_nextFrame = next_frame;
+	setFrame(frame);
 }
 
 bool Actor::nextFrame() {
@@ -589,13 +609,29 @@ Animation::Status Actor::op(byte opcode) {
 // noted inline. Do not "correct" the misclassified ones without porting
 // the DOS data model first — the C++ heuristics are load-bearing.
 
+OPCODE(0x00) {
+	// DOS Op_01 ScriptEnd (CS:0x68d3) — actually a 1-based-naming
+	// confusion. C++ slot 0x00 corresponds to DOS Op_01 per the
+	// off-by-1 dispatcher mapping. DOS clears field0+field1 + sets
+	// g_actor_script_ended = 1 to break out of RunActorScript.
+	// Animation::OPCODE(0x00) returns kRemove which would erase the
+	// actor from Logic::_animations entirely — wrong for Actor (the
+	// actor should remain in the table, just inactive). Override to
+	// clear PC + return kFrameDone (matches Op_01's terminate-script
+	// semantic without removal).
+	debugC(2, kDebugLevelActor, "actor opcode 0x00: ScriptEnd (clear PC, no remove) [DOS Op_01]");
+	_offset = 0;
+	_baseOffset = 0;
+	_base = 0;
+	return kFrameDone;
+}
+
 OPCODE(0x01) {
-	// DOS ActorOp_01_ScriptEnd (CS:0x68d3): clears actor field0+field1, sets
-	// g_actor_script_ended=1 to signal the engine to pick a new script.
-	// C++: closest equivalent — terminate current animator (_base=0) and
-	// flag _confused so animate() picks a new state next tick. Functionally
-	// aligned.
-	debugC(1, kDebugLevelActor, "actor opcode 0x01: script end (C++ confuse-fallback)");
+	// DOS Op_02 UnregisterAndEnd (CS:0x68e3): UnregisterActor + clear
+	// field0/1 + sets g_actor_script_ended = 1. C++ slot 0x01 per the
+	// off-by-1 mapping. Closest equivalent: terminate animator + flag
+	// _confused so animate() picks a new state next tick.
+	debugC(1, kDebugLevelActor, "actor opcode 0x01: UnregisterAndEnd (terminate + confuse) [DOS Op_02]");
 
 	_offset = 0;
 	_base = 0;
@@ -886,14 +922,61 @@ OPCODE(0x09) {
 	return kFrameDone;
 }
 
-// Actor opcodes 0x0a..0x0e fall through to the Animation handler. Coverage:
-//   0x0a → Animation::0x0a (3 shifts) = DOS Op_0b WalkAbsoluteWithFrame
-//          (Animation does run-sprite-at; DOS does walk+target — TODO override)
-//   0x0d → Animation::0x0d (embeddedByte) = DOS Op_0e SetTimerAndSkip
-//   0x0e → Animation::0x0e (no extras) = DOS Op_0f DecrementTimer
-// Bytes match per iter-13 audit; the 0x0a wrong-state override is left for
-// a future iteration since the visual difference is "wrong sprite during
-// walk" rather than a crash.
+OPCODE(0x0a) {
+	// C++ slot 0x0a = DOS Op_0b WalkAbsoluteWithFrame (1000:6962). 3 shifts:
+	// x, y, target_frame. Writes actor.x/y, sets target frame, ends script.
+	// Animation::0x0a fall-through ("run sprite at") consumed the right
+	// 3 shifts but set _mainSprite from the third arg instead of treating
+	// it as a target frame. iter-19 override gives DOS-aligned behavior
+	// AND keeps the sprite update for visibility (per iter-18 lesson).
+	const uint16 x = shift();
+	const uint16 y = shift();
+	const uint16 target = shift();
+	debugC(3, kDebugLevelAnimation, "actor opcode 0x0a: WalkAbsoluteWithFrame (%u,%u) target=%u [DOS Op_0b]",
+		x, y, target);
+	_position.x = (int16)x;
+	_position.y = (int16)y;
+	_nextFrame = target;
+	setMainSprite(target);
+	if (target != 0xffff && _room == Log.currentRoom() && Log.room())
+		moveTo(target);
+	return kFrameDone;
+}
+
+OPCODE(0x0d) {
+	// C++ slot 0x0d = DOS Op_0e SetTimerAndSkip (1000:6a5e). Reads embedded
+	// byte at +1 (skip-timer value), writes to actor.field+0x11. Also DOS
+	// stashes BP+2 (script PC after the opcode) into actor.field+0xe — a
+	// "resume point" used by some other op. Animation::0x0d fall-through
+	// ("loop start") wrote _counter and _loopStart instead — wrong fields.
+	// Stash via the sparse _dosFields map; field+0x11 is the per-actor
+	// skip-timer that DOS Op_0f decrements.
+	const byte v = embeddedByte();
+	debugC(3, kDebugLevelAnimation, "actor opcode 0x0d: SetTimerAndSkip = %u [DOS Op_0e]", v);
+	setDosField(0x11, v);
+	// Note: also stash the next-script-PC for the "resume after skip"
+	// behavior. We use the C++ _baseOffset+_offset (already advanced past
+	// the embedded byte by the dispatcher) — store as two halves at
+	// fields 0x0e/0x0f if any future reader needs it.
+	const uint16 nextPC = _baseOffset + _offset;
+	setDosField(0x0e, uint8(nextPC & 0xff));
+	setDosField(0x0f, uint8(nextPC >> 8));
+	return kOk;
+}
+
+OPCODE(0x0e) {
+	// C++ slot 0x0e = DOS Op_0f DecrementTimer (1000:6a6c). 0 args.
+	// If actor.field+0x11 != 0, decrement. Animation::0x0e fall-through
+	// ("loop end") was an unrelated counter decrement — replaced.
+	const uint8 cur = dosField(0x11);
+	if (cur != 0) {
+		setDosField(0x11, uint8(cur - 1));
+		debugC(4, kDebugLevelAnimation, "actor opcode 0x0e: DecrementTimer %u → %u [DOS Op_0f]", cur, cur - 1);
+	} else {
+		debugC(5, kDebugLevelAnimation, "actor opcode 0x0e: DecrementTimer (already 0) [DOS Op_0f]");
+	}
+	return kOk;
+}
 
 OPCODE(0x0f) {
 	// C++ slot 0x0f = DOS Op_10 (CS:0x6a7e). The Ghidra label says "NoOp"
@@ -1003,32 +1086,46 @@ OPCODE(0x1f) {
 }
 
 OPCODE(0x20) {
-	// C++ slot 0x20 = DOS Op_21 SetCallbackPointer (CS:0x6be5). 12-BYTE
-	// opcode (ADD BP,0xc). The handler stashes (BP+DI+2) as the callback
-	// PC, then advances past 10 trailing bytes which presumably form an
-	// inline callback body. iter-12 wrongly consumed 0 args. FIXED
-	// iter-13: consume 10 bytes (5 shifts) past the baseline 2.
-	uint16 a = shift();
-	uint16 b = shift();
-	uint16 c = shift();
-	uint16 d = shift();
-	uint16 e = shift();
-	debugC(2, kDebugLevelAnimation, "actor opcode 0x20: SetCallbackPointer (skipping 10-byte inline body) STUB [DOS Op_21]");
-	(void)a; (void)b; (void)c; (void)d; (void)e;
+	// C++ slot 0x20 = DOS Op_21 SetCallbackPointer (1000:6be5). 12-BYTE
+	// opcode (ADD BP, 0xc). DOS:
+	//   actor.field+0x5f = BP+DI+2  (callback offset = next opcode)
+	//   actor.field+0x5d = ES       (callback segment)
+	//   advance BP by 12 (skip past 10 trailing bytes — inline callback body)
+	// The "callback offset" is the address of the inline body that follows
+	// the opcode; later code can resume execution there. We capture the
+	// PC of the byte right after the 2-byte opcode header (the start of
+	// the 10-byte body), then skip the body by 5 shifts.
+	const uint16 callbackPC = _baseOffset + _offset;
+	setActorCallback(0xffff /* segment placeholder */, callbackPC);
+	// Skip the 10-byte inline body.
+	for (int i = 0; i < 5; i++)
+		(void)shift();
+	debugC(2, kDebugLevelAnimation, "actor opcode 0x20: SetCallbackPointer cbPC=0x%04x [DOS Op_21]", callbackPC);
 	return kOk;
 }
 
 OPCODE(0x21) {
-	// C++ slot 0x21 = DOS Op_22 SetCallbackRelative. Reads 1 int16
-	// relative offset (1 shift). Stub: consume bytes, ignore.
-	uint16 off = shift();
-	debugC(2, kDebugLevelAnimation, "actor opcode 0x21: SetCallbackRelative off=0x%04x STUB [DOS Op_22]", off);
+	// C++ slot 0x21 = DOS Op_22 SetCallbackRelative (1000:6bf4). 1 shift
+	// (signed int16 offset). DOS:
+	//   if (arg != 0)  callback_off = DI + arg   (script-relative)
+	//   else           callback_off = 0          (clear)
+	//   callback_seg = ES
+	const int16 off = (int16)shift();
+	uint16 cbOff = 0;
+	if (off != 0)
+		cbOff = uint16(int32(_baseOffset) + int32(_offset) + int32(off));
+	setActorCallback(0xffff, cbOff);
+	debugC(2, kDebugLevelAnimation, "actor opcode 0x21: SetCallbackRelative off=%d → cbOff=0x%04x [DOS Op_22]",
+		off, cbOff);
 	return kOk;
 }
 
 OPCODE(0x22) {
-	// C++ slot 0x22 = DOS Op_23 ClearCallback. 0 args.
-	debugC(3, kDebugLevelAnimation, "actor opcode 0x22: ClearCallback STUB [DOS Op_23]");
+	// C++ slot 0x22 = DOS Op_23 ClearCallback (1000:6c0a). 0 args.
+	// Writes 0xffff to actor.field+0x5d (clears the callback segment;
+	// effectively cancels any callback set by Op_20/Op_21).
+	debugC(3, kDebugLevelAnimation, "actor opcode 0x22: ClearCallback [DOS Op_23]");
+	clearActorCallback();
 	return kOk;
 }
 
@@ -1049,38 +1146,71 @@ OPCODE(0x25) {
 // ============================================================================
 
 OPCODE(0x0b) {
-	// C++ slot 0x0b = DOS Op_0c FaceAndWalkWithFrame. Reads embedded byte
-	// at +1 (facing) + word at +2..+3 (target) = byte + 1 shift.
-	byte face = embeddedByte();
-	uint16 target = shift();
-	debugC(2, kDebugLevelAnimation, "actor opcode 0x0b: FaceAndWalkWithFrame face=%d target=%d STUB [DOS Op_0c]", face, target);
-	return kOk;
+	// C++ slot 0x0b = DOS Op_0c FaceAndWalkWithFrame (1000:69cd). Embedded
+	// facing byte at +1, target frame word at +2..+3. DOS:
+	//   actor.facing (field+0x61) = byte
+	//   SetActorPosition(); GetActorOffset(targetFacing)
+	//   LookupActorAndStartPath()
+	//   actor.targetFrame (field+8) = target
+	//   actor.walkFlags (field+10) = currentFrame (field+0x10)
+	//   end script
+	// In the C++ parallel walking model, "facing" maps to _direction; walk
+	// to target uses moveTo() which fills _framequeue.
+	const byte face = embeddedByte();
+	const uint16 target = shift();
+	debugC(3, kDebugLevelAnimation, "actor opcode 0x0b: FaceAndWalkWithFrame face=%u target=%u [DOS Op_0c]",
+		face, target);
+	if (face >= 1 && face <= 8)
+		_direction = Direction(face);
+	setDosField(0x61, face);
+	_nextFrame = target;
+	setMainSprite(target);
+	if (target != 0xffff && _room == Log.currentRoom() && Log.room())
+		moveTo(target);
+	return kFrameDone;
 }
 
 OPCODE(0x0c) {
-	// C++ slot 0x0c = DOS Op_0d FaceAndWalk. Reads embedded byte at +1
-	// only. NO shift — was previously over-consuming a shift.
-	byte face = embeddedByte();
-	debugC(2, kDebugLevelAnimation, "actor opcode 0x0c: FaceAndWalk face=%d STUB [DOS Op_0d]", face);
-	return kOk;
+	// C++ slot 0x0c = DOS Op_0d FaceAndWalk (1000:6a0e). Embedded byte at
+	// +1 only — same as 0x0b but no target frame (the actor walks toward
+	// its current targetFacing field). Sets facing, starts path, ends
+	// script. Without separate facing-vs-target-facing modeling in C++,
+	// just set _direction.
+	const byte face = embeddedByte();
+	debugC(3, kDebugLevelAnimation, "actor opcode 0x0c: FaceAndWalk face=%u [DOS Op_0d]", face);
+	if (face >= 1 && face <= 8)
+		_direction = Direction(face);
+	setDosField(0x61, face);
+	return kFrameDone;
 }
 
 OPCODE(0x1b) {
-	// C++ slot 0x1b = DOS Op_1c QueueMoveSlotMode0. Reads 3 int16 args
-	// (3 shifts = 6 bytes).
-	uint16 a = shift();
-	uint16 b = shift();
-	uint16 c = shift();
-	debugC(2, kDebugLevelAnimation, "actor opcode 0x1b: QueueMoveSlotMode0 %d,%d,%d STUB [DOS Op_1c]", a, b, c);
+	// C++ slot 0x1b = DOS Op_1c QueueMoveSlotMode0 (1000:6b5d). 3 shifts
+	// (a, b, c). Finds first free slot in actor.field+0x19 (8 entries),
+	// writes (b, c, a, mode=0). DOS layout per disasm:
+	//   slot.field2 = arg1 (b)
+	//   slot.field4 = arg2 (c)
+	//   slot.field0 = arg3 (a)
+	//   slot.field6 = mode (0)
+	// Overflow sets g_pendingErrorCode = 0xc; we drop silently.
+	const uint16 arg1 = shift();
+	const uint16 arg2 = shift();
+	const uint16 arg3 = shift();
+	const bool ok = queueMoveSlot(MoveSlot(arg3, arg1, arg2, 0));
+	debugC(2, kDebugLevelAnimation, "actor opcode 0x1b: QueueMoveSlotMode0 (a=%u,b=%u,c=%u) %s [DOS Op_1c]",
+		arg1, arg2, arg3, ok ? "queued" : "DROPPED (queue full)");
 	return kOk;
 }
 
 OPCODE(0x1c) {
-	// C++ slot 0x1c = DOS Op_1d QueueMoveSlotMode1. Reads 3 int16 args.
-	uint16 a = shift();
-	uint16 b = shift();
-	uint16 c = shift();
-	debugC(2, kDebugLevelAnimation, "actor opcode 0x1c: QueueMoveSlotMode1 %d,%d,%d STUB [DOS Op_1d]", a, b, c);
+	// C++ slot 0x1c = DOS Op_1d QueueMoveSlotMode1 (1000:6b95). Same as
+	// 0x1b but mode=1.
+	const uint16 arg1 = shift();
+	const uint16 arg2 = shift();
+	const uint16 arg3 = shift();
+	const bool ok = queueMoveSlot(MoveSlot(arg3, arg1, arg2, 1));
+	debugC(2, kDebugLevelAnimation, "actor opcode 0x1c: QueueMoveSlotMode1 (a=%u,b=%u,c=%u) %s [DOS Op_1d]",
+		arg1, arg2, arg3, ok ? "queued" : "DROPPED (queue full)");
 	return kOk;
 }
 

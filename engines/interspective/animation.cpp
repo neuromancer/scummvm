@@ -465,4 +465,145 @@ OPCODE(0x1b) {
 	return kOk;
 }
 
+// ============================================================================
+// iter-22: safe-stubs for Animation opcode slots that the original C++ port
+// left unimplemented. Without these, a non-actor animation (cursor anim
+// added via Op_c2, cast entry via Op_c3, etc.) emitting any of these
+// opcode bytes triggers `error("unhandled animation opcode")` which
+// terminates the engine.
+//
+// Bytes consumed match the DOS-disassembly-verified table from iter-13
+// (off-by-1 mapping: Animation slot N = DOS Op_(N+1)). Semantics simplified
+// to no-ops for non-actor contexts since these handlers exist primarily as
+// the fall-through target when an actor's bytecode emits one of these
+// opcodes WITHOUT an Actor:: override — Actor opcodes 0x09, 0x0b, 0x0c,
+// 0x14..0x18, 0x1c..0x25 are all actor-overridden, so this fall-through is
+// only relevant for genuine non-actor anims.
+// ============================================================================
+
+OPCODE(0x09) {
+	// DOS Op_0a WalkAbsolute: 2 shifts (x, y).
+	uint16 x = shift(); uint16 y = shift();
+	debugC(4, kDebugLevelAnimation, "anim opcode 0x09: WalkAbsolute (%u,%u) STUB", x, y);
+	return kOk;
+}
+
+OPCODE(0x0b) {
+	// DOS Op_0c FaceAndWalkWithFrame: byte + 1 shift.
+	(void)embeddedByte();
+	(void)shift();
+	debugC(4, kDebugLevelAnimation, "anim opcode 0x0b: FaceAndWalkWithFrame STUB");
+	return kOk;
+}
+
+OPCODE(0x0c) {
+	// DOS Op_0d FaceAndWalk: byte only.
+	(void)embeddedByte();
+	debugC(4, kDebugLevelAnimation, "anim opcode 0x0c: FaceAndWalk STUB");
+	return kOk;
+}
+
+OPCODE(0x14) {
+	// DOS Op_15 WaitForSpeechSlot: 1 shift (jump target).
+	(void)shift();
+	debugC(4, kDebugLevelAnimation, "anim opcode 0x14: WaitForSpeechSlot STUB");
+	return kOk;
+}
+
+OPCODE(0x15) {
+	// DOS Op_16 PickAnimationSet: 0 extras (2-byte opcode).
+	debugC(4, kDebugLevelAnimation, "anim opcode 0x15: PickAnimationSet STUB");
+	return kOk;
+}
+
+OPCODE(0x16) {
+	// DOS Op_17 BranchIfAnimSetEquals: byte + 1 shift.
+	(void)embeddedByte();
+	(void)shift();
+	debugC(4, kDebugLevelAnimation, "anim opcode 0x16: BranchIfAnimSetEquals STUB");
+	return kOk;
+}
+
+OPCODE(0x17) {
+	// DOS Op_18 BranchIfMoodEquals: byte + 1 shift.
+	(void)embeddedByte();
+	(void)shift();
+	debugC(4, kDebugLevelAnimation, "anim opcode 0x17: BranchIfMoodEquals STUB");
+	return kOk;
+}
+
+OPCODE(0x18) {
+	// DOS Op_19 SetField6d: 1 shift.
+	(void)shift();
+	debugC(4, kDebugLevelAnimation, "anim opcode 0x18: SetField6d STUB");
+	return kOk;
+}
+
+OPCODE(0x1c) {
+	// DOS Op_1d QueueMoveSlotMode1: 3 shifts.
+	(void)shift(); (void)shift(); (void)shift();
+	debugC(4, kDebugLevelAnimation, "anim opcode 0x1c: QueueMoveSlotMode1 STUB");
+	return kOk;
+}
+
+OPCODE(0x1d) {
+	// DOS Op_1e ClearFlag14: 0 extras.
+	debugC(4, kDebugLevelAnimation, "anim opcode 0x1d: ClearFlag14 STUB");
+	return kOk;
+}
+
+OPCODE(0x1e) {
+	// DOS Op_1f ClearFlag15: 0 extras.
+	debugC(4, kDebugLevelAnimation, "anim opcode 0x1e: ClearFlag15 STUB");
+	return kOk;
+}
+
+OPCODE(0x1f) {
+	// DOS Op_20 SetFlag15: 0 extras.
+	debugC(4, kDebugLevelAnimation, "anim opcode 0x1f: SetFlag15 STUB");
+	return kOk;
+}
+
+OPCODE(0x20) {
+	// DOS Op_21 SetCallbackPointer: 5 shifts (12-byte opcode with 10-byte
+	// inline body). Consume all 5 shifts to skip past the body.
+	(void)shift(); (void)shift(); (void)shift(); (void)shift(); (void)shift();
+	debugC(4, kDebugLevelAnimation, "anim opcode 0x20: SetCallbackPointer STUB (skipped 10-byte body)");
+	return kOk;
+}
+
+OPCODE(0x21) {
+	// DOS Op_22 SetCallbackRelative: 1 shift.
+	(void)shift();
+	debugC(4, kDebugLevelAnimation, "anim opcode 0x21: SetCallbackRelative STUB");
+	return kOk;
+}
+
+OPCODE(0x22) {
+	// DOS Op_23 ClearCallback: 0 extras.
+	debugC(4, kDebugLevelAnimation, "anim opcode 0x22: ClearCallback STUB");
+	return kOk;
+}
+
+OPCODE(0x23) {
+	// DOS Op_24 SetMood: byte only.
+	(void)embeddedByte();
+	debugC(4, kDebugLevelAnimation, "anim opcode 0x23: SetMood STUB");
+	return kOk;
+}
+
+OPCODE(0x24) {
+	// DOS Op_25 SetField65: byte only.
+	(void)embeddedByte();
+	debugC(4, kDebugLevelAnimation, "anim opcode 0x24: SetField65 STUB");
+	return kOk;
+}
+
+OPCODE(0x25) {
+	// DOS Op_26 PlaySfx: 1 shift (sfx index).
+	(void)shift();
+	debugC(4, kDebugLevelAnimation, "anim opcode 0x25: PlaySfx STUB");
+	return kOk;
+}
+
 }

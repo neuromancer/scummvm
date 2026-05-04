@@ -164,6 +164,15 @@ void Logic::doChangeRoom() {
 	_blockInterpreter->run(_blockProgram->roomHandler(_currentRoom), kCodeNewRoom);
 	debugC(2, kDebugLevelScript, "<<<finished room entry code for room %d", _currentRoom);
 
+	// Re-run setFrame on each actor so its position re-syncs to the new
+	// room's frame table (if the actor's current frame index is defined
+	// there). Same as the original behavior — disrupting the actor's
+	// running script via setRoom turned out to be too aggressive (it
+	// reset the script PC to the puppeteer's main-code start, which
+	// for actors already in the middle of a sequence would land the PC
+	// on data bytes mid-instruction). The "invisible character + stale
+	// position" issue is best fixed by loading the DOS places table and
+	// doing FindPlaceById on transitions; that's a follow-up iteration.
 	foreach(Animation *, _animations)
 		if ((*it)->isActor()) {
 			Actor * const ac = static_cast<Actor *>(*it);

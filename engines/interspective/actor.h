@@ -179,6 +179,17 @@ public:
 	uint16 room() const { return _room; }
 	void setRoom(uint16, uint16 frame = 0, uint16 nextFrame = 0);
 
+	// DOS-aligned room/frame placement that does NOT reset the actor's
+	// animation script. Mirrors the field assignments in
+	// Op_7a_PlaceActorInRoomXY @ 1000:4443: writes _room (field+0x59),
+	// _frame (field+0x61), _nextFrame (field+0x62), then runs
+	// SetActorPosition (frame X/Y -> _position). InitActorState in DOS
+	// preserves the actor's existing code offset, so we mirror that by
+	// leaving _base/_offset alone (unlike setRoom which jumps the script
+	// to puppeteer.mainCode and clears the sprite — too aggressive and
+	// crashes for actors whose puppeteer isn't initialised yet).
+	void placeIn(uint16 room, uint16 frame, uint16 nextFrame = 0);
+
 	bool isFine() const;
 
 	void setAnimation(const CodePointer &anim);
@@ -249,8 +260,48 @@ public:
 		else
 			_dosFields[off] = v;
 	}
+
+	// DOS actor's 8-slot move queue at field+0x19 (32 bytes total: 8 entries
+	// × 4 ints). Populated by Op_1c/Op_1d (mode 0/1). DOS finds the first
+	// "free" slot (field0 == 0xffff) and writes (a, b, c, mode). Used for
+	// queued movement commands. Slot model: Common::Array<MoveSlot> with
+	// max 8 entries; sentinel 0xffff for an inactive slot, but we use a
+	// presence flag instead.
+	struct MoveSlot {
+		MoveSlot() : a(0), b(0), c(0), mode(0) {}
+		MoveSlot(uint16 _a, uint16 _b, uint16 _c, uint8 _m)
+			: a(_a), b(_b), c(_c), mode(_m) {}
+		uint16 a, b, c;
+		uint8 mode;
+	};
+	bool queueMoveSlot(const MoveSlot &slot) {
+		// Match DOS bound: max 8 entries. Returns false on overflow (DOS
+		// sets g_pendingErrorCode = 0xc; we just drop silently).
+		if (_moveSlots.size() >= 8)
+			return false;
+		_moveSlots.push_back(slot);
+		return true;
+	}
+	const Common::Array<MoveSlot> &moveSlots() const { return _moveSlots; }
+	void clearMoveSlots() { _moveSlots.clear(); }
+
+	// DOS callback (field+0x5d/0x5f). Set by Op_21/Op_22, cleared by Op_23.
+	// 0xffffffff = no callback. Stored as a single u32 since DOS treats
+	// the seg+off as a far-pointer pair.
+	void setActorCallback(uint16 segment, uint16 offset) {
+		_actorCallbackSeg = segment;
+		_actorCallbackOff = offset;
+	}
+	void clearActorCallback() {
+		_actorCallbackSeg = 0xffff;
+		_actorCallbackOff = 0xffff;
+	}
+	uint16 actorCallbackSeg() const { return _actorCallbackSeg; }
+	uint16 actorCallbackOff() const { return _actorCallbackOff; }
 private:
 	Common::HashMap<uint8, uint8> _dosFields;
+	Common::Array<MoveSlot> _moveSlots;
+	uint16 _actorCallbackSeg, _actorCallbackOff;
 
 	Common::Queue<CodePointer> _callBacks;
 	void callBacks();

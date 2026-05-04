@@ -438,9 +438,25 @@ OPCODE(0x43) {
 }
 
 OPCODE(0x47) {
-	// say (no actor)
-	debugC(1, kDebugLevelScript, "opcode 0x47: say at [%s:%s] with colour %s in max %s lines text %s STUB", +a[0], +a[1], +a[2], +a[3], +a[4]);
-
+	// DOS Op_47_SpeakWithRect (CS:0x3eb6): 5 args (y, x, color, lines, text).
+	// Branches on g_in_map_mode: out of map mode → AllocSpeechSlot_NoFormatting
+	// (allocates a speech bubble slot for the actor with the text). In map
+	// mode → CheckSubtitleActive → either RegisterSampleSlot or
+	// QueueDeferredFormattedText.
+	//
+	// Without speech-slot infrastructure, we route the text through the
+	// engine's Graf.say() queue (added iter-12) so narrator text at least
+	// shows up at top-left for ~50 frames. Position/color/line-count args
+	// are accepted but not honored (positioning would require the
+	// paintText path with persistent overlay).
+	const byte *text = static_cast<byte *>(a[4]);
+	debugC(1, kDebugLevelScript, "opcode 0x47: say at [%s:%s] color=%s lines=%s text='%s'",
+		+a[0], +a[1], +a[2], +a[3], text ? reinterpret_cast<const char *>(text) : "(null)");
+	if (text) {
+		const uint16 length = (uint16)strlen(reinterpret_cast<const char *>(text));
+		if (length > 0)
+			Graf.say(text, length, 50);
+	}
 	return kThxBye;
 }
 
@@ -483,9 +499,16 @@ OPCODE(0x55) {
 }
 
 OPCODE(0x56) {
-	// say text
-	debugC(2, kDebugLevelScript, "opcode 0x86: say %s for %s frames", +a[1], +a[0]);
-	Graf.say(a[1], a[1], a[0]);
+	// DOS Op_56_SendActorToTargetOrWait (CS:0x4069): nargs=2. Calls
+	// CheckMovementBlocked → if not blocked, RegisterSampleSlot_LoadDefaultsD;
+	// if blocked, stash arg0/arg1 in g_unknown_66d6/uRam0002322a/...
+	// NOT a speech op. Original C++ called `Graf.say(a[1], a[1], a[0])` —
+	// passing the text Value as BOTH text AND length parameters. The
+	// length-as-Value-pointer conversion (operator uint16) returns the
+	// CodePointer offset (e.g. 0x4329) which then becomes the memcpy
+	// length in Graphics::say, causing 16+ KB of garbage memory to be
+	// copied into the speech buffer. Safe-stub to drop the wrong call.
+	debugC(2, kDebugLevelScript, "opcode 0x56: SendActorToTargetOrWait %s %s STUB", +a[0], +a[1]);
 	return kThxBye;
 }
 
@@ -655,27 +678,40 @@ OPCODE(0x73) {
 }
 
 OPCODE(0x77) {
-	// initialize protagonist
-	debugC(2, kDebugLevelScript, "opcode 0x77: go to room %s facing %s", +a[0], +a[1]);
-	_logic->changeRoom(a[0]);
-	_logic->protagonist()->setRoom(a[0], a[1]);
+	// DOS Op_77 @ 1000:433d = CheckProtagonistAnimReady. Loads
+	// AX = g_main_character_id (CS:0x10f) and calls CheckActorAnimReady
+	// (1000:6415) which returns whether the protagonist's animation is
+	// in a "ready" state (room matches current, code offset non-zero,
+	// not mid-walk). nargs=2 in the dispatch table — both args are
+	// consumed but unused by the binary. The previous C++ misread this
+	// as a "go to room" opcode and called changeRoom + setRoom, which
+	// is wrong on multiple fronts.
+	debugC(2, kDebugLevelScript, "opcode 0x77: check protagonist anim ready (args %s,%s)", +a[0], +a[1]);
+	if (Log.inMapMode())
+		return kThxBye;
+	if (Actor *ac = Log.protagonist()) {
+		if (ac->isMoving()) {
+			ac->callMeWhenStill(next);
+			return kReturn;
+		}
+	}
 	return kThxBye;
 }
 
 OPCODE(0x79) {
 	// DOS Op_79_PlaceActorInRoom (CS:0x43d3): a[0]=actor id, a[1]=room,
-	// a[2]=frame. NO-OP when in map mode. Otherwise: UnregisterActor, set
-	// actor.frame (field_0x61) and actor.targetFrame (field_0x62) = a[2],
-	// actor.room (field_0x59) = a[1], walk-counter (field_0x6b) = 0; if
-	// the new room equals the current location and frame mismatches,
-	// MoveActorToTargetExit. Previous C++ ignored a[2] and didn't gate
-	// on map mode — both fixed.
+	// a[2]=frame (used for both _frame and _nextFrame). NO-OP when in map
+	// mode. Otherwise mirror DOS field assignments via Actor::placeIn,
+	// which does NOT reset the script (DOS InitActorState preserves the
+	// existing code offset). The previous setRoom() call jumped the
+	// actor's PC to puppeteer.mainCode and crashed when the puppeteer
+	// wasn't loaded for that actor.
 	debugC(1, kDebugLevelScript, "opcode 0x79: move actor %s to room %s frame %s",
 		+a[0], +a[1], +a[2]);
 	if (Log.inMapMode())
 		return kThxBye;
 	if (Actor *ac = _logic->getActor(a[0]))
-		ac->setRoom(uint16(a[1]), uint16(a[2]));
+		ac->placeIn(uint16(a[1]), uint16(a[2]));
 	return kThxBye;
 }
 
@@ -820,11 +856,19 @@ OPCODE(0x9d) {
 }
 
 OPCODE(0x9e) {
-	// warp protagonist to frame
+	// DOS Op_9e (CS:0x4c4c). nargs=1 in dispatch table. Saves
+	// g_main_character_id and uses it as the target actor; arg0 is the
+	// frame id. DOS field assignments (after GetActorOffset(prot)):
+	//   field+0x61 = arg0   (current frame)
+	//   field+0x62 = arg0   (target frame)
+	//   field+0x6b = 0      (walk speed)
+	// Then SetActorPosition copies frame[arg0]'s X/Y into the actor.
+	// FindPlaceById + InitActorState run after, but they only initialise
+	// state without touching the script PC. The C++ equivalent is
+	// placeIn() into the actor's CURRENT room (no room change here).
 	debugC(2, kDebugLevelScript, "opcode 0x9e: warp protagonist to frame %s", +a[0]);
-
-//	Log.protagonist()->warpTo(a[0]);
-	Log.protagonist()->setFrame(a[0]);
+	if (Actor *ac = Log.protagonist())
+		ac->placeIn(ac->room(), uint16(a[0]));
 	return kThxBye;
 }
 
@@ -1492,11 +1536,17 @@ OPCODE(0x46) {
 // fall-through semantics (always kThxBye — these handlers never set
 // skip_counter). Side effects flagged TODO where infrastructure missing.
 OPCODE(0x48) {
-	// DOS Op_48_SpeakWithRectAndPos (CS:0x3ea7): tail-jumps to the shared
-	// speech-with-delay path (same as 0x45/0x46/0x47). 5 args (var-slot prefix
-	// + 4 positional). Engine has no narration-bubble path yet.
-	debugC(1, kDebugLevelScript, "opcode 0x48: speak-with-rect-and-pos STUB y=%s x=%s color=%s lines=%s",
-		+a[0], +a[1], +a[2], +a[3]);
+	// DOS Op_48_SpeakWithRectAndPos (CS:0x3ea7): 5 args, tail-jumps to the
+	// shared speech-with-delay path (same as 0x47). Route text through
+	// Graf.say like 0x47 does (iter-23).
+	const byte *text = static_cast<byte *>(a[4]);
+	debugC(1, kDebugLevelScript, "opcode 0x48: speak at [%s:%s] color=%s lines=%s text='%s'",
+		+a[0], +a[1], +a[2], +a[3], text ? reinterpret_cast<const char *>(text) : "(null)");
+	if (text) {
+		const uint16 length = (uint16)strlen(reinterpret_cast<const char *>(text));
+		if (length > 0)
+			Graf.say(text, length, 50);
+	}
 	return kThxBye;
 }
 OPCODE(0x49) {
@@ -1709,8 +1759,22 @@ OPCODE(0x78) {
 	return kThxBye;
 }
 OPCODE(0x7a) {
-	// 0x7a (DOS CS:0x4443): mark object inactive (clears bit 1 of obj.flags).
-	debugC(2, kDebugLevelScript, "opcode 0x7a: deactivate object %s", +a[0]);
+	// DOS Op_7a_PlaceActorInRoomXY (CS:0x4443). nargs=4 per dispatch
+	// table. Same shape as Op_79 but with a separate target frame:
+	//   a[0] = actor id
+	//   a[1] = room
+	//   a[2] = current frame (-> field+0x61)
+	//   a[3] = target frame  (-> field+0x62)
+	// DOS sequence: UnregisterActor, set fields, SetActorPosition (X/Y
+	// from frame[a[2]]), FindPlaceById, InitActorState. If the new room
+	// matches g_current_location and target!=current, MoveActorToTargetExit.
+	// Previous C++ was a logging stub mislabelled as "deactivate object".
+	debugC(1, kDebugLevelScript, "opcode 0x7a: place actor %s in room %s frame %s target %s",
+		+a[0], +a[1], +a[2], +a[3]);
+	if (Log.inMapMode())
+		return kThxBye;
+	if (Actor *ac = _logic->getActor(a[0]))
+		ac->placeIn(uint16(a[1]), uint16(a[2]), uint16(a[3]));
 	return kThxBye;
 }
 OPCODE(0x7d) {
@@ -1742,43 +1806,156 @@ OPCODE(0x7f) {
 	return kThxBye;
 }
 
-// 0x80..0x94: Object placement / hotspot manipulation. The engine has no
-// Object class — full placement logic must come with that addition. For now
-// we mirror the room field on Logic (used by Op_18/0x1b/0x21) and log.
+// 0x80..0x94: Object placement / hotspot manipulation. iter-20 audit per
+// opcodes_nargs.data discovered SEVEN OOB-read bugs in this range — the
+// C++ opcode bodies were accessing args past the count the dispatcher
+// fetches, reading garbage from past the end of the ValueVector. All
+// fixed below: each handler now respects its declared nargs.
 OPCODE(0x80) {
+	// DOS Op_80 (CS:0x457f): place object — 4 args (id, room, x, y).
+	// Bound-checks id <= g_persons_count. Stores room + position. If
+	// room == 0xffff also calls AddExitToList. C++ stores room only.
 	debugC(2, kDebugLevelScript, "opcode 0x80: place object %s at room %s pos %sx%s",
 		+a[0], +a[1], +a[2], +a[3]);
 	Log.setObjectRoom(uint16(a[0]), uint16(a[1]));
 	return kThxBye;
 }
 OPCODE(0x81) {
-	debugC(2, kDebugLevelScript, "opcode 0x81: object %s set room %s", +a[0], +a[1]);
-	Log.setObjectRoom(uint16(a[0]), uint16(a[1]));
+	// DOS Op_81 (CS:0x45ce): place object in current room — 3 args
+	// (id, x, y). Same as 0x80 but room = _g_current_location.
+	debugC(2, kDebugLevelScript, "opcode 0x81: place object %s at current room pos %s,%s",
+		+a[0], +a[1], +a[2]);
+	Log.setObjectRoom(uint16(a[0]), Log.currentRoom());
 	return kThxBye;
 }
-OPCODE(0x82) { debugC(2, kDebugLevelScript, "opcode 0x82: object %s set sprite %s", +a[0], +a[1]); return kThxBye; }
-OPCODE(0x83) { debugC(2, kDebugLevelScript, "opcode 0x83: object %s clear flags %s", +a[0], +a[1]); return kThxBye; }
-OPCODE(0x84) { debugC(2, kDebugLevelScript, "opcode 0x84: object %s set flags %s", +a[0], +a[1]); return kThxBye; }
-OPCODE(0x85) { debugC(2, kDebugLevelScript, "opcode 0x85: place exit %s -> room %s pos %s,%s", +a[0], +a[1], +a[2], +a[3]); return kThxBye; }
-OPCODE(0x86) { debugC(2, kDebugLevelScript, "opcode 0x86: exit %s set sprite %s", +a[0], +a[1]); return kThxBye; }
-OPCODE(0x87) { debugC(2, kDebugLevelScript, "opcode 0x87: exit %s sub-action", +a[0]); return kThxBye; }
-OPCODE(0x88) { debugC(2, kDebugLevelScript, "opcode 0x88: object %s pos = %s,%s", +a[0], +a[1], +a[2]); return kThxBye; }
-OPCODE(0x89) { debugC(2, kDebugLevelScript, "opcode 0x89: object %s set z-index %s", +a[0], +a[1]); return kThxBye; }
-OPCODE(0x8a) { debugC(2, kDebugLevelScript, "opcode 0x8a: object %s freeze frame %s", +a[0], +a[1]); return kThxBye; }
-OPCODE(0x8b) { debugC(2, kDebugLevelScript, "opcode 0x8b: reset object %s + unregister actor", +a[0]); return kThxBye; }
-OPCODE(0x8c) { debugC(2, kDebugLevelScript, "opcode 0x8c: object %s touch", +a[0]); return kThxBye; }
-OPCODE(0x8d) { debugC(2, kDebugLevelScript, "opcode 0x8d: object %s play anim %s", +a[0], +a[1]); return kThxBye; }
-OPCODE(0x8e) { debugC(2, kDebugLevelScript, "opcode 0x8e: unregister actor"); return kThxBye; }
-OPCODE(0x8f) { debugC(2, kDebugLevelScript, "opcode 0x8f: object %s sub-action %s", +a[0], +a[1]); return kThxBye; }
-OPCODE(0x90) { debugC(2, kDebugLevelScript, "opcode 0x90: object %s sub-action %s", +a[0], +a[1]); return kThxBye; }
-OPCODE(0x91) { debugC(2, kDebugLevelScript, "opcode 0x91: object %s sub-action %s", +a[0], +a[1]); return kThxBye; }
-OPCODE(0x92) { debugC(2, kDebugLevelScript, "opcode 0x92: object %s sub-action %s", +a[0], +a[1]); return kThxBye; }
-OPCODE(0x93) { debugC(2, kDebugLevelScript, "opcode 0x93: object %s sub-action %s", +a[0], +a[1]); return kThxBye; }
-OPCODE(0x94) { debugC(2, kDebugLevelScript, "opcode 0x94: object %s sub-action", +a[0]); return kThxBye; }
+OPCODE(0x82) {
+	// DOS Op_82 (CS:0x45f0): SWAP two objects' room+position fields
+	// atomically. C++ swaps just the room (only field tracked).
+	const uint16 a0 = uint16(a[0]);
+	const uint16 b0 = uint16(a[1]);
+	const uint16 ra = Log.getObjectRoom(a0);
+	const uint16 rb = Log.getObjectRoom(b0);
+	debugC(2, kDebugLevelScript, "opcode 0x82: swap objects %u<->%u rooms %u<->%u", a0, b0, ra, rb);
+	Log.setObjectRoom(a0, rb);
+	Log.setObjectRoom(b0, ra);
+	return kThxBye;
+}
+OPCODE(0x83) {
+	// 2 args. Sets actor.field+? = arg1. Logged-only stub.
+	debugC(2, kDebugLevelScript, "opcode 0x83: object %s clear flags %s", +a[0], +a[1]);
+	return kThxBye;
+}
+OPCODE(0x84) {
+	// nargs=1 — was OOB-reading a[1]. Fixed: 1 arg only.
+	debugC(2, kDebugLevelScript, "opcode 0x84: object %s set flags STUB", +a[0]);
+	return kThxBye;
+}
+OPCODE(0x85) {
+	// DOS Op_85 (CS:0x4762): SEARCH for first object whose room == arg0,
+	// write its 1-based index to a[1] (destination var slot). 2 args.
+	// Was previously claiming "place exit" with 4 args and OOB-reading
+	// a[2]/a[3].
+	const uint16 searchRoom = uint16(a[0]);
+	uint16 found = 0;
+	const uint16 personsCount = Log.engine()->resources()->mainDat()->personsCount();
+	for (uint16 i = 1; i <= personsCount; ++i) {
+		if (Log.getObjectRoom(i) == searchRoom) {
+			found = i;
+			break;
+		}
+	}
+	debugC(2, kDebugLevelScript, "opcode 0x85: find object in room %u → id %u (writing to %s)",
+		searchRoom, found, +a[1]);
+	a[1] = found;
+	return kThxBye;
+}
+OPCODE(0x86) {
+	// 3 args. DOS sets exit/object sprite. Logged-only stub.
+	debugC(2, kDebugLevelScript, "opcode 0x86: object/exit %s set sprite %s extra %s STUB",
+		+a[0], +a[1], +a[2]);
+	return kThxBye;
+}
+OPCODE(0x87) {
+	// nargs=0 — was OOB-reading a[0]. DOS does some sub-action with no
+	// script args.
+	debugC(2, kDebugLevelScript, "opcode 0x87: exit/object sub-action (no args) STUB");
+	return kThxBye;
+}
+OPCODE(0x88) {
+	// nargs=1 — DOS Op_88 (CS:0x47bd) reads only arg0 (object id).
+	// Calls HandleHotspotInteraction for that object. Was OOB-reading
+	// a[1]/a[2] (claiming pos = ...).
+	debugC(2, kDebugLevelScript, "opcode 0x88: object %s hotspot interaction STUB", +a[0]);
+	return kThxBye;
+}
+OPCODE(0x89) {
+	// 2 args. DOS sets z-index or similar. Logged-only stub.
+	debugC(2, kDebugLevelScript, "opcode 0x89: object %s set z-index %s STUB", +a[0], +a[1]);
+	return kThxBye;
+}
+OPCODE(0x8a) {
+	// 3 args. DOS freezes a frame for the object. Logged-only stub.
+	debugC(2, kDebugLevelScript, "opcode 0x8a: object %s freeze frame %s extra %s STUB",
+		+a[0], +a[1], +a[2]);
+	return kThxBye;
+}
+OPCODE(0x8b) {
+	// nargs=0 — DOS Op_8b (CS:0x482e) is ResetObjectAtActorPosition +
+	// Op_8e (UnregisterActor). NO args. Was OOB-reading a[0].
+	debugC(2, kDebugLevelScript, "opcode 0x8b: reset object at actor pos + unregister STUB");
+	return kThxBye;
+}
+OPCODE(0x8c) {
+	// 1 arg. DOS triggers object touch/use. Logged-only stub.
+	debugC(2, kDebugLevelScript, "opcode 0x8c: object %s touch STUB", +a[0]);
+	return kThxBye;
+}
+OPCODE(0x8d) {
+	// 3 args. DOS plays an animation on the object. Logged-only stub.
+	debugC(2, kDebugLevelScript, "opcode 0x8d: object %s play anim %s extra %s STUB",
+		+a[0], +a[1], +a[2]);
+	return kThxBye;
+}
+OPCODE(0x8e) {
+	// 0 args. UnregisterActor / clear current.
+	debugC(2, kDebugLevelScript, "opcode 0x8e: unregister actor STUB");
+	return kThxBye;
+}
+OPCODE(0x8f) {
+	// nargs=1 — was OOB-reading a[1].
+	debugC(2, kDebugLevelScript, "opcode 0x8f: object %s sub-action STUB", +a[0]);
+	return kThxBye;
+}
+OPCODE(0x90) {
+	// 2 args. Object sub-action.
+	debugC(2, kDebugLevelScript, "opcode 0x90: object %s sub-action %s STUB", +a[0], +a[1]);
+	return kThxBye;
+}
+OPCODE(0x91) {
+	// nargs=1 — was OOB-reading a[1].
+	debugC(2, kDebugLevelScript, "opcode 0x91: object %s sub-action STUB", +a[0]);
+	return kThxBye;
+}
+OPCODE(0x92) {
+	// 2 args. Object sub-action.
+	debugC(2, kDebugLevelScript, "opcode 0x92: object %s sub-action %s STUB", +a[0], +a[1]);
+	return kThxBye;
+}
+OPCODE(0x93) {
+	// 2 args. Object sub-action.
+	debugC(2, kDebugLevelScript, "opcode 0x93: object %s sub-action %s STUB", +a[0], +a[1]);
+	return kThxBye;
+}
+OPCODE(0x94) {
+	// nargs=0 — was OOB-reading a[0].
+	debugC(2, kDebugLevelScript, "opcode 0x94: object sub-action (no args) STUB");
+	return kThxBye;
+}
 
 OPCODE(0x97) {
-	// 0x97 (DOS CS:0x4a5d): set protagonist sprite override.
-	debugC(2, kDebugLevelScript, "opcode 0x97: protagonist sprite override %s", +a[0]);
+	// 0x97 (DOS CS:0x4a5d, BackupCutscenePCState): nargs=0 per
+	// opcodes_nargs.data. Was OOB-reading a[0]. iter-20 fix.
+	debugC(2, kDebugLevelScript, "opcode 0x97: BackupCutscenePCState STUB");
 	return kThxBye;
 }
 OPCODE(0x98) {
@@ -1811,19 +1988,50 @@ OPCODE(0xa0) {
 	return kThxBye;
 }
 OPCODE(0xa1) {
-	// 0xa1 (DOS CS:0x4c59): actor.setRoom(room, frame). Repositions the actor
-	// to a new room with a specific facing/frame.
-	debugC(2, kDebugLevelScript, "opcode 0xa1: actor %s set room %s frame %s", +a[1], +a[0], +a[2]);
-	if (Actor *ac = Log.getActor(a[1]))
-		ac->setRoom(uint16(a[0]), uint16(a[2]));
+	// DOS Op_a1 (CS:0x4c59). nargs=2. Disassembly:
+	//   AX = arg0 (BX), AX = arg1; PUSH BX, PUSH AX; AX = BX (= arg0)
+	//   GetActorOffset(arg0)        ; SI = actor for arg0
+	//   POP AX                      ; AX = arg1 (the frame)
+	//   actor.field+0x61 = AL       ; current frame = arg1
+	//   actor.field+0x62 = AL       ; target frame  = arg1
+	//   actor.field+0x6b = 0        ; walk speed
+	//   SetActorPosition()          ; X/Y from frame[arg1]
+	//   POP BX → FindPlaceById(arg0)
+	//   InitActorState()
+	// So a[0] is the ACTOR ID and a[1] is the FRAME ID. The previous C++
+	// had it backwards (treated a[0] as room, a[1] as actor) and called
+	// setRoom which jumped the actor's PC to puppeteer.mainCode.
+	debugC(2, kDebugLevelScript, "opcode 0xa1: warp actor %s to frame %s", +a[0], +a[1]);
+	if (Actor *ac = Log.getActor(a[0]))
+		ac->placeIn(ac->room(), uint16(a[1]));
 	return kThxBye;
 }
 OPCODE(0xa2) {
-	// 0xa2 (DOS CS:0x4cb0): actor jump-to-frame (walkSpeedFlag=0 = instant).
-	// 3-arg: actor id, frame, secondary frame.
-	debugC(2, kDebugLevelScript, "opcode 0xa2: actor %s jump to frame %s,%s", +a[1], +a[0], +a[2]);
-	if (Actor *ac = Log.getActor(a[1]))
-		ac->setFrame(uint16(a[0]));
+	// DOS Op_a2 (CS:0x4cb0). nargs=3. Disassembly order:
+	//   ResolveOpcodeArg2 → CX                ; arg2 = code offset
+	//   ResolveOpcodeArg0 → BX                ; arg0 = actor id
+	//   ResolveOpcodeArg1 → AX                ; arg1 = frame
+	//   PUSH CX, PUSH BX, PUSH AX
+	//   AX = BX (= arg0); GetActorOffset      ; SI = actor for arg0
+	//   POP AX                                 ; AX = arg1 (frame)
+	//   field+0x61 = AL  (current frame)
+	//   field+0x62 = AL  (target frame)
+	//   field+0x6b = 0
+	//   SetActorPosition                       ; X/Y from frame[arg1]
+	//   POP AX (arg0) → CS:[0x37 or 0x35]
+	//   POP DI (arg2) → InitActorState         ; sets actor.code_offset = arg2
+	// Critical: the previous C++ misread a[0] as the frame (was passing
+	// arg0 to setFrame, but arg0 is the actor id).
+	debugC(2, kDebugLevelScript, "opcode 0xa2: warp actor %s to frame %s code-offset %s",
+		+a[0], +a[1], +a[2]);
+	if (Actor *ac = Log.getActor(a[0])) {
+		ac->placeIn(ac->room(), uint16(a[1]));
+		// arg2 is a code offset for the actor's animation script. DOS
+		// stores it at field+0x2 via InitActorState (which loads DI from
+		// the stack). Engine-side: rebase the animation pointer.
+		if (uint16(a[2]) != 0)
+			ac->setAnimation(uint16(a[2]));
+	}
 	return kThxBye;
 }
 OPCODE(0xa3) {
@@ -1918,19 +2126,23 @@ OPCODE(0xaf) {
 	return kThxBye;
 }
 OPCODE(0xb0) {
-	debugC(2, kDebugLevelScript, "opcode 0xb0: actor %s walk to object %s", +a[0], +a[1]);
+	// nargs=1 — was OOB-reading a[1]. iter-21 fix.
+	debugC(2, kDebugLevelScript, "opcode 0xb0: actor walk to object %s STUB", +a[0]);
 	return kThxBye;
 }
 OPCODE(0xb1) {
-	debugC(2, kDebugLevelScript, "opcode 0xb1: actor %s walk to %sx%s", +a[0], +a[1], +a[2]);
+	// nargs=1 — was OOB-reading a[1] and a[2]. iter-21 fix.
+	debugC(2, kDebugLevelScript, "opcode 0xb1: actor walk to position %s STUB", +a[0]);
 	return kThxBye;
 }
 OPCODE(0xb2) {
-	debugC(2, kDebugLevelScript, "opcode 0xb2: actor %s walk variant %s", +a[0], +a[1]);
+	// nargs=1 — was OOB-reading a[1]. iter-21 fix.
+	debugC(2, kDebugLevelScript, "opcode 0xb2: actor walk variant %s STUB", +a[0]);
 	return kThxBye;
 }
 OPCODE(0xb3) {
-	debugC(2, kDebugLevelScript, "opcode 0xb3: actor %s walk to room exit %s", +a[0], +a[1]);
+	// nargs=1 — was OOB-reading a[1]. iter-21 fix.
+	debugC(2, kDebugLevelScript, "opcode 0xb3: actor walk to room exit %s STUB", +a[0]);
 	return kThxBye;
 }
 OPCODE(0xb4) {
@@ -1992,25 +2204,31 @@ OPCODE(0xc0) {
 	return kThxBye;
 }
 OPCODE(0xc1) {
-	// UnregisterActor when not in map mode (DOS CS:0x5131). Pulls the actor
-	// out of the active animation list — engine equivalent: remove from Logic.
-	debugC(2, kDebugLevelScript, "opcode 0xc1: unregister actor %s", +a[0]);
-	if (!Log.inMapMode()) {
-		if (Actor *ac = Log.getActor(a[0]))
-			Log.removeAnimation(ac);
-	}
+	// DOS Op_c1_UnregisterActor (CS:0x5131): nargs=0 per opcodes_nargs.data.
+	// Calls UnregisterActor on the IMPLICIT actor (whichever is being
+	// processed by the cast/animation loop), gated on !inMapMode. Was
+	// OOB-reading a[0] AND treating it as an actor id. Without an
+	// implicit-actor concept in the C++ engine, log + no-op (the C++
+	// loop does its own per-actor tick management).
+	debugC(2, kDebugLevelScript, "opcode 0xc1: UnregisterActor (implicit, in_map_mode=%d) STUB",
+		Log.inMapMode() ? 1 : 0);
 	return kThxBye;
 }
 OPCODE(0xc3) {
-	debugC(2, kDebugLevelScript, "opcode 0xc3: cast op %s", +a[0]);
+	// nargs=3 — was using only a[0]; under-use OK but log all 3.
+	debugC(2, kDebugLevelScript, "opcode 0xc3: cast op %s %s %s STUB", +a[0], +a[1], +a[2]);
 	return kThxBye;
 }
 OPCODE(0xc4) {
-	debugC(2, kDebugLevelScript, "opcode 0xc4: cast op %s,%s", +a[0], +a[1]);
+	// nargs=3 — was using a[0], a[1]; under-use OK.
+	debugC(2, kDebugLevelScript, "opcode 0xc4: cast op %s %s %s STUB", +a[0], +a[1], +a[2]);
 	return kThxBye;
 }
 OPCODE(0xc5) {
-	debugC(2, kDebugLevelScript, "opcode 0xc5: cast op %s,%s", +a[0], +a[1]);
+	// DOS Op_c5_ClearCastEntry (CS:0x51cd): nargs=1 — searches cast table
+	// for entry where field+0x02 == arg0, clears it (sets active=0).
+	// Was OOB-reading a[1]. iter-21 fix.
+	debugC(2, kDebugLevelScript, "opcode 0xc5: ClearCastEntry %s STUB", +a[0]);
 	return kThxBye;
 }
 
@@ -2189,18 +2407,24 @@ OPCODE(0xf2) {
 	return kThxBye;
 }
 OPCODE(0xf3) {
-	// 0xf3 (DOS CS:0x5769) → QueueAndStartTune: queue a tune for the next
-	// scene transition. Pull the tune script via the main interpreter the
-	// same way 0xf4 does.
-	debugC(1, kDebugLevelScript, "opcode 0xf3: queue+start tune %s", +a[0]);
-	const byte *script = Log.mainInterpreter()->rawCode(static_cast<CodePointer &>(a[0]).offset());
-	Music.loadMusic(script);
+	// DOS Op_f3 (CS:0x5769): nargs=0 per opcodes_nargs.data. Calls
+	// RegisterSampleSlot_Bare8 (or _Bare5 if SFX inactive). NOT a music
+	// load. The original C++ port had it as `Music.loadMusic(a[0])` —
+	// reading a[0] (which doesn't exist with 0 nargs) as a CodePointer
+	// offset, then loading "music" from a garbage address. Could crash
+	// if the script ever emitted Op_f3. iter-21 fix.
+	debugC(2, kDebugLevelScript, "opcode 0xf3: RegisterSampleSlot (no args) STUB");
 	return kThxBye;
 }
 OPCODE(0xf5) {
-	// 0xf5 (DOS CS:0x5812): set music beat directly (skips current beat).
-	debugC(2, kDebugLevelScript, "opcode 0xf5: set music beat %s", +a[0]);
-	Music.setBeat(uint16(a[0]));
+	// DOS Op_f5 (CS:0x5812): nargs=0 per opcodes_nargs.data. Calls
+	// RegisterSampleSlot_Bare6 (music) or _Bare5 (sfx). NOT a beat-set.
+	// Original C++ called Music.setBeat(uint16(a[0])) — reading a[0]
+	// (which doesn't exist with 0 nargs) as a beat number, then setting
+	// the music to a garbage beat. Could index past the beat array
+	// (Tune::setBeat is now bound-checked iter-12, so it'd just no-op,
+	// but cleaner to not invoke at all). iter-21 fix.
+	debugC(2, kDebugLevelScript, "opcode 0xf5: RegisterSampleSlot (music, no args) STUB");
 	return kThxBye;
 }
 
