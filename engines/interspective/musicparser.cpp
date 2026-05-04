@@ -25,8 +25,11 @@
 
 #include "interspective/musicparser.h"
 
+#include "common/config-manager.h"
 #include "common/endian.h"
+#include "common/system.h"
 #include "audio/mididrv.h"
+#include "audio/mixer.h"
 
 #include "interspective/resources.h"
 #include "interspective/util.h"
@@ -37,12 +40,44 @@ namespace Common {
 
 namespace Interspective {
 
-MusicParser::MusicParser() : MidiParser(), _time(0), _lastTick(0), _tick(0) {
-	MidiDriver::DeviceHandle dev = MidiDriver::detectDevice(MDT_MIDI | MDT_ADLIB | MDT_PREFER_GM);
+MusicParser::MusicParser() : MidiParser(), _tune(0), _script(0), _time(0), _lastTick(0), _tick(0) {
+	const uint32 devTypes = MDT_MIDI | MDT_ADLIB | MDT_PREFER_GM;
+	MidiDriver::DeviceHandle dev = MidiDriver::detectDevice(devTypes);
+	const MusicType musicType = MidiDriver::getMusicType(dev);
+	const Common::String devId = MidiDriver::getDeviceString(dev, MidiDriver::kDeviceId);
+	warning("Interspective music init: detected device id='%s' musicType=%d (1=PCSPK 2=PCJR 3=CMS 4=ADLIB 5=MIDI 6=MT32 7=GM ...)",
+		devId.c_str(), int(musicType));
+
 	_midiDriver = MidiDriver::createMidi(dev);
+	if (!_midiDriver) {
+		warning("Interspective music init: MidiDriver::createMidi returned NULL — music will be silent");
+		return;
+	}
+
 	int openResult = _midiDriver->open();
 	if (openResult != 0) {
-		warning("Interspective: MidiDriver::open failed (%d) — music will be silent", openResult);
+		warning("Interspective music init: MidiDriver::open failed (%d) — music will be silent", openResult);
+		return;
+	}
+	warning("Interspective music init: MIDI driver opened OK; baseTempo=%u",
+		(uint)_midiDriver->getBaseTempo());
+
+	// Report current mixer volume so the user can confirm the music isn't being
+	// silenced upstream. Default in ScummVM is typically 192/256 (75%) but can
+	// be 0 if the user has muted music in the Audio panel — that would silence
+	// the OPL output entirely regardless of how many NoteOns we send.
+	if (g_system && g_system->getMixer()) {
+		const int musicVol = g_system->getMixer()->getVolumeForSoundType(Audio::Mixer::kMusicSoundType);
+		const int sfxVol = g_system->getMixer()->getVolumeForSoundType(Audio::Mixer::kSFXSoundType);
+		warning("Interspective music init: mixer volumes — music=%d/%d sfx=%d/%d (max=%d)",
+			musicVol, Audio::Mixer::kMaxMixerVolume,
+			sfxVol, Audio::Mixer::kMaxMixerVolume,
+			Audio::Mixer::kMaxMixerVolume);
+		if (musicVol == 0)
+			warning("Interspective music init: ★ MUSIC VOLUME IS 0 — that's why you hear nothing. "
+				"Adjust in ScummVM's Audio settings (or `music_volume` in scummvm.ini).");
+	} else {
+		warning("Interspective music init: g_system / mixer unavailable — can't read volume");
 	}
 
 	// MidiParser::setMidiDriver only sets _driver — doesn't touch the driver's
@@ -53,21 +88,38 @@ MusicParser::MusicParser() : MidiParser(), _time(0), _lastTick(0), _tick(0) {
 	setMidiDriver(_midiDriver);
 	setTimerRate(_midiDriver->getBaseTempo());
 	_midiDriver->setTimerCallback(this, &MusicParser::timerCallback);
+	warning("Interspective music init: timer callback registered (timerRate=%u µs)",
+		(uint)_timerRate);
 }
 
 MusicParser::~MusicParser() {
 	silence();
 	unloadMusic();
-	_midiDriver->setTimerCallback(0, 0);
-	_midiDriver->close();
-	setMidiDriver(0);
-	delete _midiDriver;
+	delete _tune; _tune = 0;
+	delete _script; _script = 0;
+	if (_midiDriver) {
+		_midiDriver->setTimerCallback(0, 0);
+		_midiDriver->close();
+		setMidiDriver(0);
+		delete _midiDriver;
+	}
 }
 
 bool MusicParser::loadMusic(const byte *data, uint32 size) {
+	static int loadMusicCallCount = 0;
+	loadMusicCallCount++;
+	warning("Interspective music: loadMusic called (#%d) data=%p size=%u",
+		loadMusicCallCount, (const void *)data, (unsigned)size);
+
+	if (!_midiDriver) {
+		warning("Interspective music: loadMusic skipped — no MIDI driver");
+		return false;
+	}
+
 	unloadMusic();
 	silence();
 	delete _script;
+	delete _tune; _tune = 0;
 	_script = new MusicScript(const_cast<byte *>(data));
 
 	// Reset our custom music clock so tunes always start from tick 0. Without
@@ -80,7 +132,7 @@ bool MusicParser::loadMusic(const byte *data, uint32 size) {
 	_time = 0;
 
 	uint16 tuneIdx = _script->getTune();
-	debugC(1, kDebugLevelMusic, "MusicParser::loadMusic — tune index %u", tuneIdx);
+	warning("Interspective music: loadMusic tune index = %u", tuneIdx);
 	_tune = new Tune(tuneIdx);
 
 	_numTracks = 1;
@@ -88,6 +140,8 @@ bool MusicParser::loadMusic(const byte *data, uint32 size) {
 //	_clocksPerTick = 0x19;
 	setTempo(500000 * 0x19);
 	setTrack(0);
+	warning("Interspective music: loadMusic complete — _psecPerTick=%u _ppqn=%u",
+		(uint)_psecPerTick, (uint)_ppqn);
 	return true;
 }
 
@@ -98,8 +152,22 @@ void MusicParser::tick() {
 
 	_lastTick = _time;
 
-	if (_tune)
+	static bool reportedFirstTick = false;
+	if (!reportedFirstTick) {
+		reportedFirstTick = true;
+		warning("Interspective music: first MusicParser::tick fired (timerRate=%u psecPerTick=%u tune=%p)",
+			(uint)_timerRate, (uint)_psecPerTick, (const void *)_tune);
+	}
+
+	if (_tune) {
+		static bool reportedFirstTuneTick = false;
+		if (!reportedFirstTuneTick) {
+			reportedFirstTuneTick = true;
+			warning("Interspective music: first Tune::tick about to fire (Music.getTick=%u)",
+				(uint)_tick);
+		}
 		_tune->tick();
+	}
 	_tick++;
 }
 
@@ -216,12 +284,36 @@ Tune::Tune(uint16 index) {
 }
 
 void Tune::setBeat(uint16 index) {
+	if (index >= _beats.size()) {
+		// Script asked to seek past the last beat — common at tune end. Stop
+		// the tune cleanly instead of indexing past the array (which used to
+		// smash the heap; pre-fix this was the suspected silent-crash path
+		// when a tune ran to completion).
+		warning("Interspective music: Tune::setBeat(%u) >= beats=%u — stopping tune",
+			(uint)index, (uint)_beats.size());
+		_currentBeat = -1;
+		_beatticks = 0;
+		return;
+	}
 	_currentBeat = index;
 	_beats[_currentBeat].reset();
 	_beatticks = 0;
 }
 
 void Tune::tick() {
+	if (_currentBeat < 0 || _currentBeat >= (int32)_beats.size()) {
+		// Out-of-range beat index would smash the heap. Default-constructed
+		// Tune has _currentBeat=-1 (never initialised). After the last beat
+		// finishes, setBeat(_currentBeat+1) can advance past _beats.size().
+		// Either way: silently do nothing rather than crash.
+		static bool reportedBadBeat = false;
+		if (!reportedBadBeat) {
+			reportedBadBeat = true;
+			warning("Interspective music: Tune::tick guarded out-of-range beat (currentBeat=%d, beats=%u)",
+				(int)_currentBeat, (uint)_beats.size());
+		}
+		return;
+	}
 	_beats[_currentBeat].tick();
 	_beatticks++;
 	if (_beatticks == 64)

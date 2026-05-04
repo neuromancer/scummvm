@@ -86,10 +86,15 @@ Animation::Animation(const CodePointer &code, Common::Point position) :
 	_interval(1),
 	_ticksLeft(0),
 	_counter(0),
-	_debugInvalid(false) {
+	_debugInvalid(false),
+	_opRingIdx(0) {
 	_base = code.code();
 	_baseOffset = code.offset();
 	_resources = code.interpreter()->resources();
+	for (int i = 0; i < 16; i++) {
+		_opRing[i].pc = 0xffff;
+		_opRing[i].op = 0;
+	}
 	init_opcodes<37>();
 	snprintf(_debugInfo, 50, "animation at %s", +code);
 	code.interpreter()->rememberAnimation(this);
@@ -115,8 +120,52 @@ Animation::Status Animation::tick() {
 	while (status == kOk && _base) {
 		int8 opcode = -*(_base + _offset);
 		if (opcode < 0 || opcode >= 0x27) {
-			error("invalid animation opcode 0x%02x while handling %s", *(_base + _offset), _debugInfo);
+			// Dump 16 bytes around the bad PC so the misalignment can be
+			// traced back to whichever upstream handler over/under-consumed.
+			// _baseOffset is the script's start in the source file;
+			// _offset is the relative PC from there. Bad byte is at the
+			// absolute file address _baseOffset + _offset.
+			char ctx[80] = {0};
+			int written = 0;
+			for (int i = -4; i <= 11 && written < 76; i++) {
+				const int rel = (int)_offset + i;
+				if (rel < 0)
+					continue;
+				written += snprintf(ctx + written, sizeof(ctx) - written,
+					"%s%02x", i == 0 ? "[" : (i == 1 ? "]" : " "),
+					*(_base + rel));
+			}
+
+			// Dump the ring of last 16 dispatched opcodes — what was
+			// executed leading up to this misalignment.
+			char ring[256] = {0};
+			int rwritten = 0;
+			for (int i = 0; i < 16 && rwritten < 250; i++) {
+				const uint8 idx = (_opRingIdx + i) & 15;
+				if (_opRing[idx].pc == 0xffff)
+					continue;
+				rwritten += snprintf(ring + rwritten, sizeof(ring) - rwritten,
+					"%s@%04x:%02x",
+					rwritten ? " " : "",
+					(uint)_opRing[idx].pc,
+					(uint)_opRing[idx].op);
+			}
+
+			error("invalid animation opcode 0x%02x while handling %s "
+				"(absolute file offset 0x%04x = base 0x%04x + pc 0x%04x;\n"
+				"  context: %s\n"
+				"  last 16 dispatched: %s)",
+				*(_base + _offset), _debugInfo,
+				(uint)(_baseOffset + _offset),
+				(uint)_baseOffset, (uint)_offset, ctx, ring);
 		}
+
+		// Push to forensic ring before advancing — captures the byte that
+		// was actually dispatched, at the offset where it was found.
+		_opRing[_opRingIdx].pc = _offset;
+		_opRing[_opRingIdx].op = *(_base + _offset);
+		_opRingIdx = (_opRingIdx + 1) & 15;
+
 		_offset += 2;
 
 		_debugInvalid = false;

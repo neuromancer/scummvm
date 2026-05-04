@@ -104,6 +104,14 @@ protected:
 
 	bool _debugInvalid;
 
+	// Forensic ring of (offset, byte) pairs for the last 16 dispatched
+	// opcodes. Dumped by the "invalid opcode" error path so we can trace
+	// which prior handler over/under-consumed and walked the script PC
+	// off the rails.
+	struct OpRingEntry { uint16 pc; byte op; };
+	OpRingEntry _opRing[16];
+	uint8 _opRingIdx;
+
 private:
 	typedef Status (Animation::*OpcodeHandler)();
 	OpcodeHandler _handlers[38];

@@ -1082,8 +1082,14 @@ OPCODE(0xf4) {
 	// at a music script: tune index (uint16) followed by kSetBeat/kJump/kStop bytecodes. Even
 	// when called from a block, the offset is always relative to the main interpreter — music
 	// scripts live in the global file, not in per-block bytecode.
-	debugC(1, kDebugLevelScript, "opcode 0xf4: play music script at main offset 0x%04x", static_cast<CodePointer &>(a[0]).offset());
-	Music.loadMusic(Log.mainInterpreter()->rawCode(static_cast<CodePointer &>(a[0]).offset()));
+	const uint16 scriptOff = static_cast<CodePointer &>(a[0]).offset();
+	debugC(1, kDebugLevelScript, "opcode 0xf4: play music script at main offset 0x%04x", scriptOff);
+	static int op_f4_calls = 0;
+	op_f4_calls++;
+	if (op_f4_calls <= 3)
+		warning("Interspective music: opcode 0xf4 emitted (call #%d, script offset 0x%04x)",
+			op_f4_calls, scriptOff);
+	Music.loadMusic(Log.mainInterpreter()->rawCode(scriptOff));
 	return kThxBye;
 }
 

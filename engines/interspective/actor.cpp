@@ -528,85 +528,82 @@ OPCODE(0x01) {
 }
 
 OPCODE(0x14) {
-	// DOS ActorOp_14_BranchIfRandomMatch (CS:0x6ad9): rolls a random byte
-	// and jumps to embedded offset if it matches. C++ has it commented as
-	// "jump if I'm speaking" — that's a guess from the original port and
-	// does NOT match DOS. STUB: consume the offset arg, never jump.
-	// (Mismatch tolerable because random-jump effect is statistically rare.)
-	uint16 off = shift();
-
-	debugC(1, kDebugLevelAnimation, "actor opcode 0x14: BranchIfRandomMatch -> 0x%04x STUB (DOS: random match jump)", off);
-
+	// C++ slot 0x14 = DOS Op_15 WaitForSpeechSlot (CS:0x6af1). 0 args.
+	// Previously consumed 1 shift (2 extra bytes) — over by 2. FIXED iter-12.
+	debugC(2, kDebugLevelAnimation, "actor opcode 0x14: WaitForSpeechSlot STUB [DOS Op_15]");
 	return kOk;
 }
 
 OPCODE(0x15) {
-	// DOS ActorOp_15_WaitForSpeechSlot (CS:0x6af1): looks up the actor's
-	// speech slot via FindSpeechSlotById; checks scroll-dirty for the main
-	// character. C++ commented as "look at cursor direction" — wrong.
-	// STUB.
-	debugC(1, kDebugLevelAnimation, "actor opcode 0x15: WaitForSpeechSlot STUB (DOS: lookup speech slot)");
-
+	// C++ slot 0x15 = DOS Op_16 PickAnimationSet (CS:0x6c3e). Reads
+	// embedded byte at +1 + word at +2..+3 = byte + 1 shift. Previously
+	// consumed 0 — under by 2. FIXED iter-12 to consume the right bytes.
+	byte val = embeddedByte();
+	uint16 off = shift();
+	debugC(2, kDebugLevelAnimation, "actor opcode 0x15: PickAnimationSet val=%d off=0x%04x STUB [DOS Op_16]", val, off);
 	return kOk;
 }
 
 OPCODE(0x16) {
-	// DOS ActorOp_16_PickAnimationSet (CS:0x6c3e): picks the actor's
-	// animation set (writes actor.field_0x68) based on cursor offset
-	// vs. current pose, when cursor mode is 0x80. C++ commented as
-	// "look direction branch" — wrong, and consumes 1 byte + 1 word.
-	// Per DOS the embedded byte/word here are NOT the args — leave STUB.
+	// C++ slot 0x16 = DOS Op_17 BranchIfAnimSetEquals (CS:0x6b17). Reads
+	// embedded byte (anim-set value) + word (jump target). Byte
+	// consumption matches. C++ uses _direction as proxy for field+0x68.
 	byte val = embeddedByte();
 	uint16 off = shift();
-
-	debugC(1, kDebugLevelAnimation, "actor opcode 0x16: PickAnimationSet STUB val=%d off=0x%04x", val, off);
-
+	debugC(3, kDebugLevelAnimation, "actor opcode 0x16: BranchIfAnimSetEquals val=%d off=0x%04x (C++ uses _direction) [DOS Op_17]", val, off);
+	if (val == _direction)
+		setAnimation(off);
 	return kOk;
 }
 
 OPCODE(0x17) {
-	// DOS ActorOp_17_BranchIfAnimSetEquals (CS:0x6b17): compares actor's
-	// animation set (field_0x68) to embedded byte; jumps if equal.
-	// C++ compares to _direction instead and calls setAnimation(off) —
-	// the C++ author conflated "animation set" with "facing direction".
-	// In practice these may overlap (8 directions ↔ 8 anim sets) so the
-	// behavior is often functionally close, but it's not literally the
-	// same field. NOT changed — would require modeling field_0x68
-	// separately to fix without regression.
+	// C++ slot 0x17 = DOS Op_18 BranchIfMoodEquals (CS:0x6b29). Reads
+	// embedded byte + word. Byte consumption matches. C++ stashes
+	// _nextAnimator instead of comparing mood — parallel mechanism.
 	byte val = embeddedByte();
 	uint16 off = shift();
-
-	debugC(3, kDebugLevelAnimation, "actor opcode 0x17: BranchIfAnimSetEquals (C++ uses _direction) val=%d off=0x%04x", val, off);
-
-	if (val == _direction) {
-		setAnimation(off);
-	}
-
+	debugC(3, kDebugLevelAnimation, "actor opcode 0x17: BranchIfMoodEquals val=%d off=0x%04x (C++ stashes _nextAnimator) [DOS Op_18]", val, off);
+	_nextAnimator = off;
 	return kOk;
 }
 
 OPCODE(0x18) {
-	// DOS ActorOp_18_BranchIfMoodEquals (CS:0x6b29): compares actor's mood
-	// (field_0x63) to embedded byte; jumps if equal. C++ instead stashes
-	// `_nextAnimator = val` for animate() to apply later — completely
-	// different mechanism. The C++ "next animator" is part of its parallel
-	// walking model. NOT changed (changing it would need DOS mood-byte
-	// modeling on Actor).
+	// C++ slot 0x18 = DOS Op_19 SetField6d (CS:0x6b43). Reads 1 int16.
+	// Byte consumption matches. Engine doesn't model field+0x6d yet.
 	uint16 val = shift();
+	debugC(3, kDebugLevelAnimation, "actor opcode 0x18: SetField6d = 0x%04x STUB [DOS Op_19]", val);
+	setDosField(0x6d, uint8(val));  // store low byte; field is actually word but no readers yet
+	return kOk;
+}
 
-	debugC(3, kDebugLevelAnimation, "actor opcode 0x18: BranchIfMoodEquals (C++ stashes _nextAnimator=0x%x)", val);
-	_nextAnimator = val;
+OPCODE(0x19) {
+	// C++ slot 0x19 = DOS Op_1a SetWalkFlagsAndEnd (CS:0x6a48). Reads
+	// 1 int16 (walk flags) and ends script (Animation handler 0x19 was
+	// "hide for delay" with 1 shift — happens to match consumption).
+	uint16 flags = shift();
+	debugC(2, kDebugLevelAnimation, "actor opcode 0x19: SetWalkFlagsAndEnd flags=0x%04x STUB [DOS Op_1a]", flags);
+	return kOk;
+}
 
+OPCODE(0x1a) {
+	// C++ slot 0x1a = DOS Op_1b SetField12ClearFlag16 (CS:0x6b4e). Reads
+	// embedded byte at +1 only. Animation::0x1a ("set z index") happens
+	// to use embeddedByte too — accidentally aligned, but writing
+	// _zIndex instead of field+0x12. Override for correctness.
+	byte v = embeddedByte();
+	debugC(3, kDebugLevelAnimation, "actor opcode 0x1a: SetField12ClearFlag16 = %d STUB [DOS Op_1b]", v);
+	setDosField(0x12, v);
+	setDosField(0x16, 0);
 	return kOk;
 }
 
 OPCODE(0x23) {
-	// DOS ActorOp_23_ClearCallback (CS:0x6c0a): writes 0xffff to
-	// actor.field_0x5d (clears a callback pointer). C++ instead sets
-	// _direction to one of 8 compass values — completely different
-	// semantics. The C++ "face direction" is part of the parallel walking
-	// model and is load-bearing for the engine's pathfinding heuristic.
-	// NOT changed without porting the DOS callback model.
+	// C++ slot 0x23 = DOS Op_24 SetMood (CS:0x6c13). Reads byte at +1.
+	// Byte consumption matches. C++ uses this as "set _direction" — the
+	// load-bearing C++ walking heuristic. The bytecode emits this
+	// opcode with values 1..8 (compass values) which the C++ interprets
+	// as direction. In DOS the byte is the actor's mood. The two
+	// usages happen to overlap because mood values are also small.
 	byte dir = embeddedByte();
 
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x23: ClearCallback (C++ sets _direction=%d)", dir);
@@ -644,181 +641,196 @@ OPCODE(0x23) {
 }
 
 OPCODE(0x24) {
-	// DOS ActorOp_24_SetMood (CS:0x6c13): writes embedded byte to
-	// actor.field_0x63 (sets actor's mood). C++ instead sets
-	// _attentionNeeded = true to drive its parallel walking model
-	// (animate() → nextFrame()). The two have NOTHING in common at the
-	// DOS level — the C++ usage is a heuristic that happens to fire on
-	// each move-animator script (which emits 0x24 between frames) and
-	// drives the walk queue. CRITICAL load-bearing behavior — see iter 7
-	// (movement-animation speed fix). Do NOT remove the
-	// _attentionNeeded write without first porting the DOS walk-driver
-	// model (which uses ActorOp_07_SetTargetFrame and friends).
-	byte dir = embeddedByte();
-
-	debugC(3, kDebugLevelAnimation, "actor opcode 0x24: SetMood (C++ uses as walk-attention trigger, mood=%d)", dir);
+	// C++ slot 0x24 = DOS Op_25 SetField65 (CS:0x6c1e). Reads byte at +1.
+	// Byte consumption matches. C++ uses this as "set _attentionNeeded"
+	// — the load-bearing C++ walking trigger. The bytecode emits this
+	// between walk frames so the next frame can advance. CRITICAL: the
+	// iter-7 movement-speed fix gates animate() on _ticksLeft; do NOT
+	// remove the _attentionNeeded write without porting the DOS walk
+	// driver. Also stash the field value for any future readers.
+	byte v = embeddedByte();
+	debugC(3, kDebugLevelAnimation, "actor opcode 0x24: SetField65 = %d (C++ also sets _attentionNeeded for walking) [DOS Op_25]", v);
+	setDosField(0x65, v);
 	_attentionNeeded = true;
+	return kOk;
+}
 
+// Actor opcodes 0x02..0x0e (other than the ones below) fall through to the
+// Animation handler with the same number, which by lucky coincidence happens
+// to consume the right number of bytes for each corresponding DOS Op_(N+1)
+// (verified by inspection: every slot in 0x02..0x0e matches DOS byte counts
+// EXCEPT 0x0f, which Animation implements as "jump"=1 shift but DOS Op_10
+// is NoOp=0 args). Override 0x0f to fix the alignment.
+
+OPCODE(0x0f) {
+	// C++ slot 0x0f = DOS Op_10 NoOp (CS:0x6a7e). 0 args. Animation::0x0f
+	// ("jump") would consume 1 shift = 2 over-consumed bytes. FIXED iter-12.
+	debugC(4, kDebugLevelAnimation, "actor opcode 0x0f: NoOp [DOS Op_10]");
 	return kOk;
 }
 
 // ============================================================================
-// Phase-1 actor opcode overrides (iter 11). The C++ Animation::opcodeHandler
-// fall-through table has DIFFERENT semantics for these slots than DOS
-// requires. Without these overrides, an actor script emitting 0x10/0x11/
-// 0x12/0x13/0x26 would trigger Animation handlers that:
-//   0x10 — write 1 to a global byte var (DOS: NoOp)
-//   0x11 — write 0 to a global byte var (DOS: SET to 1, INVERTED)
-//   0x12 — conditionally jump on byte var (DOS: clear global byte var to 0)
-//   0x13 — random jump (DOS: NoOp)
-//   0x26 — error("unhandled animation opcode") and crash (DOS: PlaySfx)
-// All of these are reachable from the bytecode if any actor script uses
-// global flag setters or sfx triggers. These overrides make the engine
-// SAFE under such bytecode without requiring the broader walking-model
-// rewrite (deferred per iter-10 roadmap).
+// Phase-1 actor opcode overrides (iter 11; CORRECTED iter 12 after off-by-1
+// dispatcher mapping was uncovered).
+//
+// CRITICAL: C++ OPCODE(N) handles memory byte (-N-1 as int8), which the DOS
+// dispatcher labels as Op_(N+1). For example:
+//   memory byte 0xff → C++ OPCODE(0x00) → DOS Op_01 (ScriptEnd)
+//   memory byte 0xed → C++ OPCODE(0x12) → DOS Op_13 (NoOp)
+//   memory byte 0xdc → C++ OPCODE(0x23) → DOS Op_24 (SetMood)
+// The original ScummVM port and iter-10 audit notation labeled handlers by
+// the C++ slot number while quoting DOS Op_N semantics — so they were
+// systemically mismatched by 1. Iter-12 corrected the mapping after the
+// trace at file offset 0x0262 showed OPCODE(0x12) over-consuming 2 bytes
+// for an opcode that DOS specifies as 0-arg (NoOp).
+//
+// Each handler below is named per its TRUE DOS opcode (= C++ slot + 1).
+// Byte consumption MUST match DOS exactly — script PC alignment depends on
+// it. Semantics may simplify to safe stubs where DOS state isn't modeled.
 // ============================================================================
 
 OPCODE(0x10) {
-	// DOS ActorOp_10_NoOp (CS:0x6a7e): no-op. Override Animation::0x10
-	// which would erroneously set a global byte var to 1.
-	debugC(4, kDebugLevelAnimation, "actor opcode 0x10: NoOp");
-	return kOk;
-}
-
-OPCODE(0x11) {
-	// DOS ActorOp_11_SetGlobalByteFlag (CS:0x6a83): reads 1 int16 offset,
-	// writes 1 to byte at DAT_1000_009d + offset (global byte var table).
-	// Override Animation::0x11 which would write 0 (clear) — INVERTED!
+	// C++ slot 0x10 = DOS Op_11 SetGlobalByteFlag. Reads 1 int16 offset
+	// (1 shift = 2 bytes), writes 1 to global byte var. Original Animation
+	// fall-through (set-bvar) happened to do the right thing structurally
+	// but always wrote 1; semantically this matches.
 	uint16 var = shift();
-	debugC(3, kDebugLevelAnimation, "actor opcode 0x11: SetGlobalByteFlag var %d = 1", var);
+	debugC(3, kDebugLevelAnimation, "actor opcode 0x10: SetGlobalByteFlag var %d = 1 [DOS Op_11]", var);
 	*_resources->getGlobalByteVariable(var) = 1;
 	return kOk;
 }
 
-OPCODE(0x12) {
-	// DOS ActorOp_12_ClearGlobalByteFlag (CS:0x6a9d): reads 1 int16 offset,
-	// writes 0 to byte at DAT_1000_009d + offset. Override Animation::0x12
-	// which would conditionally jump (totally different semantics).
+OPCODE(0x11) {
+	// C++ slot 0x11 = DOS Op_12 ClearGlobalByteFlag. Reads 1 int16 offset
+	// (1 shift), writes 0 to global byte var. Animation::0x11 ("reset
+	// flag") happens to also write 0 with 1 shift — accidentally aligned.
 	uint16 var = shift();
-	debugC(3, kDebugLevelAnimation, "actor opcode 0x12: ClearGlobalByteFlag var %d = 0", var);
+	debugC(3, kDebugLevelAnimation, "actor opcode 0x11: ClearGlobalByteFlag var %d = 0 [DOS Op_12]", var);
 	*_resources->getGlobalByteVariable(var) = 0;
 	return kOk;
 }
 
+OPCODE(0x12) {
+	// C++ slot 0x12 = DOS Op_13 NoOp. NO args consumed.
+	// Animation::0x12 ("jump if bvar") read 2 shifts (4 bytes) — over-
+	// consumed and walked the PC into garbage. iter-11 also got this
+	// wrong (used 1 shift). FIXED iter-12 to 0 shifts. THIS WAS THE
+	// SOURCE OF THE 0x521f / 0x2a CRASH.
+	debugC(4, kDebugLevelAnimation, "actor opcode 0x12: NoOp [DOS Op_13]");
+	return kOk;
+}
+
 OPCODE(0x13) {
-	// DOS ActorOp_13_NoOp (CS:0x6ab7): no-op. Override Animation::0x13
-	// which would consume max+offset args and randomly jump.
-	debugC(4, kDebugLevelAnimation, "actor opcode 0x13: NoOp");
+	// C++ slot 0x13 = DOS Op_14 BranchIfRandomMatch. Reads 1 int16 jump
+	// offset (1 shift). Engine doesn't implement the actual random jump
+	// yet — just consume the right bytes to keep alignment.
+	uint16 off = shift();
+	debugC(2, kDebugLevelAnimation, "actor opcode 0x13: BranchIfRandomMatch off=0x%04x STUB [DOS Op_14]", off);
 	return kOk;
 }
 
-OPCODE(0x26) {
-	// DOS ActorOp_26_PlaySfx (CS:0x6c29): calls DispatchSfxRangeCheck
-	// (1000:606d) — registers the actor's sfx for playback if within
-	// active range. Engine has no SFX driver yet (see iter-1 sound stubs);
-	// safe-stub so the engine doesn't error("unhandled animation opcode").
-	debugC(2, kDebugLevelAnimation, "actor opcode 0x26: PlaySfx STUB");
-	return kOk;
-}
+// Per-actor flag-byte ops (DOS field map):
+//   field +0x14 — cleared by C++ 0x1d (DOS Op_1e ClearFlag14)
+//   field +0x15 — cleared by C++ 0x1e (DOS Op_1f ClearFlag15)
+//                 set     by C++ 0x1f (DOS Op_20 SetFlag15)
 
-// Per-actor flag-byte ops (DOS field offsets per the iter-10 field map):
-//   0x14 — flag14 (cleared by 0x1e)
-//   0x15 — flag15 (set by 0x20, cleared by 0x1f)
-//   0x65 — misc byte (set by 0x25, byte from script[+1])
-// Stored in Actor::_dosFields hashmap. Override Animation handlers (which
-// would do completely different things in these slots).
-
-OPCODE(0x1e) {
-	// DOS ActorOp_1e_ClearFlag14 (CS:0x6bcd): actor[+0x14] = 0.
-	debugC(3, kDebugLevelAnimation, "actor opcode 0x1e: ClearFlag14");
+OPCODE(0x1d) {
+	// C++ slot 0x1d = DOS Op_1e ClearFlag14. 0 args.
+	debugC(3, kDebugLevelAnimation, "actor opcode 0x1d: ClearFlag14 [DOS Op_1e]");
 	setDosField(0x14, 0);
 	return kOk;
 }
 
-OPCODE(0x1f) {
-	// DOS ActorOp_1f_ClearFlag15 (CS:0x6bd5): actor[+0x15] = 0.
-	debugC(3, kDebugLevelAnimation, "actor opcode 0x1f: ClearFlag15");
+OPCODE(0x1e) {
+	// C++ slot 0x1e = DOS Op_1f ClearFlag15. 0 args.
+	debugC(3, kDebugLevelAnimation, "actor opcode 0x1e: ClearFlag15 [DOS Op_1f]");
 	setDosField(0x15, 0);
 	return kOk;
 }
 
-OPCODE(0x20) {
-	// DOS ActorOp_20_SetFlag15 (CS:0x6bdd): actor[+0x15] = 1.
-	debugC(3, kDebugLevelAnimation, "actor opcode 0x20: SetFlag15");
+OPCODE(0x1f) {
+	// C++ slot 0x1f = DOS Op_20 SetFlag15. 0 args.
+	debugC(3, kDebugLevelAnimation, "actor opcode 0x1f: SetFlag15 [DOS Op_20]");
 	setDosField(0x15, 1);
 	return kOk;
 }
 
-OPCODE(0x25) {
-	// DOS ActorOp_25_SetField65 (CS:0x6c1e): actor[+0x65] = embedded byte
-	// from script[+1].
-	byte v = embeddedByte();
-	debugC(3, kDebugLevelAnimation, "actor opcode 0x25: SetField65 = %d", v);
-	setDosField(0x65, v);
-	return kOk;
-}
-
-// Crash-safety stubs for DOS actor ops not yet ported. Without these, the
-// Animation::opcodeHandler<N> fall-through for these slots either crashes
-// (error("unhandled animation opcode")) or does completely wrong work.
-// Each stub consumes the correct number of arg bytes per the iter-10
-// audit so the script PC advances correctly. Swapping these out with
-// faithful implementations is a Phase-2 task (requires modeling
-// actor.field+8 target frame, the move-queue at +0x19, etc).
-
-OPCODE(0x09) {
-	// DOS ActorOp_09_WalkRelative: 2 int8 args (dx, dy at script[+2,+3]),
-	// would translate the actor + set walk-counter and end script.
-	debugC(2, kDebugLevelAnimation, "actor opcode 0x09: WalkRelative STUB (Phase-2)");
-	return kOk;
-}
-
-OPCODE(0x0b) {
-	// DOS ActorOp_0b_WalkAbsoluteWithFrame: 3 int16 args (x, y, target).
-	uint16 x = shift();
-	uint16 y = shift();
-	uint16 target = shift();
-	debugC(2, kDebugLevelAnimation, "actor opcode 0x0b: WalkAbsoluteWithFrame STUB x=%d y=%d target=%d", x, y, target);
-	return kOk;
-}
-
-OPCODE(0x0c) {
-	// DOS ActorOp_0c_FaceAndWalkWithFrame: facing byte + target word.
-	byte face = embeddedByte();
-	uint16 target = shift();
-	debugC(2, kDebugLevelAnimation, "actor opcode 0x0c: FaceAndWalkWithFrame STUB face=%d target=%d", face, target);
-	return kOk;
-}
-
-OPCODE(0x1c) {
-	// DOS ActorOp_1c_QueueMoveSlotMode0: 3 int16 args (mode 0 to slot).
-	uint16 a = shift();
-	uint16 b = shift();
-	uint16 c = shift();
-	debugC(2, kDebugLevelAnimation, "actor opcode 0x1c: QueueMoveSlotMode0 STUB %d,%d,%d", a, b, c);
-	return kOk;
-}
-
-OPCODE(0x1d) {
-	// DOS ActorOp_1d_QueueMoveSlotMode1: 3 int16 args (mode 1 to slot).
-	uint16 a = shift();
-	uint16 b = shift();
-	uint16 c = shift();
-	debugC(2, kDebugLevelAnimation, "actor opcode 0x1d: QueueMoveSlotMode1 STUB %d,%d,%d", a, b, c);
+OPCODE(0x20) {
+	// C++ slot 0x20 = DOS Op_21 SetCallbackPointer. 0 args (DOS reads
+	// no script bytes; it captures the current PC as the callback).
+	// Engine doesn't model actor callbacks yet — safe-stub.
+	debugC(2, kDebugLevelAnimation, "actor opcode 0x20: SetCallbackPointer STUB [DOS Op_21]");
 	return kOk;
 }
 
 OPCODE(0x21) {
-	// DOS ActorOp_21_SetCallbackPointer: stashes current script PC as
-	// the actor's callback. No args consumed.
-	debugC(2, kDebugLevelAnimation, "actor opcode 0x21: SetCallbackPointer STUB");
+	// C++ slot 0x21 = DOS Op_22 SetCallbackRelative. Reads 1 int16
+	// relative offset (1 shift). Stub: consume bytes, ignore.
+	uint16 off = shift();
+	debugC(2, kDebugLevelAnimation, "actor opcode 0x21: SetCallbackRelative off=0x%04x STUB [DOS Op_22]", off);
 	return kOk;
 }
 
 OPCODE(0x22) {
-	// DOS ActorOp_22_SetCallbackRelative: 1 int16 arg (relative offset).
-	uint16 off = shift();
-	debugC(2, kDebugLevelAnimation, "actor opcode 0x22: SetCallbackRelative STUB off=0x%04x", off);
+	// C++ slot 0x22 = DOS Op_23 ClearCallback. 0 args.
+	debugC(3, kDebugLevelAnimation, "actor opcode 0x22: ClearCallback STUB [DOS Op_23]");
+	return kOk;
+}
+
+OPCODE(0x25) {
+	// C++ slot 0x25 = DOS Op_26 PlaySfx. 0 args. Calls DispatchSfxRangeCheck
+	// in DOS — engine has no SFX driver yet.
+	debugC(2, kDebugLevelAnimation, "actor opcode 0x25: PlaySfx STUB [DOS Op_26]");
+	return kOk;
+}
+
+// ============================================================================
+// Crash-safety stubs for the DOS walk-driver opcodes (Phase-2 placeholders).
+// Each consumes the correct number of bytes per DOS spec to keep the script
+// PC aligned; semantics deferred until the walk-driver is properly ported.
+// ============================================================================
+
+OPCODE(0x09) {
+	// C++ slot 0x09 = DOS Op_0a WalkAbsolute. Reads 2 int16 (x, y) = 2 shifts.
+	uint16 x = shift();
+	uint16 y = shift();
+	debugC(2, kDebugLevelAnimation, "actor opcode 0x09: WalkAbsolute STUB x=%d y=%d [DOS Op_0a]", x, y);
+	return kOk;
+}
+
+OPCODE(0x0b) {
+	// C++ slot 0x0b = DOS Op_0c FaceAndWalkWithFrame. Reads embedded byte
+	// at +1 (facing) + word at +2..+3 (target) = byte + 1 shift.
+	byte face = embeddedByte();
+	uint16 target = shift();
+	debugC(2, kDebugLevelAnimation, "actor opcode 0x0b: FaceAndWalkWithFrame face=%d target=%d STUB [DOS Op_0c]", face, target);
+	return kOk;
+}
+
+OPCODE(0x0c) {
+	// C++ slot 0x0c = DOS Op_0d FaceAndWalk. Reads embedded byte at +1
+	// only. NO shift — was previously over-consuming a shift.
+	byte face = embeddedByte();
+	debugC(2, kDebugLevelAnimation, "actor opcode 0x0c: FaceAndWalk face=%d STUB [DOS Op_0d]", face);
+	return kOk;
+}
+
+OPCODE(0x1b) {
+	// C++ slot 0x1b = DOS Op_1c QueueMoveSlotMode0. Reads 3 int16 args
+	// (3 shifts = 6 bytes).
+	uint16 a = shift();
+	uint16 b = shift();
+	uint16 c = shift();
+	debugC(2, kDebugLevelAnimation, "actor opcode 0x1b: QueueMoveSlotMode0 %d,%d,%d STUB [DOS Op_1c]", a, b, c);
+	return kOk;
+}
+
+OPCODE(0x1c) {
+	// C++ slot 0x1c = DOS Op_1d QueueMoveSlotMode1. Reads 3 int16 args.
+	uint16 a = shift();
+	uint16 b = shift();
+	uint16 c = shift();
+	debugC(2, kDebugLevelAnimation, "actor opcode 0x1c: QueueMoveSlotMode1 %d,%d,%d STUB [DOS Op_1d]", a, b, c);
 	return kOk;
 }
 
