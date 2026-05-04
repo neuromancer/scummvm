@@ -28,6 +28,7 @@
 
 #include "common/array.h"
 #include "common/endian.h"
+#include "common/hashmap.h"
 #include "common/queue.h"
 #include "common/rect.h"
 
@@ -220,6 +221,25 @@ private:
 	uint16 _nextAnimator; // to change to whenever possible
 	bool _attentionNeeded, _confused;
 	Puppeteer _puppeteer;
+
+	// Sparse storage for DOS actor record fields not yet first-class C++
+	// members. Keyed by DOS field offset (e.g. 0x14, 0x15, 0x16, 0x65).
+	// Used by ActorOp_1e/1f/20/25 and any future DOS-aligned port that
+	// touches these per-actor flag bytes. Sparse → absent keys read as 0
+	// (matches DOS post-init state).
+public:
+	uint8 dosField(uint8 off) const {
+		Common::HashMap<uint8, uint8>::const_iterator it = _dosFields.find(off);
+		return it == _dosFields.end() ? 0 : it->_value;
+	}
+	void setDosField(uint8 off, uint8 v) {
+		if (v == 0)
+			_dosFields.erase(off);
+		else
+			_dosFields[off] = v;
+	}
+private:
+	Common::HashMap<uint8, uint8> _dosFields;
 
 	Common::Queue<CodePointer> _callBacks;
 	void callBacks();

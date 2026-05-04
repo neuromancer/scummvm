@@ -175,37 +175,40 @@ OPCODE(0xd8) {
 OPCODE(0xda) {
 	// Clear the per-room zone list (g_zone_count = 0).
 	// DOS handler at CS:0x5467. Pairs with 0xd9 which adds entries.
-	// (Engine doesn't track per-room zones yet; recording the call is the right semantics.)
-	debugC(2, kDebugLevelScript, "opcode 0xda: clear zone list STUB");
+	debugC(2, kDebugLevelScript, "opcode 0xda: clear zone list");
+	Log.zonesClear();
 	return kThxBye;
 }
 
 OPCODE(0xdc) {
 	// Clear g_collision_zone_count (zone-A count, used by FindZoneAtPoint).
-	// DOS handler at CS:0x54b8. Engine doesn't model these zones yet.
-	debugC(2, kDebugLevelScript, "opcode 0xdc: clear collision zones STUB");
+	// DOS handler at CS:0x54b8.
+	debugC(2, kDebugLevelScript, "opcode 0xdc: clear collision zones");
+	Log.collisionZonesClear();
 	return kThxBye;
 }
 
 OPCODE(0xde) {
 	// Clear g_zone_b_count (zone-B count).
-	// DOS handler at CS:0x54fd. Engine doesn't model these zones yet.
-	debugC(2, kDebugLevelScript, "opcode 0xde: clear zone-B STUB");
+	// DOS handler at CS:0x54fd.
+	debugC(2, kDebugLevelScript, "opcode 0xde: clear zone-B");
+	Log.zonesBClear();
 	return kThxBye;
 }
 
 OPCODE(0xe2) {
 	// Clear g_walkbox_count (walkbox list at DS:0x6617).
-	// DOS handler at CS:0x5582. Engine doesn't model walkboxes yet.
-	debugC(2, kDebugLevelScript, "opcode 0xe2: clear walkbox count STUB");
+	// DOS handler at CS:0x5582.
+	debugC(2, kDebugLevelScript, "opcode 0xe2: clear walkbox count");
+	Log.walkboxesClear();
 	return kThxBye;
 }
 
 OPCODE(0xf6) {
 	// Set music volume to maximum. DOS handler at CS:0x5824 patches the music driver
 	// state bytes directly to 0xff (volume) and 0x3f / 0 (mode-dependent flag).
-	// In ScummVM the audio mixer handles volume, so this is effectively a no-op.
-	debugC(2, kDebugLevelScript, "opcode 0xf6: max music volume STUB");
+	// In ScummVM the audio mixer handles volume, so this is a no-op.
+	debugC(2, kDebugLevelScript, "opcode 0xf6: max music volume (no-op under ScummVM mixer)");
 	return kThxBye;
 }
 
@@ -442,19 +445,24 @@ OPCODE(0x47) {
 }
 
 OPCODE(0x4a) {
-	// wait until silent (protagonist)
-	debugC(2, kDebugLevelScript, "opcode 0x4a: wait until protagonist is silent");
-
-	Log.protagonist()->callMeWhenSilent(next);
-	return kReturn;
+	// DOS Op_4a_RegisterSampleByMapMode (CS:0x3ed5): registers a sample slot
+	// (RegisterSampleSlot_Bare2 in map mode, _Bare9 otherwise). Falls through
+	// — no skip_counter set. The original ScummVM port misclassified this as
+	// "wait until protagonist silent" and returned kReturn, which would abort
+	// the running script if 0x4a is emitted in a non-wait context.
+	debugC(2, kDebugLevelScript, "opcode 0x4a: register sample (map=%d) STUB",
+		Log.inMapMode() ? 1 : 0);
+	return kThxBye;
 }
 
 OPCODE(0x4b) {
-	// wait until silent
-	debugC(2, kDebugLevelScript, "opcode 0x4b: wait %s is silent", +a[0]);
-
-	Log.getActor(a[0])->callMeWhenSilent(next);
-	return kReturn;
+	// DOS Op_4b_RegisterSampleIfMainChar (CS:0x3ee7): if !map_mode, register
+	// _Bare9. If map_mode AND a[0]==main_char_id, register _Bare2. Falls
+	// through. Original ScummVM port had this as "wait until actor silent"
+	// returning kReturn — same issue as 0x4a.
+	debugC(2, kDebugLevelScript, "opcode 0x4b: register sample if main-char (id=%s) STUB",
+		+a[0]);
+	return kThxBye;
 }
 
 OPCODE(0x54) {
@@ -482,10 +490,13 @@ OPCODE(0x56) {
 }
 
 OPCODE(0x57) {
-	// wait until said
-	debugC(2, kDebugLevelScript, "opcode 0x57: wait until text is said");
-	Graf.runWhenSaid(next);
-	return kReturn;
+	// DOS Op_57_RegisterSampleSlotDirect (CS:0x4084): 0 args. Calls
+	// RegisterSampleSlot_Common (passive) and falls through. The original
+	// ScummVM port had this returning kReturn ("wait until text said"), which
+	// would abort the running script if 0x57 is emitted in a non-wait
+	// context. Same fix pattern as 0x4a/0x4b/0x4c.
+	debugC(2, kDebugLevelScript, "opcode 0x57: register sample slot (direct) STUB");
+	return kThxBye;
 }
 
 OPCODE(0x60) {
@@ -638,9 +649,19 @@ OPCODE(0x77) {
 }
 
 OPCODE(0x79) {
-	// move actor to another room
-	debugC(1, kDebugLevelScript, "opcode 0x79: move actor %s to room %s (and set current animation frame to %s STUB)", +a[0], +a[1], +a[2]);
-	_logic->getActor(a[0])->setRoom(a[1]);
+	// DOS Op_79_PlaceActorInRoom (CS:0x43d3): a[0]=actor id, a[1]=room,
+	// a[2]=frame. NO-OP when in map mode. Otherwise: UnregisterActor, set
+	// actor.frame (field_0x61) and actor.targetFrame (field_0x62) = a[2],
+	// actor.room (field_0x59) = a[1], walk-counter (field_0x6b) = 0; if
+	// the new room equals the current location and frame mismatches,
+	// MoveActorToTargetExit. Previous C++ ignored a[2] and didn't gate
+	// on map mode — both fixed.
+	debugC(1, kDebugLevelScript, "opcode 0x79: move actor %s to room %s frame %s",
+		+a[0], +a[1], +a[2]);
+	if (Log.inMapMode())
+		return kThxBye;
+	if (Actor *ac = _logic->getActor(a[0]))
+		ac->setRoom(uint16(a[1]), uint16(a[2]));
 	return kThxBye;
 }
 
@@ -680,49 +701,57 @@ OPCODE(0x3e) {
 }
 
 OPCODE(0x4c) {
-	// Yield to next tick (no condition). DOS handler at CS:0x3eff calls FUN_1000_3154
-	// which saves the continuation in g_room_script_slots[opcode_mode] and exits.
-	// Same semantics as Op_d8.
-	debugC(2, kDebugLevelScript, "opcode 0x4c: yield to next frame");
-	_logic->runLater(next, 1);
-	return kReturn;
+	// DOS Op_4c_RegisterSampleSpeechOrMap (CS:0x3eff): registers a sample slot
+	// (Bare2 in map mode, Bare3 otherwise). Falls through. Original ScummVM
+	// port had this returning kReturn ("yield to next frame"), which would
+	// abort the running script if 0x4c is emitted in a non-yield context.
+	debugC(2, kDebugLevelScript, "opcode 0x4c: register sample (speech/map=%d) STUB",
+		Log.inMapMode() ? 1 : 0);
+	return kThxBye;
 }
 
 OPCODE(0x7b) {
-	// Enable exit `a[0]` (idempotent — only sets the bit if currently clear).
-	// DOS handler at CS:0x4459. Pairs with 0x7c (disable). The previous engine
-	// implementation of 0x7c was an unconditional toggle, which gave the wrong
-	// semantics for this pair.
-	Exit *exit = _logic->blockProgram()->getExit(a[0]);
-	debugC(2, kDebugLevelScript, "opcode 0x7b: enable exit %s (was %s)", +a[0], exit && exit->isEnabled() ? "enabled" : "disabled");
-	if (exit && !exit->isEnabled())
-		exit->setEnabled(true);
+	// DOS Op_7b_SetObjectFlag1 (CS:0x4459): sets bit 0 of cellByte[a[0]] in
+	// the per-entity flag array. Previous engine code mistook this for an
+	// "enable exit" op and toggled Exit::isEnabled directly — wrong abstraction
+	// (the cell-bit array is shared between objects AND exits). We now write
+	// the cell bit AND keep the exit-side-effect for backward compatibility
+	// with anything else that already reads Exit::isEnabled().
+	const uint16 id = uint16(a[0]);
+	debugC(2, kDebugLevelScript, "opcode 0x7b: set cell bit 0 on entity %s", +a[0]);
+	Log.setCellBit(id, 0);
+	if (Exit *exit = _logic->blockProgram()->getExit(a[0]))
+		if (!exit->isEnabled())
+			exit->setEnabled(true);
 	return kThxBye;
 }
 
 OPCODE(0x7c) {
-	// Disable exit `a[0]` (idempotent — only clears the bit if currently set).
-	// DOS handler at CS:0x4476. NOT a toggle as the previous engine code assumed.
-	Exit *exit = _logic->blockProgram()->getExit(a[0]);
-	debugC(2, kDebugLevelScript, "opcode 0x7c: disable exit %s (was %s)", +a[0], exit && exit->isEnabled() ? "enabled" : "disabled");
-	if (exit && exit->isEnabled())
-		exit->setEnabled(false);
+	// DOS Op_7c_ClearObjectFlag1 (CS:0x4476): clears bit 0 of cellByte[a[0]].
+	// See 0x7b for the cell-bit/exit duality.
+	const uint16 id = uint16(a[0]);
+	debugC(2, kDebugLevelScript, "opcode 0x7c: clear cell bit 0 on entity %s", +a[0]);
+	Log.clearCellBit(id, 0);
+	if (Exit *exit = _logic->blockProgram()->getExit(a[0]))
+		if (exit->isEnabled())
+			exit->setEnabled(false);
 	return kThxBye;
 }
 
 OPCODE(0x95) {
 	// LOCK control: disallow user clicks/cursor movement.
 	// DOS handler at CS:0x4a4c sets g_flag_no_step (DS:0x6747) = 1.
-	// (NOTE: previous engine comment said "unlock" — the disassembly proves it's the LOCK side.)
-	debugC(1, kDebugLevelScript, "opcode 0x95: lock control STUB");
+	debugC(1, kDebugLevelScript, "opcode 0x95: lock control");
+	Log.setNoStep(true);
 	return kThxBye;
 }
 
 OPCODE(0x96) {
 	// UNLOCK control: re-allow user clicks/cursor movement.
 	// DOS handler at CS:0x4a52 clears g_flag_no_step and g_flag_step_pending.
-	// (NOTE: previous engine comment said "disallow user interaction" — verified backwards.)
-	debugC(1, kDebugLevelScript, "opcode 0x96: unlock control STUB");
+	debugC(1, kDebugLevelScript, "opcode 0x96: unlock control");
+	Log.setNoStep(false);
+	Log.setStepPending(false);
 	return kThxBye;
 }
 
@@ -923,11 +952,18 @@ OPCODE(0xcc) {
 }
 
 OPCODE(0xce) {
-	// start cutscene
-	debugC(2, kDebugLevelScript, "opcode 0xce: start cutscene partial STUB");
+	// DOS Op_ce_handler (CS:0x52a4): start cutscene.
+	//   1. g_room_active = 0
+	//   2. SetBackdropDimensions (fullscreen)
+	//   3. g_flag_misc_1 = 1 (dirty flag)
+	//   4. Calls Op_95_handler (lock control = setNoStep(true))
+	// C++ approximation: hide cursor (visual cue) AND lock control (so the
+	// player can't click while the cutscene runs). Backdrop dimensions /
+	// room_active still TODO — currently the engine doesn't have a separate
+	// "room active" flag distinct from currentRoom.
+	debugC(2, kDebugLevelScript, "opcode 0xce: start cutscene");
 	Graf.hideCursor();
-	// hide objects
-	// set game area height to 200
+	Log.setNoStep(true);
 	return kThxBye;
 }
 
@@ -1060,9 +1096,18 @@ OPCODE(0xf7) {
 }
 
 OPCODE(0xf9) {
-	// set sound on
-	
-	debugC(1, kDebugLevelScript, "opcode 0xf9: set %s to %s STUB", a[0] == 1 ? "music" : "sfx", +a[1]);
+	// DOS Op_f9_handler (CS:0x58cc):
+	//   arg1 = state byte (0=disable channel, non-zero=enable)
+	//   arg0 = which: 1=music, 2=sfx
+	// On music-disable: stop the current tune (silence + clear current_tune_addr).
+	// On music-disable: also stops any active sfx (cascade in DOS).
+	// On sfx-disable: clears g_sfx_active. We don't have a separate sfx mixer
+	// channel yet, so treat sfx-disable as a no-op beyond logging.
+	const uint8 state = uint8(uint16(a[1]));
+	const bool isMusic = (uint16(a[0]) == 1);
+	debugC(1, kDebugLevelScript, "opcode 0xf9: set %s to %u", isMusic ? "music" : "sfx", state);
+	if (isMusic && state == 0)
+		Music.silence();
 	return kThxBye;
 }
 
@@ -1149,11 +1194,16 @@ OPCODE(0x14) {
 }
 
 OPCODE(0x15) {
-	// IfCellBitSet (DOS CS:0x3968): rotate-test of the per-room cell map at
-	// (a[0]=room, a[1]=bit). The engine doesn't materialise the cell map yet,
-	// so treat all cells as clear → take the false branch.
-	debugC(2, kDebugLevelScript, "opcode 0x15: if cell bit %s of room %s set (cell map not loaded → false)", +a[1], +a[0]);
-	return kFail;
+	// DOS Op_15_IfCellBitSet (CS:0x3968): a[0] = entity id, a[1] = bit (0..7).
+	// Reads cellByte[id] and rotates to test the requested bit; SETS
+	// skip_counter when the bit is CLEAR. Net semantics: body runs when the
+	// bit is SET. Backed by Logic::cellBit, populated by Op_7b/0x7c.
+	const uint16 id = uint16(a[0]);
+	const uint8 bit = uint8(uint16(a[1])) & 7;
+	const bool set = Log.cellBit(id, bit);
+	debugC(2, kDebugLevelScript, "opcode 0x15: if cell bit %u of entity %s set (=%s)",
+		bit, +a[0], set ? "yes" : "no");
+	return set ? kThxBye : kFail;
 }
 
 OPCODE(0x16) {
@@ -1165,16 +1215,27 @@ OPCODE(0x16) {
 }
 
 OPCODE(0x18) {
-	// IfObjectMissing (DOS CS:0x39a9): tests Object[a[0]].id == 0.
-	// Engine has no Object table — treat all queried objects as present.
-	debugC(2, kDebugLevelScript, "opcode 0x18: if object %s missing (no object table → present)", +a[0]);
-	return kFail;
+	// DOS Op_18 (CS:0x39a9): SETS skip_counter when Object[a[0]].room == 0
+	// (i.e. SKIPS the body when the object is missing). Net semantics: the
+	// conditional body executes when the object is PRESENT. Ghidra's label
+	// "IfObjectMissing" describes the SKIP condition, not the run condition.
+	// Without a loaded Object table we default to "present" → run body.
+	const uint16 id = uint16(a[0]);
+	const bool missing = Log.isObjectMissing(id);
+	debugC(2, kDebugLevelScript, "opcode 0x18: if object %s present (room=%u%s)",
+		+a[0], Log.getObjectRoom(id), Log.hasObjectRoom(id) ? "" : " default");
+	return missing ? kFail : kThxBye;
 }
 
 OPCODE(0x1b) {
-	// IfObjectPresent (inverse of 0x18, DOS CS:0x39e3).
-	debugC(2, kDebugLevelScript, "opcode 0x1b: if object %s present", +a[0]);
-	return kThxBye;
+	// DOS Op_1b (CS:0x39e3): SETS skip_counter when Object[a[0]].room != 0
+	// (i.e. SKIPS the body when the object is PRESENT). Net semantics: the
+	// conditional body executes when the object is MISSING. Inverse of 0x18.
+	const uint16 id = uint16(a[0]);
+	const bool missing = Log.isObjectMissing(id);
+	debugC(2, kDebugLevelScript, "opcode 0x1b: if object %s missing (room=%u%s)",
+		+a[0], Log.getObjectRoom(id), Log.hasObjectRoom(id) ? "" : " default");
+	return missing ? kThxBye : kFail;
 }
 
 OPCODE(0x1e) {
@@ -1199,10 +1260,16 @@ OPCODE(0x20) {
 }
 
 OPCODE(0x21) {
-	// IfObjectInSomeRoom (DOS CS:0x3a75): Object[a[0]].room != -1.
-	// Without an Object table, default to "yes, somewhere" (kThxBye).
-	debugC(2, kDebugLevelScript, "opcode 0x21: if object %s placed", +a[0]);
-	return kThxBye;
+	// DOS Op_21 (CS:0x3a75): SETS skip_counter when Object[a[0]].room != -1
+	// (i.e. SKIPS the body when the object IS placed). Net semantics: the
+	// conditional body executes when the object is NOT placed (room == 0xffff).
+	// Without a loaded Object table we default to placed → fail.
+	const uint16 id = uint16(a[0]);
+	const uint16 room = Log.getObjectRoom(id);
+	const bool unplaced = (room == uint16(0xffff));
+	debugC(2, kDebugLevelScript, "opcode 0x21: if object %s unplaced (room=%u%s)",
+		+a[0], room, Log.hasObjectRoom(id) ? "" : " default");
+	return unplaced ? kThxBye : kFail;
 }
 
 OPCODE(0x22) {
@@ -1250,18 +1317,25 @@ OPCODE(0x28) {
 }
 
 OPCODE(0x29) {
-	// IfMode10AndFlag (DOS CS:0x3863): stepPending && verbMode == 0x10.
-	debugC(2, kDebugLevelScript, "opcode 0x29: if stepPending && verbMode==0x10");
-	if (!Log.stepPending() || Log.verbMode() != 0x10)
-		return kFail;
+	// DOS Op_29 (CS:0x3863): NOT a conditional jump — it's a side-effect op.
+	// When stepPending && cursorMode==0x10, calls SendActorToTarget(arg1, arg1)
+	// and (if cursorMode wasn't < 0x10) SetPostMoveCallback. NEVER sets
+	// skip_counter, so always falls through to the next opcode. Engine had
+	// this returning kFail on cond-fail, which broke any "send actor + then
+	// continue" sequence by making the continuation conditional.
+	debugC(2, kDebugLevelScript, "opcode 0x29: send-actor-to-target if cursor==0x10 (target=%s frame=%s)",
+		+a[1], +a[0]);
+	// TODO: SendActorToTarget side effect when stepPending && cursorMode==0x10.
 	return kThxBye;
 }
 
 OPCODE(0x2a) {
-	// IfMode10AndFlag2 (DOS CS:0x387e): same as 0x29 with extra arg consumption.
-	debugC(2, kDebugLevelScript, "opcode 0x2a: if stepPending && verbMode==0x10 (3-arg)");
-	if (!Log.stepPending() || Log.verbMode() != 0x10)
-		return kFail;
+	// DOS Op_2a (CS:0x387e): 3-arg variant of Op_29 — same fall-through
+	// behavior. Calls SendActorToTarget(arg2, arg1, arg0) when condition
+	// matches; never sets skip_counter.
+	debugC(2, kDebugLevelScript, "opcode 0x2a: send-actor-to-target (3-arg) if cursor==0x10 (target=%s extra=%s frame=%s)",
+		+a[2], +a[1], +a[0]);
+	// TODO: SendActorToTarget side effect when stepPending && cursorMode==0x10.
 	return kThxBye;
 }
 
@@ -1390,53 +1464,83 @@ OPCODE(0x46) {
 	return kThxBye;
 }
 
-// 0x48..0x53: variable arithmetic that dispatches through the LHS slot via
-// WriteVarBySlot_LHS in the binary. The engine maps that to direct
-// assignment on the typed Value reference.
+// 0x48..0x53: speech / sample / menu / text-bubble family.
+// PREVIOUSLY (incorrectly) implemented as bitwise / arithmetic ops by the
+// original ScummVM port — see PLAN.md "P0 finding". Confirmed via Ghidra:
+// these are speech, sample-registration, menu, and text-bubble handlers.
+// Replaced with faithful (or safe-stub) implementations that preserve DOS
+// fall-through semantics (always kThxBye — these handlers never set
+// skip_counter). Side effects flagged TODO where infrastructure missing.
 OPCODE(0x48) {
-	debugC(2, kDebugLevelScript, "opcode 0x48: %s = %s & %s", +a[0], +a[0], +a[1]);
-	a[0] = uint16(a[0]) & uint16(a[1]);
+	// DOS Op_48_SpeakWithRectAndPos (CS:0x3ea7): tail-jumps to the shared
+	// speech-with-delay path (same as 0x45/0x46/0x47). 5 args (var-slot prefix
+	// + 4 positional). Engine has no narration-bubble path yet.
+	debugC(1, kDebugLevelScript, "opcode 0x48: speak-with-rect-and-pos STUB y=%s x=%s color=%s lines=%s",
+		+a[0], +a[1], +a[2], +a[3]);
 	return kThxBye;
 }
 OPCODE(0x49) {
-	debugC(2, kDebugLevelScript, "opcode 0x49: %s = %s | %s", +a[0], +a[0], +a[1]);
-	a[0] = uint16(a[0]) | uint16(a[1]);
+	// DOS Op_49_SetActorFlag70 (CS:0x3ec5): a[0]=actor id, a[1]=byte.
+	// Sets Actor[a[0]].field_0x70 = (byte)a[1]. Logic doesn't track actor
+	// flag70 yet — log and stash via Logic helper for future readers.
+	const uint16 id = uint16(a[0]);
+	const uint8 v = uint8(uint16(a[1]));
+	debugC(2, kDebugLevelScript, "opcode 0x49: actor %s flag70 = %u", +a[0], v);
+	Log.setActorFlag70(id, v);
 	return kThxBye;
 }
 OPCODE(0x4d) {
-	debugC(2, kDebugLevelScript, "opcode 0x4d: %s = %s ^ %s", +a[0], +a[0], +a[1]);
-	a[0] = uint16(a[0]) ^ uint16(a[1]);
+	// DOS Op_4d_StashMenuArgs (CS:0x3f0c): stashes (a[0], a[1]) for the next
+	// menu/bubble op (0x4f / 0x51 / 0x53 read these). Also clears the stash
+	// "consumed" flag at uRam00023291.
+	debugC(2, kDebugLevelScript, "opcode 0x4d: stash menu args (%s, %s)", +a[0], +a[1]);
+	Log.setMenuStash(uint16(a[0]), uint16(a[1]));
 	return kThxBye;
 }
 OPCODE(0x4e) {
-	debugC(2, kDebugLevelScript, "opcode 0x4e: %s <<= %s", +a[0], +a[1]);
-	a[0] = uint16(a[0]) << (uint16(a[1]) & 0xf);
+	// DOS Op_4e_DrawTextRectWithChoices (CS:0x3f1e): formats menu text from
+	// a[0] (text address), counts choices, sets palette_overridden = 3,
+	// draws the rect. No menu UI yet.
+	debugC(1, kDebugLevelScript, "opcode 0x4e: draw text rect with choices STUB text=%s",
+		+a[0]);
 	return kThxBye;
 }
 OPCODE(0x4f) {
-	debugC(2, kDebugLevelScript, "opcode 0x4f: %s >>= %s", +a[0], +a[1]);
-	a[0] = uint16(a[0]) >> (uint16(a[1]) & 0xf);
+	// DOS Op_4f_DrawTextRectWithChoicesAlt (CS:0x3f45): 2-arg variant of 0x4e
+	// using stashed args (Op_4d). Engine has no menu UI yet.
+	debugC(1, kDebugLevelScript, "opcode 0x4f: draw text rect with choices (alt) STUB text=%s extra=%s",
+		+a[0], +a[1]);
 	return kThxBye;
 }
 OPCODE(0x50) {
-	debugC(2, kDebugLevelScript, "opcode 0x50: %s = abs(%s)", +a[0], +a[1]);
-	int16 v = int16(uint16(a[1]));
-	a[0] = (uint16)(v < 0 ? -v : v);
+	// DOS Op_50_OpenVerbMenuModal (CS:0x3f61): MODAL — runs the verb menu
+	// loop until the user picks a choice. Sets palette_overridden = 1,
+	// stash flag = 1. Engine has no modal verb menu yet.
+	debugC(1, kDebugLevelScript, "opcode 0x50: open verb menu modal STUB text=%s",
+		+a[0]);
 	return kThxBye;
 }
 OPCODE(0x51) {
-	debugC(2, kDebugLevelScript, "opcode 0x51: %s = -%s", +a[0], +a[1]);
-	a[0] = uint16(-int16(uint16(a[1])));
+	// DOS Op_51_OpenVerbMenuModalAlt (CS:0x3f99): 2-arg variant of 0x50
+	// using stashed args. Same modal behavior. No menu UI yet.
+	debugC(1, kDebugLevelScript, "opcode 0x51: open verb menu modal (alt) STUB text=%s extra=%s",
+		+a[0], +a[1]);
 	return kThxBye;
 }
 OPCODE(0x52) {
-	debugC(2, kDebugLevelScript, "opcode 0x52: %s = ~%s", +a[0], +a[1]);
-	a[0] = uint16(~uint16(a[1]));
+	// DOS Op_52_DrawFixedTextBubble (CS:0x3ff6): draws a static text bubble
+	// (no choices). Sets palette_overridden = 2, choice_count = 0.
+	debugC(1, kDebugLevelScript, "opcode 0x52: draw fixed text bubble STUB text=%s",
+		+a[0]);
 	return kThxBye;
 }
 OPCODE(0x53) {
-	debugC(2, kDebugLevelScript, "opcode 0x53: %s = rand(%s)", +a[0], +a[1]);
-	a[0] = uint16(_engine->getRandom(uint16(a[1])));
+	// DOS Op_53_DrawFixedTextBubbleStashed (CS:0x3fb5): variant that, when
+	// stash flag is set, saves the active modal pointers, sets
+	// palette_overridden = 4 (stash mode), then draws. Otherwise draws the
+	// normal fixed bubble (palette = 2). No modal/bubble infra yet.
+	debugC(1, kDebugLevelScript, "opcode 0x53: draw fixed text bubble (stashed) STUB text=%s",
+		+a[0]);
 	return kThxBye;
 }
 
@@ -1532,21 +1636,36 @@ OPCODE(0x68) {
 	return kThxBye;
 }
 OPCODE(0x69) {
-	debugC(2, kDebugLevelScript, "opcode 0x69: %s = clamp(%s, %s, %s)", +a[0], +a[1], +a[2], +a[3]);
-	uint16 v = uint16(a[1]);
-	uint16 lo = uint16(a[2]);
-	uint16 hi = uint16(a[3]);
-	a[0] = (v < lo) ? lo : (v > hi ? hi : v);
+	// DOS Op_69_SetCellBitDefault (CS:0x425c): 1 arg. Sets BIT 1 (the "default
+	// bit") on cellByte[a[0]]. The original ScummVM port misclassified this as
+	// 4-arg clamp(), which read 3 garbage Value slots past the end of the
+	// dispatched arg vector.
+	const uint16 id = uint16(a[0]);
+	debugC(2, kDebugLevelScript, "opcode 0x69: set cell bit 1 (default) on entity %s",
+		+a[0]);
+	Log.setCellBit(id, 1);
 	return kThxBye;
 }
 OPCODE(0x6a) {
-	debugC(2, kDebugLevelScript, "opcode 0x6a: %s = (%s >= %s)", +a[0], +a[1], +a[2]);
-	a[0] = (uint16(a[1]) >= uint16(a[2])) ? 1 : 0;
+	// DOS Op_6a_SetCellBit (CS:0x4261): 2 args. Sets bit `a[1]` (0..7) on
+	// cellByte[a[0]]. Original ScummVM port had this as 3-arg `>=` compare,
+	// reading 1 garbage slot.
+	const uint16 id = uint16(a[0]);
+	const uint8 bit = uint8(uint16(a[1])) & 7;
+	debugC(2, kDebugLevelScript, "opcode 0x6a: set cell bit %u on entity %s",
+		bit, +a[0]);
+	Log.setCellBit(id, bit);
 	return kThxBye;
 }
 OPCODE(0x6b) {
-	debugC(2, kDebugLevelScript, "opcode 0x6b: %s = (%s <= %s)", +a[0], +a[1], +a[2]);
-	a[0] = (uint16(a[1]) <= uint16(a[2])) ? 1 : 0;
+	// DOS Op_6b_ClearCellBit (CS:0x4281): 2 args. Clears bit `a[1]` (0..7) on
+	// cellByte[a[0]]. Original ScummVM port had this as 3-arg `<=` compare,
+	// reading 1 garbage slot.
+	const uint16 id = uint16(a[0]);
+	const uint8 bit = uint8(uint16(a[1])) & 7;
+	debugC(2, kDebugLevelScript, "opcode 0x6b: clear cell bit %u on entity %s",
+		bit, +a[0]);
+	Log.clearCellBit(id, bit);
 	return kThxBye;
 }
 
@@ -1575,23 +1694,48 @@ OPCODE(0x7a) {
 	return kThxBye;
 }
 OPCODE(0x7d) {
-	debugC(2, kDebugLevelScript, "opcode 0x7d: object op %s STUB (no object table)", +a[0]);
+	// DOS Op_7d_MoveObjectFlag1 (CS:0x4493): clear flag1 on src obj (a[0]),
+	// then set flag1 on dst obj (a[1]). The "flag" lives in a per-id cell-bit
+	// array shared between objects/exits — we don't model the cells yet, so
+	// log only. (No room mutation — distinct from Op_7f.)
+	debugC(2, kDebugLevelScript, "opcode 0x7d: move flag1 %s -> %s STUB (no cell array)",
+		+a[0], +a[1]);
 	return kThxBye;
 }
 OPCODE(0x7e) {
-	debugC(2, kDebugLevelScript, "opcode 0x7e: object op %s STUB (no object table)", +a[0]);
+	// DOS Op_7e_QueueOverlay (CS:0x44a8): a[0]=entity-type sentinel
+	// (1=exit, 2=object, 3=actor), a[1]=entity id. Looks up the entity's
+	// (sprite, x, y) and pushes onto a draw-overlay queue capped at 250.
+	debugC(2, kDebugLevelScript, "opcode 0x7e: queue overlay type %s id %s STUB (no overlay queue)",
+		+a[0], +a[1]);
 	return kThxBye;
 }
 OPCODE(0x7f) {
-	debugC(2, kDebugLevelScript, "opcode 0x7f: object op %s STUB (no object table)", +a[0]);
+	// DOS Op_7f_PlaceObjectInRoom (CS:0x452f): set Object[a[0]].room = a[1],
+	// Object[a[0]].position = -1, Object[a[0]].field4 = 0. Marks logic dirty.
+	// Used both to place an object in a scene AND to add it to the player's
+	// inventory (room == kInventoryRoom). Op_18 / Op_1b / Op_21 read this.
+	const uint16 id = uint16(a[0]);
+	const uint16 room = uint16(a[1]);
+	debugC(1, kDebugLevelScript, "opcode 0x7f: place object %s in room %s", +a[0], +a[1]);
+	Log.setObjectRoom(id, room);
 	return kThxBye;
 }
 
 // 0x80..0x94: Object placement / hotspot manipulation. The engine has no
-// Object class — the actual placement logic must come with that addition.
-// For now we accept the call (so scripts proceed) and log the parameters.
-OPCODE(0x80) { debugC(2, kDebugLevelScript, "opcode 0x80: place object %s at room %s pos %sx%s", +a[0], +a[1], +a[2], +a[3]); return kThxBye; }
-OPCODE(0x81) { debugC(2, kDebugLevelScript, "opcode 0x81: object %s set room %s", +a[0], +a[1]); return kThxBye; }
+// Object class — full placement logic must come with that addition. For now
+// we mirror the room field on Logic (used by Op_18/0x1b/0x21) and log.
+OPCODE(0x80) {
+	debugC(2, kDebugLevelScript, "opcode 0x80: place object %s at room %s pos %sx%s",
+		+a[0], +a[1], +a[2], +a[3]);
+	Log.setObjectRoom(uint16(a[0]), uint16(a[1]));
+	return kThxBye;
+}
+OPCODE(0x81) {
+	debugC(2, kDebugLevelScript, "opcode 0x81: object %s set room %s", +a[0], +a[1]);
+	Log.setObjectRoom(uint16(a[0]), uint16(a[1]));
+	return kThxBye;
+}
 OPCODE(0x82) { debugC(2, kDebugLevelScript, "opcode 0x82: object %s set sprite %s", +a[0], +a[1]); return kThxBye; }
 OPCODE(0x83) { debugC(2, kDebugLevelScript, "opcode 0x83: object %s clear flags %s", +a[0], +a[1]); return kThxBye; }
 OPCODE(0x84) { debugC(2, kDebugLevelScript, "opcode 0x84: object %s set flags %s", +a[0], +a[1]); return kThxBye; }
@@ -1855,7 +1999,17 @@ OPCODE(0xca) {
 	return kThxBye;
 }
 OPCODE(0xcd) {
-	debugC(2, kDebugLevelScript, "opcode 0xcd: misc state STUB");
+	// DOS Op_cd_RestoreRoomActive (CS:0x52b7): end cutscene — mirror of 0xce.
+	//   1. g_room_active = 1
+	//   2. SetBackdropDimensions (restore)
+	//   3. g_flag_misc_1 = 1
+	//   4. Calls Op_96_handler (unlock control = setNoStep(false) +
+	//      setStepPending(false))
+	// C++: show cursor + unlock control to mirror Op_ce.
+	debugC(2, kDebugLevelScript, "opcode 0xcd: end cutscene / restore room active");
+	Graf.showCursor();
+	Log.setNoStep(false);
+	Log.setStepPending(false);
 	return kThxBye;
 }
 
@@ -1880,14 +2034,25 @@ OPCODE(0xd7) {
 	return kThxBye;
 }
 OPCODE(0xd9) {
-	// 0xd9 (DOS CS:0x5430): add zone entry. Engine doesn't model zones.
-	debugC(2, kDebugLevelScript, "opcode 0xd9: add zone entry STUB");
+	// 0xd9 (DOS CS:0x5430): add zone entry to g_zone[8] (4 uint16 args, 8-byte
+	// stride). Overflow sets g_pendingErrorCode = 0x27; we silently drop.
+	debugC(2, kDebugLevelScript, "opcode 0xd9: add zone (%s,%s,%s,%s)",
+		+a[0], +a[1], +a[2], +a[3]);
+	Logic::Zone z = { uint16(a[0]), uint16(a[1]), uint16(a[2]), uint16(a[3]) };
+	Log.zonesAdd(z);
 	return kThxBye;
 }
 
 OPCODE(0xdd) {
-	// 0xdd (DOS CS:0x54bf): add collision-zone-A entry.
-	debugC(2, kDebugLevelScript, "opcode 0xdd: add collision zone STUB");
+	// 0xdd (DOS CS:0x54bf): add zone-B entry. 4 uint16 args + 1 var slot value
+	// (ReadVarBySlot_RHS) at offset +0x679. Overflow at 30 sets error 0x32.
+	// VM args 0..3 + arg 4 (variable). Stride 10 bytes per entry.
+	debugC(2, kDebugLevelScript, "opcode 0xdd: add zone-B (%s,%s,%s,%s, var=%s)",
+		+a[0], +a[1], +a[2], +a[3], +a[4]);
+	Logic::ZoneB z = {
+		uint16(a[0]), uint16(a[1]), uint16(a[2]), uint16(a[3]), uint16(a[4])
+	};
+	Log.zonesBAdd(z);
 	return kThxBye;
 }
 
@@ -1915,21 +2080,30 @@ OPCODE(0xe9) {
 	return kThxBye;
 }
 OPCODE(0xea) {
-	// 0xea (DOS CS:0x5642): set inMapMode flag.
-	debugC(2, kDebugLevelScript, "opcode 0xea: inMapMode = %s", +a[0]);
-	Log.setInMapMode(uint16(a[0]) != 0);
+	// DOS Op_ea (CS:0x5642): Pascal-string append-byte. arg0 = string ptr,
+	// arg1 = byte to append. If string.length < string.capacity, increments
+	// length and writes byte at end. Falls through.
+	// PREVIOUSLY misclassified as `setInMapMode(arg0 != 0)` — would corrupt
+	// map-vs-scene state if 0xea ever emitted. Now safe-stub.
+	debugC(2, kDebugLevelScript, "opcode 0xea: pstring append byte STUB (str=%s, byte=%s)",
+		+a[0], +a[1]);
 	return kThxBye;
 }
 OPCODE(0xeb) {
-	// 0xeb (DOS CS:0x5665): toggle inMapMode (single byte handler in DOS).
-	debugC(2, kDebugLevelScript, "opcode 0xeb: toggle inMapMode");
-	Log.setInMapMode(!Log.inMapMode());
+	// DOS Op_eb (CS:0x5665): PopLastCharOfPascalString — 0 args, operates on
+	// an implicit/last-stashed string buffer. PREVIOUSLY misclassified as
+	// `toggle inMapMode` — would invert map state if 0xeb ever emitted. Now
+	// safe-stub.
+	debugC(2, kDebugLevelScript, "opcode 0xeb: pstring pop last char STUB");
 	return kThxBye;
 }
 OPCODE(0xec) {
-	// 0xec (DOS CS:0x5670): clear inMapMode.
-	debugC(2, kDebugLevelScript, "opcode 0xec: clear inMapMode");
-	Log.setInMapMode(false);
+	// DOS Op_ec (CS:0x5670): Pascal-string truncate-by-length. arg0 = string
+	// ptr; if length > 0, decrements length and zeroes last char.
+	// PREVIOUSLY misclassified as `clear inMapMode` — would force out of map
+	// mode if 0xec ever emitted. Now safe-stub.
+	debugC(2, kDebugLevelScript, "opcode 0xec: pstring truncate STUB (str=%s)",
+		+a[0]);
 	return kThxBye;
 }
 
