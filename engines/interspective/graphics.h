@@ -28,6 +28,7 @@
 
 #include "common/list.h"
 #include "common/ptr.h"
+#include "common/queue.h"
 #include "common/rect.h"
 #include "common/singleton.h"
 
@@ -155,9 +156,20 @@ private:
 	byte _interfacePalette[0x300];
 	byte _tintedPalette[256];
 
+	// Active speech bubble. _speech is the text being painted; when
+	// _speechFramesLeft hits 0 the painter invokes _speechDoneCallback (if
+	// set), then pops the next entry from _speechQueue. The queue is FIFO.
 	byte *_speech;
 	uint16 _speechFramesLeft;
 	CodePointer _speechDoneCallback;
+	struct SpeechEntry {
+		SpeechEntry() : text(0), length(0), frames(0) {}
+		byte *text;          // owned: caller transferred via say()
+		uint16 length;
+		uint16 frames;
+		CodePointer cb;
+	};
+	Common::Queue<SpeechEntry> _speechQueue;
 	bool _fullscreen;
 };
 

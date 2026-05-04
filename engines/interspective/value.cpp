@@ -43,11 +43,13 @@ CodePointer::CodePointer(uint16 off, Interpreter *i) : _offset(off), _interprete
 }
 
 void CodePointer::init() {
-	if (_offset)
+	// Guard on _interpreter too — _offset is no longer indeterminate after
+	// the default-ctor fix, but a moved-from / cleared CodePointer can still
+	// have _offset != 0 with _interpreter == 0 (e.g. after reset()).
+	if (_offset && _interpreter)
 		snprintf(_inspect, 40, "code offset 0x%04x of %s", _offset, _interpreter->name());
 	else
 		snprintf(_inspect, 40, "null pointer");
-
 }
 
 void CodePointer::run() const {

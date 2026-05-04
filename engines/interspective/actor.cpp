@@ -61,7 +61,21 @@ bool Actor::isFine() const {
 }
 
 void Actor::setAnimation(uint16 offset) {
-	_base = _base - _baseOffset + offset;
+	// Invariant when _base is non-null: _base + _offset reads the current
+	// opcode, _base - _baseOffset points to file offset 0 of the same code
+	// segment. So switching to a new offset within that segment is just
+	// rebasing the pointer. BUT if _base is null (Op_01 ScriptEnd / hide()
+	// cleared it), the subtract underflows the null pointer → UB → crash.
+	// Restore from the main interpreter (the only code source actor scripts
+	// use, per Puppeteer::moveAnimator/turnAnimator) so the new animator
+	// starts cleanly instead of inheriting a poisoned base.
+	byte *base = _base;
+	uint16 baseOff = _baseOffset;
+	if (!base) {
+		base = Log.mainInterpreter()->rawCode(0);
+		baseOff = 0;
+	}
+	_base = base - baseOff + offset;
 	_baseOffset = offset;
 	_offset = 0;
 	_debugInvalid = false;
@@ -528,19 +542,23 @@ OPCODE(0x01) {
 }
 
 OPCODE(0x14) {
-	// C++ slot 0x14 = DOS Op_15 WaitForSpeechSlot (CS:0x6af1). 0 args.
-	// Previously consumed 1 shift (2 extra bytes) — over by 2. FIXED iter-12.
-	debugC(2, kDebugLevelAnimation, "actor opcode 0x14: WaitForSpeechSlot STUB [DOS Op_15]");
+	// C++ slot 0x14 = DOS Op_15 WaitForSpeechSlot (CS:0x6af1). 4-byte
+	// opcode: either jumps to script[+2..+3] (loop while still speaking)
+	// or ADD BP,4 (skip past). 1 shift. iter-12 wrongly removed the
+	// shift. FIXED iter-13: consume jump target (don't actually loop —
+	// engine treats speech as instantaneous; the script will exit the
+	// wait loop on first iteration).
+	uint16 off = shift();
+	debugC(2, kDebugLevelAnimation, "actor opcode 0x14: WaitForSpeechSlot off=0x%04x STUB (no loop) [DOS Op_15]", off);
+	(void)off;
 	return kOk;
 }
 
 OPCODE(0x15) {
-	// C++ slot 0x15 = DOS Op_16 PickAnimationSet (CS:0x6c3e). Reads
-	// embedded byte at +1 + word at +2..+3 = byte + 1 shift. Previously
-	// consumed 0 — under by 2. FIXED iter-12 to consume the right bytes.
-	byte val = embeddedByte();
-	uint16 off = shift();
-	debugC(2, kDebugLevelAnimation, "actor opcode 0x15: PickAnimationSet val=%d off=0x%04x STUB [DOS Op_16]", val, off);
+	// C++ slot 0x15 = DOS Op_16 PickAnimationSet (CS:0x6c3e). 2-byte
+	// opcode (ADD BP,2). NO script reads beyond the opcode byte.
+	// iter-12 wrongly added byte+shift. FIXED iter-13: 0 extras.
+	debugC(2, kDebugLevelAnimation, "actor opcode 0x15: PickAnimationSet STUB [DOS Op_16]");
 	return kOk;
 }
 
@@ -663,9 +681,14 @@ OPCODE(0x24) {
 // is NoOp=0 args). Override 0x0f to fix the alignment.
 
 OPCODE(0x0f) {
-	// C++ slot 0x0f = DOS Op_10 NoOp (CS:0x6a7e). 0 args. Animation::0x0f
-	// ("jump") would consume 1 shift = 2 over-consumed bytes. FIXED iter-12.
-	debugC(4, kDebugLevelAnimation, "actor opcode 0x0f: NoOp [DOS Op_10]");
+	// C++ slot 0x0f = DOS Op_10 (CS:0x6a7e). The Ghidra label says "NoOp"
+	// but the disassembly shows `MOV BP, ES:[BP+DI+2] / RET` — it's an
+	// UNCONDITIONAL JUMP to the word at script[+2..+3]. 4-byte opcode.
+	// Original Animation::0x0f handler was correct ("jump"); iter-12
+	// erroneously changed it to NoOp. FIXED iter-13: restore jump semantic.
+	uint16 target = shift();
+	debugC(3, kDebugLevelAnimation, "actor opcode 0x0f: Jump to 0x%04x [DOS Op_10]", target);
+	_offset = target;
 	return kOk;
 }
 
@@ -711,21 +734,30 @@ OPCODE(0x11) {
 }
 
 OPCODE(0x12) {
-	// C++ slot 0x12 = DOS Op_13 NoOp. NO args consumed.
-	// Animation::0x12 ("jump if bvar") read 2 shifts (4 bytes) — over-
-	// consumed and walked the PC into garbage. iter-11 also got this
-	// wrong (used 1 shift). FIXED iter-12 to 0 shifts. THIS WAS THE
-	// SOURCE OF THE 0x521f / 0x2a CRASH.
-	debugC(4, kDebugLevelAnimation, "actor opcode 0x12: NoOp [DOS Op_13]");
+	// C++ slot 0x12 = DOS Op_13 (CS:0x6ab7). Ghidra labels it "NoOp" but
+	// the disassembly is JumpIfByteVar: reads var index at script[+2..+3],
+	// reads jump target at script[+4..+5], if global byte var is non-zero
+	// jump to target, else ADD BP,6 (skip 6-byte opcode). 2 shifts total.
+	// Original Animation::0x12 handler ("jump if bvar") was correct; iter-12
+	// broke it by treating as NoOp. FIXED iter-13.
+	uint16 var = shift();
+	uint16 off = shift();
+	byte ok = *_resources->getGlobalByteVariable(var);
+	debugC(3, kDebugLevelAnimation, "actor opcode 0x12: JumpIfByteVar var=%u off=0x%04x val=%u [DOS Op_13]", var, off, ok);
+	if (ok)
+		_offset = off;
 	return kOk;
 }
 
 OPCODE(0x13) {
-	// C++ slot 0x13 = DOS Op_14 BranchIfRandomMatch. Reads 1 int16 jump
-	// offset (1 shift). Engine doesn't implement the actual random jump
-	// yet — just consume the right bytes to keep alignment.
+	// C++ slot 0x13 = DOS Op_14 BranchIfRandomMatch (CS:0x6ad9). 6-byte
+	// opcode: reads value at script[+2..+3], reads jump target at
+	// script[+4..+5], rolls random; if matches, jump. ADD BP,6 if not.
+	// 2 shifts. iter-12 had only 1 shift (under by 2). FIXED iter-13.
+	uint16 max = shift();
 	uint16 off = shift();
-	debugC(2, kDebugLevelAnimation, "actor opcode 0x13: BranchIfRandomMatch off=0x%04x STUB [DOS Op_14]", off);
+	debugC(2, kDebugLevelAnimation, "actor opcode 0x13: BranchIfRandomMatch max=%u off=0x%04x STUB (no jump) [DOS Op_14]", max, off);
+	(void)off;
 	return kOk;
 }
 
@@ -756,10 +788,18 @@ OPCODE(0x1f) {
 }
 
 OPCODE(0x20) {
-	// C++ slot 0x20 = DOS Op_21 SetCallbackPointer. 0 args (DOS reads
-	// no script bytes; it captures the current PC as the callback).
-	// Engine doesn't model actor callbacks yet — safe-stub.
-	debugC(2, kDebugLevelAnimation, "actor opcode 0x20: SetCallbackPointer STUB [DOS Op_21]");
+	// C++ slot 0x20 = DOS Op_21 SetCallbackPointer (CS:0x6be5). 12-BYTE
+	// opcode (ADD BP,0xc). The handler stashes (BP+DI+2) as the callback
+	// PC, then advances past 10 trailing bytes which presumably form an
+	// inline callback body. iter-12 wrongly consumed 0 args. FIXED
+	// iter-13: consume 10 bytes (5 shifts) past the baseline 2.
+	uint16 a = shift();
+	uint16 b = shift();
+	uint16 c = shift();
+	uint16 d = shift();
+	uint16 e = shift();
+	debugC(2, kDebugLevelAnimation, "actor opcode 0x20: SetCallbackPointer (skipping 10-byte inline body) STUB [DOS Op_21]");
+	(void)a; (void)b; (void)c; (void)d; (void)e;
 	return kOk;
 }
 
@@ -778,9 +818,12 @@ OPCODE(0x22) {
 }
 
 OPCODE(0x25) {
-	// C++ slot 0x25 = DOS Op_26 PlaySfx. 0 args. Calls DispatchSfxRangeCheck
-	// in DOS — engine has no SFX driver yet.
-	debugC(2, kDebugLevelAnimation, "actor opcode 0x25: PlaySfx STUB [DOS Op_26]");
+	// C++ slot 0x25 = DOS Op_26 PlaySfx (CS:0x6c29). 4-BYTE opcode
+	// (ADD BP,4): reads sfx index at script[+2..+3], calls
+	// DispatchSfxRangeCheck, advances 4. iter-12 wrongly consumed 0 args.
+	// FIXED iter-13: 1 shift.
+	uint16 sfx = shift();
+	debugC(2, kDebugLevelAnimation, "actor opcode 0x25: PlaySfx %u STUB [DOS Op_26]", sfx);
 	return kOk;
 }
 

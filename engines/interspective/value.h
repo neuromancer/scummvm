@@ -126,7 +126,13 @@ private:
 
 class CodePointer : public Value {
 public:
-	CodePointer() : _interpreter(0) {}
+	// Init _offset to 0 — otherwise the default-constructed instance has
+	// indeterminate _offset, and a subsequent copy/init() reads the garbage
+	// value, hits the `if (_offset)` branch in init(), and dereferences the
+	// null _interpreter on the snprintf format. This bit a queued speech
+	// callback whose default-ctor'd CodePointer was being copied through
+	// Common::Queue.
+	CodePointer() : _offset(0), _interpreter(0) {}
 	CodePointer(const CodePointer &c) : Value(), _offset(c._offset), _interpreter(c._interpreter) { init(); }
 	CodePointer(uint16 offset, Interpreter *interpreter);
 

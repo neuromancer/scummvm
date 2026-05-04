@@ -142,11 +142,22 @@ void Graphics::paintSpeech() {
 	if (!_speech) return;
 
 	if (!_speechFramesLeft) {
-		delete _speech;
+		delete[] _speech;
 		_speech = 0;
 		CodePointer cb = _speechDoneCallback;
 		_speechDoneCallback.reset();
 		cb.run();
+
+		// Pop the next queued utterance (if any) and start painting it.
+		// Run cb FIRST so any side-effects of the previous speech complete
+		// before the new one starts (matches DOS behaviour).
+		if (!_speechQueue.empty()) {
+			SpeechEntry next = _speechQueue.pop();
+			_speech = next.text;
+			_speechFramesLeft = next.frames;
+			_speechDoneCallback = next.cb;
+			paintText(0, 0, 235, _speech);
+		}
 		return;
 	}
 
@@ -646,8 +657,20 @@ bool Graphics::fadeOut(FadeFlags f) {
 }
 
 void Graphics::say(const byte *text, uint16 length, uint16 frames) {
-	if (_speech)
-		error("queuing speech not supported yet.");
+	if (_speech) {
+		// Queue this utterance to play after the current one (and any
+		// already-queued ones) finish. The text buffer is owned by the
+		// queue entry until paintSpeech promotes it into _speech.
+		SpeechEntry e;
+		e.text = new byte[length];
+		memcpy(e.text, text, length);
+		e.length = length;
+		e.frames = frames;
+		_speechQueue.push(e);
+		debugC(2, kDebugLevelGraphics, "queued speech (queue size %u)",
+			(uint)_speechQueue.size());
+		return;
+	}
 
 	_speech = new byte[length];
 	memcpy(_speech, text, length);
@@ -656,9 +679,35 @@ void Graphics::say(const byte *text, uint16 length, uint16 frames) {
 }
 
 void Graphics::runWhenSaid(const CodePointer &cb) {
-	unless (_speechDoneCallback.isEmpty())
-		error("queuing events on speech complete not supported yet");
+	// Bind the callback to the most-recently-queued utterance (or to the
+	// current one if the queue is empty). DOS pattern is: emit speech →
+	// emit "wait until said" → callback fires when THAT speech finishes.
+	if (!_speechQueue.empty()) {
+		// Patch the back of the queue. Common::Queue doesn't expose
+		// random access, so drain-and-rebuild — cheap given queue is
+		// almost always 1..3 entries.
+		Common::Queue<SpeechEntry> tmp;
+		while (_speechQueue.size() > 1)
+			tmp.push(_speechQueue.pop());
+		SpeechEntry last = _speechQueue.pop();
+		if (!last.cb.isEmpty()) {
+			// Multiple runWhenSaid for the same entry — chain by
+			// running the old callback first via runLater.
+			Log.runLater(last.cb);
+		}
+		last.cb = cb;
+		while (!tmp.empty())
+			_speechQueue.push(tmp.pop());
+		_speechQueue.push(last);
+		return;
+	}
 
+	if (!_speechDoneCallback.isEmpty()) {
+		// Active speech already has a callback bound — chain via runLater
+		// so both fire (older one first, then this one as part of the
+		// post-speech callback chain).
+		Log.runLater(_speechDoneCallback);
+	}
 	_speechDoneCallback = cb;
 }
 
