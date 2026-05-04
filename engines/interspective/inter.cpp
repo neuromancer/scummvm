@@ -37,8 +37,7 @@
 
 // this has to be included here or else templates
 // would get instantiated to the generic handler
-// TODO: This BREAKS compilation in MSVC - needs to be revised
-//#include "interspective/opcode_handlers.cpp"
+#include "interspective/opcode_handlers.cpp"
 
 namespace Interspective {
 

@@ -65,6 +65,8 @@ void Logic::initCode() {
 }
 
 void Logic::tick() {
+	++_frameCounter;
+
 	if (_nextRoom)
 		doChangeRoom();
 
@@ -151,6 +153,21 @@ void Logic::doChangeRoom() {
 void Logic::runLater(const CodePointer &p, uint16 delay) {
 	debugC(3, kDebugLevelScript, "will call %s after %d ticks", +p, delay);
 	_queued.push_back(DelayedRun(p, delay));
+}
+
+bool Logic::cancelLater(const CodePointer &p) {
+	bool removed = false;
+	Common::List<DelayedRun>::iterator it = _queued.begin();
+	while (it != _queued.end()) {
+		if (it->code.offset() == p.offset() && it->code.interpreter() == p.interpreter()) {
+			debugC(3, kDebugLevelScript, "cancel pending %s", +p);
+			it = _queued.erase(it);
+			removed = true;
+		} else {
+			++it;
+		}
+	}
+	return removed;
 }
 
 void Logic::runQueued() {

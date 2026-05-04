@@ -25,8 +25,6 @@
 
 #include "interspective/inter.h"
 
-#include <vector>
-
 #include "interspective/actor.h"
 #include "interspective/animation.h"
 #include "interspective/exit.h"
@@ -89,6 +87,42 @@ OPCODE(0x05) {
 	return kThxBye;
 }
 
+OPCODE(0x06) {
+	// less or equal: skip if a[1] < a[0] (i.e. a[0] > a[1])
+	// DOS handler at CS:0x3792 — sets g_skip_counter when (int)a[1] < (int)a[0].
+	debugC(2, kDebugLevelScript, "opcode 0x06: if %s <= %s", +a[0], +a[1]);
+	unless (uint16(a[0]) <= uint16(a[1]))
+		return kFail;
+	return kThxBye;
+}
+
+OPCODE(0x07) {
+	// greater or equal: skip if a[0] < a[1]
+	// DOS handler at CS:0x37a5.
+	debugC(2, kDebugLevelScript, "opcode 0x07: if %s >= %s", +a[0], +a[1]);
+	unless (uint16(a[0]) >= uint16(a[1]))
+		return kFail;
+	return kThxBye;
+}
+
+OPCODE(0x08) {
+	// bit-and check: skip if (a[0] & a[1]) == 0 — succeed if any bit overlaps.
+	// DOS handler at CS:0x37b8.
+	debugC(2, kDebugLevelScript, "opcode 0x08: if %s & %s", +a[0], +a[1]);
+	unless ((uint16(a[0]) & uint16(a[1])) != 0)
+		return kFail;
+	return kThxBye;
+}
+
+OPCODE(0x09) {
+	// "either non-zero": skip only when both args are zero.
+	// DOS handler at CS:0x37cb — sets g_skip_counter when a[0] == 0 && a[1] == 0.
+	debugC(2, kDebugLevelScript, "opcode 0x09: if %s || %s", +a[0], +a[1]);
+	unless (uint16(a[0]) != 0 || uint16(a[1]) != 0)
+		return kFail;
+	return kThxBye;
+}
+
 OPCODE(0x0f) {
 	// check room
 	debugC(2, kDebugLevelScript, "opcode 0x0f: if current room == %s then", +a[0]);
@@ -104,11 +138,13 @@ enum {
 };
 
 OPCODE(0x12) {
- 	// if sound is on then
-	// (argument is a set of flags, 1 - adlib, 2 - sb, 4 - roland)
-	debugC(2, kDebugLevelScript, "opcode 0x12: if sound is on then partial STUB");
-	// just say roland+sb for now
-	unless (a[0] & (kSoundRoland | kSoundSB))
+	// "if sound device is on" — bit-mask test against (g_music_enabled | g_sfx_enabled).
+	// DOS: skip if (music | sfx) & a[0] == 0. Bits: 1=Adlib, 2=SoundBlaster, 4=Roland.
+	// In ScummVM the audio path is unified through the mixer, so we report all three
+	// device classes as available — scripts that gate behaviour on sound type
+	// (e.g. picking richer Roland samples) get the most-featured branch.
+	debugC(2, kDebugLevelScript, "opcode 0x12: if sound type %s is on", +a[0]);
+	unless (uint16(a[0]) & (kSoundAdlib | kSoundSB | kSoundRoland))
 		return kFail;
 	return kThxBye;
 }
@@ -118,6 +154,136 @@ OPCODE(0x13) {
 	// and current mode isn't null
 	debugC(1, kDebugLevelScript, "opcode 0x13: if 1st button is up and mode isn't null partial STUB");
 	if (_engine->_eventMan->getButtonState() & Common::EventManager::LBUTTON)
+		return kFail;
+	return kThxBye;
+}
+
+OPCODE(0xd8) {
+	// Yield to next tick: save the next instruction as continuation, exit interpreter.
+	// DOS handler at CS:0x542d calls FUN_1000_3154 which writes into the per-mode room-script
+	// slot then sets g_break_outer = 1 so MainGameLoop dispatches it next frame.
+	debugC(2, kDebugLevelScript, "opcode 0xd8: yield to next frame");
+	_logic->runLater(next, 1);
+	return kReturn;
+}
+
+OPCODE(0xda) {
+	// Clear the per-room zone list (g_zone_count = 0).
+	// DOS handler at CS:0x5467. Pairs with 0xd9 which adds entries.
+	// (Engine doesn't track per-room zones yet; recording the call is the right semantics.)
+	debugC(2, kDebugLevelScript, "opcode 0xda: clear zone list STUB");
+	return kThxBye;
+}
+
+OPCODE(0xdc) {
+	// Clear g_collision_zone_count (zone-A count, used by FindZoneAtPoint).
+	// DOS handler at CS:0x54b8. Engine doesn't model these zones yet.
+	debugC(2, kDebugLevelScript, "opcode 0xdc: clear collision zones STUB");
+	return kThxBye;
+}
+
+OPCODE(0xde) {
+	// Clear g_zone_b_count (zone-B count).
+	// DOS handler at CS:0x54fd. Engine doesn't model these zones yet.
+	debugC(2, kDebugLevelScript, "opcode 0xde: clear zone-B STUB");
+	return kThxBye;
+}
+
+OPCODE(0xe2) {
+	// Clear g_walkbox_count (walkbox list at DS:0x6617).
+	// DOS handler at CS:0x5582. Engine doesn't model walkboxes yet.
+	debugC(2, kDebugLevelScript, "opcode 0xe2: clear walkbox count STUB");
+	return kThxBye;
+}
+
+OPCODE(0xf6) {
+	// Set music volume to maximum. DOS handler at CS:0x5824 patches the music driver
+	// state bytes directly to 0xff (volume) and 0x3f / 0 (mode-dependent flag).
+	// In ScummVM the audio mixer handles volume, so this is effectively a no-op.
+	debugC(2, kDebugLevelScript, "opcode 0xf6: max music volume STUB");
+	return kThxBye;
+}
+
+OPCODE(0xf8) {
+	// Stop all music AND sfx (panic stop).
+	// DOS handler at CS:0x5889 calls the music driver's "stop" entry, clears
+	// g_current_tune_addr, then calls the sfx driver's "stop" if active.
+	// Engine doesn't have a separate sfx player — Music covers both.
+	debugC(2, kDebugLevelScript, "opcode 0xf8: stop all music/sfx");
+	Music.unloadMusic();
+	Music.silence();
+	return kThxBye;
+}
+
+OPCODE(0x10) {
+	// Timer fire: if a[0] != 0 AND a[0] <= frame_tick_counter, reset a[0] = 0 and execute body.
+	// DOS handler at CS:0x3903. Pairs with Op_ed which writes the deadline.
+	uint16 deadline = a[0];
+	uint16 now = Log.frameTicks();
+	if (deadline != 0 && deadline <= now) {
+		debugC(2, kDebugLevelScript, "opcode 0x10: timer fired (deadline=%u tick=%u)", deadline, now);
+		a[0] = 0;
+		return kThxBye;
+	}
+	debugC(3, kDebugLevelScript, "opcode 0x10: timer pending (deadline=%u tick=%u)", deadline, now);
+	return kFail;
+}
+
+OPCODE(0x11) {
+	// "if slow CPU" — body executes only on slow machines (the original calibrated
+	// at startup and set g_slow_cpu when a frame took too long). Modern hosts are
+	// always fast, so the body is always skipped.
+	// DOS handler at CS:0x391d: skip if g_slow_cpu (DS:0x67b5) == 0.
+	debugC(2, kDebugLevelScript, "opcode 0x11: if slow CPU (always false)");
+	return kFail;
+}
+
+OPCODE(0x17) {
+	// if exit `a[0]` does not exist (slot.id == 0)
+	// DOS handler at CS:0x3996.
+	debugC(1, kDebugLevelScript, "opcode 0x17: if no exit %s", +a[0]);
+	Exit *exit = _logic->blockProgram()->getExit(a[0]);
+	if (exit != nullptr)
+		return kFail;
+	return kThxBye;
+}
+
+OPCODE(0x19) {
+	// if actor `a[0]` is in no room (location_id == 0)
+	// DOS handler at CS:0x39bc.
+	debugC(1, kDebugLevelScript, "opcode 0x19: if actor %s not in any room", +a[0]);
+	Actor *ac = Log.getActor(a[0]);
+	if (ac && ac->room() != 0)
+		return kFail;
+	return kThxBye;
+}
+
+OPCODE(0x1a) {
+	// if exit `a[0]` exists (slot.id != 0) — inverse of 0x17.
+	// DOS handler at CS:0x39d0.
+	debugC(1, kDebugLevelScript, "opcode 0x1a: if exit %s exists", +a[0]);
+	Exit *exit = _logic->blockProgram()->getExit(a[0]);
+	if (exit == nullptr)
+		return kFail;
+	return kThxBye;
+}
+
+OPCODE(0x1c) {
+	// if actor `a[0]` is in some room (location_id != 0) — inverse of 0x19.
+	// DOS handler at CS:0x39f6.
+	debugC(1, kDebugLevelScript, "opcode 0x1c: if actor %s is somewhere", +a[0]);
+	Actor *ac = Log.getActor(a[0]);
+	if (!ac || ac->room() == 0)
+		return kFail;
+	return kThxBye;
+}
+
+OPCODE(0x1d) {
+	// if actor `a[1]` is in current room AND at frame `a[0]`.
+	// DOS handler at CS:0x3a10. Like 0x1f but with == instead of !=.
+	debugC(1, kDebugLevelScript, "opcode 0x1d: if actor %s in current room AND at %s", +a[1], +a[0]);
+	Actor *ac = Log.getActor(a[1]);
+	if (!ac || ac->room() != Log.currentRoom() || ac->frameId() != a[0])
 		return kFail;
 	return kThxBye;
 }
@@ -139,6 +305,15 @@ OPCODE(0x24) {
 	// check nonzeroness
 	debugC(2, kDebugLevelScript, "opcode 0x24: if (%s)", +a[0]);
 	if (a[0] == 0)
+		return kFail;
+	return kThxBye;
+}
+
+OPCODE(0x25) {
+	// check zeroness — opposite of 0x24.
+	// DOS handler at CS:0x3aef.
+	debugC(2, kDebugLevelScript, "opcode 0x25: if not (%s)", +a[0]);
+	if (a[0] != 0)
 		return kFail;
 	return kThxBye;
 }
@@ -171,17 +346,34 @@ OPCODE(0x36) {
 	return kReturn;
 }
 
+OPCODE(0x37) {
+	// explicit return from procedure (matches 0x36 call). DOS handler at CS:0x3c2e
+	// pops the call stack — in this engine the call chain is handled by C++ recursion,
+	// so just signal end-of-procedure.
+	debugC(2, kDebugLevelScript, "opcode 0x37: return");
+	return kReturn;
+}
+
 OPCODE(0x39) {
-	// run later
+	// Schedule a main-interpreter procedure to run on a later tick.
+	// DOS handler at CS:0x3c88 first cancels any matching pending entry then appends.
+	// Mirror of 0x3b but for the main (top-level) interpreter context.
 	debugC(2, kDebugLevelScript, "opcode 0x39: execute main %s later", +a[0]);
-	_logic->runLater(CodePointer(static_cast<CodePointer &>(a[0]).offset(), _logic->mainInterpreter()));
+	CodePointer p(static_cast<CodePointer &>(a[0]).offset(), _logic->mainInterpreter());
+	_logic->cancelLater(p);
+	_logic->runLater(p);
 	return kThxBye;
 }
 
 OPCODE(0x3b) {
-	// run local code later
+	// Schedule a block-interpreter procedure to run on a later tick.
+	// DOS handler at CS:0x3c7f first calls Op_3c (which cancels any matching pending
+	// entry) then appends the new entry to g_deferred_script_queue. The cancel-first
+	// behaviour guarantees no duplicates of the same (segment, offset) get queued.
 	debugC(2, kDebugLevelScript, "opcode 0x3b: execute %s later", +a[0]);
-	_logic->runLater(CodePointer(static_cast<CodePointer &>(a[0]).offset(), _logic->blockInterpreter()));
+	CodePointer p(static_cast<CodePointer &>(a[0]).offset(), _logic->blockInterpreter());
+	_logic->cancelLater(p);
+	_logic->runLater(p);
 	return kThxBye;
 }
 
@@ -363,6 +555,14 @@ OPCODE(0x63) {
 	return kThxBye;
 }
 
+OPCODE(0x6c) {
+	// add: a[0] += a[1]
+	// DOS handler at CS:0x42b1.
+	debugC(2, kDebugLevelScript, "opcode 0x6c: %s += %s", +a[0], +a[1]);
+	a[0] = uint16(a[0]) + uint16(a[1]);
+	return kThxBye;
+}
+
 OPCODE(0x6d) {
 	// increment
 	debugC(2, kDebugLevelScript, "opcode 0x6d: %s++", +a[0]);
@@ -370,10 +570,28 @@ OPCODE(0x6d) {
 	return kThxBye;
 }
 
+OPCODE(0x6e) {
+	// subtract: a[0] -= a[1]
+	// DOS handler at CS:0x42c9.
+	debugC(2, kDebugLevelScript, "opcode 0x6e: %s -= %s", +a[0], +a[1]);
+	a[0] = uint16(a[0]) - uint16(a[1]);
+	return kThxBye;
+}
+
 OPCODE(0x6f) {
 	// decrement
 	debugC(2, kDebugLevelScript, "opcode 0x6d: %s--", +a[0]);
 	a[0]--;
+	return kThxBye;
+}
+
+OPCODE(0x71) {
+	// swap: tmp = a[0]; a[0] = a[1]; a[1] = tmp
+	// DOS handler at CS:0x42ea — a 6-instruction shuffle through BX/CX.
+	debugC(2, kDebugLevelScript, "opcode 0x71: swap(%s, %s)", +a[0], +a[1]);
+	uint16 tmp = a[0];
+	a[0] = a[1];
+	a[1] = tmp;
 	return kThxBye;
 }
 
@@ -413,23 +631,85 @@ OPCODE(0x79) {
 	return kThxBye;
 }
 
-OPCODE(0x7c) {
-	// toggle exit state
+OPCODE(0x74) {
+	// Boolean toggle: if a[0] is zero set it to 1; otherwise set it to 0.
+	// DOS handler at CS:0x430a — branches between Op_72 (=1) and Op_73 (=0).
+	debugC(2, kDebugLevelScript, "opcode 0x74: %s = !%s", +a[0], +a[0]);
+	a[0] = (uint16(a[0]) == 0) ? 1 : 0;
+	return kThxBye;
+}
+
+OPCODE(0x3a) {
+	// Cancel a previously-deferred MAIN-interpreter script.
+	// DOS handler at CS:0x3cc7 matches against g_resourceSegment (main interpreter context).
+	// Pairs with 0x39 which schedules into the same queue.
+	debugC(2, kDebugLevelScript, "opcode 0x3a: cancel deferred (main) %s", +a[0]);
+	_logic->cancelLater(CodePointer(static_cast<CodePointer &>(a[0]).offset(), _logic->mainInterpreter()));
+	return kThxBye;
+}
+
+OPCODE(0x3c) {
+	// Cancel a previously-deferred BLOCK-interpreter script.
+	// DOS handler at CS:0x3cc1 matches against the current code segment (block context).
+	// Pairs with 0x3b which schedules into the same queue.
+	debugC(2, kDebugLevelScript, "opcode 0x3c: cancel deferred (block) %s", +a[0]);
+	_logic->cancelLater(CodePointer(static_cast<CodePointer &>(a[0]).offset(), _logic->blockInterpreter()));
+	return kThxBye;
+}
+
+OPCODE(0x3e) {
+	// Clear the ESC/skip-cutscene handler. DOS handler at CS:0x3d23 just clears
+	// the g_esc_during_script flag (DS:0x672c). In the engine we reset the
+	// stored skip point so canSkipCutscene() returns false.
+	debugC(2, kDebugLevelScript, "opcode 0x3e: clear ESC handler");
+	Log.setSkipPoint(CodePointer());
+	return kThxBye;
+}
+
+OPCODE(0x4c) {
+	// Yield to next tick (no condition). DOS handler at CS:0x3eff calls FUN_1000_3154
+	// which saves the continuation in g_room_script_slots[opcode_mode] and exits.
+	// Same semantics as Op_d8.
+	debugC(2, kDebugLevelScript, "opcode 0x4c: yield to next frame");
+	_logic->runLater(next, 1);
+	return kReturn;
+}
+
+OPCODE(0x7b) {
+	// Enable exit `a[0]` (idempotent — only sets the bit if currently clear).
+	// DOS handler at CS:0x4459. Pairs with 0x7c (disable). The previous engine
+	// implementation of 0x7c was an unconditional toggle, which gave the wrong
+	// semantics for this pair.
 	Exit *exit = _logic->blockProgram()->getExit(a[0]);
-	debugC(2, kDebugLevelScript, "opcode 0x7c: toggling exit %s to %s", +a[0], exit->isEnabled() ? "disabled" : "enabled");
-	exit->setEnabled(!exit->isEnabled());
+	debugC(2, kDebugLevelScript, "opcode 0x7b: enable exit %s (was %s)", +a[0], exit && exit->isEnabled() ? "enabled" : "disabled");
+	if (exit && !exit->isEnabled())
+		exit->setEnabled(true);
+	return kThxBye;
+}
+
+OPCODE(0x7c) {
+	// Disable exit `a[0]` (idempotent — only clears the bit if currently set).
+	// DOS handler at CS:0x4476. NOT a toggle as the previous engine code assumed.
+	Exit *exit = _logic->blockProgram()->getExit(a[0]);
+	debugC(2, kDebugLevelScript, "opcode 0x7c: disable exit %s (was %s)", +a[0], exit && exit->isEnabled() ? "enabled" : "disabled");
+	if (exit && exit->isEnabled())
+		exit->setEnabled(false);
 	return kThxBye;
 }
 
 OPCODE(0x95) {
-	// unlock control
-	debugC(1, kDebugLevelScript, "opcode 0x95: unlock control STUB");
+	// LOCK control: disallow user clicks/cursor movement.
+	// DOS handler at CS:0x4a4c sets g_flag_no_step (DS:0x6747) = 1.
+	// (NOTE: previous engine comment said "unlock" — the disassembly proves it's the LOCK side.)
+	debugC(1, kDebugLevelScript, "opcode 0x95: lock control STUB");
 	return kThxBye;
 }
 
 OPCODE(0x96) {
-	// disallow user interaction
-	debugC(1, kDebugLevelScript, "opcode 0x96: lock control STUB");
+	// UNLOCK control: re-allow user clicks/cursor movement.
+	// DOS handler at CS:0x4a52 clears g_flag_no_step and g_flag_step_pending.
+	// (NOTE: previous engine comment said "disallow user interaction" — verified backwards.)
+	debugC(1, kDebugLevelScript, "opcode 0x96: unlock control STUB");
 	return kThxBye;
 }
 
@@ -606,9 +886,12 @@ OPCODE(0xc8) {
 }
 
 OPCODE(0xc9) {
-	// set backdrop
-	// does it set the default one?
-	debugC(2, kDebugLevelScript, "opcode 0xc9: set backdrop(%s)", +a[0]);
+	// Set the player's "current place" id (DAT_1000_0111 in DOS = main_dat global at offset 0x111).
+	// DOS handler at CS:0x522f: stores arg0 to that global; only reloads backdrop when in map mode.
+	// (NOT the same as 0xc8 — 0xc8 sets g_loaded_backdrop_id and reloads the room backdrop directly.)
+	// TODO: model the "current place" global on Logic; for now the existing setBackdrop call keeps
+	// in-game behaviour identical to 0xc8 since both trigger a backdrop reload.
+	debugC(2, kDebugLevelScript, "opcode 0xc9: set current place to %s", +a[0]);
 	_graphics->setBackdrop(a[0]);
 	return kThxBye;
 }
@@ -722,6 +1005,15 @@ OPCODE(0xe6) {
 	return kThxBye;
 }
 
+OPCODE(0xed) {
+	// Set timer deadline: a[0] = frame_tick_counter + a[1]
+	// DOS handler at CS:0x568c. Pairs with Op_10 which fires when reached.
+	uint16 deadline = Log.frameTicks() + uint16(a[1]);
+	debugC(2, kDebugLevelScript, "opcode 0xed: set deadline %s = tick(%u) + %s", +a[0], Log.frameTicks(), +a[1]);
+	a[0] = deadline;
+	return kThxBye;
+}
+
 OPCODE(0xef) {
 	// random
 	uint16 value = _engine->getRandom(a[0]);
@@ -759,11 +1051,13 @@ OPCODE(0xf9) {
 }
 
 OPCODE(0xfc) {
-	// quit
-	debugC(2, kDebugLevelScript, "opcode 0xfc: quit%s", a[0] == 0 ? "" : " unconditionally");
-	if (a[0] == 0)
-		error("asking for quitting not implemented");
-
+	// Quit. DOS handler at CS:0x5996:
+	//   if (a[0] != 0): unconditional shutdown
+	//   else:           show "Continue/Restart/Exit" modal — pick decides outcome
+	// We don't have the modal yet, so for the menu case we just quit too —
+	// matches the user's evident intent and lets ScummVM's regular confirmation
+	// dialog (if enabled) front the call.
+	debugC(2, kDebugLevelScript, "opcode 0xfc: quit%s", a[0] == 0 ? " (TODO: show menu first)" : " unconditionally");
 	_engine->quitGame();
 	return kThxBye;
 }

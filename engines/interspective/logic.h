@@ -49,8 +49,12 @@ class Resources;
 
 class Logic : public Common::Singleton<Logic> {
 public:
-	Logic() {}
+	Logic() : _frameCounter(0) {}
 	~Logic();
+
+	// Monotonically increasing per-tick counter — wraps at uint16 to mirror the DOS
+	// g_tick_counter at DS:0x6666. Used by Op_10 (timer-fire) and Op_ed (set-deadline).
+	uint16 frameTicks() const { return uint16(_frameCounter); }
 
 	void setEngine(Engine *e);
 
@@ -82,6 +86,9 @@ public:
 	Interpreter *blockInterpreter() const { return _blockInterpreter.get(); }
 	Interpreter *mainInterpreter() const { return _toplevelInterpreter.get(); }
 	void runLater(const CodePointer &, uint16 delay = 0);
+	// Remove any queued (runLater) entry whose CodePointer matches `p`.
+	// Used by Op_3a / Op_3c to cancel a previously-deferred script.
+	bool cancelLater(const CodePointer &p);
 
 	bool canSkipCutscene() const { return !_skipPoint.isEmpty(); }
 	void setSkipPoint(const CodePointer &);
@@ -120,6 +127,7 @@ private:
 	Common::List<DelayedRun> _queued;
 
 	CodePointer _skipPoint;
+	uint32 _frameCounter;
 };
 
 #define Log Logic::instance()
