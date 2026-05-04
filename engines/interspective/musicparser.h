@@ -81,6 +81,7 @@ private:
 
 class Channel {
 public:
+	bool isActive() const { return _active; }
 	Channel();
 	Channel(const byte *def, const byte *tune, byte chanidx);
 	MusicCommand::Status parseNextEvent(EventInfo &info);
@@ -100,6 +101,13 @@ class Beat {
 public:
 	Beat();
 	Beat(const byte *def, const byte *channels, const byte *tune);
+	uint activeChannels() const {
+		uint n = 0;
+		for (int i = 0; i < 8; i++)
+			if (_channels[i].isActive())
+				n++;
+		return n;
+	}
 	MusicCommand::Status parseNextEvent(EventInfo &info);
 	void reset(uint32 start = 0);
 	uint32 delta() const;

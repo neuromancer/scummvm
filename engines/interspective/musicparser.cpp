@@ -40,8 +40,16 @@ namespace Interspective {
 MusicParser::MusicParser() : MidiParser(), _time(0), _lastTick(0), _tick(0) {
 	MidiDriver::DeviceHandle dev = MidiDriver::detectDevice(MDT_MIDI | MDT_ADLIB | MDT_PREFER_GM);
 	_midiDriver = MidiDriver::createMidi(dev);
-	_midiDriver->open();
+	int openResult = _midiDriver->open();
+	if (openResult != 0) {
+		warning("Interspective: MidiDriver::open failed (%d) — music will be silent", openResult);
+	}
 
+	// MidiParser::setMidiDriver only sets _driver — doesn't touch the driver's
+	// timer callback. We override it ourselves below to point at our own tick
+	// (the base MidiParser::onTimer drives the standard event-stream model that
+	// our parseNextEvent() override no-ops; we run our own beat/channel/note
+	// state machine in MusicParser::tick instead).
 	setMidiDriver(_midiDriver);
 	setTimerRate(_midiDriver->getBaseTempo());
 	_midiDriver->setTimerCallback(this, &MusicParser::timerCallback);
@@ -61,7 +69,19 @@ bool MusicParser::loadMusic(const byte *data, uint32 size) {
 	silence();
 	delete _script;
 	_script = new MusicScript(const_cast<byte *>(data));
-	_tune = new Tune(_script->getTune());
+
+	// Reset our custom music clock so tunes always start from tick 0. Without
+	// this, _tick keeps growing across loadMusic calls, and Note::reset (which
+	// schedules notes against `_tick + 1`) would queue them against an
+	// ever-growing target — but _lastTick is also stale, which throws the
+	// pacing of the timer-gated tick loop. Restart cleanly.
+	_tick = 0;
+	_lastTick = 0;
+	_time = 0;
+
+	uint16 tuneIdx = _script->getTune();
+	debugC(1, kDebugLevelMusic, "MusicParser::loadMusic — tune index %u", tuneIdx);
+	_tune = new Tune(tuneIdx);
 
 	_numTracks = 1;
 	_ppqn = 120;
@@ -186,6 +206,13 @@ Tune::Tune(uint16 index) {
 	// ticks against the music clock so notes fire from frame one.
 	if (!_beats.empty())
 		_beats[0].reset();
+
+	uint activeChannels = _beats.empty() ? 0 : _beats[0].activeChannels();
+	debugC(1, kDebugLevelMusic, "Tune %u: %u beats, %u active channels in beat 0",
+		index, (uint)_beats.size(), activeChannels);
+	if (_beats.empty() || activeChannels == 0)
+		warning("Music tune %u loaded but has no playable content (beats=%u channels=%u)",
+			index, (uint)_beats.size(), activeChannels);
 }
 
 void Tune::setBeat(uint16 index) {
@@ -378,6 +405,14 @@ void MusicCommand::exec(byte channel, Note *note) {
 		if (_command < 0x80) {
 			assert (note);
 			debugC(2, kDebugLevelMusic, "play note %d at volume %d on %d", _command, _parameter, channel);
+
+			static bool reportedFirstNote = false;
+			if (!reportedFirstNote) {
+				reportedFirstNote = true;
+				warning("Interspective music: first NoteOn reached driver "
+					"(channel=%u pitch=%u velocity=%u)",
+					(uint)channel, (uint)_command, (uint)_parameter);
+			}
 
 			if (note->note()) {
 				debugC(2, kDebugLevelMusic, "[first turn off note %d]", note->note());
