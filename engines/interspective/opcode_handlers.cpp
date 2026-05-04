@@ -461,23 +461,43 @@ OPCODE(0x47) {
 }
 
 OPCODE(0x4a) {
-	// DOS Op_4a_RegisterSampleByMapMode (CS:0x3ed5): registers a sample slot
-	// (RegisterSampleSlot_Bare2 in map mode, _Bare9 otherwise). Falls through
-	// — no skip_counter set. The original ScummVM port misclassified this as
-	// "wait until protagonist silent" and returned kReturn, which would abort
-	// the running script if 0x4a is emitted in a non-wait context.
-	debugC(2, kDebugLevelScript, "opcode 0x4a: register sample (map=%d) STUB",
+	// DOS Op_4a_RegisterSampleByMapMode (CS:0x3ed5) → calls
+	// RegisterSampleSlot_Common which saves the script PC and sets
+	// `g_break_outer = 1` (the script EXITS this tick). The slot's
+	// "sample" plays and the script resumes when the sample finishes.
+	//
+	// Without a sound driver, the only observable correlate is: "wait
+	// until the speaker who emitted the last Op_41 is done with their
+	// speech bubble." Without this, the next Op_43 (different actor's
+	// dialog) fires immediately and two speech bubbles appear at once.
+	// Pattern in the intro: Op_41(protag say) → Op_4a → Op_43(actor 23
+	// say). The Op_4a yields until protag finishes speaking.
+	debugC(2, kDebugLevelScript, "opcode 0x4a: register sample (map=%d) → wait protag silent",
 		Log.inMapMode() ? 1 : 0);
+	if (Actor *ac = Log.protagonist()) {
+		if (ac->isSpeaking()) {
+			ac->callMeWhenSilent(next);
+			return kReturn;
+		}
+	}
 	return kThxBye;
 }
 
 OPCODE(0x4b) {
-	// DOS Op_4b_RegisterSampleIfMainChar (CS:0x3ee7): if !map_mode, register
-	// _Bare9. If map_mode AND a[0]==main_char_id, register _Bare2. Falls
-	// through. Original ScummVM port had this as "wait until actor silent"
-	// returning kReturn — same issue as 0x4a.
-	debugC(2, kDebugLevelScript, "opcode 0x4b: register sample if main-char (id=%s) STUB",
+	// DOS Op_4b_RegisterSampleIfMainChar (CS:0x3ee7): in non-map-mode
+	// always registers + breaks; in map-mode only if a[0] == main char.
+	// In our (non-map) case, the natural correlate is "wait until the
+	// actor named by a[0] finishes their speech bubble" — pattern:
+	// Op_43(actor say) → Op_4b(actor) gates the next dialog on that
+	// actor's bubble timing.
+	debugC(2, kDebugLevelScript, "opcode 0x4b: register sample if main-char (id=%s) → wait actor silent",
 		+a[0]);
+	if (Actor *ac = Log.getActor(a[0])) {
+		if (ac->isSpeaking()) {
+			ac->callMeWhenSilent(next);
+			return kReturn;
+		}
+	}
 	return kThxBye;
 }
 
@@ -769,12 +789,19 @@ OPCODE(0x3e) {
 }
 
 OPCODE(0x4c) {
-	// DOS Op_4c_RegisterSampleSpeechOrMap (CS:0x3eff): registers a sample slot
-	// (Bare2 in map mode, Bare3 otherwise). Falls through. Original ScummVM
-	// port had this returning kReturn ("yield to next frame"), which would
-	// abort the running script if 0x4c is emitted in a non-yield context.
-	debugC(2, kDebugLevelScript, "opcode 0x4c: register sample (speech/map=%d) STUB",
+	// DOS Op_4c_RegisterSampleSpeechOrMap (CS:0x3eff) → like Op_4a,
+	// registers a sample slot (different Bare wrapper but same Common
+	// epilogue: save PC + g_break_outer = 1). Yields until the
+	// just-emitted speech sample finishes — same protag-wait correlate
+	// as Op_4a in our model.
+	debugC(2, kDebugLevelScript, "opcode 0x4c: register sample (speech/map=%d) → wait protag silent",
 		Log.inMapMode() ? 1 : 0);
+	if (Actor *ac = Log.protagonist()) {
+		if (ac->isSpeaking()) {
+			ac->callMeWhenSilent(next);
+			return kReturn;
+		}
+	}
 	return kThxBye;
 }
 
@@ -971,8 +998,20 @@ OPCODE(0xbe) {
 }
 
 OPCODE(0xc2) {
-	// add animation at cursor
-	debugC(2, kDebugLevelScript, "opcode 0xc2: add animation %s at cursor partial STUB", +a[0]);
+	// DOS Op_c2_handler @ 1000:5140: walks g_cast_table (18 slots),
+	// finds first inactive (wActive==0), seeds it with arg0 (script
+	// offset), current ES (script segment), and locked cursor x/y as
+	// initial position. The animation script then does its own Op_05/06
+	// to set the sprite + reposition. Engine equivalent: spawn a fresh
+	// Animation registered in Logic::_animations.
+	//
+	// Differences from DOS that are observable but harmless during the
+	// intro: we use the live cursor position (currently hardcoded to
+	// 160,100 — graphics.cpp:cursorPosition is a STUB) instead of the
+	// frame-start snapshot, and we don't enforce the 18-slot cap. The
+	// script always repositions its animation in the first tick, so the
+	// initial position only matters for the very first frame.
+	debugC(2, kDebugLevelScript, "opcode 0xc2: add animation %s at cursor", +a[0]);
 	_logic->addAnimation(new Animation(static_cast<CodePointer &>(a[0]), _graphics->cursorPosition()));
 	return kThxBye;
 }
@@ -996,21 +1035,33 @@ OPCODE(0xc7) {
 }
 
 OPCODE(0xc8) {
-	// set backdrop
-	// (not sure what's the difference to c9)
+	// DOS Op_c8_handler @ 1000:5222: ClearVideoAndPushToScreen +
+	// g_loaded_backdrop_id (DS:0x666a) = arg0 + SetBackdropImage. This
+	// loads the named backdrop graphic into the room buffer.
+	//
+	// Difference from Op_c9 (clarified iter-30): Op_c8 immediately loads
+	// a backdrop image. Op_c9 sets the savegame "current place" id and
+	// only triggers a reload when in map mode.
 	debugC(2, kDebugLevelScript, "opcode 0xc8: set backdrop(%s)", +a[0]);
 	_graphics->setBackdrop(a[0]);
 	return kThxBye;
 }
 
 OPCODE(0xc9) {
-	// Set the player's "current place" id (DAT_1000_0111 in DOS = main_dat global at offset 0x111).
-	// DOS handler at CS:0x522f: stores arg0 to that global; only reloads backdrop when in map mode.
-	// (NOT the same as 0xc8 — 0xc8 sets g_loaded_backdrop_id and reloads the room backdrop directly.)
-	// TODO: model the "current place" global on Logic; for now the existing setBackdrop call keeps
-	// in-game behaviour identical to 0xc8 since both trigger a backdrop reload.
+	// DOS Op_c9_handler @ 1000:522f:
+	//   DAT_1000_0111 = arg0           ; set "current place" id (CS:[0x111])
+	//   if (g_in_map_mode != 0) {
+	//     ClearVideoAndPushToScreen();
+	//     g_flag_change_room = 1;     ; trigger room reload
+	//   }
+	// CS:[0x111] is read only by RestoreBackdrop and Op_fa (savegame
+	// path), so the "place" id functions as a save-state identifier.
+	// Previous C++ called `setBackdrop(a[0])` which fed arg0 (e.g. "1")
+	// into the backdrop slot — completely wrong, that's Op_c8's job.
+	// Now we just record the value via Logic::setCurrentPlace and skip
+	// the map-mode branch (we don't model map mode).
 	debugC(2, kDebugLevelScript, "opcode 0xc9: set current place to %s", +a[0]);
-	_graphics->setBackdrop(a[0]);
+	_logic->setCurrentPlace(uint16(a[0]));
 	return kThxBye;
 }
 

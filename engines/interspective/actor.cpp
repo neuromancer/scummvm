@@ -260,6 +260,21 @@ Common::List<Actor::Frame> Actor::findPath(Actor::Frame from, uint16 to) {
 void Actor::moveTo(uint16 frame) {
 	Frame cur = Log.room()->getFrame(_frame);
 
+	// DOS MoveActorToRoom @ 1000:70e1: if the actor isn't registered
+	// (no current valid position in this room), it WARPS directly to
+	// the target frame instead of pathfinding. Mirror that behaviour
+	// when our current frame is invalid (=0 / never set, or position
+	// (999,999) sentinel) — otherwise findPath has no anchor and
+	// `nextFrame` would update `_frame` without updating `_position`,
+	// leaving the actor stuck at its data-file initial coordinates
+	// (e.g. protag stuck at (120,82) when Op_ab(4) should have placed
+	// them at frame 4 = (119,115)). [iter-33]
+	if (_frame == 0 || cur.position().x == 999) {
+		debugC(3, kDebugLevelActor, "moveTo(%u): warp (no valid current frame)", (uint)frame);
+		setFrame(frame);
+		return;
+	}
+
 	Common::List<Frame> path = findPath(cur, frame);
 
 	// findPath now returns an EMPTY list when the target is unreachable
@@ -513,9 +528,19 @@ CodePointer Puppeteer::turnAnimator(Direction d) {
 	return CodePointer(off, Log.mainInterpreter());
 }
 
-Actor::Speech::Speech(Actor *parent, const Common::String &text) : _text(text), _ticksLeft(20), _actor(parent) {
+Actor::Speech::Speech(Actor *parent, const Common::String &text) : _text(text), _actor(parent) {
+	// DOS paces dialog by sample (audio) playback length — typically
+	// a few seconds. Without samples, the bubble must stay up long
+	// enough to read it. Approximate sample duration from text length:
+	//   ~3 ticks per character + 30-tick floor (reading speed roughly
+	//   100 chars / 3 sec at our 25Hz = 8 chars/sec). Scales naturally
+	//   from short interjections to long monologue. Previously this was
+	//   hardcoded to 20 ticks (~0.8s) which made the intro feel rushed
+	//   compared to DOS. [iter-33]
+	_ticksLeft = MAX<uint16>(30, 3 * uint16(text.size()));
 	const Common::Point &position = parent->getSpeechPosition();
-	debugC(1, kDebugLevelActor, "adding speech \"%s\" for %s at %d:%d", text.c_str(), parent->_debugInfo, position.x, position.y);
+	debugC(1, kDebugLevelActor, "adding speech \"%s\" (%u ticks) for %s at %d:%d",
+		text.c_str(), (uint)_ticksLeft, parent->_debugInfo, position.x, position.y);
 	_image = new Interspective::Sprite;
 	_rect = Graf.paintSpeechInBubble(position, 235, reinterpret_cast<const byte *>(text.c_str()), _image);
 }

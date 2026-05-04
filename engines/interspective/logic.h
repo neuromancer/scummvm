@@ -235,6 +235,11 @@ public:
 	void setSkipPoint(const CodePointer &);
 	void skipCutscene();
 
+	// "Current place" id (DOS CS:[0x111], a savegame state identifier
+	// — not the same as the room number). Set by Op_c9 / Op_fb.
+	void setCurrentPlace(uint16 p) { _currentPlace = p; }
+	uint16 currentPlace() const { return _currentPlace; }
+
 	Animation *animation(uint16 offset) const;
 
 	Music *music() const { return _music; }
@@ -272,6 +277,7 @@ private:
 	uint16 _verbMode;       // DS:0x6678 — current verb (LOOK/USE/etc), 0x80 = system
 	uint16 _gameState;      // DS:0x666e — 0=fresh, 1=running, 2=in dialog
 	bool _inMapMode;        // DS:0x676e — true while world map is shown
+	uint16 _currentPlace;   // DOS CS:[0x111] — savegame "place" id, set by Op_c9
 	bool _stepPending;      // DS:0x6748 — set by hotspot click, cleared on action
 	bool _noStep;           // DS:0x6747 — true while control is locked (Op_95/Op_96)
 	Common::Array<Zone> _zones;            // mirrors g_zone[8], cleared by Op_da

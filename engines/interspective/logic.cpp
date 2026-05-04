@@ -53,6 +53,7 @@ void Logic::setEngine(Engine *e) {
 	_currentRoom = 0xffff;
 	_currentBlock = 0xffff;
 	_nextRoom = 0;
+	_currentPlace = 0;
 }
 
 
