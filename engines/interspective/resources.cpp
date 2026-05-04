@@ -151,6 +151,11 @@ void Resources::init() {
 
 void Resources::loadActors() {
 	_main.get()->loadActors(_vm->logic()->mainInterpreter());
+	// Seed Logic::_objectRoom with the iuc_main.dat global object-state
+	// table so Op_18/Op_1b/Op_21 see real initial rooms (not the default
+	// "present" fallback). DOS does this implicitly because the table IS
+	// the runtime state — we just mirror it into the C++ HashMap once.
+	_main.get()->loadObjectStates();
 }
 
 byte *Resources::getGlobalByteVariable(uint16 var) const {

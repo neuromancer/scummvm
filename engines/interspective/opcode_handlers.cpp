@@ -534,48 +534,62 @@ OPCODE(0x60) {
 }
 
 OPCODE(0x63) {
-	// get actor property
+	// DOS get-actor-field. a[0] = actor id, a[1] = field offset, a[2] =
+	// destination. Reads a 1- or 2-byte field from the actor record. The
+	// canonical offsets are documented in iter-10's actor field map.
+	// Previously errored out on unknown offsets; now returns 0 with a log
+	// warning so unimplemented properties don't crash the engine.
 	Actor *actor = _logic->getActor(a[0]);
-	const char *desc;
+	const char *desc = "?";
+	uint16 value = 0;
+	const uint8 off = uint16(a[1]) & 0xff;
 
-	switch (uint16(a[1]) & 0xff) {
-	case Actor::kOffsetRoom:
-		desc = "Room";
-		a[2] = actor->room();
-		break;
-/*	case Actor::kOffsetOffset:
-		desc = "Offset";
-		a[2] = actor->offset();
-		break;
-	case Actor::kOffsetLeft:
-		desc = "Left";
-		a[2] = actor->left();
-		break;
-	case Actor::kOffsetTop:
-		desc = "Top";
-		a[2] = actor->top();
-		break;
-	case Actor::kOffsetMainSprite:
-		desc = "MainSprite";
-		a[2] = actor->mainSprite();
-		break;
-	case Actor::kOffsetTicksLeft:
-		desc = "TicksLeft";
-		a[2] = actor->ticksLeft();
-		break;
-	case Actor::kOffsetCode:
-		desc = "Code";
-		a[2] = actor->code();
-		break;
-	case Actor::kOffsetInterval:
-		desc = "Interval";
-		a[2] = actor->interval();
-		break;*/
-	default:
-		error("unhandled actor property %s", +a[1]);
+	if (!actor) {
+		debugC(1, kDebugLevelScript, "opcode 0x63: get prop %u of UNKNOWN actor %s", off, +a[0]);
+		a[2] = 0;
+		return kThxBye;
 	}
 
-	debugC(2, kDebugLevelScript, "opcode 0x63: %s = get %s of actor %s", +a[2], desc, +a[0]);
+	switch (off) {
+	case Actor::kOffsetLeft:        // +4 (int16 x)
+		desc = "Left";
+		value = uint16(actor->position().x);
+		break;
+	case Actor::kOffsetTop:         // +6 (int16 y)
+		desc = "Top";
+		value = uint16(actor->position().y);
+		break;
+	case Actor::kOffsetMainSprite:  // +8 (target frame in DOS — _nextFrame in C++)
+		desc = "MainSprite";
+		value = actor->targetFrameId();
+		break;
+	case Actor::kOffsetTicksLeft:   // +0xa (per-tick countdown)
+		desc = "TicksLeft";
+		value = uint16(actor->ticksLeft());
+		break;
+	case Actor::kOffsetInterval:    // +0x10 (current frame byte)
+		desc = "Interval";
+		value = actor->frameId();
+		break;
+	case Actor::kOffsetRoom:        // +0x59 (int16 room)
+		desc = "Room";
+		value = actor->room();
+		break;
+	default:
+		// DOS fields not yet mirrored in C++ Actor (mood, flag14/15/16,
+		// callback, etc.) — fall back to the sparse _dosFields hashmap
+		// (which Phase-1 ops 0x1d/0x1e/0x1f/0x25 populate) so scripts
+		// reading freshly-set bytes get the correct value, and absent
+		// keys read as 0 (matches DOS post-init state).
+		desc = "DosField";
+		value = actor->dosField(off);
+		debugC(2, kDebugLevelScript, "opcode 0x63: get unmodelled prop +0x%02x of actor %s -> %u (sparse)",
+			off, +a[0], value);
+		break;
+	}
+
+	a[2] = value;
+	debugC(2, kDebugLevelScript, "opcode 0x63: %s of actor %s = %u", desc, +a[0], value);
 	return kThxBye;
 }
 
@@ -2062,15 +2076,44 @@ OPCODE(0xdd) {
 	return kThxBye;
 }
 
-// 0xe0..0xec: misc state setters.
-OPCODE(0xe0) { debugC(2, kDebugLevelScript, "opcode 0xe0: misc STUB"); return kThxBye; }
-OPCODE(0xe1) { debugC(2, kDebugLevelScript, "opcode 0xe1: misc STUB"); return kThxBye; }
-OPCODE(0xe3) { debugC(2, kDebugLevelScript, "opcode 0xe3: misc STUB"); return kThxBye; }
-OPCODE(0xe4) { debugC(2, kDebugLevelScript, "opcode 0xe4: misc STUB"); return kThxBye; }
+// 0xe0..0xec: frame-table mutators / misc state setters. iter-17:
+// re-decompiled from DOS — these mutate the room's per-frame data table:
+//   Op_e0 (1 arg): InvalidateFrame(arg0) — set frame[arg0].x = frame.y = 999
+//                  (the "placeholder" sentinel that findPath skips per
+//                  iter-15's BFS guard).
+//   Op_e1 (3 args): SetFramePosition(arg0, x=arg1, y=arg2) — overwrite the
+//                   frame's screen position.
+//   Op_e3 (3 args): stash 3 globals + set logic dirty (palette/font region?)
+//   Op_e4 (4 args): append entry to g_anim_list (max 8) — a deferred draw
+//                   queue. C++ has no overlay queue yet (see Op_7e).
+// All are scene/cutscene-specific. Without a frame-override mechanism on
+// Room, log the call with all args so any anomalies are traceable.
+OPCODE(0xe0) {
+	debugC(2, kDebugLevelScript, "opcode 0xe0: InvalidateFrame %s STUB", +a[0]);
+	return kThxBye;
+}
+OPCODE(0xe1) {
+	debugC(2, kDebugLevelScript, "opcode 0xe1: SetFramePosition frame=%s x=%s y=%s STUB",
+		+a[0], +a[1], +a[2]);
+	return kThxBye;
+}
+OPCODE(0xe3) {
+	debugC(2, kDebugLevelScript, "opcode 0xe3: misc cutscene state %s,%s,%s STUB",
+		+a[0], +a[1], +a[2]);
+	return kThxBye;
+}
+OPCODE(0xe4) {
+	debugC(2, kDebugLevelScript, "opcode 0xe4: anim-list append %s,%s,%s,%s STUB",
+		+a[0], +a[1], +a[2], +a[3]);
+	return kThxBye;
+}
 OPCODE(0xe7) {
-	// 0xe7 (DOS CS:0x5612): set g_game_state.
-	debugC(2, kDebugLevelScript, "opcode 0xe7: gameState = %s", +a[0]);
-	Log.setGameState(uint16(a[0]));
+	// DOS Op_e7 (CS:0x5612) takes 0 args and calls ClearBytesUntilWrap on
+	// a buffer at DS:[0x4fa9] — clearing the parser input buffer or
+	// similar. Original C++ port called Log.setGameState(uint16(a[0]))
+	// — but with 0 args, a[0] indexed past the end of the dispatcher's
+	// ValueVector, reading garbage memory. Fixed iter-17 to no-op.
+	debugC(2, kDebugLevelScript, "opcode 0xe7: ClearBytesUntilWrap (input buffer) STUB");
 	return kThxBye;
 }
 OPCODE(0xe8) {

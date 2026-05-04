@@ -29,6 +29,7 @@
 #include "common/util.h"
 
 #include "interspective/actor.h"
+#include "interspective/logic.h"
 #include "interspective/resources.h"
 #include "interspective/util.h"
 
@@ -54,6 +55,14 @@ enum Offsets {
 	kProgEntriesCount0	= 0x06,
 	kProgEntriesCount1	= 0x08,
 	kProgramsMap		= 0x0A,
+	// kPersonsCount = 0x0C → DOS CS:[0x6b]. Used by Op_7f as the bound
+	// for object id; effectively also the global object-state table size.
+	kPersonsCount       = 0x0C,
+	// kGlobalObjectStateList = 0x0E → DOS CS:[0x6d]. Pointer (within the
+	// data segment) to an array of 18-byte object-state records. Each
+	// record's first uint16 is the object's current room id (0 = missing,
+	// 0xffff = unplaced). Op_18/Op_1b/Op_21/Op_7f read or write this field.
+	kGlobalObjectStateList = 0x0E,
 	kActorsCount		= 0x10,
 	kActors 			= 0x12,
 	kPuppeteersCount    = 0x14,
@@ -118,6 +127,49 @@ void MainDat::readFile(SeekableReadStream &stream) {
 	_programsCount = READ_LE_UINT16(_footer + kProgEntriesCount1);
 
 	_programsMap = _data + READ_LE_UINT16(_footer + kProgramsMap);
+}
+
+uint16 MainDat::personsCount() const {
+	return READ_LE_UINT16(_footer + kPersonsCount);
+}
+
+void MainDat::loadObjectStates() {
+	// DOS CS:[0x6b] = persons count (footer +0x0C); CS:[0x6d] = pointer
+	// to object-state table (footer +0x0E). Each record is 18 bytes;
+	// uint16 at offset 0 is the room id. Op_7f writes there at runtime;
+	// Op_18/Op_1b/Op_21 read.
+	const uint16 count = personsCount();
+	const uint16 listOff = READ_LE_UINT16(_footer + kGlobalObjectStateList);
+	const uint16 stride = 0x12;  // 18 bytes per DOS GetObjectOffset
+
+	if (listOff == 0 || count == 0) {
+		debugC(1, kDebugLevelFiles, "loadObjectStates: empty table (count=%u off=0x%04x) — skipping",
+			count, listOff);
+		return;
+	}
+
+	// Bounds check: ensure the table fits inside _data.
+	const uint32 endOff = uint32(listOff) + uint32(count) * stride;
+	if (endOff > _dataLen) {
+		warning("loadObjectStates: table overflow (off=0x%04x count=%u stride=%u, dataLen=%u) — skipping",
+			listOff, count, stride, _dataLen);
+		return;
+	}
+
+	uint nonZero = 0;
+	for (uint16 i = 0; i < count; ++i) {
+		const byte *rec = _data + listOff + i * stride;
+		const uint16 room = READ_LE_UINT16(rec);
+		// Object IDs are 1-based per DOS GetObjectOffset (it does DEC AX
+		// before multiplying). Room 0 = missing/destroyed (default in DOS)
+		// — store anyway so isObjectMissing() returns true correctly.
+		Log.setObjectRoom(uint16(i + 1), room);
+		if (room != 0)
+			++nonZero;
+	}
+	warning("MainDat::loadObjectStates: seeded %u objects (%u with non-zero room) "
+		"from footer offset 0x%04x [DOS CS:[0x6d]]",
+		count, nonZero, listOff);
 }
 
 void MainDat::loadActors(Interpreter *in) {

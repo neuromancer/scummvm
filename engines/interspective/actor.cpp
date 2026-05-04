@@ -133,7 +133,12 @@ bool Actor::isMoving() const {
 }
 
 void Actor::callMeWhenStill(const CodePointer &cp) {
-	assert(false);
+	// `isMoving()` is currently a TODO stub that always returns false, so
+	// the actor is always "still" — fire the callback on the next tick.
+	// The previous assert(false) was UB-sanitizer poison; if any caller
+	// reached here we'd crash. Should be replaced once isMoving is wired
+	// to the real walk-state field.
+	Log.runLater(cp);
 }
 
 void Actor::setFrame(uint16 frame) {
@@ -146,8 +151,31 @@ void Actor::setFrame(uint16 frame) {
 }
 
 Common::List<Actor::Frame> Actor::findPath(Actor::Frame from, uint16 to) {
-	Common::List<Common::List<Frame> > reachable;
+	// BFS over the room's frame-transition graph. Modeled on DOS
+	// FindActorPath at CS:0x713e — three behaviors verified from the
+	// disassembly that the original C++ port missed:
+	//
+	//   1. Visited-set dedup. DOS keeps `g_pathfind_visited` (a flat byte
+	//      array of seen frame indices) and linear-scans it before adding
+	//      each candidate. Without this, cycles in the frame graph make
+	//      the BFS double its queue size each iteration.
+	//   2. Invalid-frame skip. DOS gates each frame's nexts-expansion on
+	//      `*piVar14 != 999 || ... != 999` — i.e. don't expand placeholder
+	//      frames whose position is (999,999). The room data has these as
+	//      gaps in the frame index range.
+	//   3. Termination on exhausted reachable set. DOS bound-checks the
+	//      visited buffer at 0x1918 bytes / 9 bytes per entry ≈ 160 frames
+	//      and bails. The C++ equivalent: if a level adds zero new frames,
+	//      we've exhausted the reachable set without finding the target —
+	//      return empty list (moveTo() falls back to a single-frame warp).
+	//
+	// Without these guards the BFS hung the engine (SIGSTOP traceback in
+	// list insert at actor.cpp:180) when scripts called Op_07 SetTargetFrame
+	// with a target that wasn't reachable from the actor's current frame.
+	Common::HashMap<uint16, bool> visited;
+	visited[from.index()] = true;
 
+	Common::List<Common::List<Frame> > reachable;
 	Common::List<Frame> zero;
 	zero.push_back(from);
 	reachable.push_back(zero);
@@ -160,17 +188,36 @@ Common::List<Actor::Frame> Actor::findPath(Actor::Frame from, uint16 to) {
 		Common::List<Frame> next;
 		Common::String s;
 		while (!found && current != back->end()) {
+			// DOS skips nexts-expansion for placeholder frames (position
+			// 999,999). Match that — these are gaps in the frame table.
+			if (current->position().x == 999 && current->position().y == 999) {
+				current++;
+				continue;
+			}
 			Common::Array<byte> nexts = current->nexts();
-			for (int i = 0; i < 8; i++)
-				if (nexts[i]) {
-					s += Common::String::format(", %d", int(nexts[i]));
-					next.push_back(Log.room()->getFrame(nexts[i]));
-					if (nexts[i] == to) {
-						found = true;
-						break;
-					}
+			for (int i = 0; i < 8; i++) {
+				const byte n = nexts[i];
+				if (!n)
+					continue;
+				if (visited.contains(n))
+					continue;
+				visited[n] = true;
+				s += Common::String::format(", %d", int(n));
+				next.push_back(Log.room()->getFrame(n));
+				if (n == to) {
+					found = true;
+					break;
 				}
+			}
 			current++;
+		}
+		if (!found && next.empty()) {
+			// Exhausted reachable set without finding the target. Return an
+			// empty list; moveTo() will treat this as a single-frame warp.
+			debugC(2, kDebugLevelActor,
+				"findPath: frame %u unreachable from %u (%u frames explored)",
+				to, from.index(), (uint)visited.size());
+			return Common::List<Frame>();
 		}
 		reachable.push_back(next);
 		debugC(4, kDebugLevelActor, "reachable on this level:%s", s.c_str());
@@ -188,6 +235,12 @@ Common::List<Actor::Frame> Actor::findPath(Actor::Frame from, uint16 to) {
 		path.push_front(*current);
 		if (*current == from)
 			break;
+		if (level == reachable.begin()) {
+			// Backtrack underflow — shouldn't happen given the BFS guaranteed
+			// a path exists, but bail rather than UB-decrement past begin().
+			debugC(1, kDebugLevelActor, "findPath: backtrack underflow at frame %u", current->index());
+			break;
+		}
 		level--;
 		current = level->begin();
 		uint16 new_index = 0;
@@ -207,17 +260,26 @@ void Actor::moveTo(uint16 frame) {
 
 	Common::List<Frame> path = findPath(cur, frame);
 
-	Common::List<Frame>::iterator it = path.end();
-	it--;
-	if (it->index() != frame) {
-		Common::List<Frame> p;
-		p.push_back(Log.room()->getFrame(frame));
-		path = p;
+	// findPath now returns an EMPTY list when the target is unreachable
+	// (matches DOS bound-check on visited buffer). Treat that as a
+	// single-frame warp — same fallback the original code took for the
+	// "last frame != target" case.
+	if (path.empty()) {
+		path.push_back(Log.room()->getFrame(frame));
+	} else {
+		Common::List<Frame>::iterator it = path.end();
+		it--;
+		if (it->index() != frame) {
+			Common::List<Frame> p;
+			p.push_back(Log.room()->getFrame(frame));
+			path = p;
+		}
 	}
 
 	Common::String s;
-	it = path.begin();
-	it++;
+	Common::List<Frame>::iterator it = path.begin();
+	if (it != path.end())
+		it++;
 	while (it != path.end()) {
 		_framequeue.push(*it);
 		s += Common::String::format(" %d", int(it->index()));
@@ -652,9 +714,17 @@ OPCODE(0x23) {
 		_direction = kDirUpLeft;
 		break;
 	default:
-		assert(false);
+		// dir is the DOS mood byte (0..0xff). Values outside 1..8 are
+		// valid mood values that don't map to a compass direction —
+		// just leave _direction unchanged. (Was assert(false), which
+		// fires under UB sanitizer in non-release builds.)
+		debugC(4, kDebugLevelAnimation, "actor opcode 0x23: mood %d (no direction match)", dir);
+		break;
 	}
 
+	// Also store the actual mood byte for any future readers (e.g. when
+	// Op_18 BranchIfMoodEquals gets ported to the real DOS field check).
+	setDosField(0x63, dir);
 	return kOk;
 }
 
@@ -673,12 +743,149 @@ OPCODE(0x24) {
 	return kOk;
 }
 
-// Actor opcodes 0x02..0x0e (other than the ones below) fall through to the
-// Animation handler with the same number, which by lucky coincidence happens
-// to consume the right number of bytes for each corresponding DOS Op_(N+1)
-// (verified by inspection: every slot in 0x02..0x0e matches DOS byte counts
-// EXCEPT 0x0f, which Animation implements as "jump"=1 shift but DOS Op_10
-// is NoOp=0 args). Override 0x0f to fix the alignment.
+// ============================================================================
+// DOS-faithful overrides for the movement / frame-state opcode family
+// (DOS Op_03..Op_0a, C++ slots 0x02..0x09). Phase-2 of the iter-10 roadmap.
+//
+// The Animation::opcodeHandler<N> fall-through coincidentally consumes the
+// right number of script bytes for each of these slots (so PC alignment
+// stays correct), but writes the data to the WRONG actor field. For
+// example, Animation::0x03 ("set interval") writes _interval, but DOS Op_04
+// SetCurrentFrame writes the actor's current-frame byte. The visible
+// effect of the Animation fall-through is wrong animation timing AND wrong
+// per-frame state — bad enough to drive the engine off the rails during
+// any cutscene that uses these opcodes.
+//
+// Each override below writes the correct C++ Actor field per the DOS
+// semantics. Ops that end the script (Op_06..0a; DOS sets
+// g_actor_script_ended = 1) return kFrameDone, which makes the C++
+// dispatcher break out of the per-tick opcode loop and queue
+// _ticksLeft = _interval before the next tick. Ops that don't end the
+// script return kOk (continue with the next opcode this tick).
+// ============================================================================
+
+OPCODE(0x02) {
+	// C++ slot 0x02 = DOS Op_03 SetPosition (1000:6900). 2 shifts.
+	// Writes actor.x = word, actor.y = word. Doesn't end script.
+	// Animation::0x02 ("move to position") fall-through happened to do
+	// the right thing structurally — but make the override explicit so
+	// any Phase-2 walking-state writes can hook in here later.
+	const uint16 x = shift();
+	const uint16 y = shift();
+	debugC(3, kDebugLevelAnimation, "actor opcode 0x02: SetPosition (%u,%u) [DOS Op_03]", x, y);
+	_position.x = (int16)x;
+	_position.y = (int16)y;
+	return kOk;
+}
+
+OPCODE(0x03) {
+	// C++ slot 0x03 = DOS Op_04 SetCurrentFrame (1000:6912). 1 shift.
+	// Writes the LOW BYTE of the word to actor.field+0x10 (current
+	// frame). Animation::0x03 ("set interval") wrote _interval — wrong
+	// target. Now writes _frame.
+	const uint16 word = shift();
+	const uint8 frame = uint8(word);
+	debugC(3, kDebugLevelAnimation, "actor opcode 0x03: SetCurrentFrame %u [DOS Op_04]", frame);
+	_frame = frame;
+	return kOk;
+}
+
+OPCODE(0x04) {
+	// C++ slot 0x04 = DOS Op_05 SetCurrentFrameFromGlobal (1000:691d).
+	// 1 shift. Reads the global WORD var at index (offset/2), takes low
+	// byte, writes to actor's current frame. Animation::0x04 wrote
+	// _interval — wrong target. Now writes _frame.
+	const uint16 offset = shift();
+	const uint16 word = READ_LE_UINT16(_resources->getGlobalWordVariable(offset / 2));
+	const uint8 frame = uint8(word);
+	debugC(3, kDebugLevelAnimation, "actor opcode 0x04: SetCurrentFrameFromGlobal var[%u/2]=0x%04x → %u [DOS Op_05]",
+		offset, word, frame);
+	_frame = frame;
+	return kOk;
+}
+
+OPCODE(0x05) {
+	// C++ slot 0x05 = DOS Op_06 WalkRelativeWithFrame (1000:6939). Reads
+	// 2 signed bytes (dx, dy) + 1 word (target frame) = byte+byte+shift.
+	// Adds the deltas to actor.x/y, sets actor's target frame, ends
+	// script. Animation::0x05 ("move + sprite + frameDone") set
+	// _mainSprite — wrong target. We push the target into _framequeue
+	// via moveTo() so the actor actually walks toward it.
+	const int8 dx = shiftByte();
+	const int8 dy = shiftByte();
+	const uint16 target = shift();
+	debugC(3, kDebugLevelAnimation, "actor opcode 0x05: WalkRelativeWithFrame d=(%d,%d) target=%u [DOS Op_06]",
+		dx, dy, target);
+	_position.x += dx;
+	_position.y += dy;
+	_nextFrame = target;
+	if (target != 0xffff && _room == Log.currentRoom() && Log.room())
+		moveTo(target);
+	return kFrameDone;
+}
+
+OPCODE(0x06) {
+	// C++ slot 0x06 = DOS Op_07 SetTargetFrame (1000:69a4). 1 shift.
+	// Writes actor.field+8 (target frame) = arg, ends script.
+	// Animation::0x06 ("set sprite") wrote _mainSprite — wrong target.
+	// Triggers walk to target frame via moveTo().
+	const uint16 target = shift();
+	debugC(3, kDebugLevelAnimation, "actor opcode 0x06: SetTargetFrame %u [DOS Op_07]", target);
+	_nextFrame = target;
+	if (target != 0xffff && _room == Log.currentRoom() && Log.room())
+		moveTo(target);
+	return kFrameDone;
+}
+
+OPCODE(0x07) {
+	// C++ slot 0x07 = DOS Op_08 SetTargetFrameFromGlobal (1000:69b0).
+	// 1 shift. Reads global word var at index (offset/2), writes to
+	// target frame, ends script.
+	const uint16 offset = shift();
+	const uint16 target = READ_LE_UINT16(_resources->getGlobalWordVariable(offset / 2));
+	debugC(3, kDebugLevelAnimation, "actor opcode 0x07: SetTargetFrameFromGlobal var[%u/2]=%u [DOS Op_08]",
+		offset, target);
+	_nextFrame = target;
+	if (target != 0xffff && _room == Log.currentRoom() && Log.room())
+		moveTo(target);
+	return kFrameDone;
+}
+
+OPCODE(0x08) {
+	// C++ slot 0x08 = DOS Op_09 WalkRelative (1000:697c). Reads 2 signed
+	// bytes (dx, dy) only. Adds to actor.x/y, ends script. Animation::0x08
+	// ("move by") happens to do the same _position update with the same
+	// byte consumption — the existing fall-through was correct for
+	// position but didn't end the script. Override returns kFrameDone.
+	const int8 dx = shiftByte();
+	const int8 dy = shiftByte();
+	debugC(3, kDebugLevelAnimation, "actor opcode 0x08: WalkRelative d=(%d,%d) [DOS Op_09]", dx, dy);
+	_position.x += dx;
+	_position.y += dy;
+	return kFrameDone;
+}
+
+OPCODE(0x09) {
+	// C++ slot 0x09 = DOS Op_0a WalkAbsolute (1000:6991). 2 shifts.
+	// Writes actor.x/y = (word, word), ends script. iter-11 was a no-op
+	// stub; iter-12 added correct byte consumption; iter-13 now writes
+	// the position properly and ends the script.
+	const uint16 x = shift();
+	const uint16 y = shift();
+	debugC(3, kDebugLevelAnimation, "actor opcode 0x09: WalkAbsolute (%u,%u) [DOS Op_0a]", x, y);
+	_position.x = (int16)x;
+	_position.y = (int16)y;
+	return kFrameDone;
+}
+
+// Actor opcodes 0x0a..0x0e fall through to the Animation handler. Coverage:
+//   0x0a → Animation::0x0a (3 shifts) = DOS Op_0b WalkAbsoluteWithFrame
+//          (Animation does run-sprite-at; DOS does walk+target — TODO override)
+//   0x0d → Animation::0x0d (embeddedByte) = DOS Op_0e SetTimerAndSkip
+//   0x0e → Animation::0x0e (no extras) = DOS Op_0f DecrementTimer
+// Bytes match per iter-13 audit; the 0x0a wrong-state override is left for
+// a future iteration since the visual difference is "wrong sprite during
+// walk" rather than a crash.
 
 OPCODE(0x0f) {
 	// C++ slot 0x0f = DOS Op_10 (CS:0x6a7e). The Ghidra label says "NoOp"
@@ -828,18 +1035,10 @@ OPCODE(0x25) {
 }
 
 // ============================================================================
-// Crash-safety stubs for the DOS walk-driver opcodes (Phase-2 placeholders).
-// Each consumes the correct number of bytes per DOS spec to keep the script
-// PC aligned; semantics deferred until the walk-driver is properly ported.
+// Crash-safety stubs for the DOS walk-driver opcodes that aren't yet fully
+// implemented. (0x09 was promoted to a full implementation above; the
+// iter-12 stub is removed to avoid a redefinition.)
 // ============================================================================
-
-OPCODE(0x09) {
-	// C++ slot 0x09 = DOS Op_0a WalkAbsolute. Reads 2 int16 (x, y) = 2 shifts.
-	uint16 x = shift();
-	uint16 y = shift();
-	debugC(2, kDebugLevelAnimation, "actor opcode 0x09: WalkAbsolute STUB x=%d y=%d [DOS Op_0a]", x, y);
-	return kOk;
-}
 
 OPCODE(0x0b) {
 	// C++ slot 0x0b = DOS Op_0c FaceAndWalkWithFrame. Reads embedded byte

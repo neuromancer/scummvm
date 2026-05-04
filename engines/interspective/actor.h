@@ -162,6 +162,9 @@ public:
 
 	void setFrame(uint16 f);
 	uint16 frameId() const { return _frame; }
+	uint16 targetFrameId() const { return _nextFrame; }
+	Common::Point position() const { return _position; }
+	int16 ticksLeft() const { return _ticksLeft; }
 	void moveTo(uint16 f);
 	static Common::List<Frame> findPath(Frame from, uint16 to);
 

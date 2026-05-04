@@ -81,6 +81,14 @@ public:
 	Actor *actor(uint16 index) const;
 	uint16 actorsCount() const { return _actorsCount; }
 
+	// Seed Logic::_objectRoom with the initial object→room mapping from the
+	// global object-state table (DOS CS:[0x6d], iuc_main.dat footer offset
+	// 0x0E). Each record is 18 bytes; first uint16 is the room. Called once
+	// at engine startup before any script runs.
+	void loadObjectStates();
+	uint16 personsCount() const;
+	uint16 globalObjectStateCount() const { return personsCount(); }
+
 	byte *getByteVariable(uint16 index);
 	byte *getWordVariable(uint16 index);
 	uint16 getRoomScriptId(uint16 room) const;
