@@ -477,7 +477,11 @@ void Graphics::paint(const Sprite *sprite, Common::Point pos, Surface *dest, int
 		r.translate(0, -sprite->h); // this is actually bottom
 	r.translate(-sprite->_hotPoint.x, sprite->_hotPoint.y);
 
-	r.clip(319, 199);
+	// Clip to the destination surface, not the screen — `dest` is often a small
+	// auto-allocated surface (e.g. a speech bubble buffer) and a sprite that
+	// poked even one pixel past its right/bottom edge would write past the end
+	// of the heap allocation. Caught by ASan in resources.cpp:74.
+	r.clip(dest->w - 1, dest->h - 1);
 	debugC(4, kDebugLevelGraphics, "transformed rect: %d:%d %d:%d", r.left, r.top, r.right, r.bottom);
 
 	dest->blit(sprite, r, 0, (flags & kPaintSemiTransparent) ? &_tintedPalette : 0);

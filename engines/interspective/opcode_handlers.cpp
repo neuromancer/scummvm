@@ -72,35 +72,38 @@ OPCODE(0x03) {
 }
 
 OPCODE(0x04) {
-	// less than
-	debugC(2, kDebugLevelScript, "opcode 0x04: if %s < %s", +a[0], +a[1]);
-	unless (a[0] < a[1])
+	// less than. DOS handler at CS:0x376c uses JL — *signed* comparison via JLE
+	// in the inverse: skip when (int)a[1] <= (int)a[0]. Body runs when a[0] < a[1]
+	// in signed two's-complement arithmetic. Value::operator< is unsigned so we
+	// can't use it here without misclassifying scripts that store signed deltas
+	// (e.g. negative scroll offsets, signed timer deltas).
+	debugC(2, kDebugLevelScript, "opcode 0x04: if %s < %s (signed)", +a[0], +a[1]);
+	if (!(int16(uint16(a[0])) < int16(uint16(a[1]))))
 		return kFail;
 	return kThxBye;
 }
 
 OPCODE(0x05) {
-	// greater than
-	debugC(2, kDebugLevelScript, "opcode 0x05: if %s > %s", +a[0], +a[1]);
-	unless (a[0] > a[1])
+	// greater than (signed). DOS CS:0x377f uses JG inverse logic.
+	debugC(2, kDebugLevelScript, "opcode 0x05: if %s > %s (signed)", +a[0], +a[1]);
+	if (!(int16(uint16(a[0])) > int16(uint16(a[1]))))
 		return kFail;
 	return kThxBye;
 }
 
 OPCODE(0x06) {
-	// less or equal: skip if a[1] < a[0] (i.e. a[0] > a[1])
-	// DOS handler at CS:0x3792 — sets g_skip_counter when (int)a[1] < (int)a[0].
-	debugC(2, kDebugLevelScript, "opcode 0x06: if %s <= %s", +a[0], +a[1]);
-	unless (uint16(a[0]) <= uint16(a[1]))
+	// less or equal (signed). DOS CS:0x3792 uses JLE — sets skip when (int)a[1] <
+	// (int)a[0], i.e. body runs when (int)a[0] <= (int)a[1].
+	debugC(2, kDebugLevelScript, "opcode 0x06: if %s <= %s (signed)", +a[0], +a[1]);
+	if (!(int16(uint16(a[0])) <= int16(uint16(a[1]))))
 		return kFail;
 	return kThxBye;
 }
 
 OPCODE(0x07) {
-	// greater or equal: skip if a[0] < a[1]
-	// DOS handler at CS:0x37a5.
-	debugC(2, kDebugLevelScript, "opcode 0x07: if %s >= %s", +a[0], +a[1]);
-	unless (uint16(a[0]) >= uint16(a[1]))
+	// greater or equal (signed). DOS CS:0x37a5 uses JGE.
+	debugC(2, kDebugLevelScript, "opcode 0x07: if %s >= %s (signed)", +a[0], +a[1]);
+	if (!(int16(uint16(a[0])) >= int16(uint16(a[1]))))
 		return kFail;
 	return kThxBye;
 }
@@ -150,10 +153,12 @@ OPCODE(0x12) {
 }
 
 OPCODE(0x13) {
-	// if left button is up
-	// and current mode isn't null
-	debugC(1, kDebugLevelScript, "opcode 0x13: if 1st button is up and mode isn't null partial STUB");
-	if (_engine->_eventMan->getButtonState() & Common::EventManager::LBUTTON)
+	// DOS CS:0x3945: skip if (hit_region != 0) || (step_pending == 0). Body runs
+	// when there's an action pending but no hotspot was clicked — i.e. the user
+	// pressed something with no target. Previous engine code tested the left
+	// mouse button which is unrelated; corrected to mirror the binary.
+	debugC(2, kDebugLevelScript, "opcode 0x13: if pending action with no hit target");
+	if (Log.hitTarget() != 0 || !Log.stepPending())
 		return kFail;
 	return kThxBye;
 }
@@ -239,41 +244,41 @@ OPCODE(0x11) {
 }
 
 OPCODE(0x17) {
-	// if exit `a[0]` does not exist (slot.id == 0)
-	// DOS handler at CS:0x3996.
-	debugC(1, kDebugLevelScript, "opcode 0x17: if no exit %s", +a[0]);
-	Exit *exit = _logic->blockProgram()->getExit(a[0]);
-	if (exit != nullptr)
-		return kFail;
-	return kThxBye;
-}
-
-OPCODE(0x19) {
-	// if actor `a[0]` is in no room (location_id == 0)
-	// DOS handler at CS:0x39bc.
-	debugC(1, kDebugLevelScript, "opcode 0x19: if actor %s not in any room", +a[0]);
-	Actor *ac = Log.getActor(a[0]);
-	if (ac && ac->room() != 0)
-		return kFail;
-	return kThxBye;
-}
-
-OPCODE(0x1a) {
-	// if exit `a[0]` exists (slot.id != 0) — inverse of 0x17.
-	// DOS handler at CS:0x39d0.
-	debugC(1, kDebugLevelScript, "opcode 0x1a: if exit %s exists", +a[0]);
+	// DOS CS:0x3996: skip when slot.id == 0 (exit MISSING). Body runs when the
+	// exit EXISTS — opcode is "if exit exists". The engine had it inverted.
+	debugC(1, kDebugLevelScript, "opcode 0x17: if exit %s exists", +a[0]);
 	Exit *exit = _logic->blockProgram()->getExit(a[0]);
 	if (exit == nullptr)
 		return kFail;
 	return kThxBye;
 }
 
-OPCODE(0x1c) {
-	// if actor `a[0]` is in some room (location_id != 0) — inverse of 0x19.
-	// DOS handler at CS:0x39f6.
-	debugC(1, kDebugLevelScript, "opcode 0x1c: if actor %s is somewhere", +a[0]);
+OPCODE(0x19) {
+	// DOS CS:0x39bc: skip when actor.room == 0 → body runs when actor IS placed
+	// somewhere. Opcode is "if actor present". Was inverted in the engine.
+	debugC(1, kDebugLevelScript, "opcode 0x19: if actor %s in some room", +a[0]);
 	Actor *ac = Log.getActor(a[0]);
 	if (!ac || ac->room() == 0)
+		return kFail;
+	return kThxBye;
+}
+
+OPCODE(0x1a) {
+	// DOS CS:0x39d0: skip when slot.id != 0 → body runs when exit MISSING.
+	// Inverse of 0x17. Was inverted in the engine.
+	debugC(1, kDebugLevelScript, "opcode 0x1a: if exit %s missing", +a[0]);
+	Exit *exit = _logic->blockProgram()->getExit(a[0]);
+	if (exit != nullptr)
+		return kFail;
+	return kThxBye;
+}
+
+OPCODE(0x1c) {
+	// DOS CS:0x39f6: skip when actor.room != 0 → body runs when actor MISSING
+	// (no room set). Inverse of 0x19. Was inverted in the engine.
+	debugC(1, kDebugLevelScript, "opcode 0x1c: if actor %s not placed", +a[0]);
+	Actor *ac = Log.getActor(a[0]);
+	if (ac && ac->room() != 0)
 		return kFail;
 	return kThxBye;
 }
@@ -338,12 +343,20 @@ OPCODE(0x35) {
 }
 
 OPCODE(0x36) {
-	// call
+	// Call procedure. DOS Op_call_handler at CS:0x3bf8 pushes the saved PC and
+	// branch state to a stack then sets PC to arg0 — when the called code hits
+	// Op_37 it pops back and the outer dispatcher continues from after the
+	// call. Engine handles the stack via C++ recursion: p.run() invokes a
+	// nested Interpreter::run, which returns when its body emits Op_37/kReturn.
+	// CRITICAL: must return kThxBye, not kReturn — kReturn would terminate the
+	// OUTER procedure too, dropping every opcode after the call. Previous code
+	// returned kReturn, which is why scripts with multiple Op_36 calls in a row
+	// only ever ran the first.
 	debugC(2, kDebugLevelScript, ">>>opcode 0x36: call procedure %s", +a[0]);
 	CodePointer &p = static_cast<CodePointer &>(a[0]);
 	p.run();
 	debugC(2, kDebugLevelScript, "<<<opcode 0x36: called procedure %s", +a[0]);
-	return kReturn;
+	return kThxBye;
 }
 
 OPCODE(0x37) {
@@ -1074,42 +1087,54 @@ OPCODE(0xfc) {
 // ============================================================================
 
 OPCODE(0x0a) {
-	// IfModeIs80OrFlag (DOS CS:0x37de): continue if verbMode==0x80 OR stepPending,
-	// else fail. Used to gate "system action" branches.
-	debugC(2, kDebugLevelScript, "opcode 0x0a: if verbMode==0x80 || stepPending");
-	if (Log.verbMode() != 0x80 && !Log.stepPending())
-		return kFail;
-	return kThxBye;
+	// DOS CS:0x37de:
+	//   if ((cursor_mode == 0x80 || step_pending) && (cursor_mode & arg0)) return;
+	//   else skip;
+	// arg0 is a bitmask of cursor-mode bits the script handles. The opcode is
+	// "do this branch when the current cursor mode matches the mask AND we're
+	// in a state to act (system mode or pending action)".
+	uint16 mask = uint16(a[0]);
+	uint16 cm = Log.cursorMode();
+	debugC(2, kDebugLevelScript, "opcode 0x0a: if (cursor==0x80||step) && (cursor & %u)", mask);
+	if ((cm == 0x80 || Log.stepPending()) && (cm & mask) != 0)
+		return kThxBye;
+	return kFail;
 }
 
 OPCODE(0x0b) {
-	// IfMode40AndFlag (DOS CS:0x37ff): continue if (stepPending && verbMode==0x40), else fail.
-	debugC(2, kDebugLevelScript, "opcode 0x0b: if stepPending && verbMode==0x40");
-	if (!Log.stepPending() || Log.verbMode() != 0x40)
-		return kFail;
-	return kThxBye;
+	// DOS CS:0x37ff:
+	//   if (step && cursor==0x40 && arg0 == drag_target) return;
+	//   else skip;
+	// "drag" with an *explicit* target match — distinct from 0x0e's drag check
+	// (0x0e fires when cursor==0x20 — different drag mode).
+	uint16 mask = uint16(a[0]);
+	debugC(2, kDebugLevelScript, "opcode 0x0b: if step && cursor==0x40 && drag==%u", mask);
+	if (Log.stepPending() && Log.cursorMode() == 0x40 && Log.dragTarget() == mask)
+		return kThxBye;
+	return kFail;
 }
 
 OPCODE(0x0c) {
-	// IfNotInMapMode (DOS CS:0x38ab): fail when in map mode.
-	debugC(2, kDebugLevelScript, "opcode 0x0c: if not in map mode");
-	if (Log.inMapMode())
+	// DOS CS:0x38ab: skip if NOT in map mode → body runs ONLY in map mode.
+	// Engine had this inverted previously.
+	debugC(2, kDebugLevelScript, "opcode 0x0c: if in map mode");
+	if (!Log.inMapMode())
 		return kFail;
 	return kThxBye;
 }
 
 OPCODE(0x0d) {
-	// IfDragNotMatchTarget (DOS CS:0x38d7): fail unless stepPending && cursorMode==0x20
-	// && dragTarget!=0. Used to gate verb-on-object scripts to the drag flow.
-	debugC(2, kDebugLevelScript, "opcode 0x0d: if dragging");
+	// DOS CS:0x38d7: skip if (!step || cursor!=0x20 || drag==0). Body runs when
+	// actively dragging an object (verb-on-object pre-action).
+	debugC(2, kDebugLevelScript, "opcode 0x0d: if dragging (cursor=0x20 + drag set)");
 	if (!Log.stepPending() || Log.cursorMode() != 0x20 || Log.dragTarget() == 0)
 		return kFail;
 	return kThxBye;
 }
 
 OPCODE(0x0e) {
-	// IfDragMatchesArg (DOS CS:0x38b9): like 0x0d but only when dragTarget == arg0.
-	debugC(2, kDebugLevelScript, "opcode 0x0e: if dragTarget == %s", +a[0]);
+	// DOS CS:0x38b9: like 0x0d but only when dragTarget == arg0 (verb-on-this-object).
+	debugC(2, kDebugLevelScript, "opcode 0x0e: if dragging && dragTarget == %s", +a[0]);
 	if (!Log.stepPending() || Log.cursorMode() != 0x20 || Log.dragTarget() != uint16(a[0]))
 		return kFail;
 	return kThxBye;

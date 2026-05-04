@@ -177,6 +177,15 @@ Tune::Tune(uint16 index) {
 
 	_currentBeat = 0;
 	_beatticks = 0;
+	// Note::tick fires only when Note::_tick == MusicParser::getTick(). Notes are
+	// constructed with _tick = 0; without an explicit reset on the initial beat,
+	// MusicParser::_tick increments past 0 before any note can match — so the
+	// player runs but no NoteOn ever reaches the driver. The DOS engine called
+	// the equivalent of setBeat() implicitly via the script's first kSetBeat
+	// command, but our scripts may rely on the initial-beat path. Sync note
+	// ticks against the music clock so notes fire from frame one.
+	if (!_beats.empty())
+		_beats[0].reset();
 }
 
 void Tune::setBeat(uint16 index) {

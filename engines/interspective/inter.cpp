@@ -150,8 +150,13 @@ Status Interpreter::run(uint16 offset) {
 			if_depth++;
 			break;
 		case kElse:
-			if (if_depth == 1)
-				if_depth = 0;
+			// DOS Op_2c: `if (skip < 2) skip ^= 1` — flips the skip flag at depth
+			// 0 or 1, leaves deeper nesting alone. The previous engine code only
+			// covered the 1->0 direction (entering the else from a skipped if),
+			// so when an if-block ran successfully we kept executing into the
+			// else block too. Fix matches the binary XOR.
+			if (if_depth < 2)
+				if_depth ^= 1;
 			break;
 		case kEndIf:
 			if_depth = MAX(if_depth - 1, 0);
