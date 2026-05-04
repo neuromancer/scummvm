@@ -1623,51 +1623,106 @@ OPCODE(0x98) {
 	return kThxBye;
 }
 
-// 0x9f..0xa9: actor placement. setRoom / setFrame already exist on Actor.
+// 0x9f..0xa7: actor placement / "go to frame" + "wait for animation" family.
+// DOS handlers all share a common shape: validate actor id, write _nextFrame
+// (offset 0x61) and _walkSpeed (offset 0x6b = 0), call SetActorPosition then
+// InitActorState. The engine maps SetActorPosition+InitActorState to
+// Actor::setRoom / setFrame which together queue the new pose. The "wait"
+// variants (0xa4..0xa7) call CheckActorAnimReady → callMeWhenStill.
+
 OPCODE(0x9f) {
-	debugC(2, kDebugLevelScript, "opcode 0x9f: actor %s set frame %s", +a[0], +a[1]);
+	// 0x9f (DOS CS:0x4c95): actor walk-to-frame. arg0=actor id, arg1=target
+	// frame. Sets actor's nextFrame (which Actor::tick will animate towards).
+	debugC(2, kDebugLevelScript, "opcode 0x9f: actor %s walk to frame %s", +a[0], +a[1]);
 	if (Actor *ac = Log.getActor(a[0]))
 		ac->setFrame(uint16(a[1]));
 	return kThxBye;
 }
 OPCODE(0xa0) {
-	debugC(2, kDebugLevelScript, "opcode 0xa0: actor %s set room %s", +a[0], +a[1]);
+	// 0xa0 (DOS CS:0x4c8e): actor walk-to-frame with walkSpeedFlag=1 (faster).
+	// arg0=actor, arg1=target frame.
+	debugC(2, kDebugLevelScript, "opcode 0xa0: actor %s walk-fast to frame %s", +a[0], +a[1]);
 	if (Actor *ac = Log.getActor(a[0]))
-		ac->setRoom(uint16(a[1]));
+		ac->setFrame(uint16(a[1]));
 	return kThxBye;
 }
 OPCODE(0xa1) {
-	debugC(2, kDebugLevelScript, "opcode 0xa1: actor %s set room %s facing %s", +a[0], +a[1], +a[2]);
-	if (Actor *ac = Log.getActor(a[0]))
-		ac->setRoom(uint16(a[1]), uint16(a[2]));
+	// 0xa1 (DOS CS:0x4c59): actor.setRoom(room, frame). Repositions the actor
+	// to a new room with a specific facing/frame.
+	debugC(2, kDebugLevelScript, "opcode 0xa1: actor %s set room %s frame %s", +a[1], +a[0], +a[2]);
+	if (Actor *ac = Log.getActor(a[1]))
+		ac->setRoom(uint16(a[0]), uint16(a[2]));
 	return kThxBye;
 }
 OPCODE(0xa2) {
-	debugC(2, kDebugLevelScript, "opcode 0xa2: actor %s anim slot %s,%s", +a[0], +a[1], +a[2]);
+	// 0xa2 (DOS CS:0x4cb0): actor jump-to-frame (walkSpeedFlag=0 = instant).
+	// 3-arg: actor id, frame, secondary frame.
+	debugC(2, kDebugLevelScript, "opcode 0xa2: actor %s jump to frame %s,%s", +a[1], +a[0], +a[2]);
+	if (Actor *ac = Log.getActor(a[1]))
+		ac->setFrame(uint16(a[0]));
 	return kThxBye;
 }
 OPCODE(0xa3) {
-	debugC(2, kDebugLevelScript, "opcode 0xa3: actor %s pos %s,%s", +a[0], +a[1], +a[2]);
+	// 0xa3 (DOS CS:0x4ca9): same as 0xa2 but with walkSpeedFlag=1 (animated).
+	debugC(2, kDebugLevelScript, "opcode 0xa3: actor %s walk-anim to frame %s,%s", +a[1], +a[0], +a[2]);
+	if (Actor *ac = Log.getActor(a[1]))
+		ac->setFrame(uint16(a[0]));
 	return kThxBye;
 }
 OPCODE(0xa4) {
-	debugC(2, kDebugLevelScript, "opcode 0xa4: protagonist set frame %s", +a[0]);
-	if (Log.protagonist())
-		Log.protagonist()->setFrame(uint16(a[0]));
+	// 0xa4 (DOS CS:0x4d47): if not in map mode, wait for protagonist animation
+	// to finish (CheckActorAnimReady on g_main_character_id). The script blocks
+	// here until the actor stops moving.
+	debugC(2, kDebugLevelScript, "opcode 0xa4: wait protagonist anim ready");
+	if (Log.inMapMode())
+		return kThxBye;
+	if (Actor *ac = Log.protagonist()) {
+		if (ac->isMoving()) {
+			ac->callMeWhenStill(next);
+			return kReturn;
+		}
+	}
 	return kThxBye;
 }
 OPCODE(0xa5) {
-	debugC(2, kDebugLevelScript, "opcode 0xa5: protagonist set frame %s (variant)", +a[0]);
-	if (Log.protagonist())
-		Log.protagonist()->setFrame(uint16(a[0]));
+	// 0xa5 (DOS CS:0x4d5c): same as 0xa4 with one extra arg consumed.
+	debugC(2, kDebugLevelScript, "opcode 0xa5: wait protagonist anim ready (2-arg)");
+	if (Log.inMapMode())
+		return kThxBye;
+	if (Actor *ac = Log.protagonist()) {
+		if (ac->isMoving()) {
+			ac->callMeWhenStill(next);
+			return kReturn;
+		}
+	}
 	return kThxBye;
 }
 OPCODE(0xa6) {
-	debugC(2, kDebugLevelScript, "opcode 0xa6: protagonist anim STUB");
+	// 0xa6 (DOS CS:0x4cfb): wait for actor `arg0`'s animation to finish.
+	// arg1 is consumed but unused by the binary.
+	debugC(2, kDebugLevelScript, "opcode 0xa6: wait actor %s anim ready", +a[0]);
+	if (Log.inMapMode())
+		return kThxBye;
+	if (Actor *ac = Log.getActor(a[0])) {
+		if (ac->isMoving()) {
+			ac->callMeWhenStill(next);
+			return kReturn;
+		}
+	}
 	return kThxBye;
 }
 OPCODE(0xa7) {
-	debugC(2, kDebugLevelScript, "opcode 0xa7: protagonist anim slot %s,%s,%s", +a[0], +a[1], +a[2]);
+	// 0xa7 (DOS CS:0x4d0f): wait actor `arg0` anim ready, 3-arg variant
+	// (extra args consumed but unused).
+	debugC(2, kDebugLevelScript, "opcode 0xa7: wait actor %s anim ready (3-arg)", +a[0]);
+	if (Log.inMapMode())
+		return kThxBye;
+	if (Actor *ac = Log.getActor(a[0])) {
+		if (ac->isMoving()) {
+			ac->callMeWhenStill(next);
+			return kReturn;
+		}
+	}
 	return kThxBye;
 }
 OPCODE(0xa8) {
@@ -1715,7 +1770,24 @@ OPCODE(0xb3) {
 	return kThxBye;
 }
 OPCODE(0xb4) {
-	debugC(2, kDebugLevelScript, "opcode 0xb4: protagonist walk to actor %s", +a[0]);
+	// 0xb4 (DOS CS:0x4f97): if not in map mode, wait until actor `arg0` is
+	// idle. Binary calls CheckActorIdle which returns true once the actor's
+	// movement queue is empty AND it's not speaking. The engine maps "idle"
+	// to "not moving and not speaking" via the existing callbacks.
+	debugC(2, kDebugLevelScript, "opcode 0xb4: wait actor %s idle", +a[0]);
+	if (Log.inMapMode())
+		return kThxBye;
+	Actor *ac = Log.getActor(a[0]);
+	if (!ac)
+		return kThxBye;
+	if (ac->isMoving()) {
+		ac->callMeWhenStill(next);
+		return kReturn;
+	}
+	if (ac->isSpeaking()) {
+		ac->callMeWhenSilent(next);
+		return kReturn;
+	}
 	return kThxBye;
 }
 OPCODE(0xb5) {
