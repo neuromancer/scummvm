@@ -116,7 +116,10 @@ void Logic::changeRoom(uint16 newRoom) {
 void Logic::doChangeRoom() {
 	assert (_nextRoom);
 
-	debugC(2, kDebugLevelScript, "changing room to %d", _nextRoom);
+	// Emit at warning level so the intro's room sequence is visible
+	// without enabling debug channels — useful when picking a value for
+	// --boot-param=N to skip the intro to a specific scene.
+	warning("Interspective: changeRoom %u → %u", (uint)_currentRoom, (uint)_nextRoom);
 	if (_nextRoom == _currentRoom)
 		return;
 	_currentRoom = _nextRoom;

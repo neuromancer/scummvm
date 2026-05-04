@@ -806,11 +806,16 @@ OPCODE(0x04) {
 
 OPCODE(0x05) {
 	// C++ slot 0x05 = DOS Op_06 WalkRelativeWithFrame (1000:6939). Reads
-	// 2 signed bytes (dx, dy) + 1 word (target frame) = byte+byte+shift.
-	// Adds the deltas to actor.x/y, sets actor's target frame, ends
-	// script. Animation::0x05 ("move + sprite + frameDone") set
-	// _mainSprite — wrong target. We push the target into _framequeue
-	// via moveTo() so the actor actually walks toward it.
+	// 2 signed bytes (dx, dy) + 1 word (target frame). Adds the deltas to
+	// actor.x/y, sets actor's target frame, ends script.
+	//
+	// IMPORTANT: the DOS engine renders by looking up sprite from current
+	// frame + animation set. The C++ engine instead uses _mainSprite as
+	// the rendered sprite source. The move-animator scripts emit Op_06
+	// expecting BOTH effects — walk target AND visible sprite update.
+	// In Innocent's data, sprite IDs and frame indices coincide, so
+	// setMainSprite(target) gives the correct render. Removing this
+	// (iter-14) made the protagonist invisible — restored iter-18.
 	const int8 dx = shiftByte();
 	const int8 dy = shiftByte();
 	const uint16 target = shift();
@@ -819,6 +824,7 @@ OPCODE(0x05) {
 	_position.x += dx;
 	_position.y += dy;
 	_nextFrame = target;
+	setMainSprite(target);  // restore visibility (see comment above)
 	if (target != 0xffff && _room == Log.currentRoom() && Log.room())
 		moveTo(target);
 	return kFrameDone;
@@ -827,11 +833,12 @@ OPCODE(0x05) {
 OPCODE(0x06) {
 	// C++ slot 0x06 = DOS Op_07 SetTargetFrame (1000:69a4). 1 shift.
 	// Writes actor.field+8 (target frame) = arg, ends script.
-	// Animation::0x06 ("set sprite") wrote _mainSprite — wrong target.
-	// Triggers walk to target frame via moveTo().
+	// Same render-vs-walk duality as 0x05 — we set _mainSprite too so the
+	// new frame is actually drawn (iter-18 restored after iter-14 lost it).
 	const uint16 target = shift();
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x06: SetTargetFrame %u [DOS Op_07]", target);
 	_nextFrame = target;
+	setMainSprite(target);
 	if (target != 0xffff && _room == Log.currentRoom() && Log.room())
 		moveTo(target);
 	return kFrameDone;
@@ -840,12 +847,13 @@ OPCODE(0x06) {
 OPCODE(0x07) {
 	// C++ slot 0x07 = DOS Op_08 SetTargetFrameFromGlobal (1000:69b0).
 	// 1 shift. Reads global word var at index (offset/2), writes to
-	// target frame, ends script.
+	// target frame, ends script. Sister to 0x06 with indirect target.
 	const uint16 offset = shift();
 	const uint16 target = READ_LE_UINT16(_resources->getGlobalWordVariable(offset / 2));
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x07: SetTargetFrameFromGlobal var[%u/2]=%u [DOS Op_08]",
 		offset, target);
 	_nextFrame = target;
+	setMainSprite(target);
 	if (target != 0xffff && _room == Log.currentRoom() && Log.room())
 		moveTo(target);
 	return kFrameDone;

@@ -62,6 +62,19 @@ public:
 			return _actorFrames[index-1];
 	}
 
+	// Runtime frame-table mutation (DOS Op_e0/Op_e1). Indices are 1-based
+	// to match getFrame()'s convention. Out-of-range writes are dropped
+	// silently to match DOS bound-check (it sets g_pendingErrorCode = 0x30
+	// for arg0 >= 0xfd; we just no-op).
+	void invalidateFrame(uint16 index) {
+		if (index > 0 && index <= _actorFrames.size())
+			_actorFrames[index - 1].invalidate();
+	}
+	void setFramePosition(uint16 index, int16 x, int16 y) {
+		if (index > 0 && index <= _actorFrames.size())
+			_actorFrames[index - 1].setPosition(Common::Point(x, y));
+	}
+
 	void addRect(const Room::Rect &f) { _rects.push_back(f); }
 
 	friend class Logic;

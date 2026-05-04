@@ -57,6 +57,8 @@ private:
 	CMD(step);
 	CMD(setVar);
 	CMD(debugActor);
+	CMD(changeRoom);
+	CMD(jumpTo);
 	#undef CMD
 
 	bool _stepOpcodes;

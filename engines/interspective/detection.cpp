@@ -38,7 +38,7 @@ const ADGameDescription gameDescriptions[] = {
 		AD_ENTRY1s("IUC_MAIN.DAT", nullptr, AD_NO_SIZE),
 		Common::EN_ANY,
 		Common::kPlatformDOS,
-		ADGF_UNSTABLE | ADGF_NO_FLAGS,
+		ADGF_TESTING | ADGF_NO_FLAGS,
 		GUIO0()
 	},
 	AD_TABLE_END_MARKER

@@ -2089,12 +2089,24 @@ OPCODE(0xdd) {
 // All are scene/cutscene-specific. Without a frame-override mechanism on
 // Room, log the call with all args so any anomalies are traceable.
 OPCODE(0xe0) {
-	debugC(2, kDebugLevelScript, "opcode 0xe0: InvalidateFrame %s STUB", +a[0]);
+	// DOS Op_e0 (CS:0x5548): InvalidateFrame. Sets frame[arg0].x = .y = 999.
+	// findPath skips frames with this sentinel — used to remove a frame
+	// from the walkable graph mid-cutscene (e.g. blocking a path).
+	const uint16 frame = uint16(a[0]);
+	debugC(2, kDebugLevelScript, "opcode 0xe0: InvalidateFrame %u", frame);
+	if (Room *room = Log.room())
+		room->invalidateFrame(frame);
 	return kThxBye;
 }
 OPCODE(0xe1) {
-	debugC(2, kDebugLevelScript, "opcode 0xe1: SetFramePosition frame=%s x=%s y=%s STUB",
-		+a[0], +a[1], +a[2]);
+	// DOS Op_e1 (CS:0x5564): SetFramePosition. Overwrites frame[arg0]'s
+	// (x, y) with arg1, arg2. Used to dynamically move a walkable point.
+	const uint16 frame = uint16(a[0]);
+	const int16 x = int16(uint16(a[1]));
+	const int16 y = int16(uint16(a[2]));
+	debugC(2, kDebugLevelScript, "opcode 0xe1: SetFramePosition frame=%u (%d,%d)", frame, x, y);
+	if (Room *room = Log.room())
+		room->setFramePosition(frame, x, y);
 	return kThxBye;
 }
 OPCODE(0xe3) {

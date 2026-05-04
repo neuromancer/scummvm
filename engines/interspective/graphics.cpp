@@ -293,18 +293,30 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const
 	uint8 bubble_indices[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8 };
 
 	uint8 wadj = 0;
-	{
-		const uint16 height = (lines >= 3) ? (lines * 12 + 16) : 60;
+	const uint16 height = (lines >= 3) ? (lines * 12 + 16) : 60;
+	// `pointsUp/Down` describe WHICH SIDE OF THE BUBBLE THE TAIL IS ON
+	// (= which corner of the bubble points back toward the speaker).
+	// Down-tail cases: speaker is in the lower half of the screen, the
+	// bubble extends UPWARD from the speaker — subtract `height` from
+	// `top` so the bubble's top edge is `height` pixels above the speaker.
+	// Up-tail cases: speaker is in the upper half (top < 53), bubble
+	// extends DOWNWARD — leave `top` as-is so the bubble's top edge
+	// starts at the speaker.
+	if (pointsLeft && !pointsUp) {
+		// down-left tail: bubble grows up-right from down-left speaker
 		if (top < height)
 			top = 0;
 		else
 			top -= height;
-	}
-	if (pointsLeft && !pointsUp) {
 		bubble_indices[kBubbleBottomLeft] = kBubbleBottomLeftPoint;
 		wadj = 4;
 		left += 4;
 	} else if (!pointsLeft && !pointsUp) {
+		// down-right tail: bubble grows up-left from down-right speaker
+		if (top < height)
+			top = 0;
+		else
+			top -= height;
 		if (left >= 320)
 			left = 320;
 		const int bubbleWidth = textSize.width() + 69;
@@ -314,14 +326,34 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const
 			left -= bubbleWidth;
 		bubble_indices[kBubbleBottomRight] = kBubbleBottomRightPoint;
 		wadj = 0;
-	} else
-		error("can't paint speech bubble pointing %s %s yet", pointsUp ? "up" : "down", pointsLeft ? "left" : "right");
+	} else if (pointsLeft && pointsUp) {
+		// up-left tail: bubble grows down-right from up-left speaker.
+		// Don't subtract `height` — bubble starts at speaker.y and
+		// extends downward. Mirrors the down-left case across y.
+		bubble_indices[kBubbleTopLeft] = kBubbleTopLeftPoint;
+		wadj = 4;
+		left += 4;
+	} else {
+		// up-right tail: bubble grows down-left from up-right speaker.
+		// Mirror of down-right across y: keep `top` (no subtract), shift
+		// `left` to the LEFT by bubbleWidth so the right edge sits at the
+		// speaker.
+		if (left >= 320)
+			left = 320;
+		const int bubbleWidth = textSize.width() + 69;
+		if (bubbleWidth > left)
+			left = 0;
+		else
+			left -= bubbleWidth;
+		bubble_indices[kBubbleTopRight] = kBubbleTopRightPoint;
+		wadj = 0;
+	}
 	debugC(2, kDebugLevelGraphics, "painting speech bubble \"%s\" at (adjusted) %d:%d", string, left, top);
 
 	uint8 vertical_tiles = 1;
-	int16 height = lines * 12 - 42;
-	if (height > 5)
-		vertical_tiles += (height - 58) / 6;
+	int16 vtiles_height = lines * 12 - 42;
+	if (vtiles_height > 5)
+		vertical_tiles += (vtiles_height - 58) / 6;
 
 	uint8 horizontal_tiles = (textSize.width() - 39) / 4;
 	if (horizontal_tiles == 0)

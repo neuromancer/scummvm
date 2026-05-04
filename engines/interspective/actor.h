@@ -98,6 +98,14 @@ public:
 		const Common::Array<byte> &nexts() const { return _nexts; }
 		uint16 index() const { return _index; }
 
+		// Runtime frame mutation — DOS Op_e0 (InvalidateFrame) writes
+		// the (999,999) sentinel that findPath skips. DOS Op_e1
+		// (SetFramePosition) overwrites the screen position. Both are
+		// scene-scoped: the room-load resets _actorFrames so changes
+		// don't persist across room transitions.
+		void setPosition(Common::Point p) { _position = p; }
+		void invalidate() { _position = Common::Point(999, 999); }
+
 		Direction operator-(const Frame &other) const;
 		bool operator==(const Frame &other) const {
 			return _index == other._index;

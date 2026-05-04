@@ -59,6 +59,8 @@ Debugger::Debugger()
 	registerCmd("setVar", WRAP_METHOD(Debugger, cmd_setVar));
 #define CMD(x) registerCmd(#x, WRAP_METHOD(Debugger, cmd_##x));
 	CMD(debugActor);
+	CMD(changeRoom);
+	CMD(jumpTo);
 #undef CMD
 }
 
@@ -159,6 +161,38 @@ bool Debugger::cmd_paintText(int argc, const char **argv) {
 		debugPrintf("Syntax: paint_text <text> [<left> <top> [<colour>]]\n");
 
 	return true;
+}
+
+CMD(changeRoom) {
+	// Teleport directly to room N. Bypasses script-driven scene
+	// transitions — useful for skipping the intro to reach a room where
+	// a bug reproduces. Detaches the debugger so the new room is loaded
+	// on the next tick.
+	if (argc != 2) {
+		debugPrintf("Syntax: changeRoom <room_id>\n");
+		debugPrintf("Current room: %u\n", logic()->currentRoom());
+		return true;
+	}
+	const int room = atoi(argv[1]);
+	debugPrintf("Changing room to %d (was %u). Detaching.\n", room, logic()->currentRoom());
+	logic()->changeRoom(uint16(room));
+	return false;
+}
+
+CMD(jumpTo) {
+	// Run a main-interpreter procedure at the given offset. Combined with
+	// `changeRoom`, lets the user resume from any cutscene/script entry
+	// point. Useful when boot_param=N drops you in a room but the room's
+	// expected setup script hasn't run.
+	if (argc != 2) {
+		debugPrintf("Syntax: jumpTo <main_offset_hex>\n");
+		debugPrintf("(Run a main-interpreter procedure at the given offset)\n");
+		return true;
+	}
+	uint16 off = (uint16)strtoul(argv[1], 0, 16);
+	debugPrintf("Queuing main interpreter run at 0x%04x\n", off);
+	Log.runLater(CodePointer(off, Log.mainInterpreter()));
+	return false;
 }
 
 bool Debugger::cmd_paintSprite(int argc, const char **argv) {
