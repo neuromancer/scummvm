@@ -97,8 +97,8 @@ void MusicParser::silence() {
 
 	for (int channel = 2; channel < 10; channel++)
 		for (int i = 0; i < 4; i++)
-			if (notes[channel][i])
-				Music._driver->send(channel | kMidiNoteOff, notes[channel][i], 0);
+			if (notes[channel - 2][i])
+				Music._driver->send(channel | kMidiNoteOff, notes[channel - 2][i], 0);
 
 	memset(notes, 0, sizeof(notes));
 }

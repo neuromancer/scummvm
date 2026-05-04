@@ -46,6 +46,8 @@ Actor::Actor(const CodePointer &code) : Animation(code, Common::Point()) {
 	_frame = 0;
 	_debug = false;
 	_attentionNeeded = false;
+	_confused = false;
+	_nextAnimator = 0;
 	_nextDirection = kDirNone;
 
 	Engine::instance().logic()->addAnimation(this);
