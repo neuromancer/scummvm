@@ -254,18 +254,26 @@ bool Logic::restoreSceneFrame() {
 }
 
 bool Logic::cancelLater(const CodePointer &p) {
-	bool removed = false;
+	bool selfCancel = false;
 	Common::List<DelayedRun>::iterator it = _queued.begin();
 	while (it != _queued.end()) {
 		if (it->code.offset() == p.offset() && it->code.interpreter() == p.interpreter()) {
 			debugC(3, kDebugLevelScript, "cancel pending %s", +p);
+			// Self-cancel detection (DOS `g_break_loop = 1` case):
+			// `_runningQueued` is set by runQueued() while executing
+			// each entry. If the cancellation target matches the
+			// currently running entry, signal the caller to break.
+			if (_runningQueued
+					&& _runningQueued->offset() == p.offset()
+					&& _runningQueued->interpreter() == p.interpreter()) {
+				selfCancel = true;
+			}
 			it = _queued.erase(it);
-			removed = true;
 		} else {
 			++it;
 		}
 	}
-	return removed;
+	return selfCancel;
 }
 
 void Logic::runQueued() {
@@ -290,7 +298,9 @@ void Logic::runQueued() {
 				continue;
 			}
 			debugC(2, kDebugLevelFlow | kDebugLevelScript, ">>>running %s", +it->code);
+			_runningQueued = &it->code;
 			it->code.run();
+			_runningQueued = 0;
 			debugC(2, kDebugLevelFlow | kDebugLevelScript, "<<<finished %s", +it->code);
 			toRemove.push(it);
 		}

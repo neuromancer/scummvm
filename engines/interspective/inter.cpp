@@ -167,6 +167,16 @@ Status Interpreter::run(uint16 offset) {
 			// ok
 			;
 		}
+
+		// DOS MainGameLoop (1000:050d, 0x587) reads g_pendingErrorCode
+		// after each script tick and halts on non-zero. Mirror that:
+		// any opcode that raised a pending error terminates the
+		// interpreter loop with a fatal error.
+		if (Logic::instance().pendingError() != 0) {
+			const uint8 code = Logic::instance().pendingError();
+			Logic::instance().clearPendingError();
+			error("Interspective: pending error 0x%02x raised by opcode 0x%02x — halting", code, opcode);
+		}
 	}
 
 	return kReturned;

@@ -31,6 +31,7 @@
 #include "common/list.h"
 #include "common/queue.h"
 #include "common/singleton.h"
+#include "common/str.h"
 
 #include "interspective/inter.h"
 #include "interspective/mapfile.h"
@@ -68,6 +69,18 @@ public:
 		  _hitTarget(0),
 		  _switchValue(0),
 		  _switchTarget(0),
+		  _branchState(0),
+		  _pendingError(0),
+		  _gameScore(0),
+		  _maxGameScore(0),
+		  _currentEntityId(0),
+		  _drawCommandCount(0),
+		  _opcodeMode(0),
+		  _escBreakProc(0),
+		  _escBreakSrcPC(0),
+		  _parserBufferCapacity(60),
+		  _callDepth(0),
+		  _runningQueued(0),
 		  _slowCpu(false) {}
 	~Logic();
 
@@ -135,6 +148,20 @@ public:
 	}
 	bool isObjectCarried(uint16 objId) const {
 		return getObjectRoom(objId) == kInventoryRoom;
+	}
+	// Object position (DOS object record fields +2 and +4: x, y).
+	// Set by Op_80 (with explicit pos) and Op_81 (current-room pos).
+	void setObjectPosition(uint16 objId, int16 x, int16 y) {
+		_objectPosX[objId] = x;
+		_objectPosY[objId] = y;
+	}
+	int16 getObjectPosX(uint16 objId) const {
+		Common::HashMap<uint16, int16>::const_iterator it = _objectPosX.find(objId);
+		return it == _objectPosX.end() ? 0 : it->_value;
+	}
+	int16 getObjectPosY(uint16 objId) const {
+		Common::HashMap<uint16, int16>::const_iterator it = _objectPosY.find(objId);
+		return it == _objectPosY.end() ? 0 : it->_value;
 	}
 	void clearObjectRooms() { _objectRoom.clear(); }
 	uint16 objectRoomCount() const { return _objectRoom.size(); }
@@ -210,6 +237,97 @@ public:
 	void setSwitchValue(uint16 v) { _switchValue = v; }
 	uint16 switchTarget() const { return _switchTarget; }
 	void setSwitchTarget(uint16 v) { _switchTarget = v; }
+	// `g_branch_state` (DS:0x671c) — script PC saved by Op_2e at the
+	// switch dispatcher's loop-head, then jumped to by Op_2f..Op_34
+	// when the case mismatches (= "go try the next case"). 0 = no
+	// active switch (rule-2-faithful: case ops without an active
+	// switch hit pending-error 0x04).
+	uint16 branchState() const { return _branchState; }
+	void setBranchState(uint16 v) { _branchState = v; }
+	// `g_game_score` (DS:0x6670) — running score (read by Op_5c).
+	uint16 gameScore() const { return _gameScore; }
+	void setGameScore(uint16 v) { _gameScore = v; }
+	// Score-system divisor (CS:[0x91]). Used by Op_5d to compute
+	// percent and tenths display.
+	uint16 maxGameScore() const { return _maxGameScore; }
+	void setMaxGameScore(uint16 v) { _maxGameScore = v; }
+
+	// Current-entity id (DAT_1cb5_666c) — index of the entity whose
+	// script is currently running. Set by RunEntityScript before
+	// dispatching an entity script. Read by Op_5b. C++ updates this
+	// at the dispatch sites that mirror RunEntityScript.
+	uint16 currentEntityId() const { return _currentEntityId; }
+	void setCurrentEntityId(uint16 id) { _currentEntityId = id; }
+
+	// `g_draw_command_count` (DS:0x661b) — count of pending draw
+	// commands queued for this frame. Incremented by AddDrawCommand,
+	// reset per frame. Read by Op_58.
+	uint16 drawCommandCount() const { return _drawCommandCount; }
+	void setDrawCommandCount(uint16 c) { _drawCommandCount = c; }
+	void incrementDrawCommandCount() { _drawCommandCount++; }
+	void clearDrawCommandCount() { _drawCommandCount = 0; }
+
+	// `g_opcode_mode` (DS:0x670e) — mode of the currently dispatching
+	// script (entity type for entity scripts, slot index 0xb..0x12 for
+	// deferred queue slots). Set by RunEntityScript and runQueued
+	// before invoking the script. Read by Op_3a/Op_3d for deferred-mode
+	// dispatch decisions.
+	uint16 opcodeMode() const { return _opcodeMode; }
+	void setOpcodeMode(uint16 m) { _opcodeMode = m; }
+
+	// ESC-handler break point (DOS g_break_target_proc/di/es +
+	// g_esc_during_script). Captures (mode, current PC, target) when
+	// Op_3d sets it; used by HandleEscDuringScript to dispatch ESC.
+	uint16 escBreakProc() const { return _escBreakProc; }
+	uint16 escBreakSrcPC() const { return _escBreakSrcPC; }
+	void setEscBreakPoint(uint16 proc, uint16 srcPC, const CodePointer &target) {
+		_escBreakProc = proc;
+		_escBreakSrcPC = srcPC;
+		_skipPoint = target;
+	}
+	void clearEscBreakPoint() {
+		_escBreakProc = 0;
+		_escBreakSrcPC = 0;
+		_skipPoint.reset();
+	}
+
+	// Parser-buffer (DOS Pascal-string @ DS:0x4fa9..0x4faa..[chars]):
+	//   [0x4fa9] = max capacity (set at boot)
+	//   [0x4faa] = current length (Pascal-style)
+	//   [0x4fab+] = chars
+	// Op_e9 appends; Op_e7 clears; Op_eb pops last char; Op_22
+	// compares against arg0. C++ models as a simple Common::String
+	// with a max-capacity bound (mirrors DOS 0x4fa9 byte). The
+	// default capacity (165 = 0x4faa - 0x4fab + 0x100? actually max
+	// observed in DOS is set at boot; default to 60 chars — same
+	// length as DOS savegame name field).
+	const Common::String &parserBuffer() const { return _parserBuffer; }
+	uint8 parserBufferCapacity() const { return _parserBufferCapacity; }
+	void setParserBufferCapacity(uint8 cap) { _parserBufferCapacity = cap; }
+	void parserBufferAppend(byte ch) {
+		if (_parserBuffer.size() < _parserBufferCapacity)
+			_parserBuffer += char(ch);
+	}
+	void parserBufferClear() { _parserBuffer.clear(); }
+	void parserBufferPop() {
+		if (!_parserBuffer.empty())
+			_parserBuffer.deleteLastChar();
+	}
+
+	// `g_pendingErrorCode` (1000:0003) — error code raised by ~95 DOS
+	// sites. DOS's MainGameLoop reads it and halts. C++ equivalent:
+	// the interpreter dispatch checks at the end of each opcode and
+	// terminates with `error()` when set. 0 = no error.
+	uint8 pendingError() const { return _pendingError; }
+	void setPendingError(uint8 code) { _pendingError = code; }
+	void clearPendingError() { _pendingError = 0; }
+	// `g_skip_counter_b` (DS:0x65e? = call-stack depth, max 8 per
+	// DOS Op_36/Op_37). C++ uses native recursion for the actual
+	// frame management; this counter only enforces the same limit
+	// so we can raise pending-error 0x05 on overflow / 0x06 on
+	// underflow.
+	uint8 callDepth() const { return _callDepth; }
+	void setCallDepth(uint8 d) { _callDepth = d; }
 	bool slowCpu() const { return _slowCpu; }
 
 	void setEngine(Engine *e);
@@ -242,8 +360,12 @@ public:
 	Interpreter *blockInterpreter() const { return _blockInterpreter.get(); }
 	Interpreter *mainInterpreter() const { return _toplevelInterpreter.get(); }
 	void runLater(const CodePointer &, uint16 delay = 0);
+	uint16 queuedCount() const { return uint16(_queued.size()); }
 	// Remove any queued (runLater) entry whose CodePointer matches `p`.
 	// Used by Op_3a / Op_3c to cancel a previously-deferred script.
+	// Returns true if the canceled entry matched the *currently
+	// running* queued script (= DOS `g_break_loop = 1` self-cancel
+	// case). Caller (Op_3a / Op_3c) returns kReturn in that case.
 	bool cancelLater(const CodePointer &p);
 
 	bool canSkipCutscene() const { return !_skipPoint.isEmpty(); }
@@ -259,6 +381,7 @@ public:
 
 	Music *music() const { return _music; }
 	void setMusic(Music *m) { _music = m; }
+	Resources *resources() const { return _resources; }
 
 	// DOS scene-snapshot slot (`_g_block_pc_offset` @ 0x6718 et al.).
 	// Op_38 (1000:3c58) saves the current scene; Op_01 (1000:59a3)
@@ -316,6 +439,8 @@ private:
 	Common::Array<ZoneB> _zonesB;          // mirrors g_zone_b[30], cleared by Op_de
 	Common::Array<Zone> _walkboxes;        // mirrors g_walkbox[*], cleared by Op_e2
 	Common::HashMap<uint16, uint16> _objectRoom; // sparse object-id → room map
+	Common::HashMap<uint16, int16> _objectPosX;
+	Common::HashMap<uint16, int16> _objectPosY;
 	Common::HashMap<uint16, uint8> _cellBits;    // per-entity flag byte (Op_7b/7c/Op_15)
 	Common::HashMap<uint16, uint8> _actorFlag70; // Actor.field_0x70 (Op_49)
 	uint16 _menuStashA, _menuStashB;             // pbRam00023206/8 (Op_4d)
@@ -327,6 +452,19 @@ private:
 	uint16 _hitTarget;      // last-hit hotspot id (mirrors g_current_hit_region)
 	uint16 _switchValue;    // last value pushed for case dispatch (sign of active switch)
 	uint16 _switchTarget;   // bytecode offset to jump to on case match
+	uint16 _branchState;    // DS:0x671c — saved PC for switch-loop reentry
+	uint8 _pendingError;    // 1000:0003 — DOS pending-error code (0 = none)
+	uint16 _gameScore;      // DS:0x6670
+	uint16 _maxGameScore;   // CS:[0x91]
+	uint16 _currentEntityId; // DAT_1cb5_666c
+	uint16 _drawCommandCount; // DS:0x661b
+	uint16 _opcodeMode;       // DS:0x670e
+	uint16 _escBreakProc;     // DS:0x6726 (g_break_target_proc)
+	uint16 _escBreakSrcPC;    // DS:0x6728 (g_break_target_di)
+	Common::String _parserBuffer;
+	uint8 _parserBufferCapacity;
+	uint8 _callDepth;       // DOS call-stack depth (max 8)
+	const CodePointer *_runningQueued; // currently running queued entry (nullable)
 	bool _slowCpu;          // DS:0x67b5 — always false on modern hosts
 	Common::SharedPtr<SceneFrame> _savedScene; // null = empty (matches DOS sentinel)
 };

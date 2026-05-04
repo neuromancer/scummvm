@@ -66,6 +66,7 @@ public:
 	void loadExits(Interpreter *i);
 
 	Exit *getExit(uint16 index) const;
+	uint16 exitsCount() const { return _exitsCount; }
 	Common::List<Exit *> exitsForRoom(uint16 room) const;
 
 	Actor *actor(uint16 index) const;

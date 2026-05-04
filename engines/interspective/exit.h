@@ -44,6 +44,7 @@ public:
 	enum { Size = 0xe };
 
 	uint16 room() const { return _room; }
+	void setRoom(uint16 r) { _room = r; }
 
 	void paint(Graphics *g);
 
