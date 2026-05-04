@@ -455,7 +455,11 @@ OPCODE(0x47) {
 	if (text) {
 		const uint16 length = (uint16)strlen(reinterpret_cast<const char *>(text));
 		if (length > 0)
-			Graf.say(text, length, 50);
+			// Scale display time with text length (~3 ticks/char,
+			// 30-tick floor) so reading speed matches DOS sample
+			// pacing. Hardcoded 50 was too short for long narrator
+			// lines — see Actor::Speech ctor for matching rule.
+			Graf.say(text, length, MAX<uint16>(30, 3 * length));
 	}
 	return kThxBye;
 }
@@ -1614,7 +1618,11 @@ OPCODE(0x48) {
 	if (text) {
 		const uint16 length = (uint16)strlen(reinterpret_cast<const char *>(text));
 		if (length > 0)
-			Graf.say(text, length, 50);
+			// Scale display time with text length (~3 ticks/char,
+			// 30-tick floor) so reading speed matches DOS sample
+			// pacing. Hardcoded 50 was too short for long narrator
+			// lines — see Actor::Speech ctor for matching rule.
+			Graf.say(text, length, MAX<uint16>(30, 3 * length));
 	}
 	return kThxBye;
 }

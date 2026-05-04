@@ -178,24 +178,14 @@ void Logic::doChangeRoom() {
 	_blockInterpreter->run(_blockProgram->roomHandler(_currentRoom), kCodeNewRoom);
 	debugC(2, kDebugLevelScript, "<<<finished room entry code for room %d", _currentRoom);
 
-	// Make the protagonist follow the player into every room. The
-	// iuc_main.dat actor record has actor.field+0x59 = 0 for the
-	// protagonist (verified via dump), and DOS gates rendering on
-	// `actor.room == g_current_location` (RegisterCastForRoom +
-	// CollectActorAnimSlots — see PLAN iter-27). Without auto-following,
-	// the protagonist stays unregistered and the Animation::tick()'s
-	// `_room == Log.currentRoom()` check short-circuits, so no
-	// setMainSprite ever fires and the actor is invisible.
-	//
-	// The DOS engine must therefore have an auto-register-protagonist
-	// path I haven't yet located in Ghidra; emulating the observable
-	// behaviour ("protagonist visible in every room they're not
-	// explicitly hidden in") is a safe stand-in until that path is
-	// found. Note: explicit moves via Op_77/79/7a still apply because
-	// they update protagonist.room BEFORE the next changeRoom — by the
-	// time we reach this line, _room already matches _currentRoom.
-	if (_protagonist)
-		_protagonist->forceRoom(_currentRoom);
+	// (iter-27's unconditional `_protagonist->forceRoom(_currentRoom)`
+	// removed iter-36 — it caused the protagonist sprite to be rendered
+	// on top of the title-card logo and any other "no protagonist" room
+	// because we were registering them in EVERY room, ignoring the
+	// data-file room state. Replaced by Op_d6's boot-param substitution
+	// path which seeds the protagonist's room ONLY when the boot-param
+	// shortcut fires — matching what the skipped intro animation would
+	// have done.)
 
 	// Re-run setFrame on each actor so its position re-syncs to the new
 	// room's frame table (if the actor's current frame index is defined

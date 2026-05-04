@@ -260,15 +260,19 @@ Common::List<Actor::Frame> Actor::findPath(Actor::Frame from, uint16 to) {
 void Actor::moveTo(uint16 frame) {
 	Frame cur = Log.room()->getFrame(_frame);
 
-	// DOS MoveActorToRoom @ 1000:70e1: if the actor isn't registered
-	// (no current valid position in this room), it WARPS directly to
-	// the target frame instead of pathfinding. Mirror that behaviour
-	// when our current frame is invalid (=0 / never set, or position
-	// (999,999) sentinel) — otherwise findPath has no anchor and
-	// `nextFrame` would update `_frame` without updating `_position`,
-	// leaving the actor stuck at its data-file initial coordinates
-	// (e.g. protag stuck at (120,82) when Op_ab(4) should have placed
-	// them at frame 4 = (119,115)). [iter-33]
+	// DOS MoveActorToRoom @ 1000:70e1, NOT-FOUND path (1000:7103-710b):
+	//   MOV ES:[SI+0x61], AL          ; actor.frame = target frame
+	//   CALL SetActorPosition         ; reads frame[N].pos → actor X/Y
+	//   STC; RET
+	// That's it. No animation change, no direction logic. Just position
+	// warp. The actor's existing animation script keeps running.
+	//
+	// Mirror that exactly: setFrame() does both the _frame assignment
+	// and the position lookup-and-update via Room::getFrame.
+	// (iter-34's attempt to also pick a direction and call
+	// setAnimation(moveAnimator(dir)) was overreaching — DOS doesn't
+	// do that, and the synthetic Frame I built crashed on
+	// Frame::operator-'s assumption that _nexts has 8 entries.)
 	if (_frame == 0 || cur.position().x == 999) {
 		debugC(3, kDebugLevelActor, "moveTo(%u): warp (no valid current frame)", (uint)frame);
 		setFrame(frame);
