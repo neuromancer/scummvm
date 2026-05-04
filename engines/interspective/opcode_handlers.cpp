@@ -678,23 +678,41 @@ OPCODE(0x73) {
 }
 
 OPCODE(0x77) {
-	// DOS Op_77 @ 1000:433d = CheckProtagonistAnimReady. Loads
-	// AX = g_main_character_id (CS:0x10f) and calls CheckActorAnimReady
-	// (1000:6415) which returns whether the protagonist's animation is
-	// in a "ready" state (room matches current, code offset non-zero,
-	// not mid-walk). nargs=2 in the dispatch table — both args are
-	// consumed but unused by the binary. The previous C++ misread this
-	// as a "go to room" opcode and called changeRoom + setRoom, which
-	// is wrong on multiple fronts.
-	debugC(2, kDebugLevelScript, "opcode 0x77: check protagonist anim ready (args %s,%s)", +a[0], +a[1]);
+	// DOS Op_77 @ 1000:433d = GoToRoomWithFrame(room, frame).
+	// Ghidra's "Op_77_CheckActorAnimReady" rename is INCOMPLETE — only
+	// the first 2 instructions decompiled (likely the no-return-analyzer
+	// trap). The actual handler:
+	//
+	//   1. CALL CheckActorAnimReady(g_main_character_id).
+	//   2. If carry clear (anim ready): JMP @ 0x3078 to save the script
+	//      PC and defer execution (retry next tick when actor is idle).
+	//   3. If carry set (NOT ready — e.g. fresh actor with
+	//      actor.room != g_current_location): fall through and place:
+	//        - actor.field+0x61 = arg1_lo  (current frame)
+	//        - actor.field+0x62 = arg1_lo  (target frame)
+	//        - actor.field+0x59 = arg0     (room)
+	//        - g_current_location = arg0
+	//        - FlushDirtyObjectSlotsToActor + g_flag_restart_room=1 etc.
+	//
+	// Critical Ghidra naming gotcha: 0x2eef = ResolveOpcodeArg1, 0x2f08 =
+	// ResolveOpcodeArg0 (NOT what the names suggest!). Re-checking the
+	// chain: CALL 0x2f08(=Arg0) gives AX=arg0, then BX=arg0; CALL
+	// 0x2eef(=Arg1) gives AX=arg1. So at the placement: BL=arg0_lo →
+	// frame, AX=arg1 → room. WAIT — let me re-verify in Op_77 itself.
+	// The Op_77 chain uses 0x434d:CALL 0x2eef (=Arg1) first, MOV BX,AX,
+	// MOV CX,AX, then 0x4354:CALL 0x2f08 (=Arg0). So BX=CX=arg1 and
+	// AX=arg0 at the placement: BL→frame=arg1, AX→room=arg0.
+	//
+	// Thus Op_77(arg0=room, arg1=frame). Script Op_77(67, 10) →
+	// room=67, frame=10. The OLD C++ port's `changeRoom(a[0]);
+	// protagonist->setRoom(a[0], a[1])` happened to match DOS
+	// semantics; the iter-24 "fix" reversed it incorrectly.
+	debugC(2, kDebugLevelScript, "opcode 0x77: go to room %s frame %s", +a[0], +a[1]);
 	if (Log.inMapMode())
 		return kThxBye;
-	if (Actor *ac = Log.protagonist()) {
-		if (ac->isMoving()) {
-			ac->callMeWhenStill(next);
-			return kReturn;
-		}
-	}
+	if (Actor *ac = Log.protagonist())
+		ac->placeIn(uint16(a[0]), uint16(a[1]));
+	_logic->changeRoom(a[0]);
 	return kThxBye;
 }
 

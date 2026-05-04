@@ -331,6 +331,17 @@ Sprite *Resources::getGlyph(byte ch) const {
 Sprite *Resources::loadSprite(uint16 id) const {
 	debugC(4, kDebugLevelFiles, "loading sprite %d", id);
 	SpriteInfo info = getSpriteInfo(id);
+	// Guard for out-of-range/empty sprites — Program::getSpriteInfo
+	// returns a default-constructed SpriteInfo (width=0,height=0) when
+	// the requested index is out of bounds (iter-29). An empty rect to
+	// Image::cut creates a 0x0 sprite which downstream paint/blit code
+	// can't safely handle.
+	if (info.width == 0 || info.height == 0) {
+		Sprite *sprite = new Sprite;
+		sprite->create(1, 1);
+		sprite->_hotPoint = Common::Point(0, 0);
+		return sprite;
+	}
 	Image *image = loadImage(info.image);
 	Sprite *sprite = image->cut(Common::Rect(info.left, info.top, info.left + info.width, info.top + info.height));
 	sprite->_hotPoint = Common::Point(info.hotLeft, info.hotTop);

@@ -106,15 +106,24 @@ MusicParser::~MusicParser() {
 }
 
 bool MusicParser::loadMusic(const byte *data, uint32 size) {
-	static int loadMusicCallCount = 0;
-	loadMusicCallCount++;
-	warning("Interspective music: loadMusic called (#%d) data=%p size=%u",
-		loadMusicCallCount, (const void *)data, (unsigned)size);
-
 	if (!_midiDriver) {
 		warning("Interspective music: loadMusic skipped — no MIDI driver");
 		return false;
 	}
+
+	// Idempotency guard: scripts can re-emit Op_f4 with the same data
+	// pointer many times per second (observed iter-29: 100+ calls/sec
+	// of loadMusic with the same data, racing with the MIDI timer
+	// thread's _tune->tick() and crashing in Channel::tick when the old
+	// _tune was freed mid-iteration). Skip if data matches what's
+	// already loaded.
+	if (_script && _script->base() == data)
+		return true;
+
+	static int loadMusicCallCount = 0;
+	loadMusicCallCount++;
+	debugC(2, kDebugLevelMusic, "Interspective music: loadMusic called (#%d) data=%p size=%u",
+		loadMusicCallCount, (const void *)data, (unsigned)size);
 
 	unloadMusic();
 	silence();
@@ -226,8 +235,21 @@ void MusicScript::tick() {
 			Music.unloadMusic();
 			return;
 
-		default:
-			error("unhandled music script call %x", _code[_offset]);
+		default: {
+			// Unhandled music opcodes show up in real game scripts (e.g.
+			// 0x94 in tune 5 around iter-29). Stopping music is a safer
+			// fallback than `error()` which kills the engine — the user
+			// loses music for that scene rather than the whole session.
+			static bool reportedOnce = false;
+			if (!reportedOnce) {
+				reportedOnce = true;
+				warning("Interspective music: unhandled script opcode 0x%02x at offset 0x%x — stopping music",
+					(uint)_code[_offset], (uint)_offset);
+			}
+			Music.silence();
+			Music.unloadMusic();
+			return;
+		}
 		}
 	}
 }

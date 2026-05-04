@@ -144,6 +144,7 @@ public:
 	void parseNextEvent(EventInfo &info);
 	void tick();
 	uint16 getTune() const { return READ_LE_UINT16(_code); }
+	const byte *base() const { return _code; }
 
 	friend class Note;
 private:

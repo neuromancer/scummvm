@@ -49,6 +49,17 @@ public:
 	uint16 roomHandler(uint16 room);
 	byte *base() const { return _code; }
 
+	// Range check: does p point into this block's _code buffer? Used by
+	// Logic::doChangeRoom to find any animation whose script PC was
+	// rebased into this (about-to-be-freed) block via Op_be/etc., so we
+	// can null out their _base before the buffer goes away.
+	bool contains(const byte *p) const { return p >= _code && p < _code + _codeSize; }
+
+	// Endpoints exposed so `Animation::dropBaseIfIn(low, high)` callers
+	// don't need access to private fields.
+	const byte *codeBegin() const { return _code; }
+	const byte *codeEnd() const { return _code + _codeSize; }
+
 	SpriteInfo getSpriteInfo(uint16 index) const;
 
 	void loadActors(Interpreter *i);
@@ -67,6 +78,7 @@ private:
 	uint16 entryPointOffset();
 
 	byte *_code;
+	uint16 _codeSize;
 	byte _footer[0x10];
 	Common::List<Actor *> _actors;
 	Exit **_exits;

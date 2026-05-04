@@ -179,6 +179,12 @@ public:
 	uint16 room() const { return _room; }
 	void setRoom(uint16, uint16 frame = 0, uint16 nextFrame = 0);
 
+	// Update only the room field, without touching frame/position/script.
+	// Used by Logic::doChangeRoom to keep the protagonist's _room in
+	// sync with _currentRoom so the gating in Actor::tick() doesn't
+	// short-circuit (see PLAN iter-27).
+	void forceRoom(uint16 r) { _room = r; }
+
 	// DOS-aligned room/frame placement that does NOT reset the actor's
 	// animation script. Mirrors the field assignments in
 	// Op_7a_PlaceActorInRoomXY @ 1000:4443: writes _room (field+0x59),

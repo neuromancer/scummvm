@@ -54,6 +54,7 @@ Program::Program(Common::ReadStream &file, uint16 id)
 		error("too large a program (%d)", length);
 
 	_code = new byte[length];
+	_codeSize = length;
 
 	file.read(_code + 2, length - 2);
 	Resources::descramble(_code + 2, length - 2);
@@ -106,7 +107,24 @@ uint16 Program::roomHandler(uint16 room) {
 }
 
 SpriteInfo Program::getSpriteInfo(uint16 index) const {
-	byte *spritemap = _code + READ_LE_UINT16(_footer + kSpriteMap);
+	const uint16 spritemapOffset = READ_LE_UINT16(_footer + kSpriteMap);
+	byte *spritemap = _code + spritemapOffset;
+
+	// Bound check matching MainDat::getSpriteInfo. The footer doesn't
+	// store a per-block sprite count, so derive the upper bound from
+	// the buffer size: at most (codeSize - spritemapOffset) / kSpriteMapSize
+	// (=8 bytes per entry, see sprite.cpp). Without this an out-of-range
+	// id (e.g. uninitialised script field, or main vs block id mismatch)
+	// runs straight off the end of _code and ASan-trips (iter-29).
+	const uint16 maxEntries = (spritemapOffset < _codeSize)
+		? (_codeSize - spritemapOffset) / 8
+		: 0;
+	if (index >= maxEntries) {
+		warning("Program::getSpriteInfo: index 0x%04x out of range "
+			"(spritemap@0x%04x, codeSize=0x%04x, max=%u) — returning empty",
+			(uint)index, (uint)spritemapOffset, (uint)_codeSize, (uint)maxEntries);
+		return SpriteInfo();
+	}
 
 	return SpriteInfo(spritemap, index);
 }

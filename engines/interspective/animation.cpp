@@ -195,6 +195,14 @@ void Animation::runOnNextFrame(const CodePointer &cp) {
 
 
 void Animation::setMainSprite(uint16 sprite) {
+	// 0xffff is the DOS "no sprite" sentinel (initial value of
+	// actor.field+0x8). Loading it would index past the end of the
+	// spritemap and ASan-trip in SpriteInfo's spritemap += index *
+	// kSpriteMapSize (caught iter-29).
+	if (sprite == 0xffff) {
+		clearMainSprite();
+		return;
+	}
 	_mainSprite = Common::SharedPtr<Interspective::Sprite>(_resources->loadSprite(sprite));
 }
 

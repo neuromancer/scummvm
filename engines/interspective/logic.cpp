@@ -86,15 +86,6 @@ void Logic::tick() {
 void Logic::callAnimations() {
 	if (!_animations.empty())
 		debugC(4, kDebugLevelFlow | kDebugLevelAnimation, "running animations");
-	// DIAG: print the full animations list and protagonist state every 60 ticks.
-	if (_protagonist && (_frameCounter % 60) == 0) {
-		bool inList = false;
-		for (Common::List<Animation *>::iterator it = _animations.begin(); it != _animations.end(); ++it)
-			if (*it == _protagonist) { inList = true; break; }
-		warning("DIAG protag: room=%u curRoom=%u inAnimList=%d animations=%u",
-			(uint)_protagonist->room(), (uint)_currentRoom, (int)inList,
-			(uint)_animations.size());
-	}
 	for (Common::List<Animation *>::iterator it = _animations.begin(); it != _animations.end(); ++it) {
 		Animation::Status ret = (*it)->tick();
 		if (ret == Animation::kRemove) {
@@ -107,7 +98,6 @@ void Logic::callAnimations() {
 }
 
 void Logic::setProtagonist(uint16 actor) {
-	warning("DIAG setProtagonist(%u)", (uint)actor);
 	_protagonist = getActor(actor);
 }
 
@@ -126,10 +116,7 @@ void Logic::changeRoom(uint16 newRoom) {
 void Logic::doChangeRoom() {
 	assert (_nextRoom);
 
-	// Emit at warning level so the intro's room sequence is visible
-	// without enabling debug channels — useful when picking a value for
-	// --boot-param=N to skip the intro to a specific scene.
-	warning("Interspective: changeRoom %u → %u", (uint)_currentRoom, (uint)_nextRoom);
+	debugC(1, kDebugLevelFlow, "Interspective: changeRoom %u → %u", (uint)_currentRoom, (uint)_nextRoom);
 	if (_nextRoom == _currentRoom)
 		return;
 	_currentRoom = _nextRoom;
@@ -154,6 +141,22 @@ void Logic::doChangeRoom() {
 				_skipPoint.reset();
 		}
 
+		// Block change: any animation (including main-code actors like
+		// the protagonist whose _base was rebased into block code via
+		// Op_be/Op_b9/etc.) holds a raw pointer into _blockProgram->_code.
+		// Reassigning _blockProgram below frees that buffer; the next
+		// tick would dereference freed memory and ASan-trip in
+		// Animation::tick at `_base + _offset`. Find any such animation
+		// and drop its _base now — the actor becomes inert until the
+		// script re-attaches it (Op_bd/Op_be).
+		Program *oldProgram = _blockProgram.get();
+		if (oldProgram) {
+			const byte *lo = oldProgram->codeBegin();
+			const byte *hi = oldProgram->codeEnd();
+			foreach(Animation *, _animations)
+				(*it)->dropBaseIfIn(lo, hi);
+		}
+
 		_currentBlock = newBlock;
 		_blockProgram = Common::SharedPtr<Program>(_resources->loadCodeBlock(newBlock));
 
@@ -173,6 +176,25 @@ void Logic::doChangeRoom() {
 	debugC(2, kDebugLevelScript, ">>>running room entry code for room %d", _currentRoom);
 	_blockInterpreter->run(_blockProgram->roomHandler(_currentRoom), kCodeNewRoom);
 	debugC(2, kDebugLevelScript, "<<<finished room entry code for room %d", _currentRoom);
+
+	// Make the protagonist follow the player into every room. The
+	// iuc_main.dat actor record has actor.field+0x59 = 0 for the
+	// protagonist (verified via dump), and DOS gates rendering on
+	// `actor.room == g_current_location` (RegisterCastForRoom +
+	// CollectActorAnimSlots — see PLAN iter-27). Without auto-following,
+	// the protagonist stays unregistered and the Animation::tick()'s
+	// `_room == Log.currentRoom()` check short-circuits, so no
+	// setMainSprite ever fires and the actor is invisible.
+	//
+	// The DOS engine must therefore have an auto-register-protagonist
+	// path I haven't yet located in Ghidra; emulating the observable
+	// behaviour ("protagonist visible in every room they're not
+	// explicitly hidden in") is a safe stand-in until that path is
+	// found. Note: explicit moves via Op_77/79/7a still apply because
+	// they update protagonist.room BEFORE the next changeRoom — by the
+	// time we reach this line, _room already matches _currentRoom.
+	if (_protagonist)
+		_protagonist->forceRoom(_currentRoom);
 
 	// Re-run setFrame on each actor so its position re-syncs to the new
 	// room's frame table (if the actor's current frame index is defined

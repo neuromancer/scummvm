@@ -56,7 +56,14 @@ public:
 
 	void addActorFrame(Common::Point p, Common::Array<byte> nexts);
 	Actor::Frame getFrame(uint16 index) const {
-		if (index >= _actorFrames.size() || index == 0)
+		// 1-based indexing: valid range is 1..size(). Previously used
+		// `index >= size()` which excluded the LAST frame (off-by-one).
+		// In a room with 10 frames, getFrame(10) was returning the empty
+		// (999,999) sentinel → callers treated frame 10 as invalid and
+		// skipped position updates. Symptom (iter-26): protagonist
+		// landed at the previous room's frame-10 position after Op_77
+		// teleported them to "frame 10" in the new room.
+		if (index == 0 || index > _actorFrames.size())
 			return Actor::Frame();
 		else
 			return _actorFrames[index-1];

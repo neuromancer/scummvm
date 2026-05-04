@@ -63,6 +63,18 @@ public:
 
 	virtual bool isActor() const { return false; }
 
+	// Used by Logic::doChangeRoom before freeing the outgoing block's
+	// code buffer. If this animation's _base lies within the [low, high)
+	// range, null it out so Animation::tick() short-circuits cleanly
+	// instead of dereferencing freed memory next frame. Re-attaching to
+	// a valid script later is the script's responsibility (Op_bd/be/b9).
+	void dropBaseIfIn(const byte *low, const byte *high) {
+		if (_base && _base >= low && _base < high) {
+			_base = 0;
+			_baseOffset = _offset = 0;
+		}
+	}
+
 protected:
 	class Sprite;
 

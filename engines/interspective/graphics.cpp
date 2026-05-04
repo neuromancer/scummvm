@@ -689,13 +689,19 @@ bool Graphics::fadeOut(FadeFlags f) {
 }
 
 void Graphics::say(const byte *text, uint16 length, uint16 frames) {
+	// Callers pass `length = strlen(text)` (no NUL counted). paintText
+	// scans with `while ((ch = *string++))` and needs a NUL terminator,
+	// so over-allocate by 1 and write a sentinel. Without this, paintText
+	// reads past the end of the heap allocation and ASan trips
+	// (caught iter-29: 21-byte allocation, paintText reading byte 22).
 	if (_speech) {
 		// Queue this utterance to play after the current one (and any
 		// already-queued ones) finish. The text buffer is owned by the
 		// queue entry until paintSpeech promotes it into _speech.
 		SpeechEntry e;
-		e.text = new byte[length];
+		e.text = new byte[length + 1];
 		memcpy(e.text, text, length);
+		e.text[length] = 0;
 		e.length = length;
 		e.frames = frames;
 		_speechQueue.push(e);
@@ -704,8 +710,9 @@ void Graphics::say(const byte *text, uint16 length, uint16 frames) {
 		return;
 	}
 
-	_speech = new byte[length];
+	_speech = new byte[length + 1];
 	memcpy(_speech, text, length);
+	_speech[length] = 0;
 	_speechFramesLeft = frames;
 	paintSpeech();
 }
