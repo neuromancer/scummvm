@@ -49,12 +49,44 @@ class Resources;
 
 class Logic : public Common::Singleton<Logic> {
 public:
-	Logic() : _frameCounter(0) {}
+	Logic()
+		: _frameCounter(0),
+		  _verbMode(0),
+		  _gameState(0),
+		  _inMapMode(false),
+		  _stepPending(false),
+		  _cursorMode(0),
+		  _dragTarget(0),
+		  _hitTarget(0),
+		  _switchValue(0),
+		  _switchTarget(0),
+		  _slowCpu(false) {}
 	~Logic();
 
 	// Monotonically increasing per-tick counter — wraps at uint16 to mirror the DOS
 	// g_tick_counter at DS:0x6666. Used by Op_10 (timer-fire) and Op_ed (set-deadline).
 	uint16 frameTicks() const { return uint16(_frameCounter); }
+
+	// VM state (mirrors DS:0x6XXX globals from the binary).
+	uint16 verbMode() const { return _verbMode; }
+	void setVerbMode(uint16 v) { _verbMode = v; }
+	uint16 gameState() const { return _gameState; }
+	void setGameState(uint16 s) { _gameState = s; }
+	bool inMapMode() const { return _inMapMode; }
+	void setInMapMode(bool v) { _inMapMode = v; }
+	bool stepPending() const { return _stepPending; }
+	void setStepPending(bool v) { _stepPending = v; }
+	uint16 cursorMode() const { return _cursorMode; }
+	void setCursorMode(uint16 v) { _cursorMode = v; }
+	uint16 dragTarget() const { return _dragTarget; }
+	void setDragTarget(uint16 v) { _dragTarget = v; }
+	uint16 hitTarget() const { return _hitTarget; }
+	void setHitTarget(uint16 v) { _hitTarget = v; }
+	uint16 switchValue() const { return _switchValue; }
+	void setSwitchValue(uint16 v) { _switchValue = v; }
+	uint16 switchTarget() const { return _switchTarget; }
+	void setSwitchTarget(uint16 v) { _switchTarget = v; }
+	bool slowCpu() const { return _slowCpu; }
 
 	void setEngine(Engine *e);
 
@@ -128,6 +160,16 @@ private:
 
 	CodePointer _skipPoint;
 	uint32 _frameCounter;
+	uint16 _verbMode;       // DS:0x6678 — current verb (LOOK/USE/etc), 0x80 = system
+	uint16 _gameState;      // DS:0x666e — 0=fresh, 1=running, 2=in dialog
+	bool _inMapMode;        // DS:0x676e — true while world map is shown
+	bool _stepPending;      // DS:0x6748 — set by hotspot click, cleared on action
+	uint16 _cursorMode;     // DS:0x665d — 0x04=walk, 0x20=drag, 0x40/0x80=verb-style
+	uint16 _dragTarget;     // current drag-source object id
+	uint16 _hitTarget;      // last-hit hotspot id (mirrors g_current_hit_region)
+	uint16 _switchValue;    // last value pushed for case dispatch (sign of active switch)
+	uint16 _switchTarget;   // bytecode offset to jump to on case match
+	bool _slowCpu;          // DS:0x67b5 — always false on modern hosts
 };
 
 #define Log Logic::instance()

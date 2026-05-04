@@ -123,7 +123,8 @@ public:
 private:
 	Common::Array<Beat> _beats;
 
-	byte _data[6666];
+	enum { kTuneBufferSize = 0x8000 };
+	byte _data[kTuneBufferSize];
 	int32 _currentBeat;
 	uint32 _beatticks;
 };

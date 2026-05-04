@@ -125,6 +125,22 @@ void Logic::doChangeRoom() {
 	uint16 newBlock = _resources->blockOfRoom(_currentRoom);
 
 	if (newBlock != _currentBlock) {
+		// Drop any deferred code or skip points still pointing into the outgoing block — its
+		// Interpreter (and Program::_code) is about to be destroyed and any queued CodePointer
+		// to it would be a use-after-free when runQueued() fires it.
+		Interpreter *oldBlock = _blockInterpreter.get();
+		if (oldBlock) {
+			Common::List<DelayedRun>::iterator it = _queued.begin();
+			while (it != _queued.end()) {
+				if (it->code.interpreter() == oldBlock)
+					it = _queued.erase(it);
+				else
+					++it;
+			}
+			if (_skipPoint.interpreter() == oldBlock)
+				_skipPoint.reset();
+		}
+
 		_currentBlock = newBlock;
 		_blockProgram = Common::SharedPtr<Program>(_resources->loadCodeBlock(newBlock));
 
@@ -175,6 +191,9 @@ bool Logic::cancelLater(const CodePointer &p) {
 void Logic::runQueued() {
 	if (_queued.empty()) return;
 
+	Interpreter * const liveTopLevel = _toplevelInterpreter.get();
+	Interpreter * const liveBlock = _blockInterpreter.get();
+
 	Common::Queue<Common::List<DelayedRun>::iterator> toRemove;
 	debugC(2, kDebugLevelFlow | kDebugLevelScript, ">>>running queued code");
 	foreach (DelayedRun, _queued)
@@ -183,6 +202,13 @@ void Logic::runQueued() {
 					it->delay);
 			it->delay--;
 		} else {
+			Interpreter *target = it->code.interpreter();
+			if (target != liveTopLevel && target != liveBlock) {
+				warning("dropping stale queued CodePointer (interpreter %p not live)",
+						(void *)target);
+				toRemove.push(it);
+				continue;
+			}
 			debugC(2, kDebugLevelFlow | kDebugLevelScript, ">>>running %s", +it->code);
 			it->code.run();
 			debugC(2, kDebugLevelFlow | kDebugLevelScript, "<<<finished %s", +it->code);

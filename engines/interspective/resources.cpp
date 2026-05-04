@@ -248,7 +248,9 @@ Image *Resources::loadImage(uint16 index) const {
 
 void Resources::loadTune(uint16 index, byte *target) const {
 	Common::ReadStream *file = tuneStream(index);
-	file->read(target, 6000);
+	// Tune buffers are sized at Tune::kTuneBufferSize (0x8000). The DOS engine reads up to its
+	// full buffer length here too — actual tune size varies and isn't stored in the index.
+	file->read(target, 0x8000);
 }
 
 void Resources::decodeImage(Common::ReadStream *stream, byte *target, uint16 size) {

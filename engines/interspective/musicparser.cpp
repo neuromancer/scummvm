@@ -152,9 +152,18 @@ enum {
 };
 
 Tune::Tune(uint16 index) {
+	memset(_data, 0, sizeof(_data));
 	Res.loadTune(index, _data);
 
 	uint16 nbeats = READ_LE_UINT16(_data + kTuneBeatCountOffset);
+	// Sanity: header + nbeats*8 (beat array) must fit in the buffer with room for at least one
+	// 16-byte channel entry. Otherwise treat as empty and skip — happens if loadTune got a bogus
+	// index and the 32 KB buffer is full of zeros / garbage.
+	const uint maxBeats = (sizeof(_data) - kTuneHeaderSize - 16) / 8;
+	if (nbeats > maxBeats) {
+		warning("Tune %u has implausible nbeats=%u (max %u); skipping", index, nbeats, maxBeats);
+		nbeats = 0;
+	}
 	_beats.resize(nbeats);
 
 	const byte *beat = _data + kTuneHeaderSize;

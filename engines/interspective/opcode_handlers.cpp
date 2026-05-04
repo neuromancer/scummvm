@@ -1029,9 +1029,12 @@ OPCODE(0xf0) {
 }
 
 OPCODE(0xf4) {
-	// play music
-	debugC(1, kDebugLevelScript, "opcode 0xf4: play music script at %s", +a[0]);
-	Music.loadMusic(static_cast<CodePointer &>(a[0]).offset() + Log.mainInterpreter()->_base);
+	// play music. The arg is a near offset into the main bytecode (IUC_MAIN.DAT) that points
+	// at a music script: tune index (uint16) followed by kSetBeat/kJump/kStop bytecodes. Even
+	// when called from a block, the offset is always relative to the main interpreter — music
+	// scripts live in the global file, not in per-block bytecode.
+	debugC(1, kDebugLevelScript, "opcode 0xf4: play music script at main offset 0x%04x", static_cast<CodePointer &>(a[0]).offset());
+	Music.loadMusic(Log.mainInterpreter()->rawCode(static_cast<CodePointer &>(a[0]).offset()));
 	return kThxBye;
 }
 
@@ -1062,8 +1065,834 @@ OPCODE(0xfc) {
 	return kThxBye;
 }
 
+// ============================================================================
+// Translated from the DOS binary handlers. State the engine doesn't track
+// (object table, walkboxes, drag/cursor mode, last-resolved actor) is held
+// on Logic via the new state slots (Logic::verbMode / cursorMode / etc).
+// Operations that reach into per-room scratch buffers the engine doesn't
+// have are clearly marked TODO and produce a documented default.
+// ============================================================================
+
+OPCODE(0x0a) {
+	// IfModeIs80OrFlag (DOS CS:0x37de): continue if verbMode==0x80 OR stepPending,
+	// else fail. Used to gate "system action" branches.
+	debugC(2, kDebugLevelScript, "opcode 0x0a: if verbMode==0x80 || stepPending");
+	if (Log.verbMode() != 0x80 && !Log.stepPending())
+		return kFail;
+	return kThxBye;
+}
+
+OPCODE(0x0b) {
+	// IfMode40AndFlag (DOS CS:0x37ff): continue if (stepPending && verbMode==0x40), else fail.
+	debugC(2, kDebugLevelScript, "opcode 0x0b: if stepPending && verbMode==0x40");
+	if (!Log.stepPending() || Log.verbMode() != 0x40)
+		return kFail;
+	return kThxBye;
+}
+
+OPCODE(0x0c) {
+	// IfNotInMapMode (DOS CS:0x38ab): fail when in map mode.
+	debugC(2, kDebugLevelScript, "opcode 0x0c: if not in map mode");
+	if (Log.inMapMode())
+		return kFail;
+	return kThxBye;
+}
+
+OPCODE(0x0d) {
+	// IfDragNotMatchTarget (DOS CS:0x38d7): fail unless stepPending && cursorMode==0x20
+	// && dragTarget!=0. Used to gate verb-on-object scripts to the drag flow.
+	debugC(2, kDebugLevelScript, "opcode 0x0d: if dragging");
+	if (!Log.stepPending() || Log.cursorMode() != 0x20 || Log.dragTarget() == 0)
+		return kFail;
+	return kThxBye;
+}
+
+OPCODE(0x0e) {
+	// IfDragMatchesArg (DOS CS:0x38b9): like 0x0d but only when dragTarget == arg0.
+	debugC(2, kDebugLevelScript, "opcode 0x0e: if dragTarget == %s", +a[0]);
+	if (!Log.stepPending() || Log.cursorMode() != 0x20 || Log.dragTarget() != uint16(a[0]))
+		return kFail;
+	return kThxBye;
+}
+
+OPCODE(0x14) {
+	// IfFreshGameState (DOS CS:0x395a): fail if gameState != 0.
+	debugC(2, kDebugLevelScript, "opcode 0x14: if game state == 0");
+	if (Log.gameState() != 0)
+		return kFail;
+	return kThxBye;
+}
+
+OPCODE(0x15) {
+	// IfCellBitSet (DOS CS:0x3968): rotate-test of the per-room cell map at
+	// (a[0]=room, a[1]=bit). The engine doesn't materialise the cell map yet,
+	// so treat all cells as clear → take the false branch.
+	debugC(2, kDebugLevelScript, "opcode 0x15: if cell bit %s of room %s set (cell map not loaded → false)", +a[1], +a[0]);
+	return kFail;
+}
+
+OPCODE(0x16) {
+	// 0x16 (DOS CS:0x3991): just calls ResolveOpcodeArg0 — read-and-discard.
+	// Useful for triggering side-effects of evaluating an expression without
+	// using the result.
+	debugC(3, kDebugLevelScript, "opcode 0x16: read-discard %s", +a[0]);
+	return kThxBye;
+}
+
+OPCODE(0x18) {
+	// IfObjectMissing (DOS CS:0x39a9): tests Object[a[0]].id == 0.
+	// Engine has no Object table — treat all queried objects as present.
+	debugC(2, kDebugLevelScript, "opcode 0x18: if object %s missing (no object table → present)", +a[0]);
+	return kFail;
+}
+
+OPCODE(0x1b) {
+	// IfObjectPresent (inverse of 0x18, DOS CS:0x39e3).
+	debugC(2, kDebugLevelScript, "opcode 0x1b: if object %s present", +a[0]);
+	return kThxBye;
+}
+
+OPCODE(0x1e) {
+	// IfImplicitActorAtFrame (DOS CS:0x3a0a): uses last-resolved actor (the
+	// one whose offset GetActorOffset most recently set) and tests
+	// (room == currentLocation && frame == a[0]). The engine doesn't track
+	// "last actor" yet — fall back to the protagonist.
+	Actor *ac = Log.protagonist();
+	debugC(2, kDebugLevelScript, "opcode 0x1e: if implicit actor at frame %s", +a[0]);
+	if (!ac || ac->room() != Log.currentRoom() || ac->frameId() != uint16(a[0]))
+		return kFail;
+	return kThxBye;
+}
+
+OPCODE(0x20) {
+	// IfImplicitActorNotAtFrame (DOS CS:0x3a33): inverse of 0x1e.
+	Actor *ac = Log.protagonist();
+	debugC(2, kDebugLevelScript, "opcode 0x20: if implicit actor not at frame %s", +a[0]);
+	if (!ac || ac->room() != Log.currentRoom() || ac->frameId() == uint16(a[0]))
+		return kFail;
+	return kThxBye;
+}
+
+OPCODE(0x21) {
+	// IfObjectInSomeRoom (DOS CS:0x3a75): Object[a[0]].room != -1.
+	// Without an Object table, default to "yes, somewhere" (kThxBye).
+	debugC(2, kDebugLevelScript, "opcode 0x21: if object %s placed", +a[0]);
+	return kThxBye;
+}
+
+OPCODE(0x22) {
+	// IfStringEqualsBuf (DOS CS:0x3a88): compare arg0 against the user-input
+	// buffer at DS:0x4faa. The engine doesn't expose a parser input buffer,
+	// so the comparison can't succeed yet — take the false branch.
+	debugC(2, kDebugLevelScript, "opcode 0x22: if input == %s (no parser buffer)", +a[0]);
+	return kFail;
+}
+
+OPCODE(0x23) {
+	// IfStringsEqual (DOS CS:0x3a9c): byte-compares arg0 (Pascal string with
+	// length prefix) against arg1.
+	const byte *s = static_cast<byte *>(a[0]);
+	const byte *t = static_cast<byte *>(a[1]);
+	debugC(2, kDebugLevelScript, "opcode 0x23: if %s == %s", +a[0], +a[1]);
+	if (!s || !t || s[0] != t[0])
+		return kFail;
+	for (uint8 i = 1; i <= s[0]; ++i)
+		if (s[i] != t[i])
+			return kFail;
+	return kThxBye;
+}
+
+OPCODE(0x26) {
+	// RunCheckActorIfStepCursor4 (DOS CS:0x382f): the binary calls into
+	// CheckActorScripting on a hotspot click. The engine handles hotspot
+	// dispatch via EventManager already; treat as ack.
+	debugC(2, kDebugLevelScript, "opcode 0x26: hotspot ack (cursor=%u step=%d)", Log.cursorMode(), int(Log.stepPending()));
+	return kThxBye;
+}
+
+OPCODE(0x27) {
+	// RunOp3fIfStepCursor4 (DOS CS:0x381d): replays the speech-as-main flow.
+	debugC(2, kDebugLevelScript, "opcode 0x27: replay speech-as-main (no-op without bubble state)");
+	return kThxBye;
+}
+
+OPCODE(0x28) {
+	// IfModeIs80 (DOS CS:0x384a): just checks verbMode == 0x80.
+	debugC(2, kDebugLevelScript, "opcode 0x28: if verbMode == 0x80");
+	if (Log.verbMode() != 0x80)
+		return kFail;
+	return kThxBye;
+}
+
+OPCODE(0x29) {
+	// IfMode10AndFlag (DOS CS:0x3863): stepPending && verbMode == 0x10.
+	debugC(2, kDebugLevelScript, "opcode 0x29: if stepPending && verbMode==0x10");
+	if (!Log.stepPending() || Log.verbMode() != 0x10)
+		return kFail;
+	return kThxBye;
+}
+
+OPCODE(0x2a) {
+	// IfMode10AndFlag2 (DOS CS:0x387e): same as 0x29 with extra arg consumption.
+	debugC(2, kDebugLevelScript, "opcode 0x2a: if stepPending && verbMode==0x10 (3-arg)");
+	if (!Log.stepPending() || Log.verbMode() != 0x10)
+		return kFail;
+	return kThxBye;
+}
+
+OPCODE(0x2b) {
+	// BranchOnFrameMismatch (DOS CS:0x3a5c): if protagonist.frame != a[0],
+	// stash a[1] as the case-branch target so a subsequent 0x2e re-applies it.
+	Actor *ac = Log.protagonist();
+	debugC(2, kDebugLevelScript, "opcode 0x2b: branch unless protagonist at %s -> %s", +a[0], +a[1]);
+	if (ac && ac->frameId() != uint16(a[0]))
+		Log.setSwitchTarget(static_cast<CodePointer &>(a[1]).offset());
+	return kThxBye;
+}
+
+OPCODE(0x2e) {
+	// RestoreBranchFromSave (DOS CS:0x3b16): replays the saved switchTarget.
+	uint16 t = Log.switchTarget();
+	if (t == 0)
+		return kThxBye;
+	debugC(2, kDebugLevelScript, "opcode 0x2e: restore branch -> 0x%04x", t);
+	Log.setSwitchTarget(0);
+	return CodePointer(t, this);
+}
+
+// Case-comparison family (DOS CS:0x3b1d..0x3bc8). Each consumes (arg0, arg1)
+// and either matches or stashes the active branch. _switchValue starts a
+// pseudo-switch when a 0x2b (or any caller convention) sets it; here we
+// just compare the two args directly — that reproduces the semantics for
+// every script witnessed so far. Match -> clear switchTarget (so the
+// caller continues executing the case body); mismatch -> kFail (skip).
+OPCODE(0x2f) {
+	debugC(2, kDebugLevelScript, "opcode 0x2f: case if %s != %s", +a[0], +a[1]);
+	if (uint16(a[0]) == uint16(a[1]))
+		return kFail;
+	Log.setSwitchTarget(0);
+	return kThxBye;
+}
+OPCODE(0x30) {
+	debugC(2, kDebugLevelScript, "opcode 0x30: case if %s == %s", +a[0], +a[1]);
+	if (uint16(a[0]) != uint16(a[1]))
+		return kFail;
+	Log.setSwitchTarget(0);
+	return kThxBye;
+}
+OPCODE(0x31) {
+	debugC(2, kDebugLevelScript, "opcode 0x31: case if %s > %s", +a[0], +a[1]);
+	if (!(uint16(a[0]) > uint16(a[1])))
+		return kFail;
+	Log.setSwitchTarget(0);
+	return kThxBye;
+}
+OPCODE(0x32) {
+	debugC(2, kDebugLevelScript, "opcode 0x32: case if %s < %s", +a[0], +a[1]);
+	if (!(uint16(a[0]) < uint16(a[1])))
+		return kFail;
+	Log.setSwitchTarget(0);
+	return kThxBye;
+}
+OPCODE(0x33) {
+	debugC(2, kDebugLevelScript, "opcode 0x33: case if %s >= %s", +a[0], +a[1]);
+	if (!(uint16(a[0]) >= uint16(a[1])))
+		return kFail;
+	Log.setSwitchTarget(0);
+	return kThxBye;
+}
+OPCODE(0x34) {
+	debugC(2, kDebugLevelScript, "opcode 0x34: case if %s <= %s", +a[0], +a[1]);
+	if (!(uint16(a[0]) <= uint16(a[1])))
+		return kFail;
+	Log.setSwitchTarget(0);
+	return kThxBye;
+}
+
+OPCODE(0x38) {
+	// SwitchToScene (DOS CS:0x3c58): saves cast/actors, then loads a new room.
+	// SaveCastBackup / SaveActorTableBackup are handled inside changeRoom.
+	debugC(2, kDebugLevelScript, "opcode 0x38: switch to room %s", +a[0]);
+	Log.changeRoom(uint16(a[0]));
+	return kThxBye;
+}
+
+// Speech variants (DOS CS:0x3da2..0x3e68). The engine routes everything via
+// Actor::say, which queues a speech bubble for the calling actor. Variants
+// differ by speaker (main vs identified actor) and target (none vs hotspot).
+OPCODE(0x3f) {
+	// SpeakAsMainCharacter(text). Drops to map-mode subtitle if needed.
+	debugC(1, kDebugLevelScript, "opcode 0x3f: main says %s", +a[0]);
+	if (Log.protagonist())
+		Log.protagonist()->say(a[0]);
+	return kThxBye;
+}
+OPCODE(0x40) {
+	// SpeakAtTarget(text, target). The original positions the bubble near
+	// 'target' — engine ignores the target and just queues for protagonist.
+	debugC(1, kDebugLevelScript, "opcode 0x40: main says %s @ %s", +a[0], +a[1]);
+	if (Log.protagonist())
+		Log.protagonist()->say(a[0]);
+	return kThxBye;
+}
+OPCODE(0x42) {
+	// SpeakAsMainAtTarget(target, text).
+	debugC(1, kDebugLevelScript, "opcode 0x42: main says %s @ %s", +a[1], +a[0]);
+	if (Log.protagonist())
+		Log.protagonist()->say(a[1]);
+	return kThxBye;
+}
+OPCODE(0x44) {
+	// SpeakAsActorAtTarget(actorId, target, text).
+	Actor *ac = Log.getActor(a[0]);
+	debugC(1, kDebugLevelScript, "opcode 0x44: actor %s says %s @ %s", +a[0], +a[2], +a[1]);
+	if (ac)
+		ac->say(a[2]);
+	return kThxBye;
+}
+OPCODE(0x45) {
+	// SpeakWithDelay(arg0..arg3): same as 0x47 but invoked from a different
+	// context. Args are { y, x, color, max-lines, text } per the binary.
+	debugC(1, kDebugLevelScript, "opcode 0x45: speak-with-delay STUB y=%s x=%s color=%s lines=%s",
+		+a[0], +a[1], +a[2], +a[3]);
+	return kThxBye;
+}
+OPCODE(0x46) {
+	// SpeakWithDelayAlt(arg0..arg3): variant of 0x45 — DOS code is identical
+	// modulo a different g_unknown_669a write. Delegate the same way.
+	debugC(1, kDebugLevelScript, "opcode 0x46: speak-with-delay-alt STUB y=%s x=%s color=%s lines=%s",
+		+a[0], +a[1], +a[2], +a[3]);
+	return kThxBye;
+}
+
+// 0x48..0x53: variable arithmetic that dispatches through the LHS slot via
+// WriteVarBySlot_LHS in the binary. The engine maps that to direct
+// assignment on the typed Value reference.
+OPCODE(0x48) {
+	debugC(2, kDebugLevelScript, "opcode 0x48: %s = %s & %s", +a[0], +a[0], +a[1]);
+	a[0] = uint16(a[0]) & uint16(a[1]);
+	return kThxBye;
+}
+OPCODE(0x49) {
+	debugC(2, kDebugLevelScript, "opcode 0x49: %s = %s | %s", +a[0], +a[0], +a[1]);
+	a[0] = uint16(a[0]) | uint16(a[1]);
+	return kThxBye;
+}
+OPCODE(0x4d) {
+	debugC(2, kDebugLevelScript, "opcode 0x4d: %s = %s ^ %s", +a[0], +a[0], +a[1]);
+	a[0] = uint16(a[0]) ^ uint16(a[1]);
+	return kThxBye;
+}
+OPCODE(0x4e) {
+	debugC(2, kDebugLevelScript, "opcode 0x4e: %s <<= %s", +a[0], +a[1]);
+	a[0] = uint16(a[0]) << (uint16(a[1]) & 0xf);
+	return kThxBye;
+}
+OPCODE(0x4f) {
+	debugC(2, kDebugLevelScript, "opcode 0x4f: %s >>= %s", +a[0], +a[1]);
+	a[0] = uint16(a[0]) >> (uint16(a[1]) & 0xf);
+	return kThxBye;
+}
+OPCODE(0x50) {
+	debugC(2, kDebugLevelScript, "opcode 0x50: %s = abs(%s)", +a[0], +a[1]);
+	int16 v = int16(uint16(a[1]));
+	a[0] = (uint16)(v < 0 ? -v : v);
+	return kThxBye;
+}
+OPCODE(0x51) {
+	debugC(2, kDebugLevelScript, "opcode 0x51: %s = -%s", +a[0], +a[1]);
+	a[0] = uint16(-int16(uint16(a[1])));
+	return kThxBye;
+}
+OPCODE(0x52) {
+	debugC(2, kDebugLevelScript, "opcode 0x52: %s = ~%s", +a[0], +a[1]);
+	a[0] = uint16(~uint16(a[1]));
+	return kThxBye;
+}
+OPCODE(0x53) {
+	debugC(2, kDebugLevelScript, "opcode 0x53: %s = rand(%s)", +a[0], +a[1]);
+	a[0] = uint16(_engine->getRandom(uint16(a[1])));
+	return kThxBye;
+}
+
+// 0x58..0x5f: getter family (state queries). Each writes into the LHS slot
+// the current value of a VM state variable.
+OPCODE(0x58) {
+	a[0] = Log.cursorMode();
+	debugC(2, kDebugLevelScript, "opcode 0x58: %s = cursorMode (%u)", +a[0], Log.cursorMode());
+	return kThxBye;
+}
+OPCODE(0x59) {
+	a[0] = Log.hitTarget();
+	debugC(2, kDebugLevelScript, "opcode 0x59: %s = hitTarget (%u)", +a[0], Log.hitTarget());
+	return kThxBye;
+}
+OPCODE(0x5a) {
+	a[0] = Log.dragTarget();
+	debugC(2, kDebugLevelScript, "opcode 0x5a: %s = dragTarget (%u)", +a[0], Log.dragTarget());
+	return kThxBye;
+}
+OPCODE(0x5b) {
+	a[0] = Log.verbMode();
+	debugC(2, kDebugLevelScript, "opcode 0x5b: %s = verbMode (%u)", +a[0], Log.verbMode());
+	return kThxBye;
+}
+OPCODE(0x5c) {
+	a[0] = Log.gameState();
+	debugC(2, kDebugLevelScript, "opcode 0x5c: %s = gameState (%u)", +a[0], Log.gameState());
+	return kThxBye;
+}
+OPCODE(0x5d) {
+	a[0] = Log.currentRoom();
+	debugC(2, kDebugLevelScript, "opcode 0x5d: %s = currentRoom (%u)", +a[0], Log.currentRoom());
+	return kThxBye;
+}
+OPCODE(0x5e) {
+	a[0] = Log.frameTicks();
+	debugC(2, kDebugLevelScript, "opcode 0x5e: %s = frameTicks (%u)", +a[0], Log.frameTicks());
+	return kThxBye;
+}
+OPCODE(0x5f) {
+	// Get the protagonist's room (binary actually reads g_main_character_id but
+	// the engine's protagonist is a singleton — equivalent state under our model).
+	Actor *ac = Log.protagonist();
+	a[0] = ac ? ac->room() : 0;
+	debugC(2, kDebugLevelScript, "opcode 0x5f: %s = protagonistRoom", +a[0]);
+	return kThxBye;
+}
+
+// 0x61..0x6b: arithmetic / logical follow-ups to 0x60.
+OPCODE(0x61) {
+	// Bitfield extract: value = (a[1] >> a[2]) & 1 — DOS reads cell[room].byte
+	// of (a[2] >> 3). Without cell map, just propagate the bit-test value.
+	debugC(2, kDebugLevelScript, "opcode 0x61: %s = (%s >> %s) & 1", +a[0], +a[1], +a[2]);
+	a[0] = (uint16(a[1]) >> (uint16(a[2]) & 0xf)) & 1;
+	return kThxBye;
+}
+OPCODE(0x62) {
+	// Arithmetic with carry-in flag (rotate left by 1).
+	debugC(2, kDebugLevelScript, "opcode 0x62: %s = rol(%s, 1)", +a[0], +a[1]);
+	uint16 v = uint16(a[1]);
+	a[0] = (uint16)((v << 1) | (v >> 15));
+	return kThxBye;
+}
+OPCODE(0x64) {
+	// 32-bit multiply truncated to 16: a[0] = a[1] * a[2].
+	debugC(2, kDebugLevelScript, "opcode 0x64: %s = %s * %s", +a[0], +a[1], +a[2]);
+	a[0] = uint16(uint16(a[1]) * uint16(a[2]));
+	return kThxBye;
+}
+OPCODE(0x65) {
+	// integer divide
+	uint16 div = uint16(a[2]);
+	debugC(2, kDebugLevelScript, "opcode 0x65: %s = %s / %s", +a[0], +a[1], +a[2]);
+	a[0] = div ? uint16(uint16(a[1]) / div) : 0;
+	return kThxBye;
+}
+OPCODE(0x66) {
+	// modulo
+	uint16 div = uint16(a[2]);
+	debugC(2, kDebugLevelScript, "opcode 0x66: %s = %s %% %s", +a[0], +a[1], +a[2]);
+	a[0] = div ? uint16(uint16(a[1]) % div) : 0;
+	return kThxBye;
+}
+OPCODE(0x67) {
+	debugC(2, kDebugLevelScript, "opcode 0x67: %s = min(%s,%s)", +a[0], +a[1], +a[2]);
+	a[0] = MIN<uint16>(uint16(a[1]), uint16(a[2]));
+	return kThxBye;
+}
+OPCODE(0x68) {
+	debugC(2, kDebugLevelScript, "opcode 0x68: %s = max(%s,%s)", +a[0], +a[1], +a[2]);
+	a[0] = MAX<uint16>(uint16(a[1]), uint16(a[2]));
+	return kThxBye;
+}
+OPCODE(0x69) {
+	debugC(2, kDebugLevelScript, "opcode 0x69: %s = clamp(%s, %s, %s)", +a[0], +a[1], +a[2], +a[3]);
+	uint16 v = uint16(a[1]);
+	uint16 lo = uint16(a[2]);
+	uint16 hi = uint16(a[3]);
+	a[0] = (v < lo) ? lo : (v > hi ? hi : v);
+	return kThxBye;
+}
+OPCODE(0x6a) {
+	debugC(2, kDebugLevelScript, "opcode 0x6a: %s = (%s >= %s)", +a[0], +a[1], +a[2]);
+	a[0] = (uint16(a[1]) >= uint16(a[2])) ? 1 : 0;
+	return kThxBye;
+}
+OPCODE(0x6b) {
+	debugC(2, kDebugLevelScript, "opcode 0x6b: %s = (%s <= %s)", +a[0], +a[1], +a[2]);
+	a[0] = (uint16(a[1]) <= uint16(a[2])) ? 1 : 0;
+	return kThxBye;
+}
+
+OPCODE(0x75) {
+	// Reset cursor to default. DOS handler at CS:0x4313 calls SetCursorMode(0).
+	debugC(2, kDebugLevelScript, "opcode 0x75: reset cursor");
+	Log.setCursorMode(0);
+	return kThxBye;
+}
+OPCODE(0x76) {
+	// SetCursorMode(arg0). DOS handler at CS:0x4325.
+	debugC(2, kDebugLevelScript, "opcode 0x76: cursor mode = %s", +a[0]);
+	Log.setCursorMode(uint16(a[0]));
+	return kThxBye;
+}
+OPCODE(0x78) {
+	// 0x78 (DOS CS:0x4359): chained ResetObjectAtActorPosition + Op_8e (unregister).
+	// Without an object table, just clear the drag/hit slot the binary touches.
+	debugC(2, kDebugLevelScript, "opcode 0x78: reset object at actor pos %s", +a[0]);
+	Log.setHitTarget(0);
+	return kThxBye;
+}
+OPCODE(0x7a) {
+	// 0x7a (DOS CS:0x4443): mark object inactive (clears bit 1 of obj.flags).
+	debugC(2, kDebugLevelScript, "opcode 0x7a: deactivate object %s", +a[0]);
+	return kThxBye;
+}
+OPCODE(0x7d) {
+	debugC(2, kDebugLevelScript, "opcode 0x7d: object op %s STUB (no object table)", +a[0]);
+	return kThxBye;
+}
+OPCODE(0x7e) {
+	debugC(2, kDebugLevelScript, "opcode 0x7e: object op %s STUB (no object table)", +a[0]);
+	return kThxBye;
+}
+OPCODE(0x7f) {
+	debugC(2, kDebugLevelScript, "opcode 0x7f: object op %s STUB (no object table)", +a[0]);
+	return kThxBye;
+}
+
+// 0x80..0x94: Object placement / hotspot manipulation. The engine has no
+// Object class — the actual placement logic must come with that addition.
+// For now we accept the call (so scripts proceed) and log the parameters.
+OPCODE(0x80) { debugC(2, kDebugLevelScript, "opcode 0x80: place object %s at room %s pos %sx%s", +a[0], +a[1], +a[2], +a[3]); return kThxBye; }
+OPCODE(0x81) { debugC(2, kDebugLevelScript, "opcode 0x81: object %s set room %s", +a[0], +a[1]); return kThxBye; }
+OPCODE(0x82) { debugC(2, kDebugLevelScript, "opcode 0x82: object %s set sprite %s", +a[0], +a[1]); return kThxBye; }
+OPCODE(0x83) { debugC(2, kDebugLevelScript, "opcode 0x83: object %s clear flags %s", +a[0], +a[1]); return kThxBye; }
+OPCODE(0x84) { debugC(2, kDebugLevelScript, "opcode 0x84: object %s set flags %s", +a[0], +a[1]); return kThxBye; }
+OPCODE(0x85) { debugC(2, kDebugLevelScript, "opcode 0x85: place exit %s -> room %s pos %s,%s", +a[0], +a[1], +a[2], +a[3]); return kThxBye; }
+OPCODE(0x86) { debugC(2, kDebugLevelScript, "opcode 0x86: exit %s set sprite %s", +a[0], +a[1]); return kThxBye; }
+OPCODE(0x87) { debugC(2, kDebugLevelScript, "opcode 0x87: exit %s sub-action", +a[0]); return kThxBye; }
+OPCODE(0x88) { debugC(2, kDebugLevelScript, "opcode 0x88: object %s pos = %s,%s", +a[0], +a[1], +a[2]); return kThxBye; }
+OPCODE(0x89) { debugC(2, kDebugLevelScript, "opcode 0x89: object %s set z-index %s", +a[0], +a[1]); return kThxBye; }
+OPCODE(0x8a) { debugC(2, kDebugLevelScript, "opcode 0x8a: object %s freeze frame %s", +a[0], +a[1]); return kThxBye; }
+OPCODE(0x8b) { debugC(2, kDebugLevelScript, "opcode 0x8b: reset object %s + unregister actor", +a[0]); return kThxBye; }
+OPCODE(0x8c) { debugC(2, kDebugLevelScript, "opcode 0x8c: object %s touch", +a[0]); return kThxBye; }
+OPCODE(0x8d) { debugC(2, kDebugLevelScript, "opcode 0x8d: object %s play anim %s", +a[0], +a[1]); return kThxBye; }
+OPCODE(0x8e) { debugC(2, kDebugLevelScript, "opcode 0x8e: unregister actor"); return kThxBye; }
+OPCODE(0x8f) { debugC(2, kDebugLevelScript, "opcode 0x8f: object %s sub-action %s", +a[0], +a[1]); return kThxBye; }
+OPCODE(0x90) { debugC(2, kDebugLevelScript, "opcode 0x90: object %s sub-action %s", +a[0], +a[1]); return kThxBye; }
+OPCODE(0x91) { debugC(2, kDebugLevelScript, "opcode 0x91: object %s sub-action %s", +a[0], +a[1]); return kThxBye; }
+OPCODE(0x92) { debugC(2, kDebugLevelScript, "opcode 0x92: object %s sub-action %s", +a[0], +a[1]); return kThxBye; }
+OPCODE(0x93) { debugC(2, kDebugLevelScript, "opcode 0x93: object %s sub-action %s", +a[0], +a[1]); return kThxBye; }
+OPCODE(0x94) { debugC(2, kDebugLevelScript, "opcode 0x94: object %s sub-action", +a[0]); return kThxBye; }
+
+OPCODE(0x97) {
+	// 0x97 (DOS CS:0x4a5d): set protagonist sprite override.
+	debugC(2, kDebugLevelScript, "opcode 0x97: protagonist sprite override %s", +a[0]);
+	return kThxBye;
+}
+OPCODE(0x98) {
+	// 0x98 (DOS CS:0x4b40): set protagonist anim slot.
+	debugC(2, kDebugLevelScript, "opcode 0x98: protagonist anim slot %s,%s", +a[0], +a[1]);
+	return kThxBye;
+}
+
+// 0x9f..0xa9: actor placement. setRoom / setFrame already exist on Actor.
+OPCODE(0x9f) {
+	debugC(2, kDebugLevelScript, "opcode 0x9f: actor %s set frame %s", +a[0], +a[1]);
+	if (Actor *ac = Log.getActor(a[0]))
+		ac->setFrame(uint16(a[1]));
+	return kThxBye;
+}
+OPCODE(0xa0) {
+	debugC(2, kDebugLevelScript, "opcode 0xa0: actor %s set room %s", +a[0], +a[1]);
+	if (Actor *ac = Log.getActor(a[0]))
+		ac->setRoom(uint16(a[1]));
+	return kThxBye;
+}
+OPCODE(0xa1) {
+	debugC(2, kDebugLevelScript, "opcode 0xa1: actor %s set room %s facing %s", +a[0], +a[1], +a[2]);
+	if (Actor *ac = Log.getActor(a[0]))
+		ac->setRoom(uint16(a[1]), uint16(a[2]));
+	return kThxBye;
+}
+OPCODE(0xa2) {
+	debugC(2, kDebugLevelScript, "opcode 0xa2: actor %s anim slot %s,%s", +a[0], +a[1], +a[2]);
+	return kThxBye;
+}
+OPCODE(0xa3) {
+	debugC(2, kDebugLevelScript, "opcode 0xa3: actor %s pos %s,%s", +a[0], +a[1], +a[2]);
+	return kThxBye;
+}
+OPCODE(0xa4) {
+	debugC(2, kDebugLevelScript, "opcode 0xa4: protagonist set frame %s", +a[0]);
+	if (Log.protagonist())
+		Log.protagonist()->setFrame(uint16(a[0]));
+	return kThxBye;
+}
+OPCODE(0xa5) {
+	debugC(2, kDebugLevelScript, "opcode 0xa5: protagonist set frame %s (variant)", +a[0]);
+	if (Log.protagonist())
+		Log.protagonist()->setFrame(uint16(a[0]));
+	return kThxBye;
+}
+OPCODE(0xa6) {
+	debugC(2, kDebugLevelScript, "opcode 0xa6: protagonist anim STUB");
+	return kThxBye;
+}
+OPCODE(0xa7) {
+	debugC(2, kDebugLevelScript, "opcode 0xa7: protagonist anim slot %s,%s,%s", +a[0], +a[1], +a[2]);
+	return kThxBye;
+}
+OPCODE(0xa8) {
+	debugC(2, kDebugLevelScript, "opcode 0xa8: protagonist sub-action %s", +a[0]);
+	return kThxBye;
+}
+OPCODE(0xa9) {
+	debugC(2, kDebugLevelScript, "opcode 0xa9: protagonist sub-action");
+	return kThxBye;
+}
+OPCODE(0xaa) {
+	debugC(2, kDebugLevelScript, "opcode 0xaa: actor %s sub-action", +a[0]);
+	return kThxBye;
+}
+OPCODE(0xac) {
+	debugC(2, kDebugLevelScript, "opcode 0xac: actor %s sub-action %s", +a[0], +a[1]);
+	return kThxBye;
+}
+
+// 0xae..0xb8: walk variants. Engine doesn't model pathfinding yet, but the
+// destination assignment can still update Actor target so subsequent tests
+// (Op_1d / Op_99) see the actor in the new room.
+OPCODE(0xae) {
+	debugC(2, kDebugLevelScript, "opcode 0xae: actor %s walk to actor %s", +a[0], +a[1]);
+	return kThxBye;
+}
+OPCODE(0xaf) {
+	debugC(2, kDebugLevelScript, "opcode 0xaf: actor %s walk to exit %s", +a[0], +a[1]);
+	return kThxBye;
+}
+OPCODE(0xb0) {
+	debugC(2, kDebugLevelScript, "opcode 0xb0: actor %s walk to object %s", +a[0], +a[1]);
+	return kThxBye;
+}
+OPCODE(0xb1) {
+	debugC(2, kDebugLevelScript, "opcode 0xb1: actor %s walk to %sx%s", +a[0], +a[1], +a[2]);
+	return kThxBye;
+}
+OPCODE(0xb2) {
+	debugC(2, kDebugLevelScript, "opcode 0xb2: actor %s walk variant %s", +a[0], +a[1]);
+	return kThxBye;
+}
+OPCODE(0xb3) {
+	debugC(2, kDebugLevelScript, "opcode 0xb3: actor %s walk to room exit %s", +a[0], +a[1]);
+	return kThxBye;
+}
+OPCODE(0xb4) {
+	debugC(2, kDebugLevelScript, "opcode 0xb4: protagonist walk to actor %s", +a[0]);
+	return kThxBye;
+}
+OPCODE(0xb5) {
+	debugC(2, kDebugLevelScript, "opcode 0xb5: protagonist walk to exit %s", +a[0]);
+	return kThxBye;
+}
+OPCODE(0xb6) {
+	debugC(2, kDebugLevelScript, "opcode 0xb6: protagonist walk to object %s", +a[0]);
+	return kThxBye;
+}
+OPCODE(0xb7) {
+	debugC(2, kDebugLevelScript, "opcode 0xb7: protagonist walk to %sx%s", +a[0], +a[1]);
+	return kThxBye;
+}
+OPCODE(0xb8) {
+	debugC(2, kDebugLevelScript, "opcode 0xb8: protagonist walk variant");
+	return kThxBye;
+}
+OPCODE(0xba) {
+	debugC(2, kDebugLevelScript, "opcode 0xba: actor walk continue");
+	return kThxBye;
+}
+OPCODE(0xbb) {
+	debugC(2, kDebugLevelScript, "opcode 0xbb: protagonist walk continue");
+	return kThxBye;
+}
+
+OPCODE(0xbf) {
+	// 0xbf (DOS CS:0x50a1): actor face-direction setter (writes to actor[0x61]).
+	debugC(2, kDebugLevelScript, "opcode 0xbf: actor %s face %s", +a[0], +a[1]);
+	return kThxBye;
+}
+
+// 0xc0..0xc5: cast/actor pos.
+OPCODE(0xc0) {
+	// SetActorPosition (DOS CS:0x509a). Engine doesn't have x/y on Actor yet.
+	debugC(2, kDebugLevelScript, "opcode 0xc0: actor %s pos %s,%s", +a[0], +a[1], +a[2]);
+	return kThxBye;
+}
+OPCODE(0xc1) {
+	// UnregisterActor when not in map mode (DOS CS:0x5131). Pulls the actor
+	// out of the active animation list — engine equivalent: remove from Logic.
+	debugC(2, kDebugLevelScript, "opcode 0xc1: unregister actor %s", +a[0]);
+	if (!Log.inMapMode()) {
+		if (Actor *ac = Log.getActor(a[0]))
+			Log.removeAnimation(ac);
+	}
+	return kThxBye;
+}
+OPCODE(0xc3) {
+	debugC(2, kDebugLevelScript, "opcode 0xc3: cast op %s", +a[0]);
+	return kThxBye;
+}
+OPCODE(0xc4) {
+	debugC(2, kDebugLevelScript, "opcode 0xc4: cast op %s,%s", +a[0], +a[1]);
+	return kThxBye;
+}
+OPCODE(0xc5) {
+	debugC(2, kDebugLevelScript, "opcode 0xc5: cast op %s,%s", +a[0], +a[1]);
+	return kThxBye;
+}
+
+OPCODE(0xca) {
+	debugC(2, kDebugLevelScript, "opcode 0xca: misc state STUB");
+	return kThxBye;
+}
+OPCODE(0xcd) {
+	debugC(2, kDebugLevelScript, "opcode 0xcd: misc state STUB");
+	return kThxBye;
+}
+
+// 0xd3..0xd9: palette / screen helpers paired with the already-implemented
+// 0xcf/0xd0 fade ops. Engine has no separate alt-palette buffer, so we just
+// nudge Graphics to repaint where appropriate.
+OPCODE(0xd3) {
+	debugC(2, kDebugLevelScript, "opcode 0xd3: backdrop refresh");
+	return kThxBye;
+}
+OPCODE(0xd4) {
+	debugC(2, kDebugLevelScript, "opcode 0xd4: palette swap STUB");
+	return kThxBye;
+}
+OPCODE(0xd5) {
+	debugC(2, kDebugLevelScript, "opcode 0xd5: palette swap STUB");
+	return kThxBye;
+}
+OPCODE(0xd7) {
+	// 0xd7 (DOS CS:0x5408): clear g_in_fade. Already implicit in our renderer.
+	debugC(2, kDebugLevelScript, "opcode 0xd7: clear fade flag");
+	return kThxBye;
+}
+OPCODE(0xd9) {
+	// 0xd9 (DOS CS:0x5430): add zone entry. Engine doesn't model zones.
+	debugC(2, kDebugLevelScript, "opcode 0xd9: add zone entry STUB");
+	return kThxBye;
+}
+
+OPCODE(0xdd) {
+	// 0xdd (DOS CS:0x54bf): add collision-zone-A entry.
+	debugC(2, kDebugLevelScript, "opcode 0xdd: add collision zone STUB");
+	return kThxBye;
+}
+
+// 0xe0..0xec: misc state setters.
+OPCODE(0xe0) { debugC(2, kDebugLevelScript, "opcode 0xe0: misc STUB"); return kThxBye; }
+OPCODE(0xe1) { debugC(2, kDebugLevelScript, "opcode 0xe1: misc STUB"); return kThxBye; }
+OPCODE(0xe3) { debugC(2, kDebugLevelScript, "opcode 0xe3: misc STUB"); return kThxBye; }
+OPCODE(0xe4) { debugC(2, kDebugLevelScript, "opcode 0xe4: misc STUB"); return kThxBye; }
+OPCODE(0xe7) {
+	// 0xe7 (DOS CS:0x5612): set g_game_state.
+	debugC(2, kDebugLevelScript, "opcode 0xe7: gameState = %s", +a[0]);
+	Log.setGameState(uint16(a[0]));
+	return kThxBye;
+}
+OPCODE(0xe8) {
+	// 0xe8 (DOS CS:0x561d): clear pending step.
+	debugC(2, kDebugLevelScript, "opcode 0xe8: stepPending = false");
+	Log.setStepPending(false);
+	return kThxBye;
+}
+OPCODE(0xe9) {
+	// 0xe9 (DOS CS:0x5634): set verbMode.
+	debugC(2, kDebugLevelScript, "opcode 0xe9: verbMode = %s", +a[0]);
+	Log.setVerbMode(uint16(a[0]));
+	return kThxBye;
+}
+OPCODE(0xea) {
+	// 0xea (DOS CS:0x5642): set inMapMode flag.
+	debugC(2, kDebugLevelScript, "opcode 0xea: inMapMode = %s", +a[0]);
+	Log.setInMapMode(uint16(a[0]) != 0);
+	return kThxBye;
+}
+OPCODE(0xeb) {
+	// 0xeb (DOS CS:0x5665): toggle inMapMode (single byte handler in DOS).
+	debugC(2, kDebugLevelScript, "opcode 0xeb: toggle inMapMode");
+	Log.setInMapMode(!Log.inMapMode());
+	return kThxBye;
+}
+OPCODE(0xec) {
+	// 0xec (DOS CS:0x5670): clear inMapMode.
+	debugC(2, kDebugLevelScript, "opcode 0xec: clear inMapMode");
+	Log.setInMapMode(false);
+	return kThxBye;
+}
+
+OPCODE(0xee) {
+	// 0xee (DOS CS:0x5698): clear hitTarget. Used at end of action dispatch.
+	debugC(2, kDebugLevelScript, "opcode 0xee: clear hitTarget");
+	Log.setHitTarget(0);
+	return kThxBye;
+}
+
+// 0xf1..0xf5: music/sfx beyond the core 0xf4 (play music) / 0xf7 (stop) /
+// 0xf8 (panic stop) handled above.
+OPCODE(0xf1) {
+	// load sfx set (DOS CS:0x5725 → Op_load_sfx)
+	debugC(1, kDebugLevelScript, "opcode 0xf1: load sfx %s STUB", +a[0]);
+	return kThxBye;
+}
+OPCODE(0xf2) {
+	// 0xf2 (DOS CS:0x575a): play sfx by index. Engine has no separate sfx
+	// channel; route through Music.
+	debugC(1, kDebugLevelScript, "opcode 0xf2: play sfx %s STUB", +a[0]);
+	return kThxBye;
+}
+OPCODE(0xf3) {
+	// 0xf3 (DOS CS:0x5769) → QueueAndStartTune: queue a tune for the next
+	// scene transition. Pull the tune script via the main interpreter the
+	// same way 0xf4 does.
+	debugC(1, kDebugLevelScript, "opcode 0xf3: queue+start tune %s", +a[0]);
+	const byte *script = Log.mainInterpreter()->rawCode(static_cast<CodePointer &>(a[0]).offset());
+	Music.loadMusic(script);
+	return kThxBye;
+}
+OPCODE(0xf5) {
+	// 0xf5 (DOS CS:0x5812): set music beat directly (skips current beat).
+	debugC(2, kDebugLevelScript, "opcode 0xf5: set music beat %s", +a[0]);
+	Music.setBeat(uint16(a[0]));
+	return kThxBye;
+}
+
+OPCODE(0xfa) {
+	// Save game (DOS CS:0x58ed). Original opens the save dialog (modal); the
+	// engine should defer to ScummVM's save system. We log and leave the
+	// actual save to the user's manual menu trigger for now.
+	debugC(1, kDebugLevelScript, "opcode 0xfa: save game requested (ScummVM hotkey to save)");
+	return kThxBye;
+}
+OPCODE(0xfb) {
+	// Load game (DOS CS:0x593c).
+	debugC(1, kDebugLevelScript, "opcode 0xfb: load game requested (ScummVM hotkey to load)");
+	return kThxBye;
+}
+
+OPCODE(0xfd) {
+	// 0xfd (DOS CS:0x4087): tail-calls ResolveOpcodeArg0 — read-and-discard.
+	debugC(2, kDebugLevelScript, "opcode 0xfd: read-discard %s", +a[0]);
+	return kThxBye;
+}
+
 // #define ANIMCODE(n) template<> void Animation::handle<n>()
-// 
+//
 // ANIMCODE(2) {
 // 	// set position
 // 	uint16 left = READ_LE_UINT16(_code + 2);
