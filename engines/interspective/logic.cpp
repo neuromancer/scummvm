@@ -208,6 +208,51 @@ void Logic::runLater(const CodePointer &p, uint16 delay) {
 	_queued.push_back(DelayedRun(p, delay));
 }
 
+// DOS Op_38_SwitchToScene @ 1000:3c58 saves the caller's PC plus a
+// memcpy of the cast (0x642 bytes) and actor tables. C++ instead
+// captures the entire _blockProgram (which owns _actors) plus the
+// _blockInterpreter (owns _exits, animation registrations) by
+// SharedPtr — semantically equivalent because changing the slot is
+// the only mutator. Single slot (not stack) matches DOS exactly:
+// `_g_block_pc_offset == 0` is the empty sentinel.
+void Logic::saveSceneFrame(const CodePointer &resumePC) {
+	SceneFrame *frame = new SceneFrame();
+	frame->blockProgram = _blockProgram;
+	frame->blockInterpreter = _blockInterpreter;
+	frame->currentBlock = _currentBlock;
+	frame->currentRoom = _currentRoom;
+	frame->room = _room;
+	frame->resumePC = resumePC;
+	_savedScene = Common::SharedPtr<SceneFrame>(frame);
+}
+
+// DOS Op_01 @ 1000:59a3 nested-pop path: when `_g_block_pc_offset != 0`,
+// restores the saved PC, calls LoadCodeBlock, RestoreCastBackup,
+// RestoreActorTableBackup, and returns WITHOUT setting g_break_loop —
+// the dispatch loop continues at the restored PC.
+//
+// In C++ we cannot redirect the running interpreter loop mid-flight
+// (the loop's `_base` is the sub-scene's program), so we restore the
+// caller's _blockProgram/_blockInterpreter/Room state and queue the
+// resume PC for the next tick via the standard runLater mechanism.
+// The caller's interpreter is the same SharedPtr that the resumePC
+// holds (raw Interpreter *), so the queued resume runs in the
+// restored block. Returns true if a frame was popped.
+bool Logic::restoreSceneFrame() {
+	if (!_savedScene)
+		return false;
+	SceneFrame frame = *_savedScene;
+	_savedScene.reset();
+	_blockProgram = frame.blockProgram;
+	_blockInterpreter = frame.blockInterpreter;
+	_currentBlock = frame.currentBlock;
+	_currentRoom = frame.currentRoom;
+	_room = frame.room;
+	debugC(2, kDebugLevelScript, "Op_01 popped scene; resuming at %s next tick", +frame.resumePC);
+	_queued.push_back(DelayedRun(frame.resumePC, 0));
+	return true;
+}
+
 bool Logic::cancelLater(const CodePointer &p) {
 	bool removed = false;
 	Common::List<DelayedRun>::iterator it = _queued.begin();

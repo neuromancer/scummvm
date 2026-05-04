@@ -63,6 +63,8 @@ public:
 		  _menuStashConsumed(false),
 		  _cursorMode(0),
 		  _dragTarget(0),
+		  _dragTargetMode40(0),
+		  _implicitActor(0),
 		  _hitTarget(0),
 		  _switchValue(0),
 		  _switchTarget(0),
@@ -189,6 +191,19 @@ public:
 	void setCursorMode(uint16 v) { _cursorMode = v; }
 	uint16 dragTarget() const { return _dragTarget; }
 	void setDragTarget(uint16 v) { _dragTarget = v; }
+	// Second drag-target slot (DS:0x667e — `g_drag_target_mode40`),
+	// distinct from `_dragTarget` (DS:0x667c). Written by Op_76
+	// alongside `_g_cursor_mode = 0x40`. Read by Op_0b only.
+	uint16 dragTargetMode40() const { return _dragTargetMode40; }
+	void setDragTargetMode40(uint16 v) { _dragTargetMode40 = v; }
+	// "Implicit actor" — DOS opcodes that take an actor id call
+	// GetActorOffset(id) which sets SI to the actor record. SI is
+	// preserved across opcodes by the dispatcher; opcodes that take
+	// no explicit actor arg (Op_1e/Op_20) read whatever SI was last
+	// pointed at. C++ models this via an explicit `_implicitActor`
+	// pointer updated by every opcode that resolves an actor by id.
+	Actor *implicitActor() const { return _implicitActor; }
+	void setImplicitActor(Actor *ac) { _implicitActor = ac; }
 	uint16 hitTarget() const { return _hitTarget; }
 	void setHitTarget(uint16 v) { _hitTarget = v; }
 	uint16 switchValue() const { return _switchValue; }
@@ -245,6 +260,22 @@ public:
 	Music *music() const { return _music; }
 	void setMusic(Music *m) { _music = m; }
 
+	// DOS scene-snapshot slot (`_g_block_pc_offset` @ 0x6718 et al.).
+	// Op_38 (1000:3c58) saves the current scene; Op_01 (1000:59a3)
+	// restores it. DOS uses a single slot, not a stack — see
+	// PLAN.md "Cross-cutting subsystems / Scene-snapshot stack".
+	struct SceneFrame {
+		Common::SharedPtr<Program> blockProgram;
+		Common::SharedPtr<Interpreter> blockInterpreter;
+		uint16 currentBlock;
+		uint32 currentRoom;
+		Common::SharedPtr<Room> room;
+		CodePointer resumePC;
+	};
+	bool hasSavedScene() const { return _savedScene; }
+	void saveSceneFrame(const CodePointer &resumePC);
+	bool restoreSceneFrame();
+
 	friend class Debugger;
 private:
 
@@ -291,10 +322,13 @@ private:
 	bool _menuStashConsumed;                     // uRam00023291 stash flag
 	uint16 _cursorMode;     // DS:0x665d — 0x04=walk, 0x20=drag, 0x40/0x80=verb-style
 	uint16 _dragTarget;     // current drag-source object id
+	uint16 _dragTargetMode40; // DS:0x667e — written by Op_76, read by Op_0b
+	Actor *_implicitActor;  // SI register's last-resolved actor (Op_1e/Op_20)
 	uint16 _hitTarget;      // last-hit hotspot id (mirrors g_current_hit_region)
 	uint16 _switchValue;    // last value pushed for case dispatch (sign of active switch)
 	uint16 _switchTarget;   // bytecode offset to jump to on case match
 	bool _slowCpu;          // DS:0x67b5 — always false on modern hosts
+	Common::SharedPtr<SceneFrame> _savedScene; // null = empty (matches DOS sentinel)
 };
 
 #define Log Logic::instance()

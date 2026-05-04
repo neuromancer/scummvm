@@ -49,9 +49,26 @@ OPCODE(0x00) {
 }
 
 OPCODE(0x01) {
-	// exit
-	// (some peculiarities in conj. with op 0x38, needs research TODO)
+	// DOS Op_01 @ 1000:59a3. Two paths:
+	//   if (_g_block_pc_offset != 0)  // Op_38 has pushed a saved PC
+	//       restore saved PC, LoadCodeBlock, RestoreCastBackup,
+	//       RestoreActorTableBackup, return  (no break_loop — caller
+	//       resumes from its saved PC)
+	//   else
+	//       g_break_loop = 1; return    (plain script exit)
+	//
+	// In C++ the snapshot is held in Logic::_savedScene (single slot,
+	// matching DOS sentinel `_g_block_pc_offset == 0`). When restored,
+	// the caller's _blockProgram/_blockInterpreter/Room are reinstated
+	// and the resume PC is queued for next tick. The caller-side push
+	// is Op_38 (still destructive in this engine — see PLAN.md
+	// Cross-cutting subsystems; will be wired when 0x38 is reached in
+	// table order). Until Op_38 is wired, hasSavedScene() is always
+	// false and this opcode behaves identically to the plain-exit case
+	// — but with the pop infrastructure now in place to make the
+	// implementation Ghidra-faithful.
 	debugC(2, kDebugLevelScript, "opcode 0x01: exit");
+	Log.restoreSceneFrame();
 	return kReturn;
 }
 
@@ -224,16 +241,22 @@ OPCODE(0xf8) {
 }
 
 OPCODE(0x10) {
-	// Timer fire: if a[0] != 0 AND a[0] <= frame_tick_counter, reset a[0] = 0 and execute body.
-	// DOS handler at CS:0x3903. Pairs with Op_ed which writes the deadline.
-	uint16 deadline = a[0];
-	uint16 now = Log.frameTicks();
+	// DOS Op_10_IfTimerExpired @ 1000:3903.
+	//   ResolveOpcodeArg0 → AX
+	//   if (AX == 0) skip
+	//   if (AX > tick (signed JG)) skip
+	//   else { StoreOpcodeArg0Value(0); run; }
+	// SIGNED comparison. Pairs with Op_ed which writes the deadline.
+	// C++ writes 0 back via `a[0] = 0` — works when arg0 is a
+	// WordVariable/ByteVariable (reaches _ptr); no-op for Constant.
+	int16 deadline = int16(uint16(a[0]));
+	int16 now = int16(uint16(Log.frameTicks()));
 	if (deadline != 0 && deadline <= now) {
-		debugC(2, kDebugLevelScript, "opcode 0x10: timer fired (deadline=%u tick=%u)", deadline, now);
+		debugC(2, kDebugLevelScript, "opcode 0x10: timer fired (deadline=%d tick=%d)", deadline, now);
 		a[0] = 0;
 		return kThxBye;
 	}
-	debugC(3, kDebugLevelScript, "opcode 0x10: timer pending (deadline=%u tick=%u)", deadline, now);
+	debugC(3, kDebugLevelScript, "opcode 0x10: timer pending (deadline=%d tick=%d)", deadline, now);
 	return kFail;
 }
 
@@ -247,64 +270,73 @@ OPCODE(0x11) {
 }
 
 OPCODE(0x17) {
-	// DOS CS:0x3996: skip when slot.id == 0 (exit MISSING). Body runs when the
-	// exit EXISTS — opcode is "if exit exists". The engine had it inverted.
+	// DOS Op_17_IfExitMissing @ 1000:3996. Reads `exit_record[0]`
+	// (the room field — kOffsetRoom = 0 in C++ Exit) at SI =
+	// GetExitOffset(arg0); skips if it equals 0. Run if room != 0.
+	// Loaded `Exit *` is never null in C++; the meaningful check is
+	// against `exit->room() == 0`, not pointer-nullness.
 	debugC(1, kDebugLevelScript, "opcode 0x17: if exit %s exists", +a[0]);
 	Exit *exit = _logic->blockProgram()->getExit(a[0]);
-	if (exit == nullptr)
+	if (exit == nullptr || exit->room() == 0)
 		return kFail;
 	return kThxBye;
 }
 
 OPCODE(0x19) {
-	// DOS CS:0x39bc: skip when actor.room == 0 → body runs when actor IS placed
-	// somewhere. Opcode is "if actor present". Was inverted in the engine.
+	// DOS Op_19_IfActorMissing @ 1000:39bc: skip when actor.field+0x59
+	// (room) == 0 → body runs when actor IS placed somewhere.
+	// Sets implicit actor (SI side-effect of GetActorOffset).
 	debugC(1, kDebugLevelScript, "opcode 0x19: if actor %s in some room", +a[0]);
 	Actor *ac = Log.getActor(a[0]);
+	Log.setImplicitActor(ac);
 	if (!ac || ac->room() == 0)
 		return kFail;
 	return kThxBye;
 }
 
 OPCODE(0x1a) {
-	// DOS CS:0x39d0: skip when slot.id != 0 → body runs when exit MISSING.
-	// Inverse of 0x17. Was inverted in the engine.
+	// DOS Op_1a_IfExitPresent @ 1000:39d0. Inverse of 0x17: skips
+	// when `exit_record[0] != 0` (exit room is set → exit "present").
+	// Body runs when exit room == 0 (or slot null).
 	debugC(1, kDebugLevelScript, "opcode 0x1a: if exit %s missing", +a[0]);
 	Exit *exit = _logic->blockProgram()->getExit(a[0]);
-	if (exit != nullptr)
+	if (exit != nullptr && exit->room() != 0)
 		return kFail;
 	return kThxBye;
 }
 
 OPCODE(0x1c) {
-	// DOS CS:0x39f6: skip when actor.room != 0 → body runs when actor MISSING
-	// (no room set). Inverse of 0x19. Was inverted in the engine.
+	// DOS Op_1c_IfActorPresent @ 1000:39f6: skip when actor.field+0x59
+	// (room) != 0 → body runs when actor is MISSING. Inverse of 0x19.
+	// Sets implicit actor (SI side-effect of GetActorOffset).
 	debugC(1, kDebugLevelScript, "opcode 0x1c: if actor %s not placed", +a[0]);
 	Actor *ac = Log.getActor(a[0]);
+	Log.setImplicitActor(ac);
 	if (ac && ac->room() != 0)
 		return kFail;
 	return kThxBye;
 }
 
 OPCODE(0x1d) {
-	// if actor `a[1]` is in current room AND at frame `a[0]`.
-	// DOS handler at CS:0x3a10. Like 0x1f but with == instead of !=.
+	// DOS Op_1d_IfActorAtRoomFrame @ 1000:3a10: arg1 = actor id,
+	// arg0 = frame. Run if actor.room == current_loc AND
+	// actor.frame == arg0. Sets implicit actor.
 	debugC(1, kDebugLevelScript, "opcode 0x1d: if actor %s in current room AND at %s", +a[1], +a[0]);
 	Actor *ac = Log.getActor(a[1]);
+	Log.setImplicitActor(ac);
 	if (!ac || ac->room() != Log.currentRoom() || ac->frameId() != a[0])
 		return kFail;
 	return kThxBye;
 }
 
 OPCODE(0x1f) {
-	// if actor in current room then whatever
+	// DOS Op_1f_IfActorNotAtRoomFrame @ 1000:3a39: arg1 = actor id,
+	// arg0 = frame. Run if actor.room == current_loc AND
+	// actor.frame != arg0. Sets implicit actor.
 	debugC(1, kDebugLevelScript, "opcode 0x1f: if actor %s is in current room but not at %s then", +a[1], +a[0]);
-
 	Actor *ac = Log.getActor(a[1]);
-	if (ac->room() == Log.currentRoom()) {
-		if (ac->frameId() == a[0])
-			return kFail;
-	} else
+	Log.setImplicitActor(ac);
+	if (!ac || ac->room() != Log.currentRoom() || ac->frameId() == a[0])
 		return kFail;
 	return kThxBye;
 }
@@ -1284,14 +1316,21 @@ OPCODE(0x0a) {
 }
 
 OPCODE(0x0b) {
-	// DOS CS:0x37ff:
-	//   if (step && cursor==0x40 && arg0 == drag_target) return;
-	//   else skip;
-	// "drag" with an *explicit* target match — distinct from 0x0e's drag check
-	// (0x0e fires when cursor==0x20 — different drag mode).
+	// DOS Op_0b_IfMode40AndFlag @ 1000:37ff:
+	//   if (step_pending && cursor==0x40 && arg0 == g_drag_target_mode40)
+	//       return; else skip;
+	// Note: DOS reads `g_drag_target_mode40` @ DS:0x667e, NOT the
+	// regular `g_drag_target` @ DS:0x667c (which Op_0e uses). The
+	// mode-40 slot is set exclusively by Op_76_BeginDragWithTarget
+	// (1000:4325) together with `_g_cursor_mode = 0x40`.
+	// In C++ this is `Logic::_dragTargetMode40` — until Op_76 is
+	// audited (still `?` in PLAN.md status table), the slot is never
+	// populated and Op_0b will always take the SKIP branch. That is
+	// honest: the predicate is evaluated against the right state,
+	// the producer just doesn't exist yet.
 	uint16 mask = uint16(a[0]);
-	debugC(2, kDebugLevelScript, "opcode 0x0b: if step && cursor==0x40 && drag==%u", mask);
-	if (Log.stepPending() && Log.cursorMode() == 0x40 && Log.dragTarget() == mask)
+	debugC(2, kDebugLevelScript, "opcode 0x0b: if step && cursor==0x40 && dragMode40==%u", mask);
+	if (Log.stepPending() && Log.cursorMode() == 0x40 && Log.dragTargetMode40() == mask)
 		return kThxBye;
 	return kFail;
 }
@@ -1331,12 +1370,28 @@ OPCODE(0x14) {
 }
 
 OPCODE(0x15) {
-	// DOS Op_15_IfCellBitSet (CS:0x3968): a[0] = entity id, a[1] = bit (0..7).
-	// Reads cellByte[id] and rotates to test the requested bit; SETS
-	// skip_counter when the bit is CLEAR. Net semantics: body runs when the
-	// bit is SET. Backed by Logic::cellBit, populated by Op_7b/0x7c.
+	// DOS Op_15_IfCellBitSet @ 1000:3968.
+	//   ResolveOpcodeArg1 → bit_idx; if > 7 → SetError15ArgOutOfRange (halt)
+	//   ResolveOpcodeArg0 → id; if > g_object_count_max → SetError14NoExit (halt)
+	//   build 9-bit value: ((id < max) << 8) | cellByte[id]
+	//   ROR by (bit_idx + 1) mod 9; skip if result bit 8 == 0
+	// Net for the common path (id < max, bit ∈ [0,7]): tests
+	// cellByte[id] bit `bit_idx` (LSB-indexed). Body runs if bit SET.
+	//
+	// Bound checks:
+	//   bit_idx > 7: matches DOS — halt-equivalent (warning + skip).
+	//   id > max: not relevant in C++. DOS guards an unsafe array
+	//     access; `Logic::_cellBits` is a HashMap returning 0 for any
+	//     unknown id, so OOB is structurally impossible. The DOS
+	//     halt would be a hard error in DOS but no observable
+	//     misbehaviour in C++.
+	const uint16 rawBit = uint16(a[1]);
+	if (rawBit > 7) {
+		warning("Op_15: bit_idx %u out of range (DOS would set pendingError 0x15)", rawBit);
+		return kFail;
+	}
 	const uint16 id = uint16(a[0]);
-	const uint8 bit = uint8(uint16(a[1])) & 7;
+	const uint8 bit = uint8(rawBit);
 	const bool set = Log.cellBit(id, bit);
 	debugC(2, kDebugLevelScript, "opcode 0x15: if cell bit %u of entity %s set (=%s)",
 		bit, +a[0], set ? "yes" : "no");
@@ -1376,11 +1431,12 @@ OPCODE(0x1b) {
 }
 
 OPCODE(0x1e) {
-	// IfImplicitActorAtFrame (DOS CS:0x3a0a): uses last-resolved actor (the
-	// one whose offset GetActorOffset most recently set) and tests
-	// (room == currentLocation && frame == a[0]). The engine doesn't track
-	// "last actor" yet — fall back to the protagonist.
-	Actor *ac = Log.protagonist();
+	// DOS Op_1e_IfImplicitActorAtFrame @ 1000:3a0a: uses the actor
+	// whose offset SI was last set to (= Logic::implicitActor() in
+	// C++). Run if actor.room == current_loc AND actor.frame == arg0.
+	// Note: does NOT call ResolveOpcodeArg1 — the implicit actor is
+	// inherited from the previous opcode.
+	Actor *ac = Log.implicitActor();
 	debugC(2, kDebugLevelScript, "opcode 0x1e: if implicit actor at frame %s", +a[0]);
 	if (!ac || ac->room() != Log.currentRoom() || ac->frameId() != uint16(a[0]))
 		return kFail;
@@ -1388,8 +1444,9 @@ OPCODE(0x1e) {
 }
 
 OPCODE(0x20) {
-	// IfImplicitActorNotAtFrame (DOS CS:0x3a33): inverse of 0x1e.
-	Actor *ac = Log.protagonist();
+	// DOS Op_20_IfImplicitActorNotAtFrame @ 1000:3a33: inverse of 0x1e.
+	// Uses implicit actor (no ResolveOpcodeArg1).
+	Actor *ac = Log.implicitActor();
 	debugC(2, kDebugLevelScript, "opcode 0x20: if implicit actor not at frame %s", +a[0]);
 	if (!ac || ac->room() != Log.currentRoom() || ac->frameId() == uint16(a[0]))
 		return kFail;
