@@ -76,9 +76,11 @@ Interpreter::Interpreter(Logic *l, byte *base, const char *n) :
 }
 
 Interpreter::~Interpreter() {
-	// TODO
-	//foreach (Animation *, _animations)
-	//	delete *it;
+	for (Common::List<Animation *>::iterator it = _animations.begin(); it != _animations.end(); ++it) {
+		_logic->removeAnimation(*it);
+		delete *it;
+	}
+	_animations.clear();
 }
 
 void Interpreter::tick() {

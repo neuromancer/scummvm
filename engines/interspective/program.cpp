@@ -73,11 +73,7 @@ void Program::loadActors(Interpreter *in) {
 }
 
 Program::~Program() {
-	for (Common::List<Actor *>::iterator it = _actors.begin(); it != _actors.end(); ++it) {
-		Logic::instance().removeAnimation(*it);
-		delete *it;
-	}
-	_actors.clear();
+	// _actors are cleaned up by the block Interpreter's destructor — see Interpreter::~Interpreter.
 	delete[] _code;
 	clearExits();
 }

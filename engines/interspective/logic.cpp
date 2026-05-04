@@ -41,8 +41,10 @@ namespace Common {
 namespace Interspective {
 
 Logic::~Logic() {
-	for (Common::List<Animation *>::iterator it = _animations.begin(); it != _animations.end(); ++it)
-		delete *it;
+	// Animations are owned by the Interpreter that registered them (via rememberAnimation);
+	// they are deleted in Interpreter::~Interpreter, which runs as the SharedPtr<Interpreter>
+	// members destruct after this body returns. Just clear the index to avoid stale pointers.
+	_animations.clear();
 }
 
 void Logic::setEngine(Engine *e) {
