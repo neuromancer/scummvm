@@ -60,16 +60,11 @@ Engine::Engine(OSystem *syst) :
 	me = this;
 	_lastTicks = 0;
 
-	DebugMan.addDebugChannel(kDebugLevelScript, "script", "bytecode scripts");
-	DebugMan.addDebugChannel(kDebugLevelGraphics, "graphics", "graphics handling");
-	DebugMan.addDebugChannel(kDebugLevelFlow, "flow", "game code flow status");
-	DebugMan.addDebugChannel(kDebugLevelAnimation, "animation", "animations");
-	DebugMan.addDebugChannel(kDebugLevelValues, "values", "really low-level debugging of value manipulation");
-	DebugMan.addDebugChannel(kDebugLevelFiles, "files", "file input and output");
-	DebugMan.addDebugChannel(kDebugLevelEvents, "events", "event handling");
-	DebugMan.addDebugChannel(kDebugLevelMusic, "music", "music loading and playing");
-	DebugMan.addDebugChannel(kDebugLevelActor, "actor", "actor animation and behaviour");
-
+	// Debug channels are now registered via the MetaEngine
+	// (InterspectiveMetaEngineDetection::getDebugChannels) so that
+	// --debugflags=name works. The legacy addDebugChannel() calls here
+	// were silently ignored, leaving "Engine does not support debug
+	// level 'script'" warnings whenever the flags were used.
 	_rnd = new Common::RandomSource("interspective");
 }
 

@@ -86,6 +86,15 @@ void Logic::tick() {
 void Logic::callAnimations() {
 	if (!_animations.empty())
 		debugC(4, kDebugLevelFlow | kDebugLevelAnimation, "running animations");
+	// DIAG: print the full animations list and protagonist state every 60 ticks.
+	if (_protagonist && (_frameCounter % 60) == 0) {
+		bool inList = false;
+		for (Common::List<Animation *>::iterator it = _animations.begin(); it != _animations.end(); ++it)
+			if (*it == _protagonist) { inList = true; break; }
+		warning("DIAG protag: room=%u curRoom=%u inAnimList=%d animations=%u",
+			(uint)_protagonist->room(), (uint)_currentRoom, (int)inList,
+			(uint)_animations.size());
+	}
 	for (Common::List<Animation *>::iterator it = _animations.begin(); it != _animations.end(); ++it) {
 		Animation::Status ret = (*it)->tick();
 		if (ret == Animation::kRemove) {
@@ -98,6 +107,7 @@ void Logic::callAnimations() {
 }
 
 void Logic::setProtagonist(uint16 actor) {
+	warning("DIAG setProtagonist(%u)", (uint)actor);
 	_protagonist = getActor(actor);
 }
 

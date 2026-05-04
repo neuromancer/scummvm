@@ -20,6 +20,7 @@
  */
 
 #include "interspective/detection.h"
+#include "interspective/debug.h"
 
 #include "base/plugins.h"
 #include "engines/advancedDetector.h"
@@ -29,6 +30,25 @@ namespace Interspective {
 static const PlainGameDescriptor interspectiveGames[] = {
 	{ "innocent", "Innocent Until Caught" },
 	{ 0, 0 }
+};
+
+// Debug channel registration. Modern ScummVM expects channels to be
+// declared via getDebugChannels() on the MetaEngine — the legacy
+// addDebugChannel() calls in Engine::Engine() do not register the names
+// for --debugflags lookup, so previously --debugflags=script silently
+// dropped all messages and emitted "Engine does not support debug level
+// 'script'". Mirror the bitmask values from interspective/debug.h.
+static const DebugChannelDef debugFlagList[] = {
+	{kDebugLevelScript,    "script",    "bytecode scripts"},
+	{kDebugLevelGraphics,  "graphics",  "graphics handling"},
+	{kDebugLevelFlow,      "flow",      "game code flow status"},
+	{kDebugLevelAnimation, "animation", "animations"},
+	{kDebugLevelValues,    "values",    "low-level Value manipulation"},
+	{kDebugLevelFiles,     "files",     "file input and output"},
+	{kDebugLevelEvents,    "events",    "event handling"},
+	{kDebugLevelMusic,     "music",     "music loading and playing"},
+	{kDebugLevelActor,     "actor",     "actor animation and behaviour"},
+	DEBUG_CHANNEL_END
 };
 
 const ADGameDescription gameDescriptions[] = {
@@ -61,6 +81,10 @@ public:
 
 	const char *getOriginalCopyright() const override {
 		return "Copyright (c) 1993 Divide by Zero";
+	}
+
+	const DebugChannelDef *getDebugChannels() const override {
+		return Interspective::debugFlagList;
 	}
 };
 
