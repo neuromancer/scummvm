@@ -233,7 +233,9 @@ public:
 
 	void hide();
 	void callMe(const CodePointer &cp);
+	void callMeWithMode(const CodePointer &cp, uint16 mode);
 	void tellMe(const CodePointer &cp, uint16 timeout);
+	void tellMeWithMode(const CodePointer &cp, uint16 timeout, uint16 mode);
 
 	bool isSpeaking() const;
 	const Common::String &speechText() const { return _speech.text(); }
@@ -269,6 +271,7 @@ private:
 	void animate();
 	bool turnTo(Direction);
 	bool nextFrame();
+	void copyIntervalToTicks();
 
 	Common::Queue<Frame> _framequeue;
 	uint16 _frame;
@@ -317,8 +320,8 @@ public:
 		uint8 mode;
 	};
 	bool queueMoveSlot(const MoveSlot &slot) {
-		// Match DOS bound: max 8 entries. Returns false on overflow (DOS
-		// sets g_pendingErrorCode = 0xc; we just drop silently).
+		// Match DOS bound: max 8 entries. Returns false on overflow so
+		// the opcode handler can set g_pendingErrorCode = 0xc.
 		if (_moveSlots.size() >= 8)
 			return false;
 		_moveSlots.push_back(slot);
@@ -328,15 +331,14 @@ public:
 	void clearMoveSlots() { _moveSlots.clear(); }
 
 	// DOS callback (field+0x5d/0x5f). Set by Op_21/Op_22, cleared by Op_23.
-	// 0xffffffff = no callback. Stored as a single u32 since DOS treats
-	// the seg+off as a far-pointer pair.
+	// Segment 0xffff = no callback; DOS leaves the offset word untouched
+	// when clearing.
 	void setActorCallback(uint16 segment, uint16 offset) {
 		_actorCallbackSeg = segment;
 		_actorCallbackOff = offset;
 	}
 	void clearActorCallback() {
 		_actorCallbackSeg = 0xffff;
-		_actorCallbackOff = 0xffff;
 	}
 	uint16 actorCallbackSeg() const { return _actorCallbackSeg; }
 	uint16 actorCallbackOff() const { return _actorCallbackOff; }
@@ -346,13 +348,24 @@ private:
 	Common::Array<MoveSlot> _moveSlots;
 	uint16 _actorCallbackSeg, _actorCallbackOff;
 
-	Common::Queue<CodePointer> _callBacks;
+	struct ScriptCallback {
+		ScriptCallback() : runMode(0), hasRunMode(false) {}
+		ScriptCallback(const CodePointer &p, uint16 mode = 0, bool hasMode = false)
+			: callback(p), runMode(mode), hasRunMode(hasMode) {}
+		CodePointer callback;
+		uint16 runMode;
+		bool hasRunMode;
+	};
+	Common::Queue<ScriptCallback> _callBacks;
 	void callBacks();
 
 	struct RoomCallback {
 		uint16 timeout;
 		CodePointer callback;
-		RoomCallback(uint16 t, const CodePointer &p) : timeout(t), callback(p) {}
+		uint16 runMode;
+		bool hasRunMode;
+		RoomCallback(uint16 t, const CodePointer &p, uint16 mode = 0, bool hasMode = false)
+			: timeout(t), callback(p), runMode(mode), hasRunMode(hasMode) {}
 	};
 	Common::List<RoomCallback> _roomCallbacks;
 

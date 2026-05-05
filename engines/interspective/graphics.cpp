@@ -84,9 +84,9 @@ void Graphics::paint() {
 	}
 
 	paintBackdrop();
-	paintInterface();
 	paintAnimations();
 	paintExits();
+	paintInterface();
 	paintSpeech();
 	_engine->logic()->paintMotionText();
 
@@ -100,6 +100,8 @@ void Graphics::paint() {
 			it->run();
 		_afterRepaintHooks.clear();
 	}
+
+	paintCursorSprite();
 
 	debugC(3, kDebugLevelFlow | kDebugLevelGraphics, "<<<end paint procedure");
 }
@@ -126,6 +128,19 @@ void Graphics::paintInterface() {
 	if (_fullscreen) return;
 	debugC(3, kDebugLevelGraphics, "painting interface");
 	_framebuffer->blit(_interface, Common::Rect(0, 152, 320, 200), 0);
+}
+
+void Graphics::paintCursorSprite() {
+	Logic *logic = _engine->logic();
+	if (!logic || logic->cursorMode() != 0x20 || logic->dragTarget() == 0)
+		return;
+
+	const uint16 id = logic->dragTarget();
+	if (_resources->mainDat() && id > _resources->mainDat()->personsCount())
+		return;
+
+	Common::ScopedPtr<Sprite> sprite(_resources->loadSprite(id));
+	paint(sprite.get(), cursorPosition(), kPaintPositionIsTop);
 }
 
 void Graphics::setBackdrop(uint16 id) {
@@ -724,7 +739,20 @@ void Graphics::setPalette(const byte *colours, uint start, uint num) {
 }
 
 void Graphics::goFullscreen() {
-	_fullscreen = true;
+	setFullscreen(true);
+}
+
+void Graphics::setFullscreen(bool enabled) {
+	_fullscreen = enabled;
+}
+
+void Graphics::clearFramebuffer(byte colour) {
+	if (_framebuffer)
+		_framebuffer->fillRect(Common::Rect(0, 0, 320, 200), colour);
+}
+
+void Graphics::clearPaletteRange(int start, int count) {
+	clearPalette(start, count);
 }
 
 struct Tr {

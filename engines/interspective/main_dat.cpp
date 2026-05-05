@@ -238,6 +238,11 @@ uint16 MainDat::imageType(uint16 index) const {
 	return READ_LE_UINT16(_imageDirectory + offset);
 }
 
+void MainDat::patchImageType(uint16 index, uint16 type) {
+	uint32 offset = (index - 1) * 4;
+	WRITE_LE_UINT16(_imageDirectory + offset, type);
+}
+
 uint16 MainDat::fileIndexOfTune(uint16 index) const {
 	uint32 offset = (index - 1) * 2;
 	return READ_LE_UINT16(_tunesDirectory + offset);
@@ -274,8 +279,7 @@ Common::List<Common::String> MainDat::musicFiles() const {
 		data += 2; // data set id
 		byte type = *data++; // music type (1 - adlib, 4 - roland)
 		debugC(2, kDebugLevelFiles | kDebugLevelMusic, "found music file %s type %d", data, type);
-		Common::String file(reinterpret_cast<char *>(data));
-		if (type == 4) files.push_back(file);
+		files.push_back(Common::String(reinterpret_cast<char *>(data)));
 		while (*data)
 			data++;
 		data++;

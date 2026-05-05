@@ -101,6 +101,7 @@ protected:
 	Resources *_resources;
 	int8 _interval;
 	int16 _ticksLeft;
+	bool _explicitFrameDelay;
 	int8 _zIndex;
 	Common::Point _position;
 	/** start of the animation code */

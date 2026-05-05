@@ -86,6 +86,7 @@ Animation::Animation(const CodePointer &code, Common::Point position) :
 	_offset(0),
 	_interval(1),
 	_ticksLeft(0),
+	_explicitFrameDelay(false),
 	_zIndex(-1),
 	_mainSpriteId(0xffff),
 	_counter(0),
@@ -172,10 +173,11 @@ Animation::Status Animation::tick() {
 		_offset += 2;
 
 		_debugInvalid = false;
+		_explicitFrameDelay = false;
 		status = op(opcode - 1);
 	}
 
-	if (status == kFrameDone && !_ticksLeft)
+	if (status == kFrameDone && !_ticksLeft && !_explicitFrameDelay)
 		_ticksLeft = _interval;
 
 	if (status == kRemove)

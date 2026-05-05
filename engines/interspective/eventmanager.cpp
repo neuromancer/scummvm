@@ -27,6 +27,7 @@
 
 #include "interspective/debug.h"
 #include "interspective/graphics.h"
+#include "interspective/logic.h"
 #include "interspective/util.h"
 
 using namespace std;
@@ -47,6 +48,9 @@ Clickable::~Clickable() {
 }
 
 void EventManager::clicked(Common::Point pos) {
+	if (!Logic::instance().roomActive())
+		return;
+
 	Clickable *handler = 0;
 
 	foreach(Clickable *, _handlers)

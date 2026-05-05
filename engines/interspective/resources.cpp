@@ -206,7 +206,7 @@ Common::ReadStream *Resources::imageStream(uint16 index) const {
 }
 
 Common::ReadStream *Resources::tuneStream(uint16 index) const {
-	uint16 file_index = _main.get()->fileIndexOfTune(index)/2;
+	uint16 file_index = _main.get()->fileIndexOfTune(index);
 	uint32 offset = _tuneMap.get()->offsetOfEntry(index);
 
 	debugC(2, kDebugLevelFiles | kDebugLevelMusic, "loading tune %d from file %d at offset 0x%x", index, file_index, offset);

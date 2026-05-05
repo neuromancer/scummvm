@@ -50,6 +50,18 @@ namespace Interspective {
 // (DOS LookupCharSprite analog).
 static const uint16 kBubbleLineHeight = 12;  // matches Graphics::kLineHeight
 
+static int16 stepCameraToward(int16 current, int16 target, int16 speed) {
+	const int16 delta = target - current;
+	if (delta == 0)
+		return current;
+	if (delta < 0) {
+		const int16 step = MIN<int16>(-delta, speed);
+		return current - step;
+	}
+	const int16 step = MIN<int16>(delta, speed);
+	return current + step;
+}
+
 Logic::~Logic() {
 	// Animations are owned by the Interpreter that registered them (via rememberAnimation);
 	// they are deleted in Interpreter::~Interpreter, which runs as the SharedPtr<Interpreter>
@@ -100,6 +112,7 @@ void Logic::tick() {
 
 	runQueued();
 	tickMotionText();
+	updateScrollPosition();
 }
 
 void Logic::callAnimations() {
@@ -131,6 +144,34 @@ void Logic::setProtagonist(uint16 actor) {
 
 Actor *Logic::protagonist() const {
 	return _protagonist;
+}
+
+void Logic::updateScrollPosition() {
+	const int16 oldX = _cameraX;
+	const int16 oldY = _cameraY;
+
+	if (!_inputEnabled) {
+		const int16 speedX = _slowCpu ? 4 : 8;
+		const int16 speedY = _slowCpu ? 1 : 2;
+
+		if (_cameraTargetX != 0xffff) {
+			const int16 targetX = int16(_cameraTargetX);
+			if (targetX == _cameraX)
+				_cameraTargetX = 0xffff;
+			else
+				_cameraX = stepCameraToward(_cameraX, targetX, speedX);
+		}
+
+		if (_cameraTargetY != 0xffff) {
+			const int16 targetY = int16(_cameraTargetY);
+			if (targetY == _cameraY)
+				_cameraTargetY = 0xffff;
+			else
+				_cameraY = stepCameraToward(_cameraY, targetY, speedY);
+		}
+	}
+
+	_scrollChanged = oldX != _cameraX || oldY != _cameraY;
 }
 
 void Logic::changeRoom(uint16 newRoom) {
@@ -168,12 +209,20 @@ void Logic::doChangeRoom() {
 	_zonesB.clear();
 	_walkboxes.clear();
 	_animList.clear();
+	_cameraX = 0;
+	_cameraY = 0;
+	_cameraTargetX = 0xffff;
+	_cameraTargetY = 0xffff;
+	_scrollChanged = false;
 	_dialogCursor0 = _dialogCursor1 = _dialogClickGate = 0;
 	_noStep = false;
 	_stepPending = false;
+	_roomActive = true;
 	_hitTarget = 0;
 	_inMapMode = false;
 	_inputEnabled = true;
+	if (_engine && _engine->graphics())
+		_engine->graphics()->setFullscreen(false);
 	_motionText.clear();
 	_motionTextTicks = 0;
 
@@ -271,9 +320,13 @@ void Logic::runLater(const CodePointer &p, uint16 delay) {
 	_queued.push_back(DelayedRun(p, delay, frameTicks()));
 }
 
+void Logic::runLaterWithMode(const CodePointer &p, uint16 mode, uint16 delay) {
+	debugC(3, kDebugLevelScript, "will call %s after %d ticks in mode 0x%02x", +p, delay, mode);
+	_queued.push_back(DelayedRun(p, delay, frameTicks(), mode, true));
+}
+
 void Logic::runLaterWithCurrentMode(const CodePointer &p, uint16 delay) {
-	debugC(3, kDebugLevelScript, "will call %s after %d ticks in mode 0x%02x", +p, delay, _opcodeMode);
-	_queued.push_back(DelayedRun(p, delay, frameTicks(), _opcodeMode, true));
+	runLaterWithMode(p, _opcodeMode, delay);
 }
 
 uint16 Logic::deferredQueuedCount() const {
@@ -808,39 +861,15 @@ bool Logic::castTableRegister(uint16 id, int16 x, int16 y) {
 			e.id = id;
 			e.x = x;
 			e.y = y;
-			// Re-init the bookkeeping per DOS Op_c3. raw[0..80] map
-			// directly to DOS bytes 0x08..0x58 of the cast record.
-			// Field offsets within p_data per DOS decompile:
-			//   p_data[N] → raw[N] (assuming p_data starts at +0x08).
-			// bRect_w/h are at fixed positions; from the decompile
-			// `(&pCVar6->bRect_w)[0/1]` they appear as a 2-byte pair.
-			// We mirror the byte indices DOS writes.
+			// Re-init the bookkeeping per DOS Op_c3. Ghidra's CastEntry
+			// layout is exact: raw[0]=bRect_w, raw[1]=bRect_h, and
+			// raw[2 + N]=p_data[N].
 			for (uint j = 0; j < 81; ++j) e.raw[j] = 0;
-			e.raw[6] = 1;             // p_data[6] — frame counter
-			e.raw[8] = 0xff;          // p_data[8] — sprite index
-			// bRect_w/h: in the DOS struct these come AFTER p_data;
-			// without exact field-offset table we mirror DOS's two
-			// 0xff bytes by writing them as the next-pair bytes after
-			// the named p_data writes. In practice the renderer reads
-			// `&pCVar6->bRect_w` whose absolute offset matches DOS's
-			// physical layout; for ScummVM (which doesn't read raw)
-			// this is state-preservation only.
-			// Mark conservatively at offsets 9, 10 (= bytes 0x11/0x12
-			// of the record): DOS Op_c3 writes bRect_w then bRect_h.
-			// We use raw indices 9 and 10 as a stand-in; if a future
-			// reader needs the exact DOS offset, the index can shift.
-			e.raw[9] = 0xff;          // bRect_w
-			e.raw[10] = 0xff;         // bRect_h (overwrites the p_data[10]=0
-			                          // line; DOS does the same since the
-			                          // 0 write happens BEFORE the 0xff —
-			                          // see disassembly order at 1000:514a.)
-			// Note: `p_data[10] = 0` and `p_data[12] = 0` are explicitly
-			// re-written by DOS AFTER the bRect 0xff writes — at this
-			// point the post-bRect indices would land here. Without
-			// exact struct offsets we approximate: the only observable
-			// difference would be if a reader compared bytes 0x12/0x14
-			// of the record. Documented gap.
-			e.raw[12] = 0;
+			e.raw[0] = 0xff;          // bRect_w
+			e.raw[1] = 0xff;          // bRect_h
+			e.raw[8] = 1;             // p_data[6] — frame counter
+			e.raw[10] = 0xff;         // p_data[8] — sprite index
+			// p_data[0/1/2/3/7/10/12] remain zero from the clear above.
 			return true;
 		}
 	}

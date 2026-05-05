@@ -71,6 +71,7 @@ public:
 	 */
 	uint16 fileIndexOfImage(uint16 index) const;
 	uint16 imageType(uint16 index) const;
+	void patchImageType(uint16 index, uint16 type);
 	uint16 fileIndexOfTune(uint16 index) const;
 
 	uint16 interfaceImageIndex() const;

@@ -62,6 +62,7 @@ public:
 	 * Paint the interface to proper portion of the screen.
 	 */
 	void paintInterface();
+	void paintCursorSprite();
 	void paintAnimations();
 	void paintExits();
 	void paintSpeech();
@@ -136,6 +137,9 @@ public:
 
 	/** Go fullscreen. This will hide the interface. */
 	void goFullscreen();
+	void setFullscreen(bool enabled);
+	void clearFramebuffer(byte colour = 0);
+	void clearPaletteRange(int start, int count);
 
 	// Per-glyph width (variable-width font). Mirrors DOS
 	// LookupCharSprite @ 1000:c69c — used by Logic::formatBubbleText

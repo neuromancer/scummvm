@@ -40,13 +40,13 @@ namespace Common {
 
 namespace Interspective {
 
-MusicParser::MusicParser() : MidiParser(), _tune(0), _script(0), _time(0), _lastTick(0), _tick(0) {
+MusicParser::MusicParser() : MidiParser(), _tune(0), _script(0), _musicType(MT_INVALID), _time(0), _lastTick(0), _tick(0) {
 	const uint32 devTypes = MDT_MIDI | MDT_ADLIB | MDT_PREFER_GM;
 	MidiDriver::DeviceHandle dev = MidiDriver::detectDevice(devTypes);
-	const MusicType musicType = MidiDriver::getMusicType(dev);
+	_musicType = MidiDriver::getMusicType(dev);
 	const Common::String devId = MidiDriver::getDeviceString(dev, MidiDriver::kDeviceId);
-	warning("Interspective music init: detected device id='%s' musicType=%d (1=PCSPK 2=PCJR 3=CMS 4=ADLIB 5=MIDI 6=MT32 7=GM ...)",
-		devId.c_str(), int(musicType));
+	warning("Interspective music init: detected device id='%s' musicType=%d",
+		devId.c_str(), int(_musicType));
 
 	_midiDriver = MidiDriver::createMidi(dev);
 	if (!_midiDriver) {
@@ -117,7 +117,7 @@ bool MusicParser::loadMusic(const byte *data, uint32 size) {
 	// thread's _tune->tick() and crashing in Channel::tick when the old
 	// _tune was freed mid-iteration). Skip if data matches what's
 	// already loaded.
-	if (_script && _script->base() == data)
+	if (_script && _script->base() == data && isPlaying())
 		return true;
 
 	static int loadMusicCallCount = 0;
@@ -168,7 +168,7 @@ void MusicParser::tick() {
 			(uint)_timerRate, (uint)_psecPerTick, (const void *)_tune);
 	}
 
-	if (_tune) {
+	if (_tune && _tune->isPlaying()) {
 		static bool reportedFirstTuneTick = false;
 		if (!reportedFirstTuneTick) {
 			reportedFirstTuneTick = true;
@@ -191,6 +191,10 @@ enum {
 
 void MusicParser::silence() {
 	debugC(2, kDebugLevelMusic, "turning off all notes");
+	if (!_driver) {
+		memset(notes, 0, sizeof(notes));
+		return;
+	}
 
 	for (int channel = 2; channel < 10; channel++)
 		for (int i = 0; i < 4; i++)
@@ -198,6 +202,25 @@ void MusicParser::silence() {
 				Music._driver->send(channel | kMidiNoteOff, notes[channel - 2][i], 0);
 
 	memset(notes, 0, sizeof(notes));
+}
+
+bool MusicParser::isPlaying() const {
+	return _tune && _tune->isPlaying();
+}
+
+void MusicParser::stopMusic() {
+	silence();
+	unloadMusic();
+	if (_tune)
+		_tune->stop();
+}
+
+void MusicParser::setMaxVolume() {
+	debugC(2, kDebugLevelMusic, "setting music channel volume to maximum");
+	if (!_driver)
+		return;
+	for (int channel = 2; channel < 10; ++channel)
+		_driver->send(channel | kMidiChannelControl, MidiDriver::MIDI_CONTROLLER_VOLUME, 127);
 }
 
 MusicScript::MusicScript() : _code(0) {}
@@ -231,8 +254,7 @@ void MusicScript::tick() {
 
 		case kStop:
 			debugC(2, kDebugLevelMusic, "will stop playing");
-			Music.silence();
-			Music.unloadMusic();
+			Music.stopMusic();
 			return;
 
 		default: {
@@ -246,8 +268,7 @@ void MusicScript::tick() {
 				warning("Interspective music: unhandled script opcode 0x%02x at offset 0x%x — stopping music",
 					(uint)_code[_offset], (uint)_offset);
 			}
-			Music.silence();
-			Music.unloadMusic();
+			Music.stopMusic();
 			return;
 		}
 		}
@@ -313,8 +334,7 @@ void Tune::setBeat(uint16 index) {
 		// when a tune ran to completion).
 		warning("Interspective music: Tune::setBeat(%u) >= beats=%u — stopping tune",
 			(uint)index, (uint)_beats.size());
-		_currentBeat = -1;
-		_beatticks = 0;
+		stop();
 		return;
 	}
 	_currentBeat = index;
@@ -322,8 +342,17 @@ void Tune::setBeat(uint16 index) {
 	_beatticks = 0;
 }
 
+void Tune::stop() {
+	_currentBeat = -1;
+	_beatticks = 0;
+}
+
+bool Tune::isPlaying() const {
+	return _currentBeat >= 0 && _currentBeat < int32(_beats.size());
+}
+
 void Tune::tick() {
-	if (_currentBeat < 0 || _currentBeat >= (int32)_beats.size()) {
+	if (!isPlaying()) {
 		// Out-of-range beat index would smash the heap. Default-constructed
 		// Tune has _currentBeat=-1 (never initialised). After the last beat
 		// finishes, setBeat(_currentBeat+1) can advance past _beats.size().
@@ -337,6 +366,8 @@ void Tune::tick() {
 		return;
 	}
 	_beats[_currentBeat].tick();
+	if (!isPlaying())
+		return;
 	_beatticks++;
 	if (_beatticks == 64)
 		setBeat(_currentBeat + 1);
@@ -489,7 +520,10 @@ void MusicCommand::exec(byte channel, Note *note) {
 
 	case kSetExpression:
 		debugC(2, kDebugLevelMusic, "set expression on channel %d to %d", channel, _parameter);
-		Music._driver->send(channel | kMidiChannelControl, kMidiCtrlExpression, _parameter / 2);
+		if (Music._musicType == MT_ADLIB)
+			Music._driver->send(channel | kMidiChannelControl, MidiDriver::MIDI_CONTROLLER_VOLUME, _parameter / 2);
+		else
+			Music._driver->send(channel | kMidiChannelControl, kMidiCtrlExpression, _parameter / 2);
 		break;
 
 	case kCmdNoteOff:

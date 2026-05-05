@@ -107,15 +107,39 @@ void Actor::hide() {
 	clearMainSprite();
 	_base = 0;
 	_baseOffset = _offset = 0;
+	_ticksLeft = 0;
+	_attentionNeeded = false;
+	_confused = false;
+	_nextAnimator = 0;
+	_nextDirection = kDirNone;
+	_framequeue.clear();
+}
+
+void Actor::copyIntervalToTicks() {
+	// DOS common actor tail at 1000:6953 zero-extends actor byte +0x10
+	// into word +0x0a. In C++ those fields are _interval and _ticksLeft.
+	const uint16 ticks = uint8(_interval);
+	_ticksLeft = ticks;
+	_explicitFrameDelay = true;
+	setDosFieldWord(0x0a, ticks);
 }
 
 void Actor::callMe(const CodePointer &code) {
 	debugC(3, kDebugLevelScript, "actor will call %s when needed", +code);
-	_callBacks.push(code);
+	_callBacks.push(ScriptCallback(code));
+}
+
+void Actor::callMeWithMode(const CodePointer &code, uint16 mode) {
+	debugC(3, kDebugLevelScript, "actor will call %s when needed in mode 0x%02x", +code, mode);
+	_callBacks.push(ScriptCallback(code, mode, true));
 }
 
 void Actor::tellMe(const CodePointer &code, uint16 timeout) {
 	_roomCallbacks.push_back(RoomCallback(timeout, code));
+}
+
+void Actor::tellMeWithMode(const CodePointer &code, uint16 timeout, uint16 mode) {
+	_roomCallbacks.push_back(RoomCallback(timeout, code, mode, true));
 }
 
 bool Actor::isSpeaking() const {
@@ -297,6 +321,8 @@ void Actor::setRoom(uint16 r, uint16 frame, uint16 next_frame) {
 	unless (next_frame)
 		next_frame = frame;
 	_nextFrame = next_frame;
+	setDosField(0x6b, 0);
+	setDosField(0x6c, 0);
 	setFrame(frame);
 
 	setAnimation(CodePointer(_puppeteer.mainCodeOffset(), Log.mainInterpreter()));
@@ -317,6 +343,8 @@ void Actor::placeIn(uint16 r, uint16 frame, uint16 next_frame) {
 	if (!next_frame)
 		next_frame = frame;
 	_nextFrame = next_frame;
+	setDosField(0x6b, 0);
+	setDosField(0x6c, 0);
 	setFrame(frame);
 }
 
@@ -424,6 +452,10 @@ Animation::Status Actor::tick() {
 		Log.setCurrentEntityId(_id);
 
 		Animation::Status s;
+		// DOS RunActorScript clears the 8-slot movement queue at entry
+		// before dispatching actor opcodes.
+		if (_base && !_ticksLeft)
+			clearMoveSlots();
 		if (_debug) gDebugLevel += 3;
 			s = Animation::tick();
 		if (_debug) gDebugLevel -= 3;
@@ -459,9 +491,15 @@ void Actor::readHeader(const byte *code) {
 		_baseOffset = _offset = 0;
 	}
 	uint16 sprite = READ_LE_UINT16(code + kOffsetMainSprite);
-	_nextFrame = sprite;
+	_frame = code[0x61];
+	_nextFrame = code[0x62];
 	_room = READ_LE_UINT16(code + kOffsetRoom);
-	setDosField(0x70, code[0x70]);
+	static const uint8 sparseFields[] = {
+		0x0e, 0x0f, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16,
+		0x17, 0x18, 0x63, 0x65, 0x68, 0x6b, 0x6c, 0x6d, 0x6e, 0x70
+	};
+	for (uint i = 0; i < ARRAYSIZE(sparseFields); ++i)
+		setDosField(sparseFields[i], code[sparseFields[i]]);
 
 	debugC(3, kDebugLevelFiles, "loading %s: interv %d ticks %d z%d pos%d:%d code %d offset %d sprite %d room %d", _debugInfo, _interval, _ticksLeft, _zIndex, _position.x, _position.y, baseOff, _offset, sprite, _room);
 
@@ -471,15 +509,23 @@ void Actor::readHeader(const byte *code) {
 
 void Actor::callBacks() {
 	unless (isFine()) {
-		Common::Queue<CodePointer> cb = _callBacks;
+		Common::Queue<ScriptCallback> cb = _callBacks;
 		_callBacks.clear();
-		while (!cb.empty())
-			Log.runLater(cb.pop());
+		while (!cb.empty()) {
+			ScriptCallback callback = cb.pop();
+			if (callback.hasRunMode)
+				Log.runLaterWithMode(callback.callback, callback.runMode);
+			else
+				Log.runLater(callback.callback);
+		}
 	}
 
 	foreach (RoomCallback, _roomCallbacks) {
 		if (_room == Log.currentRoom() || !it->timeout) {
-			Log.runLater(it->callback);
+			if (it->hasRunMode)
+				Log.runLaterWithMode(it->callback, it->runMode);
+			else
+				Log.runLater(it->callback);
 			Common::List<RoomCallback>::iterator done = it;
 			it++;
 			_roomCallbacks.erase(done);
@@ -723,13 +769,12 @@ OPCODE(0x00) {
 OPCODE(0x01) {
 	// DOS Op_02 UnregisterAndEnd (CS:0x68e3): UnregisterActor + clear
 	// field0/1 + sets g_actor_script_ended = 1. C++ slot 0x01 per the
-	// off-by-1 mapping. Closest equivalent: terminate animator + flag
-	// _confused so animate() picks a new state next tick.
-	debugC(1, kDebugLevelActor, "actor opcode 0x01: UnregisterAndEnd (terminate + confuse) [DOS Op_02]");
+	// off-by-1 mapping. UnregisterActor removes the actor from DOS's
+	// active table, so the C++ equivalent must stop the current script and
+	// prevent animate() from immediately selecting a new puppeteer script.
+	debugC(1, kDebugLevelActor, "actor opcode 0x01: UnregisterAndEnd (hide + terminate) [DOS Op_02]");
 
-	_offset = 0;
-	_base = 0;
-	_confused = true;
+	hide();
 	return kFrameDone;
 }
 
@@ -742,12 +787,18 @@ OPCODE(0x14) {
 	//   CALL FindSpeechSlotById(this_actor);
 	//   if (carry) → ADD BP,4 (advance, no slot found = silent);
 	//   else → BP = ES:[BP+DI+2] (loop back to jump target = wait).
-	// = "while this actor has an active speech slot, re-enter this
-	// opcode". C++ has per-actor _speech (Actor::isSpeaking()) which
-	// matches the slot model — when the actor is speaking we rewind
-	// _offset back to the start of this opcode (jump target encodes
-	// "this opcode's address" in DOS scripts).
+	// DOS CheckScrollDirty returns carry clear when DS:0x662f is nonzero;
+	// in that case the protagonist advances even if a speech slot exists.
+	// Otherwise, while this actor has an active speech slot, re-enter this
+	// opcode. C++ has per-actor _speech (Actor::isSpeaking()) which matches
+	// the slot model — when the actor is speaking we rewind _offset back to
+	// the start of this opcode (jump target encodes "this opcode's address"
+	// in DOS scripts).
 	uint16 off = shift();
+	if (Log.protagonist() == this && Log.scrollChanged()) {
+		debugC(3, kDebugLevelAnimation, "actor opcode 0x14: WaitForSpeechSlot bypassed by scroll-dirty [DOS Op_15]");
+		return kOk;
+	}
 	if (isSpeaking()) {
 		// Re-execute: rewind to the jump target. The script encodes
 		// the opcode's own address as the target, so following it loops
@@ -884,17 +935,22 @@ OPCODE(0x15) {
 		return kOk;
 	}
 
-	// Verb-mode classifier. Reproduces CalcSpriteOffsetIfPlaced exactly:
-	// build the actor's bounding rect from field+0x4/+0x6 + sprite offset
-	// bytes (+0x8/+0x9) + width/height bytes (+0x17/+0x18); then test
+	// Verb-mode classifier. Reproduces CalcSpriteOffsetIfPlaced:
+	// build the actor's bounding rect from field+0x4/+0x6, current sprite
+	// hot offsets, and actor width/height bytes (+0x17/+0x18); then test
 	// cursor against rect bounds.
 	const Common::Point cursor = Log.engine()->graphics()->cursorPosition();
-	// adjusted_x = field+0x4 - field+0x8 (DOS sprite-offset adjustment)
-	// adjusted_y = field+0x6 + field+0x9
-	// Sprite offset bytes are signed; we read via dosField + cast to
-	// int8 to preserve sign.
-	const int16 adjustedX = int16(position().x) - int8(dosField(0x8));
-	const int16 adjustedY = int16(position().y) + int8(dosField(0x9));
+	int8 spriteHotLeft = 0;
+	int8 spriteHotTop = 0;
+	if (mainSpriteId() != 0xffff) {
+		const SpriteInfo info = _resources->getSpriteInfo(mainSpriteId());
+		spriteHotLeft = info.hotLeft;
+		spriteHotTop = info.hotTop;
+	}
+	// adjusted_x = field+0x4 - sprite.hotLeft
+	// adjusted_y = field+0x6 + sprite.hotTop
+	const int16 adjustedX = int16(position().x) - spriteHotLeft;
+	const int16 adjustedY = int16(position().y) + spriteHotTop;
 	const uint8 width  = dosField(0x17);   // BP in DOS
 	const uint8 height = dosField(0x18);   // BX in DOS
 	// Bounding rect (DOS layout):
@@ -973,7 +1029,7 @@ OPCODE(0x16) {
 		debugC(3, kDebugLevelAnimation,
 			"actor opcode 0x16: BranchIfAnimSetEquals val=%d field+0x68=%u → jump 0x%04x [DOS Op_17]",
 			val, animSet, off);
-		setAnimation(off);
+		_offset = off;
 	} else {
 		debugC(3, kDebugLevelAnimation,
 			"actor opcode 0x16: BranchIfAnimSetEquals val=%d field+0x68=%u (no match) [DOS Op_17]",
@@ -993,7 +1049,7 @@ OPCODE(0x17) {
 	if (mood == val) {
 		debugC(3, kDebugLevelAnimation, "actor opcode 0x17: BranchIfMoodEquals val=%d mood=%d → jump 0x%04x [DOS Op_18]",
 			val, mood, off);
-		setAnimation(off);
+		_offset = off;
 	} else {
 		debugC(3, kDebugLevelAnimation, "actor opcode 0x17: BranchIfMoodEquals val=%d mood=%d (no match) [DOS Op_18]",
 			val, mood);
@@ -1012,11 +1068,15 @@ OPCODE(0x18) {
 
 OPCODE(0x19) {
 	// C++ slot 0x19 = DOS Op_1a SetWalkFlagsAndEnd (CS:0x6a48). Reads
-	// 1 int16 (walk flags) and ends script (Animation handler 0x19 was
-	// "hide for delay" with 1 shift — happens to match consumption).
+	// 1 int16, writes actor.field+0xa = arg and actor.field+0x8 = 0xffff,
+	// then ends script.
 	uint16 flags = shift();
-	debugC(2, kDebugLevelAnimation, "actor opcode 0x19: SetWalkFlagsAndEnd flags=0x%04x STUB [DOS Op_1a]", flags);
-	return kOk;
+	debugC(2, kDebugLevelAnimation, "actor opcode 0x19: SetWalkFlagsAndEnd flags=0x%04x [DOS Op_1a]", flags);
+	_ticksLeft = int16(flags);
+	_explicitFrameDelay = true;
+	setDosFieldWord(0x0a, flags);
+	setMainSprite(0xffff);
+	return kFrameDone;
 }
 
 OPCODE(0x1a) {
@@ -1041,7 +1101,7 @@ OPCODE(0x23) {
 	// usages happen to overlap because mood values are also small.
 	byte dir = embeddedByte();
 
-	debugC(3, kDebugLevelAnimation, "actor opcode 0x23: ClearCallback (C++ sets _direction=%d)", dir);
+	debugC(3, kDebugLevelAnimation, "actor opcode 0x23: SetMood = %d (C++ mirrors 1..8 to _direction) [DOS Op_24]", dir);
 
 	switch (dir) {
 	case 1:
@@ -1103,10 +1163,11 @@ OPCODE(0x24) {
 // (DOS Op_03..Op_0a, C++ slots 0x02..0x09). Phase-2 of the iter-10 roadmap.
 //
 // Most of these ops end the script (Op_06..0a; DOS sets
-// g_actor_script_ended = 1) and return kFrameDone — the C++ dispatcher
-// breaks out of the per-tick opcode loop and queues
-// _ticksLeft = _interval before the next tick. Ops that don't end the
-// script return kOk (continue with the next opcode this tick).
+// g_actor_script_ended = 1) and copy actor byte +0x10 into word +0x0a
+// before returning kFrameDone. C++ maps those fields to _interval and
+// _ticksLeft, so the ending handlers call copyIntervalToTicks() before
+// they stop the per-tick opcode loop. Ops that don't end the script
+// return kOk (continue with the next opcode this tick).
 //
 // **Pass2-17 NOTE**: Op_04/Op_05 (slots 0x03/0x04) are NOT
 // "SetCurrentFrame" / "SetCurrentFrameFromGlobal" despite the original
@@ -1173,7 +1234,7 @@ OPCODE(0x05) {
 	//   actor.field+0x4 += dx;             ; position x
 	//   actor.field+0x6 += dy;             ; position y
 	//   actor.field+0x8  = target_frame;   ; sprite/target ID
-	//   actor.field+0xa  = actor.field+0x10;  ; copy a byte
+	//   actor.field+0xa  = zero-extended actor.field+0x10
 	//   g_actor_script_ended = 1;
 	//
 	// **Important**: Despite the "WalkRelative" name, DOS does NOT
@@ -1190,15 +1251,14 @@ OPCODE(0x05) {
 	_position.x += dx;
 	_position.y += dy;
 	setMainSprite(target);  // sprite ID write (DOS field+0x8 analog)
-	_nextFrame = target;    // tracked for query opcodes that read targetFrameId.
-	setDosField(0x0a, dosField(0x10));   // DOS field+0xa byte copy.
+	copyIntervalToTicks();   // DOS field+0xa = zero-extended field+0x10.
 	return kFrameDone;
 }
 
 OPCODE(0x06) {
 	// C++ slot 0x06 = DOS Op_07 SetTargetFrame @ 1000:69a4. 1 shift.
 	//   actor.field+0x8  = target;            ; sprite/target ID
-	//   actor.field+0xa  = actor.field+0x10;  ; copy a byte
+	//   actor.field+0xa  = zero-extended actor.field+0x10
 	//   g_actor_script_ended = 1;              ; end this script run
 	//
 	// **Important**: DOS does NOT engage walk here. It only updates
@@ -1217,9 +1277,8 @@ OPCODE(0x06) {
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x06: SetTargetFrame %u [DOS Op_07]", target);
 	// Update sprite/target ID (DOS field+0x8 analog).
 	setMainSprite(target);
-	_nextFrame = target;  // tracked for query opcodes that read targetFrameId.
-	// DOS field+0xa byte copy: actor.field+0xa = actor.field+0x10.
-	setDosField(0x0a, dosField(0x10));
+	// DOS field+0xa byte copy: actor.field+0xa = zero-extended field+0x10.
+	copyIntervalToTicks();
 	// g_actor_script_ended = 1 → script run ends. C++ kFrameDone.
 	return kFrameDone;
 }
@@ -1233,45 +1292,48 @@ OPCODE(0x07) {
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x07: SetTargetFrameFromGlobal var[%u/2]=%u [DOS Op_08]",
 		offset, target);
 	setMainSprite(target);
-	_nextFrame = target;
-	setDosField(0x0a, dosField(0x10));
+	copyIntervalToTicks();
 	return kFrameDone;
 }
 
 OPCODE(0x08) {
 	// C++ slot 0x08 = DOS Op_09 WalkRelative (1000:697c). Reads 2 signed
-	// bytes (dx, dy) only. Adds to actor.x/y, ends script. Animation::0x08
-	// ("move by") happens to do the same _position update with the same
-	// byte consumption — the existing fall-through was correct for
-	// position but didn't end the script. Override returns kFrameDone.
+	// bytes (dx, dy) only. Adds to actor.x/y, copies field+0x10 to +0x0a,
+	// and ends script. Animation::0x08 ("move by") happens to do the same
+	// _position update with the same byte consumption — the existing
+	// fall-through was correct for position but didn't end the script or
+	// perform the actor-field copy. Override returns kFrameDone.
 	const int8 dx = shiftByte();
 	const int8 dy = shiftByte();
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x08: WalkRelative d=(%d,%d) [DOS Op_09]", dx, dy);
 	_position.x += dx;
 	_position.y += dy;
+	copyIntervalToTicks();
 	return kFrameDone;
 }
 
 OPCODE(0x09) {
 	// C++ slot 0x09 = DOS Op_0a WalkAbsolute (1000:6991). 2 shifts.
-	// Writes actor.x/y = (word, word), ends script. iter-11 was a no-op
-	// stub; iter-12 added correct byte consumption; iter-13 now writes
-	// the position properly and ends the script.
+	// Writes actor.x/y = (word, word), copies field+0x10 to +0x0a, and
+	// ends script. iter-11 was a no-op stub; iter-12 added correct byte
+	// consumption; iter-13 now writes the position properly and ends the
+	// script.
 	const uint16 x = shift();
 	const uint16 y = shift();
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x09: WalkAbsolute (%u,%u) [DOS Op_0a]", x, y);
 	_position.x = (int16)x;
 	_position.y = (int16)y;
+	copyIntervalToTicks();
 	return kFrameDone;
 }
 
 OPCODE(0x0a) {
 	// C++ slot 0x0a = DOS Op_0b WalkAbsoluteWithFrame @ 1000:6962.
-	// 3 shifts: x, y, target_frame.
+	// 3 shifts: x, y, sprite/target field.
 	//   actor.field+0x4  = x;
 	//   actor.field+0x6  = y;
-	//   actor.field+0x8  = target_frame;     ; sprite/target ID
-	//   actor.field+0xa  = actor.field+0x10; ; byte copy
+	//   actor.field+0x8  = target_frame;     ; sprite/target ID field
+	//   actor.field+0xa  = zero-extended actor.field+0x10
 	//   g_actor_script_ended = 1;
 	//
 	// Despite the "WalkAbsolute" name, DOS does NOT engage walk
@@ -1285,8 +1347,7 @@ OPCODE(0x0a) {
 	_position.x = (int16)x;
 	_position.y = (int16)y;
 	setMainSprite(target);
-	_nextFrame = target;
-	setDosField(0x0a, dosField(0x10));
+	copyIntervalToTicks();
 	return kFrameDone;
 }
 
@@ -1301,11 +1362,9 @@ OPCODE(0x0d) {
 	const byte v = embeddedByte();
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x0d: SetTimerAndSkip = %u [DOS Op_0e]", v);
 	setDosField(0x11, v);
-	// Note: also stash the next-script-PC for the "resume after skip"
-	// behavior. We use the C++ _baseOffset+_offset (already advanced past
-	// the embedded byte by the dispatcher) — store as two halves at
-	// fields 0x0e/0x0f if any future reader needs it.
-	const uint16 nextPC = _baseOffset + _offset;
+	// The dispatcher has already advanced past the 2-byte opcode header,
+	// matching DOS's ADD BP,2 before the store.
+	const uint16 nextPC = _offset;
 	setDosField(0x0e, uint8(nextPC & 0xff));
 	setDosField(0x0f, uint8(nextPC >> 8));
 	return kOk;
@@ -1313,12 +1372,22 @@ OPCODE(0x0d) {
 
 OPCODE(0x0e) {
 	// C++ slot 0x0e = DOS Op_0f DecrementTimer (1000:6a6c). 0 args.
-	// If actor.field+0x11 != 0, decrement. Animation::0x0e fall-through
-	// ("loop end") was an unrelated counter decrement — replaced.
+	// DOS advances BP by 2, decrements actor.field+0x11 when nonzero,
+	// and if the post-decrement value is still nonzero jumps back to
+	// actor.field+0x0e. Animation::0x0e fall-through ("loop end") was an
+	// unrelated counter decrement — replaced.
 	const uint8 cur = dosField(0x11);
 	if (cur != 0) {
-		setDosField(0x11, uint8(cur - 1));
-		debugC(4, kDebugLevelAnimation, "actor opcode 0x0e: DecrementTimer %u → %u [DOS Op_0f]", cur, cur - 1);
+		const uint8 next = uint8(cur - 1);
+		setDosField(0x11, next);
+		if (next != 0) {
+			const uint16 resume = dosFieldWord(0x0e);
+			_offset = resume;
+			debugC(4, kDebugLevelAnimation, "actor opcode 0x0e: DecrementTimer %u → %u, loop 0x%04x [DOS Op_0f]",
+				cur, next, resume);
+		} else {
+			debugC(4, kDebugLevelAnimation, "actor opcode 0x0e: DecrementTimer %u → 0, fall through [DOS Op_0f]", cur);
+		}
 	} else {
 		debugC(5, kDebugLevelAnimation, "actor opcode 0x0e: DecrementTimer (already 0) [DOS Op_0f]");
 	}
@@ -1396,13 +1465,17 @@ OPCODE(0x12) {
 
 OPCODE(0x13) {
 	// C++ slot 0x13 = DOS Op_14 BranchIfRandomMatch (CS:0x6ad9). 6-byte
-	// opcode: reads value at script[+2..+3], reads jump target at
-	// script[+4..+5], rolls random; if matches, jump. ADD BP,6 if not.
-	// 2 shifts. iter-12 had only 1 shift (under by 2). FIXED iter-13.
+	// opcode: reads value at script[+2..+3], calls GetRandomBitsBelow with
+	// that same value, and jumps to script[+4..+5] if returned BX equals
+	// the value. DOS random result is 1..value, so this is a 1/value
+	// branch for nonzero values.
 	uint16 max = shift();
 	uint16 off = shift();
-	debugC(2, kDebugLevelAnimation, "actor opcode 0x13: BranchIfRandomMatch max=%u off=0x%04x STUB (no jump) [DOS Op_14]", max, off);
-	(void)off;
+	const uint16 roll = max ? uint16(Eng.getRandom(uint16(max - 1)) + 1) : 0;
+	debugC(3, kDebugLevelAnimation, "actor opcode 0x13: BranchIfRandomMatch max=%u roll=%u off=0x%04x [DOS Op_14]",
+		max, roll, off);
+	if (max != 0 && roll == max)
+		_offset = off;
 	return kOk;
 }
 
@@ -1443,7 +1516,7 @@ OPCODE(0x20) {
 	// PC of the byte right after the 2-byte opcode header (the start of
 	// the 10-byte body), then skip the body by 5 shifts.
 	const uint16 callbackPC = _baseOffset + _offset;
-	setActorCallback(0xffff /* segment placeholder */, callbackPC);
+	setActorCallback(0 /* current code segment */, callbackPC);
 	// Skip the 10-byte inline body.
 	for (int i = 0; i < 5; i++)
 		(void)shift();
@@ -1454,14 +1527,14 @@ OPCODE(0x20) {
 OPCODE(0x21) {
 	// C++ slot 0x21 = DOS Op_22 SetCallbackRelative (1000:6bf4). 1 shift
 	// (signed int16 offset). DOS:
-	//   if (arg != 0)  callback_off = DI + arg   (script-relative)
+	//   if (arg != 0)  callback_off = DI + arg   (segment-relative)
 	//   else           callback_off = 0          (clear)
 	//   callback_seg = ES
 	const int16 off = (int16)shift();
 	uint16 cbOff = 0;
 	if (off != 0)
-		cbOff = uint16(int32(_baseOffset) + int32(_offset) + int32(off));
-	setActorCallback(0xffff, cbOff);
+		cbOff = uint16(int32(_baseOffset) + int32(off));
+	setActorCallback(0 /* current code segment */, cbOff);
 	debugC(2, kDebugLevelAnimation, "actor opcode 0x21: SetCallbackRelative off=%d → cbOff=0x%04x [DOS Op_22]",
 		off, cbOff);
 	return kOk;
@@ -1470,7 +1543,8 @@ OPCODE(0x21) {
 OPCODE(0x22) {
 	// C++ slot 0x22 = DOS Op_23 ClearCallback (1000:6c0a). 0 args.
 	// Writes 0xffff to actor.field+0x5d (clears the callback segment;
-	// effectively cancels any callback set by Op_20/Op_21).
+	// effectively cancels any callback set by Op_20/Op_21). DOS does not
+	// clear the offset word at +0x5f.
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x22: ClearCallback [DOS Op_23]");
 	clearActorCallback();
 	return kOk;
@@ -1493,47 +1567,48 @@ OPCODE(0x25) {
 }
 
 // ============================================================================
-// Crash-safety stubs for the DOS walk-driver opcodes that aren't yet fully
-// implemented. (0x09 was promoted to a full implementation above; the
-// iter-12 stub is removed to avoid a redefinition.)
+// DOS walk-driver opcodes. These use actor fields +0x61/+0x62 as the
+// current/path target frames; the word argument in 0x0b writes field+0x8
+// (sprite/target ID), not field+0x62.
 // ============================================================================
 
 OPCODE(0x0b) {
 	// C++ slot 0x0b = DOS Op_0c FaceAndWalkWithFrame (1000:69cd). Embedded
-	// facing byte at +1, target frame word at +2..+3. DOS:
-	//   actor.facing (field+0x61) = byte
-	//   SetActorPosition(); GetActorOffset(targetFacing)
+	// current-frame byte at +1, sprite/target word at +2..+3. DOS:
+	//   actor.currentFrame (field+0x61) = byte
+	//   SetActorPosition(); GetActorOffset(field+0x62)
 	//   LookupActorAndStartPath()
-	//   actor.targetFrame (field+8) = target
-	//   actor.walkFlags (field+10) = currentFrame (field+0x10)
+	//   actor.sprite/target field (field+8) = target
+	//   actor.tick countdown (field+0xa) = zero-extended field+0x10
 	//   end script
-	// In the C++ parallel walking model, "facing" maps to _direction; walk
-	// to target uses moveTo() which fills _framequeue.
+	// In the C++ model, field+0x61 maps to _frame and field+0x62 maps to
+	// _nextFrame. The path target is the pre-existing _nextFrame; the
+	// word argument is the sprite field+8, not field+0x62.
 	const byte face = embeddedByte();
-	const uint16 target = shift();
-	debugC(3, kDebugLevelAnimation, "actor opcode 0x0b: FaceAndWalkWithFrame face=%u target=%u [DOS Op_0c]",
-		face, target);
-	if (face >= 1 && face <= 8)
-		_direction = Direction(face);
-	setDosField(0x61, face);
-	_nextFrame = target;
-	setMainSprite(target);
-	if (target != 0xffff && _room == Log.currentRoom() && Log.room())
-		moveTo(target);
+	const uint16 sprite = shift();
+	const uint16 walkTarget = _nextFrame;
+	debugC(3, kDebugLevelAnimation, "actor opcode 0x0b: FaceAndWalkWithFrame face=%u sprite=%u walkTarget=%u [DOS Op_0c]",
+		face, sprite, walkTarget);
+	setFrame(face);
+	if (walkTarget != 0xffff && _room == Log.currentRoom() && Log.room())
+		moveTo(walkTarget);
+	setMainSprite(sprite);
+	copyIntervalToTicks();
 	return kFrameDone;
 }
 
 OPCODE(0x0c) {
 	// C++ slot 0x0c = DOS Op_0d FaceAndWalk (1000:6a0e). Embedded byte at
-	// +1 only — same as 0x0b but no target frame (the actor walks toward
-	// its current targetFacing field). Sets facing, starts path, ends
-	// script. Without separate facing-vs-target-facing modeling in C++,
-	// just set _direction.
+	// +1 only — same as 0x0b but no sprite field+8 write. Sets
+	// field+0x61, updates actor position, starts path toward field+0x62,
+	// copies field+0x10 to +0x0a, and ends script.
 	const byte face = embeddedByte();
+	const uint16 walkTarget = _nextFrame;
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x0c: FaceAndWalk face=%u [DOS Op_0d]", face);
-	if (face >= 1 && face <= 8)
-		_direction = Direction(face);
-	setDosField(0x61, face);
+	setFrame(face);
+	if (walkTarget != 0xffff && _room == Log.currentRoom() && Log.room())
+		moveTo(walkTarget);
+	copyIntervalToTicks();
 	return kFrameDone;
 }
 
@@ -1545,13 +1620,15 @@ OPCODE(0x1b) {
 	//   slot.field4 = arg2 (c)
 	//   slot.field0 = arg3 (a)
 	//   slot.field6 = mode (0)
-	// Overflow sets g_pendingErrorCode = 0xc; we drop silently.
+	// Overflow sets g_pendingErrorCode = 0xc.
 	const uint16 arg1 = shift();
 	const uint16 arg2 = shift();
 	const uint16 arg3 = shift();
 	const bool ok = queueMoveSlot(MoveSlot(arg3, arg1, arg2, 0));
+	if (!ok)
+		Log.setPendingError(0x0c);
 	debugC(2, kDebugLevelAnimation, "actor opcode 0x1b: QueueMoveSlotMode0 (a=%u,b=%u,c=%u) %s [DOS Op_1c]",
-		arg1, arg2, arg3, ok ? "queued" : "DROPPED (queue full)");
+		arg3, arg1, arg2, ok ? "queued" : "DROPPED (queue full)");
 	return kOk;
 }
 
@@ -1562,8 +1639,10 @@ OPCODE(0x1c) {
 	const uint16 arg2 = shift();
 	const uint16 arg3 = shift();
 	const bool ok = queueMoveSlot(MoveSlot(arg3, arg1, arg2, 1));
+	if (!ok)
+		Log.setPendingError(0x0c);
 	debugC(2, kDebugLevelAnimation, "actor opcode 0x1c: QueueMoveSlotMode1 (a=%u,b=%u,c=%u) %s [DOS Op_1d]",
-		arg1, arg2, arg3, ok ? "queued" : "DROPPED (queue full)");
+		arg3, arg1, arg2, ok ? "queued" : "DROPPED (queue full)");
 	return kOk;
 }
 

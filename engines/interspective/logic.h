@@ -56,6 +56,8 @@ public:
 		: _frameCounter(0),
 		  _gameState(0),
 		  _inMapMode(false),
+		  _mapScreenInitialized(false),
+		  _roomActive(true),
 		  _stepPending(false),
 		  _noStep(false),
 		  _menuStashA(0),
@@ -86,6 +88,7 @@ public:
 		  _slowCpu(false),
 		  _cameraX(0), _cameraY(0),
 		  _cameraTargetX(0xffff), _cameraTargetY(0xffff),
+		  _scrollChanged(false),
 		  _inputEnabled(true) {
 		for (int i = 0; i < 7; ++i) _graphicSlots[i] = 0;
 		_castTable.resize(kCastTableCap);
@@ -109,6 +112,12 @@ public:
 	void setGameState(uint16 s) { _gameState = s; }
 	bool inMapMode() const { return _inMapMode; }
 	void setInMapMode(bool v) { _inMapMode = v; }
+	bool mapScreenInitialized() const { return _mapScreenInitialized; }
+	void setMapScreenInitialized(bool v) { _mapScreenInitialized = v; }
+	// DOS g_room_active (DS:0x6740). Cutscene/fullscreen opcodes clear it
+	// to block room interactions; restore opcodes set it again.
+	bool roomActive() const { return _roomActive; }
+	void setRoomActive(bool v) { _roomActive = v; }
 	bool stepPending() const { return _stepPending; }
 	void setStepPending(bool v) { _stepPending = v; }
 	// DOS g_flag_no_step (DS:0x6747). Set by Op_95 to lock player input during
@@ -367,7 +376,9 @@ public:
 	//   +0x02  w_unk_02 (uint16): entity id (Op_c3 arg0)
 	//   +0x04  wX       (int16):  screen X
 	//   +0x06  wY       (int16):  screen Y
-	//   +0x08..0x58     (81 bytes): p_data + bRect_w + bRect_h + sub-rects
+	//   +0x08  bRect_w  (uint8)
+	//   +0x09  bRect_h  (uint8)
+	//   +0x0a..0x58     p_data[79]
 	//
 	// Op_c3 init spec (only fields DOS writes; rest left as zero from
 	// table allocation):
@@ -386,7 +397,7 @@ public:
 		uint16 active;       // wActive: 0 = free, non-zero = active
 		uint16 id;           // w_unk_02
 		int16 x, y;          // wX, wY
-		uint8 raw[81];       // p_data + bRect_w/h, mirroring DOS bytes 0x08..0x58
+		uint8 raw[81];       // raw[0/1]=bRect_w/h, raw[2+n]=p_data[n]
 		CastEntry() : active(0), id(0), x(0), y(0) {
 			for (uint8 i = 0; i < 81; ++i) raw[i] = 0;
 		}
@@ -677,6 +688,7 @@ public:
 	uint16 cameraTargetX() const { return _cameraTargetX; }
 	uint16 cameraTargetY() const { return _cameraTargetY; }
 	void setCameraTarget(uint16 x, uint16 y) { _cameraTargetX = x; _cameraTargetY = y; }
+	bool scrollChanged() const { return _scrollChanged; }
 	bool inputEnabled() const { return _inputEnabled; }
 	void setInputEnabled(bool e) { _inputEnabled = e; }
 
@@ -813,6 +825,7 @@ public:
 	Interpreter *blockInterpreter() const { return _blockInterpreter.get(); }
 	Interpreter *mainInterpreter() const { return _toplevelInterpreter.get(); }
 	void runLater(const CodePointer &, uint16 delay = 0);
+	void runLaterWithMode(const CodePointer &, uint16 mode, uint16 delay = 0);
 	void runLaterWithCurrentMode(const CodePointer &, uint16 delay = 0);
 	bool queueDeferred(const CodePointer &p);
 	uint16 deferredQueuedCount() const;
@@ -870,6 +883,7 @@ private:
 
 	void doChangeRoom();
 	void clearRoomTransientAnimations();
+	void updateScrollPosition();
 	bool redirectDeferredMode(uint16 mode, const CodePointer &target);
 	void runQueued();
 
@@ -906,6 +920,8 @@ private:
 	uint32 _frameCounter;
 	uint16 _gameState;      // DS:0x666e — current entity type (0 none, 1 exit, 2 object, 3 actor)
 	bool _inMapMode;        // DS:0x676e — true while world map is shown
+	bool _mapScreenInitialized; // DOS CS:[0x52a3] — Op_cc first-entry guard
+	bool _roomActive;       // DS:0x6740 — gates room/entity interaction
 	uint16 _currentPlace;   // DOS CS:[0x111] — savegame "place" id, set by Op_c9
 	bool _stepPending;      // DS:0x6748 — set by hotspot click, cleared on action
 	bool _noStep;           // DS:0x6747 — true while control is locked (Op_95/Op_96)
@@ -941,6 +957,7 @@ private:
 	uint16 _graphicSlots[7]; // DS:0x676f..0x677b
 	int16 _cameraX, _cameraY;
 	uint16 _cameraTargetX, _cameraTargetY;
+	bool _scrollChanged; // DS:0x662f, set by UpdateScrollPosition
 	bool _inputEnabled;
 	Common::Array<AnimListEntry> _animList;
 	uint16 _dialogCursor0, _dialogCursor1, _dialogClickGate;  // DOS DS:0x6662, 0x6664, 0x6660

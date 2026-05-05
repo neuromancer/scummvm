@@ -124,6 +124,8 @@ public:
 	Tune(uint16 index);
 	MusicCommand::Status parseNextEvent(EventInfo &info);
 	void setBeat(uint16);
+	void stop();
+	bool isPlaying() const;
 	uint16 beatId() const { return _currentBeat; }
 	void tick();
 
@@ -163,6 +165,9 @@ public:
 	virtual uint32 getTick() { return _tick; }
 	void setBeat(uint16 beat) { _tune->setBeat(beat); }
 	void silence();
+	void stopMusic();
+	void setMaxVolume();
+	bool isPlaying() const;
 
 	friend class Note;
 	friend class MusicCommand;
@@ -172,6 +177,7 @@ private:
 	Tune *_tune;
 	MidiDriver *_midiDriver;
 	MusicScript *_script;
+	MusicType _musicType;
 
 	uint32 _time, _lastTick, _tick;
 };
