@@ -140,12 +140,12 @@ public:
 	public:
 		Speech() : _actor(0) {}
 		~Speech();
-		Speech(Actor *parent, const Common::String &text);
+		Speech(Actor *parent, const Common::String &text, uint16 maxLines);
 		// Variant for Op_40/0x42/0x44: bubble at explicit (x, y)
 		// instead of the speaker's sprite position. Mirrors DOS
 		// SpeakAtTarget where the bubble is drawn near the target
 		// entity rather than the speaker.
-		Speech(Actor *parent, const Common::String &text, Common::Point overridePos);
+		Speech(Actor *parent, const Common::String &text, Common::Point overridePos, uint16 maxLines);
 		bool active() const { return !_text.empty(); }
 		const Common::String &text() const { return _text; }
 		void callWhenDone(const CodePointer &cp) { _cb.push(cp); }
@@ -153,10 +153,15 @@ public:
 		void tick();
 
 	private:
+		void startPage(uint page);
+		Common::Array<Common::String> _pages;
+		uint _pageIndex;
 		Common::String _text;
 		Common::Queue<CodePointer> _cb;
 		uint16 _ticksLeft;
 		Actor *_actor;
+		Common::Point _anchor;
+		byte _color;
 		Common::Rect _rect;
 		Interspective::Sprite *_image;
 	};

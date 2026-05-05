@@ -145,8 +145,10 @@ void Logic::doChangeRoom() {
 	assert (_nextRoom);
 
 	debugC(1, kDebugLevelFlow, "Interspective: changeRoom %u → %u", (uint)_currentRoom, (uint)_nextRoom);
-	if (_nextRoom == _currentRoom)
+	if (_nextRoom == _currentRoom) {
+		_nextRoom = 0;
 		return;
+	}
 	_currentRoom = _nextRoom;
 	_nextRoom = 0;
 	_roomLoop.reset();

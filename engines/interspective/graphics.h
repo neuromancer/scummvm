@@ -84,10 +84,16 @@ public:
 
 	void say(const byte *text, uint16, uint16 frames = 50);
 	// DOS Op_47/0x48: narrator bubble with explicit position + color.
-	// y/x in DOS units (e.g. y=0xb4 = 180 for bottom-of-screen narrator).
+	// x/y in DOS units (Op_45..0x48 resolve arg0 into CX/x, arg1 into DX/y).
 	// color = 0xeb is the canonical DOS narrator color; 0xae is shadow.
+	enum SpeechBubbleMode {
+		kSpeechBubbleAuto = 0,   // actor-targeted slot: dispatch by screen quadrant
+		kSpeechBubbleType1 = 1,  // DOS RenderSpeechBubble / RenderSpeechBubbleTopLeft
+		kSpeechBubbleType2 = 2   // DOS RenderSpeechBubbleBottomRight / RenderSpeechBubbleTopRight
+	};
 	void sayAt(const byte *text, uint16 length, uint16 frames,
-	           uint16 x, uint16 y, byte color);
+	           uint16 x, uint16 y, byte color, uint16 maxLines = 0,
+	           SpeechBubbleMode bubbleMode = kSpeechBubbleType1);
 	bool isSaying() const { return _speech != 0 || !_speechQueue.empty(); }
 	void runWhenSaid(const CodePointer &p);
 
@@ -102,7 +108,8 @@ public:
 	Common::Rect paintText(uint16 left, uint16 top, byte colour, const byte *string, Surface *s, uint16 *lines = 0, uint8 firstLineExtraIndent = 0);
 
 	void paintSpeechBubbleColumn(Sprite *top, Sprite *fill, Common::Point &point, uint8 fill_tiles, Surface *dest);
-	Common::Rect paintSpeechInBubble(Common::Point pos, byte colour, const byte *string, Surface *dest);
+	Common::Rect paintSpeechInBubble(Common::Point pos, byte colour, const byte *string, Surface *dest,
+	                                 SpeechBubbleMode mode = kSpeechBubbleAuto);
 
 	void paintRect(const Common::Rect &r, byte colour = 235);
 
@@ -174,14 +181,18 @@ private:
 	uint16 _speechFramesLeft;
 	uint16 _speechX, _speechY;  // current narrator-bubble position
 	byte _speechColor;          // current narrator-bubble color
+	bool _speechBubble;
+	SpeechBubbleMode _speechBubbleMode;
 	CodePointer _speechDoneCallback;
 	struct SpeechEntry {
-		SpeechEntry() : text(0), length(0), frames(0), x(0), y(0), color(235) {}
+		SpeechEntry() : text(0), length(0), frames(0), x(0), y(0), color(235), bubble(false), bubbleMode(kSpeechBubbleType1) {}
 		byte *text;          // owned: caller transferred via say()
 		uint16 length;
 		uint16 frames;
 		uint16 x, y;          // top-left coords (Op_47/0x48 narrator pos)
 		byte color;           // text color (Op_47/0x48 color arg)
+		bool bubble;          // explicit speech-slot bubble vs raw subtitle text
+		SpeechBubbleMode bubbleMode;
 		CodePointer cb;
 	};
 	Common::Queue<SpeechEntry> _speechQueue;

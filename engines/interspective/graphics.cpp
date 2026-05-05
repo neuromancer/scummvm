@@ -64,6 +64,8 @@ void Graphics::setEngine(Engine *engine) {
 	_speechX = 0;
 	_speechY = 0;
 	_speechColor = 235;
+	_speechBubble = false;
+	_speechBubbleMode = kSpeechBubbleType1;
 	_fullscreen = false;
 }
 
@@ -75,6 +77,11 @@ void Graphics::init() {
 
 void Graphics::paint() {
 	debugC(3, kDebugLevelFlow | kDebugLevelGraphics, ">>>start paint procedure");
+
+	if (_engine->logic()->roomChangePending()) {
+		debugC(2, kDebugLevelFlow | kDebugLevelGraphics, "skipping paint while room restart is pending");
+		return;
+	}
 
 	paintBackdrop();
 	paintInterface();
@@ -171,11 +178,27 @@ void Graphics::paintSpeech() {
 				_speechX = next.x;
 				_speechY = next.y;
 				_speechColor = next.color;
+				_speechBubble = next.bubble;
+				_speechBubbleMode = next.bubbleMode;
 				_speechDoneCallback = next.cb;
-				paintText(_speechX, _speechY, _speechColor, _speech);
+				if (_speechBubble) {
+					Sprite bubble;
+					bubble._hotPoint = Common::Point(0, 0);
+					Common::Rect rect = paintSpeechInBubble(Common::Point(_speechX, _speechY), _speechColor, _speech, &bubble, _speechBubbleMode);
+					paint(&bubble, Common::Point(rect.left, rect.top), kPaintSemiTransparent | kPaintPositionIsTop);
+				} else {
+					paintText(_speechX, _speechY, _speechColor, _speech);
+				}
 			}
 		} else {
-			paintText(_speechX, _speechY, _speechColor, _speech);
+			if (_speechBubble) {
+				Sprite bubble;
+				bubble._hotPoint = Common::Point(0, 0);
+				Common::Rect rect = paintSpeechInBubble(Common::Point(_speechX, _speechY), _speechColor, _speech, &bubble, _speechBubbleMode);
+				paint(&bubble, Common::Point(rect.left, rect.top), kPaintSemiTransparent | kPaintPositionIsTop);
+			} else {
+				paintText(_speechX, _speechY, _speechColor, _speech);
+			}
 			_speechFramesLeft--;
 		}
 	}
@@ -311,79 +334,88 @@ void Graphics::paintSpeechBubbleColumn(Sprite *top, Sprite *fill, Common::Point 
 	}
 }
 
-Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const byte *string, Surface *bubble) {
-	uint16 left = pos.x, top = pos.y;
+Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const byte *string, Surface *bubble,
+                                           SpeechBubbleMode mode) {
+	int left = pos.x, top = pos.y;
 	debugC(1, kDebugLevelGraphics, "painting speech bubble \"%s\" at %d:%d", string, left, top);
-	top += 4;
-
-	bool pointsLeft = left < 160;
-	bool pointsUp = top < 53;
-
-	if (pointsLeft)
-		left += 18;
 
 	uint16 lines;
 	Common::Rect textSize = textMetrics(string, &lines);
+	const int textWidth = textSize.width();
+	const int widthExtra = MAX<int>(4, textWidth > 39 ? textWidth - 39 : 4);
 
 	Sprite * const *bubbles = _resources->bubbles();
 
 	uint8 bubble_indices[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8 };
 
 	uint8 wadj = 0;
-	const uint16 height = (lines >= 3) ? (lines * 12 + 16) : 60;
-	// `pointsUp/Down` describe WHICH SIDE OF THE BUBBLE THE TAIL IS ON
-	// (= which corner of the bubble points back toward the speaker).
-	// Down-tail cases: speaker is in the lower half of the screen, the
-	// bubble extends UPWARD from the speaker — subtract `height` from
-	// `top` so the bubble's top edge is `height` pixels above the speaker.
-	// Up-tail cases: speaker is in the upper half (top < 53), bubble
-	// extends DOWNWARD — leave `top` as-is so the bubble's top edge
-	// starts at the speaker.
-	if (pointsLeft && !pointsUp) {
-		// down-left tail: bubble grows up-right from down-left speaker
-		if (top < height)
-			top = 0;
-		else
-			top -= height;
-		bubble_indices[kBubbleBottomLeft] = kBubbleBottomLeftPoint;
-		wadj = 4;
-		left += 4;
-	} else if (!pointsLeft && !pointsUp) {
-		// down-right tail: bubble grows up-left from down-right speaker
-		if (top < height)
-			top = 0;
-		else
-			top -= height;
-		if (left >= 320)
-			left = 320;
-		const int bubbleWidth = textSize.width() + 69;
-		if (bubbleWidth > left)
-			left = 0;
-		else
-			left -= bubbleWidth;
-		bubble_indices[kBubbleBottomRight] = kBubbleBottomRightPoint;
-		wadj = 0;
-	} else if (pointsLeft && pointsUp) {
-		// up-left tail: bubble grows down-right from up-left speaker.
-		// Don't subtract `height` — bubble starts at speaker.y and
-		// extends downward. Mirrors the down-left case across y.
-		bubble_indices[kBubbleTopLeft] = kBubbleTopLeftPoint;
-		wadj = 4;
-		left += 4;
+	const int height = (lines >= 3) ? (lines * kLineHeight + 16) : 60;
+	const int anchorWidth = widthExtra + 0x45;
+
+	enum DosBubbleVariant {
+		kDosRenderSpeechBubble,
+		kDosRenderSpeechBubbleTopLeft,
+		kDosRenderSpeechBubbleBottomRight,
+		kDosRenderSpeechBubbleTopRight
+	};
+
+	DosBubbleVariant variant;
+	if (mode == kSpeechBubbleType1) {
+		variant = (top < 0x35) ? kDosRenderSpeechBubbleTopLeft : kDosRenderSpeechBubble;
+	} else if (mode == kSpeechBubbleType2) {
+		variant = (top < 0x35) ? kDosRenderSpeechBubbleTopRight : kDosRenderSpeechBubbleBottomRight;
+	} else if (left < 0xa0) {
+		variant = (top + 4 > 0x34) ? kDosRenderSpeechBubbleBottomRight : kDosRenderSpeechBubbleTopRight;
 	} else {
-		// up-right tail: bubble grows down-left from up-right speaker.
-		// Mirror of down-right across y: keep `top` (no subtract), shift
-		// `left` to the LEFT by bubbleWidth so the right edge sits at the
-		// speaker.
+		variant = (top + 4 > 0x34) ? kDosRenderSpeechBubble : kDosRenderSpeechBubbleTopLeft;
+	}
+
+	switch (variant) {
+	case kDosRenderSpeechBubble:
+		// DOS RenderSpeechBubble @ 1000:8f80: bubble grows up-left.
+		if (top < height)
+			top = 0;
+		else
+			top -= height;
 		if (left >= 320)
 			left = 320;
-		const int bubbleWidth = textSize.width() + 69;
-		if (bubbleWidth > left)
+		if (anchorWidth > left)
 			left = 0;
 		else
-			left -= bubbleWidth;
+			left -= anchorWidth;
+		bubble_indices[kBubbleBottomRight] = kBubbleBottomRightPoint;
+		break;
+	case kDosRenderSpeechBubbleTopLeft:
+		// DOS RenderSpeechBubbleTopLeft @ 1000:8ff9: bubble grows down-left.
+		top += 7;
+		if (top < 0)
+			top = 0;
+		if (left >= 320)
+			left = 320;
+		if (anchorWidth > left)
+			left = 0;
+		else
+			left -= anchorWidth;
 		bubble_indices[kBubbleTopRight] = kBubbleTopRightPoint;
-		wadj = 0;
+		break;
+	case kDosRenderSpeechBubbleBottomRight:
+		// DOS RenderSpeechBubbleBottomRight @ 1000:9086: bubble grows up-right.
+		if (top < height)
+			top = 0;
+		else
+			top -= height;
+		wadj = 4;
+		left += 4;
+		bubble_indices[kBubbleBottomLeft] = kBubbleBottomLeftPoint;
+		break;
+	case kDosRenderSpeechBubbleTopRight:
+		// DOS RenderSpeechBubbleTopRight @ 1000:90ee: bubble grows down-right.
+		top += 7;
+		if (top < 0)
+			top = 0;
+		left += 4;
+		bubble_indices[kBubbleTopLeft] = kBubbleTopLeftPoint;
+		break;
 	}
 	debugC(2, kDebugLevelGraphics, "painting speech bubble \"%s\" at (adjusted) %d:%d", string, left, top);
 
@@ -393,8 +425,8 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const
 		vertical_tiles += (bubbleHeight - 60 + 5) / 6;
 
 	uint8 horizontal_tiles = 1;
-	if (textSize.width() > 39)
-		horizontal_tiles = (textSize.width() - 39) / 4;
+	if (widthExtra > 4)
+		horizontal_tiles = widthExtra / 4;
 	if (horizontal_tiles == 0)
 		horizontal_tiles = 1;
 
@@ -421,8 +453,8 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const
 		kSpeechTwoLinesShift = 8,
 		kSpeechVMargin = 8,
 		kSpeechOneLineShift = 0xc,
-		kSpeechLeftIndent = 16,
-		kSpeechFirstLineExtraIndent = 7
+		kSpeechLeftIndent = 15,
+		kSpeechFirstLineExtraIndent = 10
 	};
 
 	int shift = 0;
@@ -431,12 +463,39 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const
 	if (lines == 2)
 		shift = kSpeechTwoLinesShift;
 
-	paintText(kSpeechLeftIndent, kSpeechVMargin + shift, colour, string, bubble, 0, kSpeechFirstLineExtraIndent);
+	Common::Array<Common::String> bubbleLines;
+	Common::String line;
+	for (const byte *p = string; *p; ++p) {
+		if (*p == '\n' || *p == '\r') {
+			bubbleLines.push_back(line);
+			line.clear();
+		} else {
+			line += char(*p);
+		}
+	}
+	bubbleLines.push_back(line);
 
-	if (left + bubble->w >= 320)
+	for (uint i = 0; i < bubbleLines.size(); ++i) {
+		const uint8 extraIndent = (i == 0 || i + 1 == bubbleLines.size()) ? kSpeechFirstLineExtraIndent : 0;
+		paintText(kSpeechLeftIndent + extraIndent,
+		          kSpeechVMargin + shift + i * kLineHeight,
+		          colour,
+		          reinterpret_cast<const byte *>(bubbleLines[i].c_str()),
+		          bubble);
+	}
+
+	if (bubble->w >= 320)
+		left = 0;
+	else if (left < 0)
+		left = 0;
+	else if (left + bubble->w >= 320)
 		left = 320 - bubble->w;
 
-	if (top + bubble->h >= 200)
+	if (bubble->h >= 200)
+		top = 0;
+	else if (top < 0)
+		top = 0;
+	else if (top + bubble->h >= 200)
 		top = 200 - bubble->h;
 
 	Common::Rect rect(left, top, left + bubble->w, top + bubble->h);
@@ -733,40 +792,93 @@ void Graphics::say(const byte *text, uint16 length, uint16 frames) {
 	sayAt(text, length, frames, 0, 0, 235);
 }
 
+static Common::Array<Common::String> paginateSpeechText(const byte *text, uint16 length, uint16 maxLines) {
+	Common::Array<Common::String> pages;
+	Common::String full(reinterpret_cast<const char *>(text), length);
+	if (maxLines == 0) {
+		pages.push_back(full);
+		return pages;
+	}
+
+	Common::String page;
+	uint16 completedLines = 0;
+	for (uint i = 0; i < full.size(); ++i) {
+		const char ch = full[i];
+		if (ch == '\n' || ch == '\r') {
+			if (completedLines + 1 >= maxLines) {
+				pages.push_back(page);
+				page.clear();
+				completedLines = 0;
+			} else {
+				page += '\n';
+				++completedLines;
+			}
+			continue;
+		}
+		page += ch;
+	}
+
+	if (!page.empty())
+		pages.push_back(page);
+	if (pages.empty())
+		pages.push_back(full);
+	return pages;
+}
+
+static byte *copySpeechText(const Common::String &page) {
+	byte *buf = new byte[page.size() + 1];
+	memcpy(buf, page.c_str(), page.size());
+	buf[page.size()] = 0;
+	return buf;
+}
+
+static uint16 speechTicksForText(const Common::String &text) {
+	return MAX<uint16>(30, 3 * uint16(text.size()));
+}
+
 void Graphics::sayAt(const byte *text, uint16 length, uint16 frames,
-                     uint16 x, uint16 y, byte color) {
+                     uint16 x, uint16 y, byte color, uint16 maxLines,
+                     SpeechBubbleMode bubbleMode) {
 	// Callers pass `length = strlen(text)` (no NUL counted). paintText
 	// scans with `while ((ch = *string++))` and needs a NUL terminator,
 	// so over-allocate by 1 and write a sentinel. Without this, paintText
 	// reads past the end of the heap allocation and ASan trips
 	// (caught iter-29: 21-byte allocation, paintText reading byte 22).
-	if (_speech) {
-		// Queue this utterance to play after the current one (and any
-		// already-queued ones) finish. The text buffer is owned by the
-		// queue entry until paintSpeech promotes it into _speech.
+	Common::Array<Common::String> pages = paginateSpeechText(text, length, maxLines);
+	bool started = false;
+	for (uint i = 0; i < pages.size(); ++i) {
 		SpeechEntry e;
-		e.text = new byte[length + 1];
-		memcpy(e.text, text, length);
-		e.text[length] = 0;
-		e.length = length;
-		e.frames = frames;
+		e.text = copySpeechText(pages[i]);
+		e.length = uint16(pages[i].size());
+		e.frames = (pages.size() == 1) ? frames : speechTicksForText(pages[i]);
 		e.x = x;
 		e.y = y;
 		e.color = color;
-		_speechQueue.push(e);
-		debugC(2, kDebugLevelGraphics, "queued speech at %u,%u (queue size %u)",
-			x, y, (uint)_speechQueue.size());
-		return;
+		e.bubble = maxLines != 0 || x != 0 || y != 0;
+		e.bubbleMode = bubbleMode;
+
+		if (_speech || i != 0) {
+			// Queue this utterance to play after the current one (and any
+			// already-queued ones) finish. The text buffer is owned by the
+			// queue entry until paintSpeech promotes it into _speech.
+			_speechQueue.push(e);
+			debugC(2, kDebugLevelGraphics, "queued speech at %u,%u (queue size %u)",
+				x, y, (uint)_speechQueue.size());
+			continue;
+		}
+
+		_speech = e.text;
+		_speechFramesLeft = e.frames;
+		_speechX = e.x;
+		_speechY = e.y;
+		_speechColor = e.color;
+		_speechBubble = e.bubble;
+		_speechBubbleMode = e.bubbleMode;
+		started = true;
 	}
 
-	_speech = new byte[length + 1];
-	memcpy(_speech, text, length);
-	_speech[length] = 0;
-	_speechFramesLeft = frames;
-	_speechX = x;
-	_speechY = y;
-	_speechColor = color;
-	paintSpeech();
+	if (started)
+		paintSpeech();
 }
 
 void Graphics::runWhenSaid(const CodePointer &cb) {

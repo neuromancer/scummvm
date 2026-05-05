@@ -805,6 +805,7 @@ public:
 	Room *room() const { return _room.get(); }
 	uint16 roomNumber() const { return _currentRoom; }
 	uint16 currentRoom() const { return _currentRoom; }
+	bool roomChangePending() const { return _nextRoom != 0; }
 	uint16 currentBlock() const { return _currentBlock; }
 	Actor *getActor(uint16 id) const;
 

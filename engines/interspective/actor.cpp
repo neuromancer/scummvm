@@ -125,11 +125,11 @@ void Actor::callMeWhenSilent(const CodePointer &cp) {
 }
 
 void Actor::say(const Common::String &text) {
-	_speech = Speech(this, text);
+	_speech = Speech(this, text, 3);
 }
 
 void Actor::sayAtPos(const Common::String &text, Common::Point pos) {
-	_speech = Speech(this, text, pos);
+	_speech = Speech(this, text, pos, 2);
 }
 
 Actor::Speech::~Speech() { while (!_cb.empty()) Log.runLater(_cb.pop()); }
@@ -459,6 +459,7 @@ void Actor::readHeader(const byte *code) {
 	uint16 sprite = READ_LE_UINT16(code + kOffsetMainSprite);
 	_nextFrame = sprite;
 	_room = READ_LE_UINT16(code + kOffsetRoom);
+	setDosField(0x70, code[0x70]);
 
 	debugC(3, kDebugLevelFiles, "loading %s: interv %d ticks %d z%d pos%d:%d code %d offset %d sprite %d room %d", _debugInfo, _interval, _ticksLeft, _zIndex, _position.x, _position.y, baseOff, _offset, sprite, _room);
 
@@ -520,7 +521,46 @@ CodePointer Puppeteer::turnAnimator(Direction d) {
 	return CodePointer(off, Log.mainInterpreter());
 }
 
-Actor::Speech::Speech(Actor *parent, const Common::String &text) : _text(text), _actor(parent) {
+static uint16 speechTicksForText(const Common::String &text) {
+	return MAX<uint16>(30, 3 * uint16(text.size()));
+}
+
+static Common::Array<Common::String> paginateSpeechText(const Common::String &text, uint16 maxLines) {
+	Common::Array<Common::String> pages;
+	if (maxLines == 0) {
+		pages.push_back(text);
+		return pages;
+	}
+
+	Common::String page;
+	uint16 completedLines = 0;
+	for (uint i = 0; i < text.size(); ++i) {
+		const char ch = text[i];
+		if (ch == '\n' || ch == '\r') {
+			if (completedLines + 1 >= maxLines) {
+				pages.push_back(page);
+				page.clear();
+				completedLines = 0;
+			} else {
+				page += '\n';
+				++completedLines;
+			}
+			continue;
+		}
+		page += ch;
+	}
+
+	if (!page.empty())
+		pages.push_back(page);
+	if (pages.empty())
+		pages.push_back(text);
+	return pages;
+}
+
+Actor::Speech::Speech(Actor *parent, const Common::String &text, uint16 maxLines)
+		: _pages(paginateSpeechText(text, maxLines)), _pageIndex(0), _actor(parent),
+		  _anchor(parent->getSpeechPosition()), _color(parent->dosField(0x70) ? parent->dosField(0x70) : 235),
+		  _image(0) {
 	// DOS paces dialog by sample (audio) playback length — typically
 	// a few seconds. Without samples, the bubble must stay up long
 	// enough to read it. Approximate sample duration from text length:
@@ -529,29 +569,46 @@ Actor::Speech::Speech(Actor *parent, const Common::String &text) : _text(text), 
 	//   from short interjections to long monologue. Previously this was
 	//   hardcoded to 20 ticks (~0.8s) which made the intro feel rushed
 	//   compared to DOS. [iter-33]
-	_ticksLeft = MAX<uint16>(30, 3 * uint16(text.size()));
-	const Common::Point &position = parent->getSpeechPosition();
 	debugC(1, kDebugLevelActor, "adding speech \"%s\" (%u ticks) for %s at %d:%d",
-		text.c_str(), (uint)_ticksLeft, parent->_debugInfo, position.x, position.y);
-	_image = new Interspective::Sprite;
-	_rect = Graf.paintSpeechInBubble(position, 235, reinterpret_cast<const byte *>(text.c_str()), _image);
+		text.c_str(), (uint)speechTicksForText(_pages[0]), parent->_debugInfo, _anchor.x, _anchor.y);
+	startPage(0);
 }
 
-Actor::Speech::Speech(Actor *parent, const Common::String &text, Common::Point overridePos)
-		: _text(text), _actor(parent) {
-	_ticksLeft = MAX<uint16>(30, 3 * uint16(text.size()));
+Actor::Speech::Speech(Actor *parent, const Common::String &text, Common::Point overridePos, uint16 maxLines)
+		: _pages(paginateSpeechText(text, maxLines)), _pageIndex(0), _actor(parent),
+		  _anchor(overridePos), _color(parent->dosField(0x70) ? parent->dosField(0x70) : 235),
+		  _image(0) {
 	debugC(1, kDebugLevelActor, "adding speech \"%s\" (%u ticks) for %s at OVERRIDE %d:%d",
-		text.c_str(), (uint)_ticksLeft, parent->_debugInfo, overridePos.x, overridePos.y);
+		text.c_str(), (uint)speechTicksForText(_pages[0]), parent->_debugInfo, overridePos.x, overridePos.y);
+	startPage(0);
+}
+
+void Actor::Speech::startPage(uint page) {
+	_pageIndex = page;
+	_text = _pages[_pageIndex];
+	_ticksLeft = speechTicksForText(_text);
 	_image = new Interspective::Sprite;
-	_rect = Graf.paintSpeechInBubble(overridePos, 235, reinterpret_cast<const byte *>(text.c_str()), _image);
+	_image->_hotPoint = Common::Point(0, 0);
+	_rect = Graf.paintSpeechInBubble(_anchor, _color, reinterpret_cast<const byte *>(_text.c_str()), _image);
 }
 
 void Actor::Speech::tick() {
-	unless (_ticksLeft--) {
-		_text.clear();
-		while (!_cb.empty())
-			Log.runLater(_cb.pop());
+	if (_text.empty())
+		return;
+
+	if (_ticksLeft) {
+		--_ticksLeft;
+		return;
 	}
+
+	if (_pageIndex + 1 < _pages.size()) {
+		startPage(_pageIndex + 1);
+		return;
+	}
+
+	_text.clear();
+	while (!_cb.empty())
+		Log.runLater(_cb.pop());
 }
 
 Common::Point Actor::getSpeechPosition() const {

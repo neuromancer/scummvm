@@ -374,9 +374,14 @@ enum {
 };
 
 void Sprite::recolour(byte colour) {
-	// TODO: std::replace
-	//byte *data = reinterpret_cast<byte *>(pixels);
-	//std::replace(data, data + h * pitch, byte(kChangeableColour), colour);
+	byte *data = reinterpret_cast<byte *>(getPixels());
+	for (uint16 y = 0; y < h; ++y) {
+		for (uint16 x = 0; x < w; ++x) {
+			if (data[x] == kChangeableColour)
+				data[x] = colour;
+		}
+		data += pitch;
+	}
 }
 
 template<>

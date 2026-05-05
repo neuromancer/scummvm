@@ -73,11 +73,10 @@ static bool runDisableEnableUnregister(Logic *logic, uint16 cellId, uint16 enabl
 // modern hosts have no RAM constraint, so the 6-slot cap is a
 // non-issue.
 //
-// If `target` is non-null, the bubble is anchored at the target's
-// position instead of the speaker's sprite — mirrors DOS
-// SpeakAtTarget (Op_40/0x42/0x44) where the bubble appears near
-// the target entity rather than the speaker.
-static void speakOrSubtitle(Actor *speaker, const Common::String &text, Actor *target = 0) {
+// If `target` is non-null, DOS still anchors the bubble at the speaker's
+// actor slot; the target id only affects the readiness/walk path. The
+// visible difference is that target speech uses the shorter two-line pages.
+static void speakOrSubtitle(Actor *speaker, const Common::String &text, Actor *target = 0, bool targetSpeech = false) {
 	if (Log.inMapMode()) {
 		// DOS map-mode: CheckSubtitleActive + RegisterSampleSlot_LoadDefaultsB
 		// or QueueDeferredFormattedText. Closest C++ analog: render text
@@ -90,8 +89,8 @@ static void speakOrSubtitle(Actor *speaker, const Common::String &text, Actor *t
 	}
 	if (!speaker)
 		return;
-	if (target) {
-		Common::Point anchor = target->getSpeechPosition();
+	if (target || targetSpeech) {
+		Common::Point anchor = speaker->getSpeechPosition();
 		speaker->sayAtPos(text, anchor);
 	} else {
 		speaker->say(text);
@@ -112,7 +111,8 @@ static bool deferSpeechUntilReady(Actor *speaker, const CodePointer &current) {
 	return false;
 }
 
-static void sayNarratorOrSubtitle(const byte *text, uint16 x, uint16 y, byte color) {
+static void sayNarratorOrSubtitle(const byte *text, uint16 x, uint16 y, byte color, uint16 maxLines = 0,
+                                  Graphics::SpeechBubbleMode bubbleMode = Graphics::kSpeechBubbleType1) {
 	if (!text)
 		return;
 	const uint16 length = (uint16)strlen(reinterpret_cast<const char *>(text));
@@ -122,7 +122,7 @@ static void sayNarratorOrSubtitle(const byte *text, uint16 x, uint16 y, byte col
 	if (Log.inMapMode())
 		Graf.say(text, length, ticks);
 	else
-		Graf.sayAt(text, length, ticks, x, y, color);
+		Graf.sayAt(text, length, ticks, x, y, color, maxLines, bubbleMode);
 }
 
 static bool waitForSampleStandIn(Actor *actor, const CodePointer &next) {
@@ -132,6 +132,10 @@ static bool waitForSampleStandIn(Actor *actor, const CodePointer &next) {
 			return true;
 		}
 		return false;
+	}
+	if (Graf.isSaying()) {
+		Graf.runWhenSaid(next);
+		return true;
 	}
 	if (actor && actor->isSpeaking()) {
 		actor->callMeWhenSilent(next);
@@ -663,7 +667,7 @@ OPCODE(0x43) {
 }
 
 OPCODE(0x47) {
-	// DOS Op_47_SpeakWithRect @ 1000:3eb6: 5 args (y, x, color, lines, text).
+	// DOS Op_47_SpeakWithRect @ 1000:3eb6: 5 args (x, y, color, lines, text).
 	//   if (g_in_map_mode == 0) AllocSpeechSlot_NoFormatting +
 	//       stash arg2 in g_unknown_669a;
 	//   else CheckSubtitleActive → RegisterSampleSlot_LoadDefaultsB or
@@ -672,13 +676,14 @@ OPCODE(0x47) {
 	// (no actor — bubble at the explicit (x,y) position with the
 	// given color). C++ uses Graphics::sayAt to render at (x, y)
 	// with the color arg.
-	const uint16 y = uint16(a[0]);
-	const uint16 x = uint16(a[1]);
+	const uint16 x = uint16(a[0]);
+	const uint16 y = uint16(a[1]);
 	const byte color = uint8(uint16(a[2]) & 0xff);
+	const uint16 maxLines = uint16(a[3]);
 	const byte *text = static_cast<byte *>(a[4]);
-	debugC(1, kDebugLevelScript, "opcode 0x47: narrator at (%u,%u) color=%u text='%s'",
-		x, y, color, text ? reinterpret_cast<const char *>(text) : "(null)");
-	sayNarratorOrSubtitle(text, x, y, color);
+	debugC(1, kDebugLevelScript, "opcode 0x47: narrator at (%u,%u) color=%u lines=%u text='%s'",
+		x, y, color, maxLines, text ? reinterpret_cast<const char *>(text) : "(null)");
+	sayNarratorOrSubtitle(text, x, y, color, maxLines, Graphics::kSpeechBubbleType1);
 	return kThxBye;
 }
 
@@ -1321,8 +1326,9 @@ OPCODE(0x4c) {
 	// RegisterSampleSlot_Common epilogue as Op_4a/0x4b. Map-mode
 	// uses Bare2; non-map uses Bare3 (which differs from Bare9 in
 	// some sound-driver details but the Common save + break is
-	// identical). C++ waits on the same map subtitle / protagonist speech
-	// stand-in as Op_4a. Pending-error 0x39 if active switch / call.
+	// identical). C++ waits on any active narrator/subtitle speech slot,
+	// then on the actor slot supplied by the caller. Pending-error 0x39
+	// if active switch / call.
 	if (Log.branchState() != 0 || Log.callDepth() != 0) {
 		Log.setPendingError(0x39);
 		return kThxBye;
@@ -2479,9 +2485,8 @@ OPCODE(0x3f) {
 }
 OPCODE(0x40) {
 	// DOS Op_40_SpeakAtTarget @ 1000:3da2: arg0=target id, arg1=text.
-	// Target positioning anchors the bubble near the target entity's
-	// sprite. C++ resolves arg0 as an actor and uses its
-	// getSpeechPosition() as the bubble anchor.
+	// Target id affects the pre-walk/readiness path; DOS speech-slot
+	// allocation still derives the bubble origin from the speaker actor.
 	Actor *protag = Log.protagonist();
 	Actor *target = Log.getActor(a[0]);
 	debugC(1, kDebugLevelScript, "opcode 0x40: main says %s @ target %s%s",
@@ -2493,7 +2498,7 @@ OPCODE(0x40) {
 	}
 	if (deferSpeechUntilReady(protag, current))
 		return kReturn;
-	speakOrSubtitle(protag, a[1], target);
+	speakOrSubtitle(protag, a[1], target, true);
 	return kThxBye;
 }
 OPCODE(0x42) {
@@ -2504,7 +2509,7 @@ OPCODE(0x42) {
 		+a[1], +a[0], target ? "" : " (unresolved)");
 	if (deferSpeechUntilReady(protag, current))
 		return kReturn;
-	speakOrSubtitle(protag, a[1], target);
+	speakOrSubtitle(protag, a[1], target, true);
 	return kThxBye;
 }
 OPCODE(0x44) {
@@ -2516,22 +2521,22 @@ OPCODE(0x44) {
 		+a[0], +a[2], +a[1], target ? "" : " (unresolved)");
 	if (deferSpeechUntilReady(ac, current))
 		return kReturn;
-	speakOrSubtitle(ac, a[2], target);
+	speakOrSubtitle(ac, a[2], target, true);
 	return kThxBye;
 }
 OPCODE(0x45) {
-	// DOS Op_45_SpeakWithDelay @ 1000:3e68: 4 args (y, x, color, text).
+	// DOS Op_45_SpeakWithDelay @ 1000:3e68: 4 args (x, y, color, text).
 	//   if (!map_mode) AllocSpeechSlot_NoFormatting + stash arg2;
 	//   else map-mode subtitle.
 	// AllocSpeechSlot_NoFormatting = narrator-style bubble at the
 	// explicit (x, y) with color — NOT tied to any actor.
 	const byte *text = static_cast<byte *>(a[3]);
-	const uint16 y = uint16(a[0]);
-	const uint16 x = uint16(a[1]);
+	const uint16 x = uint16(a[0]);
+	const uint16 y = uint16(a[1]);
 	const byte color = uint8(uint16(a[2]) & 0xff);
 	debugC(1, kDebugLevelScript, "opcode 0x45: narrator at (%u,%u) color=%u text='%s'",
 		x, y, color, text ? reinterpret_cast<const char *>(text) : "(null)");
-	sayNarratorOrSubtitle(text, x, y, color);
+	sayNarratorOrSubtitle(text, x, y, color, 0, Graphics::kSpeechBubbleType1);
 	return kThxBye;
 }
 OPCODE(0x46) {
@@ -2540,12 +2545,12 @@ OPCODE(0x46) {
 	// stash differs (an alternate hint slot) but the visible
 	// behaviour is identical from the script's perspective.
 	const byte *text = static_cast<byte *>(a[3]);
-	const uint16 y = uint16(a[0]);
-	const uint16 x = uint16(a[1]);
+	const uint16 x = uint16(a[0]);
+	const uint16 y = uint16(a[1]);
 	const byte color = uint8(uint16(a[2]) & 0xff);
 	debugC(1, kDebugLevelScript, "opcode 0x46: narrator (alt) at (%u,%u) color=%u text='%s'",
 		x, y, color, text ? reinterpret_cast<const char *>(text) : "(null)");
-	sayNarratorOrSubtitle(text, x, y, color);
+	sayNarratorOrSubtitle(text, x, y, color, 0, Graphics::kSpeechBubbleType2);
 	return kThxBye;
 }
 
@@ -2557,17 +2562,18 @@ OPCODE(0x46) {
 // semantics. Modal text/menu handlers stop dispatch with kReturn while
 // their RunVerbMenuModalLoop-equivalent visible text is active.
 OPCODE(0x48) {
-	// DOS Op_48_SpeakWithRectAndPos @ 1000:3ea7: 5 args (y, x, color,
+	// DOS Op_48_SpeakWithRectAndPos @ 1000:3ea7: 5 args (x, y, color,
 	// lines, text). Same shared-tail as Op_47 but reads via
 	// ReadVarBySlot_RHS (different argument-resolution path); for
 	// the script-observable behaviour the args have the same meaning.
-	const uint16 y = uint16(a[0]);
-	const uint16 x = uint16(a[1]);
+	const uint16 x = uint16(a[0]);
+	const uint16 y = uint16(a[1]);
 	const byte color = uint8(uint16(a[2]) & 0xff);
+	const uint16 maxLines = uint16(a[3]);
 	const byte *text = static_cast<byte *>(a[4]);
-	debugC(1, kDebugLevelScript, "opcode 0x48: narrator at (%u,%u) color=%u text='%s'",
-		x, y, color, text ? reinterpret_cast<const char *>(text) : "(null)");
-	sayNarratorOrSubtitle(text, x, y, color);
+	debugC(1, kDebugLevelScript, "opcode 0x48: narrator at (%u,%u) color=%u lines=%u text='%s'",
+		x, y, color, maxLines, text ? reinterpret_cast<const char *>(text) : "(null)");
+	sayNarratorOrSubtitle(text, x, y, color, maxLines, Graphics::kSpeechBubbleType2);
 	return kThxBye;
 }
 OPCODE(0x49) {
