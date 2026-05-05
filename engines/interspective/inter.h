@@ -112,7 +112,16 @@ private:
 
 	byte *_base;
 	uint16 _mode;
+	uint16 _runEntry;  // entry offset of current run() — DOS g_block_start_di
+	                   // analog. Used by Op_ab/0xad yield path to re-queue
+	                   // the script's start (per DOS RegisterSampleSlot_
+	                   // LoadDefaultsAndMark semantics — restart whole
+	                   // script next tick, not just the yielding opcode).
 
+public:
+	uint16 runEntry() const { return _runEntry; }
+
+private:
 	Status run(uint16 offset);
 
 	void setRoomLoop(byte *code);

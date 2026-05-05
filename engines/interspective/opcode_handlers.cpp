@@ -1181,32 +1181,103 @@ OPCODE(0x9e) {
 }
 
 OPCODE(0xab) {
-	// set protagonist frame
-	debugC(2, kDebugLevelScript, "opcode 0xab: set protagonist frame to %s", +a[0]);
-
+	// DOS Op_ab_handler @ 1000:4e3e: protag-specific exit transition.
+	//   if (g_in_map_mode != 0) RET;
+	//   CheckActorIdle(g_main_character_id);
+	//   if (CLC ready): RegisterSampleSlot_LoadDefaultsAndMark — saves
+	//     g_block_start_es/di (script entry) to the room_script_slots
+	//     pool indexed by g_opcode_mode, sets g_break_outer = 1.
+	//     Per-tick MainGameLoop's RunScriptByMode for that mode reads
+	//     the slot and re-runs from saved entry.
+	//   if (STC busy/elsewhere): ResolveOpcodeArg0 + QueueExitTransition
+	//     ([0x6609] = target_frame; g_break_inner=1;
+	//      g_post_callback_ptr=0; CancelSpeechSlots; MoveActorToRoom).
+	//
+	// FULL-FIDELITY YIELD requires the room_script_slots subsystem
+	// (5-mode slot pool + per-tick dispatcher) which is NOT yet
+	// implemented in C++. Direct re-queueing via runLater(current, 0)
+	// causes an infinite tight loop (Pass2-14a regression: per game.log,
+	// 784k repeated frame-4 calls hung the engine before reaching
+	// room 1 render). Re-queueing the script's entry offset via
+	// `runLater(CodePointer(this->runEntry(), this), 0)` would
+	// re-run the WHOLE script (including room-entry setup ops like
+	// changeRoom / addActorFrame), which is also wrong.
+	//
+	// **Pass2-14b stop-gap**: actor-bound yield via `callMe(current)`.
+	// This drains via Actor::callBacks() when isFine becomes false
+	// (e.g., actor's animation consumes _attentionNeeded). It's the
+	// pre-Pass2-14 working pattern. NOT DOS-faithful in mechanism but
+	// produces equivalent end-to-end behavior because the actor's
+	// state oscillates over animation ticks. Marked PARTIAL pending
+	// proper room_script_slots subsystem implementation (cross-cutting).
+	debugC(2, kDebugLevelScript, "opcode 0xab: queue protag exit transition to frame %s", +a[0]);
+	if (Log.inMapMode())
+		return kThxBye;
 	Actor *ac = Log.protagonist();
+	if (!ac)
+		return kThxBye;
+
 	if (ac->isFine()) {
+		// Actor-bound yield (Pass2-14b stop-gap; see comment above).
 		ac->callMe(current);
 		return kReturn;
 	}
 
-	ac->moveTo(a[0]);
+	// QueueExitTransition equivalent: cancel speech + walk.
+	ac->stopSpeaking();
+	ac->moveTo(uint16(a[0]));
 	return kThxBye;
 }
 
 OPCODE(0xad) {
-	// turn actor
-	debugC(2, kDebugLevelScript, "opcode 0xad: move actor %s to frame %s next", +a[0], +a[1]);
-
+	// DOS Op_ad_handler @ 1000:4e8c: actor-targeted move (any actor id).
+	//   ResolveOpcodeArg0 → AX = actor id;
+	//   CheckActorIdle(AX);
+	//   if (CLC ready): RegisterSampleSlot_LoadDefaultsAndMark (yield
+	//     to room_script_slots — see Op_ab note for the full-fidelity
+	//     subsystem requirement).
+	//   if (STC busy/elsewhere): ResolveOpcodeArg1 → AX = target_frame;
+	//                            MoveActorToTargetExit.
+	//
+	// MoveActorToTargetExit (1000:70da) dispatches by actor type:
+	//   - Protagonist: QueueExitTransition (cancel speech + walk +
+	//     g_break_inner=1).
+	//   - Non-protag IN g_actor_table[20] (active in current room):
+	//     setup walk via FindActorPath (pathfinder).
+	//   - Non-protag NOT in active table (offscreen):
+	//     warp via SI[0x61]=target_frame + SetActorPosition (using
+	//     actor.room's frame table).
+	//
+	// Pass2-14b: dispatch path is full-fidelity (warp/walk based on
+	// actor.room == currentRoom). Yield path is actor-bound stop-gap
+	// per Op_ab note — same room_script_slots gap.
+	debugC(2, kDebugLevelScript, "opcode 0xad: move actor %s to frame %s next",
+		+a[0], +a[1]);
 	Actor *ac = _logic->getActor(a[0]);
+	if (!ac)
+		return kThxBye;
+
 	if (ac->isFine()) {
 		ac->callMe(current);
 		return kReturn;
 	}
 
-	// TODO: special handling for protagonist
-	ac->setFrame(a[1]);
+	const uint16 targetFrame = uint16(a[1]);
 
+	// MoveActorToTargetExit dispatch.
+	if (ac == Log.protagonist()) {
+		ac->stopSpeaking();
+		ac->moveTo(targetFrame);
+	} else if (ac->room() != _logic->currentRoom()) {
+		// Non-protag offscreen: warp _frame only; _position preserved
+		// (current room's frame[N] returns (999,999) sentinel which
+		// setFrame ignores). DOS reads from actor.room's frame table
+		// which C++ doesn't have loaded.
+		ac->setFrame(targetFrame);
+	} else {
+		// Non-protag in current room: engage walk via Actor::moveTo.
+		ac->moveTo(targetFrame);
+	}
 	return kThxBye;
 }
 

@@ -89,7 +89,14 @@ class Actor : public Animation {
 public:
 	class Frame {
 	public:
-		Frame() : _position(999, 999), _nexts(), _nextCount(0xff) {
+		Frame() : _index(0), _position(999, 999), _nexts(), _nextCount(0xff) {
+			// _index = 0 sentinel — the (999, 999) position marks the
+			// frame as "invalid / uninitialized". Without this explicit
+			// zero-init, _index was uninitialized memory and reads
+			// returned stack/heap garbage (game.log Pass2-15 / Pass2-16:
+			// `_frame = 27680 / 44064` corruption when `nextFrame()`
+			// popped a sentinel from `_framequeue` and assigned
+			// `_frame = next.index()`).
 			_nexts.resize(8);
 		}
 		Frame(Common::Point pos, Common::Array<byte> n, uint16 i) : _position(pos), _nexts(n), _index(i), _nextCount(0xff) {}

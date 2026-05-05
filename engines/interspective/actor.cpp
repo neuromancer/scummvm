@@ -290,20 +290,33 @@ void Actor::moveTo(uint16 frame) {
 		return;
 	}
 
+	// Validate target frame BEFORE running findPath. If target is invalid
+	// in current room (e.g., target lives in a different room and C++
+	// only has the player's current room loaded), do a soft warp via
+	// setFrame() — same as the !valid-current-frame branch above.
+	// Pushing a sentinel Frame onto _framequeue causes _frame corruption
+	// on the next nextFrame() pop (Pass2-16 game.log: 44064 garbage
+	// value from sentinel.index() reads).
+	const Frame targetFrame = Log.room()->getFrame(frame);
+	if (targetFrame.position().x == 999) {
+		debugC(3, kDebugLevelActor, "moveTo(%u): warp (target frame invalid in current room)", (uint)frame);
+		setFrame(frame);
+		return;
+	}
+
 	Common::List<Frame> path = findPath(cur, frame);
 
 	// findPath now returns an EMPTY list when the target is unreachable
 	// (matches DOS bound-check on visited buffer). Treat that as a
-	// single-frame warp — same fallback the original code took for the
-	// "last frame != target" case.
+	// single-frame walk to the validated target.
 	if (path.empty()) {
-		path.push_back(Log.room()->getFrame(frame));
+		path.push_back(targetFrame);
 	} else {
 		Common::List<Frame>::iterator it = path.end();
 		it--;
 		if (it->index() != frame) {
 			Common::List<Frame> p;
-			p.push_back(Log.room()->getFrame(frame));
+			p.push_back(targetFrame);
 			path = p;
 		}
 	}
@@ -1065,21 +1078,21 @@ OPCODE(0x24) {
 // DOS-faithful overrides for the movement / frame-state opcode family
 // (DOS Op_03..Op_0a, C++ slots 0x02..0x09). Phase-2 of the iter-10 roadmap.
 //
-// The Animation::opcodeHandler<N> fall-through coincidentally consumes the
-// right number of script bytes for each of these slots (so PC alignment
-// stays correct), but writes the data to the WRONG actor field. For
-// example, Animation::0x03 ("set interval") writes _interval, but DOS Op_04
-// SetCurrentFrame writes the actor's current-frame byte. The visible
-// effect of the Animation fall-through is wrong animation timing AND wrong
-// per-frame state — bad enough to drive the engine off the rails during
-// any cutscene that uses these opcodes.
-//
-// Each override below writes the correct C++ Actor field per the DOS
-// semantics. Ops that end the script (Op_06..0a; DOS sets
-// g_actor_script_ended = 1) return kFrameDone, which makes the C++
-// dispatcher break out of the per-tick opcode loop and queue
+// Most of these ops end the script (Op_06..0a; DOS sets
+// g_actor_script_ended = 1) and return kFrameDone — the C++ dispatcher
+// breaks out of the per-tick opcode loop and queues
 // _ticksLeft = _interval before the next tick. Ops that don't end the
 // script return kOk (continue with the next opcode this tick).
+//
+// **Pass2-17 NOTE**: Op_04/Op_05 (slots 0x03/0x04) are NOT
+// "SetCurrentFrame" / "SetCurrentFrameFromGlobal" despite the original
+// label. DOS @ 1000:6912 / 1000:691d both write to actor `[SI+0x10]` =
+// `kOffsetInterval` (Animation `_interval`), NOT field+0x61 (`_frame`).
+// The original Animation::OPCODE(0x03)/(0x04) ("set interval") was
+// correct; an earlier override misclassified the op name and clobbered
+// `_frame=0` mid-walk, locking the actor in `nextFrame`/`turnTo` cycles.
+// The slot-0x03/0x04 overrides below now match DOS — kept for symmetry
+// with the rest of the family.
 // ============================================================================
 
 OPCODE(0x02) {
@@ -1097,43 +1110,54 @@ OPCODE(0x02) {
 }
 
 OPCODE(0x03) {
-	// C++ slot 0x03 = DOS Op_04 SetCurrentFrame (1000:6912). 1 shift.
-	// Writes the LOW BYTE of the word to actor.field+0x10 (current
-	// frame). Animation::0x03 ("set interval") wrote _interval — wrong
-	// target. Now writes _frame.
+	// C++ slot 0x03 = DOS Op_04 SetInterval (1000:6912). 1 shift.
+	//   MOV AX, ES:[BP+DI+2]      ; arg word
+	//   MOV byte ptr [SI+0x10], AL ; field+0x10 = AL  (interval byte)
+	//   ADD BP, 4 / RET
+	// field+0x10 = kOffsetInterval = Animation::_interval (NOT frame —
+	// _frame is field+0x61 per Op_7a / moveTo comment). Pass2-17: prior
+	// override wrote `_frame` based on a misclassification of the opcode
+	// name; that wiped pathfinding state mid-script and was the ROOT
+	// CAUSE of the room-1 stuck loop (game.log Pass2-16). Now writes
+	// _interval, matching DOS [SI+0x10].
 	const uint16 word = shift();
-	const uint8 frame = uint8(word);
-	debugC(3, kDebugLevelAnimation, "actor opcode 0x03: SetCurrentFrame %u [DOS Op_04]", frame);
-	_frame = frame;
+	const uint8 interval = uint8(word);
+	debugC(3, kDebugLevelAnimation, "actor opcode 0x03: SetInterval %u [DOS Op_04]", interval);
+	_interval = interval;
 	return kOk;
 }
 
 OPCODE(0x04) {
-	// C++ slot 0x04 = DOS Op_05 SetCurrentFrameFromGlobal (1000:691d).
-	// 1 shift. Reads the global WORD var at index (offset/2), takes low
-	// byte, writes to actor's current frame. Animation::0x04 wrote
-	// _interval — wrong target. Now writes _frame.
+	// C++ slot 0x04 = DOS Op_05 SetIntervalFromGlobal (1000:691d). 1 shift.
+	//   reads global word var at index (arg/2)
+	//   writes its low byte to [SI+0x10] = Animation::_interval.
+	// Pass2-17: same misclassification fix as 0x03 — was wrongly writing
+	// _frame, which kept resetting pathfinding state to 0 every cycle in
+	// the room-1 loop. Now writes _interval per DOS.
 	const uint16 offset = shift();
 	const uint16 word = READ_LE_UINT16(_resources->getGlobalWordVariable(offset / 2));
-	const uint8 frame = uint8(word);
-	debugC(3, kDebugLevelAnimation, "actor opcode 0x04: SetCurrentFrameFromGlobal var[%u/2]=0x%04x → %u [DOS Op_05]",
-		offset, word, frame);
-	_frame = frame;
+	const uint8 interval = uint8(word);
+	debugC(3, kDebugLevelAnimation, "actor opcode 0x04: SetIntervalFromGlobal var[%u/2]=0x%04x → %u [DOS Op_05]",
+		offset, word, interval);
+	_interval = interval;
 	return kOk;
 }
 
 OPCODE(0x05) {
-	// C++ slot 0x05 = DOS Op_06 WalkRelativeWithFrame (1000:6939). Reads
-	// 2 signed bytes (dx, dy) + 1 word (target frame). Adds the deltas to
-	// actor.x/y, sets actor's target frame, ends script.
+	// C++ slot 0x05 = DOS Op_06 WalkRelativeWithFrame @ 1000:6939.
+	// Reads 2 signed bytes (dx, dy) + 1 word (target frame).
+	//   actor.field+0x4 += dx;             ; position x
+	//   actor.field+0x6 += dy;             ; position y
+	//   actor.field+0x8  = target_frame;   ; sprite/target ID
+	//   actor.field+0xa  = actor.field+0x10;  ; copy a byte
+	//   g_actor_script_ended = 1;
 	//
-	// IMPORTANT: the DOS engine renders by looking up sprite from current
-	// frame + animation set. The C++ engine instead uses _mainSprite as
-	// the rendered sprite source. The move-animator scripts emit Op_06
-	// expecting BOTH effects — walk target AND visible sprite update.
-	// In Innocent's data, sprite IDs and frame indices coincide, so
-	// setMainSprite(target) gives the correct render. Removing this
-	// (iter-14) made the protagonist invisible — restored iter-18.
+	// **Important**: Despite the "WalkRelative" name, DOS does NOT
+	// engage walk pathfinding. It only updates the actor's relative
+	// position + sprite-target field. Walk pathfinding (FindActorPath)
+	// is engaged separately by other opcodes. PRIOR C++ called
+	// `moveTo(target)` which corrupts _frame when target is invalid in
+	// current room — same bug pattern as Op_06 (see comment there).
 	const int8 dx = shiftByte();
 	const int8 dy = shiftByte();
 	const uint16 target = shift();
@@ -1141,39 +1165,52 @@ OPCODE(0x05) {
 		dx, dy, target);
 	_position.x += dx;
 	_position.y += dy;
-	_nextFrame = target;
-	setMainSprite(target);  // restore visibility (see comment above)
-	if (target != 0xffff && _room == Log.currentRoom() && Log.room())
-		moveTo(target);
+	setMainSprite(target);  // sprite ID write (DOS field+0x8 analog)
+	_nextFrame = target;    // tracked for query opcodes that read targetFrameId.
+	setDosField(0x0a, dosField(0x10));   // DOS field+0xa byte copy.
 	return kFrameDone;
 }
 
 OPCODE(0x06) {
-	// C++ slot 0x06 = DOS Op_07 SetTargetFrame (1000:69a4). 1 shift.
-	// Writes actor.field+8 (target frame) = arg, ends script.
-	// Same render-vs-walk duality as 0x05 — we set _mainSprite too so the
-	// new frame is actually drawn (iter-18 restored after iter-14 lost it).
+	// C++ slot 0x06 = DOS Op_07 SetTargetFrame @ 1000:69a4. 1 shift.
+	//   actor.field+0x8  = target;            ; sprite/target ID
+	//   actor.field+0xa  = actor.field+0x10;  ; copy a byte
+	//   g_actor_script_ended = 1;              ; end this script run
+	//
+	// **Important**: DOS does NOT engage walk here. It only updates
+	// the sprite-target field. Some other code (e.g., the actor's
+	// drawing or animation pipeline) reads field+0x8 later.
+	//
+	// PRIOR C++ BUG: called `moveTo(target)` which pushed a sentinel
+	// Frame onto _framequeue when target was invalid in current room.
+	// After the script ended (Op_01 UnregisterAndEnd) and the
+	// _attentionNeeded flag re-fired, nextFrame() popped the sentinel
+	// and assigned `_frame = sentinel.index()` which is uninitialized
+	// memory (game.log: `_frame = 27680` corruption). The actor then
+	// looped forever in this corrupted state, blocking the room-1
+	// "Who the heck owns THIS ship?" speech from advancing.
 	const uint16 target = shift();
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x06: SetTargetFrame %u [DOS Op_07]", target);
-	_nextFrame = target;
+	// Update sprite/target ID (DOS field+0x8 analog).
 	setMainSprite(target);
-	if (target != 0xffff && _room == Log.currentRoom() && Log.room())
-		moveTo(target);
+	_nextFrame = target;  // tracked for query opcodes that read targetFrameId.
+	// DOS field+0xa byte copy: actor.field+0xa = actor.field+0x10.
+	setDosField(0x0a, dosField(0x10));
+	// g_actor_script_ended = 1 → script run ends. C++ kFrameDone.
 	return kFrameDone;
 }
 
 OPCODE(0x07) {
-	// C++ slot 0x07 = DOS Op_08 SetTargetFrameFromGlobal (1000:69b0).
-	// 1 shift. Reads global word var at index (offset/2), writes to
-	// target frame, ends script. Sister to 0x06 with indirect target.
+	// C++ slot 0x07 = DOS Op_08 SetTargetFrameFromGlobal @ 1000:69b0.
+	// 1 shift. Reads global word var at index (offset/2), uses as
+	// indirect target. Same field-write semantic as 0x06 — NOT a walk.
 	const uint16 offset = shift();
 	const uint16 target = READ_LE_UINT16(_resources->getGlobalWordVariable(offset / 2));
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x07: SetTargetFrameFromGlobal var[%u/2]=%u [DOS Op_08]",
 		offset, target);
-	_nextFrame = target;
 	setMainSprite(target);
-	if (target != 0xffff && _room == Log.currentRoom() && Log.room())
-		moveTo(target);
+	_nextFrame = target;
+	setDosField(0x0a, dosField(0x10));
 	return kFrameDone;
 }
 
@@ -1205,12 +1242,17 @@ OPCODE(0x09) {
 }
 
 OPCODE(0x0a) {
-	// C++ slot 0x0a = DOS Op_0b WalkAbsoluteWithFrame (1000:6962). 3 shifts:
-	// x, y, target_frame. Writes actor.x/y, sets target frame, ends script.
-	// Animation::0x0a fall-through ("run sprite at") consumed the right
-	// 3 shifts but set _mainSprite from the third arg instead of treating
-	// it as a target frame. iter-19 override gives DOS-aligned behavior
-	// AND keeps the sprite update for visibility (per iter-18 lesson).
+	// C++ slot 0x0a = DOS Op_0b WalkAbsoluteWithFrame @ 1000:6962.
+	// 3 shifts: x, y, target_frame.
+	//   actor.field+0x4  = x;
+	//   actor.field+0x6  = y;
+	//   actor.field+0x8  = target_frame;     ; sprite/target ID
+	//   actor.field+0xa  = actor.field+0x10; ; byte copy
+	//   g_actor_script_ended = 1;
+	//
+	// Despite the "WalkAbsolute" name, DOS does NOT engage walk
+	// pathfinding. Just position + sprite-target field updates.
+	// Pass2-15/16: removed the spurious moveTo(target) call.
 	const uint16 x = shift();
 	const uint16 y = shift();
 	const uint16 target = shift();
@@ -1218,10 +1260,9 @@ OPCODE(0x0a) {
 		x, y, target);
 	_position.x = (int16)x;
 	_position.y = (int16)y;
-	_nextFrame = target;
 	setMainSprite(target);
-	if (target != 0xffff && _room == Log.currentRoom() && Log.room())
-		moveTo(target);
+	_nextFrame = target;
+	setDosField(0x0a, dosField(0x10));
 	return kFrameDone;
 }
 
