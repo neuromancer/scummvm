@@ -46,6 +46,7 @@ class Resources;
 class Graphics;
 class Logic;
 class Debugger;
+class Sound;
 
 class Engine : public ::Engine {
 public:
@@ -58,6 +59,7 @@ public:
 	Logic *logic() { return _logic; }
 	Resources *resources() { return _resources; }
 	Graphics *graphics() { return _graphics; }
+	Sound *sound() { return _sound; }
 	Debugger *debugger() { return _debugger; }
 	Common::EventManager *eventMan() { return _eventMan; }
 	MidiDriver *musicDriver() const { return _musicDriver.get(); }
@@ -74,6 +76,7 @@ private:
 	Logic *_logic;
 	Resources *_resources;
 	Graphics *_graphics;
+	Sound *_sound;
 	Debugger *_debugger;
 	Common::SharedPtr<MidiDriver> _musicDriver;
 

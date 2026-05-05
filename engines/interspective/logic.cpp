@@ -28,6 +28,8 @@
 #include "interspective/logic.h"
 #include "interspective/innocent.h"
 #include "interspective/inter.h"
+#include "interspective/exit.h"
+#include "interspective/graphics.h"
 #include "interspective/program.h"
 #include "interspective/animation.h"
 #include "interspective/resources.h"
@@ -39,6 +41,14 @@ namespace Common {
 }
 
 namespace Interspective {
+
+// Bubble formatter line-height. Mirrors DOS DAT_1000_885e (the font
+// metric that LookupCharSprite reads for vertical advance). The C++
+// engine's Graphics::kLineHeight = 12 is the same metric (loaded from
+// the same font asset). Per-glyph widths come from
+// Graphics::getGlyphWidth() which calls into the loaded font sprites
+// (DOS LookupCharSprite analog).
+static const uint16 kBubbleLineHeight = 12;  // matches Graphics::kLineHeight
 
 Logic::~Logic() {
 	// Animations are owned by the Interpreter that registered them (via rememberAnimation);
@@ -72,6 +82,13 @@ void Logic::tick() {
 
 	if (_nextRoom)
 		doChangeRoom();
+
+	// Fire any armed post-move callback if the protagonist's walk just
+	// completed. Run this before the room loop / queued ops so those see
+	// the updated drag/cell/cursor state from the callback's effects —
+	// matches DOS where RunPostMoveCallback fires inside the actor's
+	// per-tick step routine, before script dispatch resumes.
+	runPostMoveCallbackIfReady();
 
 	if (_roomLoop.get()) {
 //		gDebugLevel--; // room loops aren't that interesting
@@ -170,6 +187,15 @@ void Logic::doChangeRoom() {
 		// overlay queue, draw command count, error.
 		_overlayQueue.clear();
 		_drawCommandCount = 0;
+		// Drop any armed post-move callback — its captured cellId/arg0
+		// reference entities from the outgoing block. The protagonist's
+		// _framequeue gets reset by the new block's loadActors, which
+		// would synthesize a "walk completed" edge in the new context
+		// and fire the stale callback against unrelated cells.
+		_postMoveCallback = PostMoveCallback();
+		// Reset cast table (DOS LAB_1000_063e in MainGameLoop calls
+		// ResetCastTable on block change).
+		castTableClearAll();
 
 		char buf[100];
 		snprintf(buf, 100, "block %d code", newBlock);
@@ -236,6 +262,15 @@ void Logic::saveSceneFrame(const CodePointer &resumePC) {
 	// Snapshot _animations so the sub-scene's loadActors-appended
 	// entries can be unwound on pop (DOS RestoreActorTableBackup).
 	frame->savedAnimations = _animations;
+	// Snapshot the post-move callback record (DOS [0x65ab..0x65bb]).
+	// The sub-scene starts with a clean slot and any callbacks it
+	// arms get cleared on pop.
+	frame->savedPostMoveCallback = _postMoveCallback;
+	_postMoveCallback = PostMoveCallback();
+	// Snapshot the cast table (DOS Op_38 calls SaveCastBackup which
+	// memcpys 0x642 bytes from g_cast_table). Sub-scene starts empty.
+	frame->savedCastTable = _castTable;
+	castTableClearAll();
 	_savedScene = Common::SharedPtr<SceneFrame>(frame);
 }
 
@@ -267,9 +302,576 @@ bool Logic::restoreSceneFrame() {
 	// SceneFrame held the old Program SharedPtr keeping their _code
 	// buffer valid.
 	_animations = frame.savedAnimations;
+	// Restore the post-move callback slot (any sub-scene callback is
+	// dropped — DOS Op_97/Op_98 do this by save/restoring the [0x65ab..]
+	// register block).
+	_postMoveCallback = frame.savedPostMoveCallback;
+	// Restore cast table (DOS RestoreCastBackup memcpys g_cast_table
+	// from the saved buffer).
+	_castTable = frame.savedCastTable;
 	debugC(2, kDebugLevelScript, "Op_01 popped scene; resuming at %s next tick", +frame.resumePC);
 	_queued.push_back(DelayedRun(frame.resumePC, 0));
 	return true;
+}
+
+// Mirrors DOS RunPostMoveCallback @ 1000:73a6. The DOS check sequence is:
+//   if (protag.field+0x6f != 0)        return;         // blocked
+//   if (protag.field+0x65 == 0)         return;        // not moving
+//   if (post_callback_ptr == 0)         return;        // none armed
+//   if (protag.field+0x61 == [0x6609]) → CALL [BP];   // fire
+//   clear post_callback_ptr;                           // one-shot
+// (DOS clears regardless of whether the frame matched, but only if it
+// passed the first three guards. We use the simpler "fire when actor
+// stops moving" model — the C++ walk completes when the protagonist's
+// _framequeue empties, at which point Actor::isMoving() returns false.
+// This collapses the per-tick frame-arrival check into a single
+// edge: the tick where the queue just emptied. Functional outcome
+// matches DOS for the only documented callback consumers, Op_91-0x93.)
+void Logic::runPostMoveCallbackIfReady() {
+	if (_postMoveCallback.kind == PostMoveCallback::kNone)
+		return;
+	if (!_protagonist)
+		return;
+	if (_protagonist->isMoving())
+		return; // wait for walk to complete
+
+	PostMoveCallback cb = _postMoveCallback;
+	_postMoveCallback = PostMoveCallback(); // one-shot clear before dispatch
+
+	debugC(2, kDebugLevelScript,
+		"post-move callback firing: kind=%d cellId=%u arg0=%u arg1=%u",
+		int(cb.kind), cb.cellId, cb.arg0, cb.arg1);
+
+	switch (cb.kind) {
+	case PostMoveCallback::kDisableMoveOptionalEnable:
+		// DOS @ 0x49df: clearCellBit(cellId) + MovePersonToActor(arg0)
+		// + (arg1 != 0 → EnableObjectFlag1 = setCellBit(arg1)).
+		clearCellBit(cb.cellId, 0);
+		movePersonToActor(cb.arg0);
+		if (cb.arg1 != 0)
+			setCellBit(cb.arg1, 0);
+		break;
+	case PostMoveCallback::kDisableEnableUnregister:
+		// DOS @ 0x4a36: clearCellBit(cellId) + (arg1 != 0 → setCellBit(arg1))
+		// + cursor=0 + drag=0. Matches the *intent* of the buggy DOS
+		// continuation (DOS register juggling between the two CALLs is
+		// broken — AX gets corrupted by DisableObjectFlag1's cell-byte
+		// load — but the script-visible intent is the swap-and-cleanup).
+		clearCellBit(cb.cellId, 0);
+		if (cb.arg1 != 0)
+			setCellBit(cb.arg1, 0);
+		setCursorMode(0);
+		setDragTarget(0);
+		break;
+	case PostMoveCallback::kNone:
+	default:
+		break;
+	}
+}
+
+// DOS MovePersonToActor @ 1000:4706 (also entry of Op_84_handler).
+//
+// Disassembly trace:
+//   if AX == 0   → JMP Op_8e (cursor=0, drag=0);
+//   if AX > g_persons_count → pending error 0x16;
+//   if g_cursor_mode == 0x20: ResetObjectAtActorPosition(g_drag_target);
+//   g_drag_target = AX;
+//   GetObjectOffset(AX) → ES:SI;
+//   if (obj.room != g_current_location && obj.room != 0xffff):
+//     CALL RetEmpty (returns CX = 0, DX = 0);
+//     CX += g_camera_x;  DX += g_camera_y;
+//     obj.x = CX;  obj.y = DX;
+//   BX = (obj.room == 0xffff) ? 1 : 0;
+//   AX = 2;  JMP BeginDrag_AfterRemoveExit;
+//
+// BeginDrag_AfterRemoveExit (mode=2, BX=0/1):
+//   PrepareDragInteraction(drag_target):
+//     g_cursor_mode = 0x20; g_drag_target = AX;
+//     obj.room = 0;        // "carried" sentinel
+//     CalcSpriteOffsetInGraphic(); save sprite-rect bytes;
+//   compute screen-rel cursor pos from obj.x/y - camera
+//     (or default 128,160 if BX==1);
+//   SetCursorAndPosition(cursor_x, cursor_y).
+//
+// C++ port: capture the script-observable state changes. Per-object
+// sprite-rect bytes / cursor-sprite-at-position rendering are the
+// renderer's concern — _cursorMode + _dragTarget transitions plus
+// the obj.room = 0 marker drive every script branch downstream.
+void Logic::movePersonToActor(uint16 id) {
+	if (id == 0) {
+		// DOS tail-jump to Op_8e.
+		setCursorMode(0);
+		setDragTarget(0);
+		return;
+	}
+	if (_resources && _resources->mainDat() && id > _resources->mainDat()->personsCount()) {
+		setPendingError(0x16);
+		return;
+	}
+	if (_cursorMode == 0x20 && _dragTarget != 0)
+		resetObjectAtActorPosition(_dragTarget);
+
+	setDragTarget(id);
+
+	// If the object is in another (non-sentinel) room, snap its position
+	// to the camera origin so the drag pickup happens "where the actor
+	// is" rather than wherever the obj was previously drawn.
+	const uint16 objRoom = getObjectRoom(id);
+	if (objRoom != _currentRoom && objRoom != 0xffff)
+		setObjectPosition(id, _cameraX, _cameraY);
+
+	// PrepareDragInteraction subset: cursor-mode + drag-target + obj
+	// "carried" room sentinel.
+	setCursorMode(0x20);
+	setObjectRoom(id, 0);
+}
+
+// DOS ResetObjectAtActorPosition @ 1000:4837.
+//
+// Disassembly:
+//   GetObjectOffset(AX) → ES:SI;
+//   if obj.room == 0xffff: CALL 0x331f (default position seed);
+//   CALL AddExitToList;  if JC: pending error 0x21;
+//   < sprite-relative centering math: CX = (0xb6 - sprite_h) / 2
+//                                      DX = (0x1f - sprite_???) / 2
+//                                      then add per-frame sprite offset >
+//   obj.room = 0xffff;        // mark as exit-mode
+//   obj.x = CX;  obj.y = DX;
+//   < more sprite metadata save >
+//   set dirty flags.
+//
+// C++ port: place the object as a clickable hotspot at the protagonist's
+// current room/position. The full sprite-centering math is rendering-
+// engine territory and the dynamic exit-list slot management has no
+// C++ analog (exits are loaded statically per block). Script-observable
+// effect: obj.room = current room, obj.x/y = actor.x/y.
+void Logic::resetObjectAtActorPosition(uint16 id) {
+	if (!_protagonist) return;
+	if (id == 0) return;
+	if (_resources && _resources->mainDat() && id > _resources->mainDat()->personsCount()) {
+		setPendingError(0x21);
+		return;
+	}
+	setObjectRoom(id, _protagonist->room());
+	setObjectPosition(id,
+		int16(_protagonist->position().x),
+		int16(_protagonist->position().y));
+}
+
+// DOS SendActorToTarget @ 1000:7323 dispatches MoveProtagonistToEntity
+// @ 1000:7331 which switches on a "type" register (DX = 1 exit / 2
+// object / 3 actor). The C++ port doesn't carry a separate type tag
+// across opcode dispatch (DOS sets DX inside the opcode body before
+// the call — Op_b5 sets DX=1, Op_b6 DX=2, Op_b7 DX=3). Instead, we
+// resolve the target by id and try each entity table in order:
+//   * Actor by id (1-based DOS actor id) → frame match.
+//   * Exit by id (current block's exit list) → screen pos → nearest frame.
+//   * Object by id (Logic::_objectRoom + _objectPos*) → nearest frame.
+// First match wins. Cross-room targets are silent no-ops (matches DOS:
+// MoveProtagonistToEntity returns early if the entity's room field
+// doesn't match g_current_location, with no pending error).
+bool Logic::sendActorToTarget(Actor *walker, uint16 targetId) {
+	if (!walker) {
+		walker = _protagonist;
+		if (!walker)
+			return false;
+	}
+	if (!_room)
+		return false;
+
+	// 1) Actor target — direct frame match.
+	if (Actor *target = getActor(targetId)) {
+		if (target->room() == _currentRoom) {
+			walker->moveTo(target->frameId());
+			return true;
+		}
+		return false;
+	}
+
+	// 2) Exit target — DOS uses GetExitOffset(id) → SI, then reads
+	// SI[1] (= screen x) / SI[2] (= screen y) / SI[5] (= sprite flag).
+	if (_blockProgram) {
+		if (Exit *exit = _blockProgram->getExit(targetId)) {
+			if (exit->room() == _currentRoom) {
+				const uint16 frame = _room->nearestFrameTo(
+					int16(exit->position().x),
+					int16(exit->position().y));
+				if (frame) {
+					walker->moveTo(frame);
+					return true;
+				}
+			}
+			return false;
+		}
+	}
+
+	// 3) Object target — same shape via Logic::_objectRoom/Pos.
+	if (getObjectRoom(targetId) == _currentRoom) {
+		const uint16 frame = _room->nearestFrameTo(
+			getObjectPosX(targetId), getObjectPosY(targetId));
+		if (frame) {
+			walker->moveTo(frame);
+			return true;
+		}
+	}
+	return false;
+}
+
+// DOS Op_ba @ 1000:4fe5 / Op_bb @ 1000:4fde:
+//   g_walk_speed_flag = 0/1;       // 0=fast, 1=slow
+//   if (in_map_mode) RET;
+//   if (id > g_anim_count_max) pending error 0x17;
+//   if (id == g_main_character_id) g_break_inner = 1;
+//   CheckActorAnimReady(id);
+//   if (NOT ready) RegisterSampleSlot_LoadDefaultsAndMark; RET;
+//   GetActorOffset(id) → ES:SI;
+//   ES:[SI + 0x4] = arg2;          // screen x
+//   ES:[SI + 0x6] = arg3;          // screen y
+//   ES:[SI + 0x61] = 0;            // current frame
+//   ResolveOpcodeArg1;             // anim selector (mode-dependent)
+//   InitActorState();              // jump script to actor's main code
+//
+// C++ port: positional state goes through Actor::placeIn (DOS-aligned
+// non-script-resetting placement). The walk_speed_flag has no C++
+// analog (per-tick step rate is animation-driven in C++); the slowSpeed
+// param is passed through for future hookup.
+bool Logic::walkActorAnim(uint16 actorId, int16 destX, int16 destY, bool slowSpeed) {
+	(void)slowSpeed;  // C++ animation tick rate is per-Animation, not per-walk.
+	Actor *ac = getActor(actorId);
+	if (!ac) {
+		setPendingError(0x17);
+		return false;
+	}
+	if (!_room)
+		return false;
+
+	// DOS sets ES:[SI+0x4]/[SI+0x6] = arg2/arg3 directly (raw screen
+	// coords). We translate to a frame via nearestFrameTo so the
+	// walk script can pathfind.
+	const uint16 destFrame = _room->nearestFrameTo(destX, destY);
+	if (destFrame)
+		ac->moveTo(destFrame);
+	return true;
+}
+
+bool Logic::actorIdle(const Actor *actor) const {
+	if (!actor)
+		return true;
+	return !actor->isMoving() && !actor->isSpeaking();
+}
+
+// DOS Op_c3_RegisterCastEntry @ 1000:514a (full byte-for-byte spec):
+//   ResolveOpcodeArg1 → arg1 (x);
+//   ResolveOpcodeArg2 → arg2 (y);
+//   ResolveOpcodeArg0 → arg0 (id);
+//   for slot in g_cast_table[18]:
+//     if (wActive == 0):
+//       w_unk_02 = arg0;                    // entity id
+//       wActive  = g_codeptr_es_save;        // caller code segment
+//       wX       = arg1;
+//       wY       = arg2;
+//       p_data[0] = 0;                       // ┐
+//       p_data[1] = 0;                       // │
+//       p_data[2] = 0;                       // │ DOS bookkeeping init
+//       p_data[3] = 0;                       // │ (renderer state in DOS)
+//       p_data[6] = 1;                       // │ — frame counter
+//       p_data[7] = 0;                       // │
+//       p_data[8] = 0xff;                    // │ — sprite index sentinel
+//       bRect_w   = 0xff;                    // │ — sprite-bounds sentinel
+//       bRect_h   = 0xff;                    // │
+//       p_data[10] = 0;                      // │
+//       p_data[12] = 0;                      // ┘
+//       return;
+//   pending error 0x2a;
+//
+// C++ stores `active` as uint16 (0 = free; we use 1 since C++ has no
+// "code segment"). The 81-byte `raw` array is initialized per the
+// DOS spec — even though ScummVM doesn't read these fields itself,
+// matching DOS bytes ensures Op_38/Op_97 backups round-trip exactly
+// and any future renderer/script that does read them sees DOS values.
+bool Logic::castTableRegister(uint16 id, int16 x, int16 y) {
+	for (uint i = 0; i < _castTable.size(); ++i) {
+		CastEntry &e = _castTable[i];
+		if (e.active == 0) {
+			e.active = 1;            // DOS stores caller seg; we use 1 (non-zero = active).
+			e.id = id;
+			e.x = x;
+			e.y = y;
+			// Re-init the bookkeeping per DOS Op_c3. raw[0..80] map
+			// directly to DOS bytes 0x08..0x58 of the cast record.
+			// Field offsets within p_data per DOS decompile:
+			//   p_data[N] → raw[N] (assuming p_data starts at +0x08).
+			// bRect_w/h are at fixed positions; from the decompile
+			// `(&pCVar6->bRect_w)[0/1]` they appear as a 2-byte pair.
+			// We mirror the byte indices DOS writes.
+			for (uint j = 0; j < 81; ++j) e.raw[j] = 0;
+			e.raw[6] = 1;             // p_data[6] — frame counter
+			e.raw[8] = 0xff;          // p_data[8] — sprite index
+			// bRect_w/h: in the DOS struct these come AFTER p_data;
+			// without exact field-offset table we mirror DOS's two
+			// 0xff bytes by writing them as the next-pair bytes after
+			// the named p_data writes. In practice the renderer reads
+			// `&pCVar6->bRect_w` whose absolute offset matches DOS's
+			// physical layout; for ScummVM (which doesn't read raw)
+			// this is state-preservation only.
+			// Mark conservatively at offsets 9, 10 (= bytes 0x11/0x12
+			// of the record): DOS Op_c3 writes bRect_w then bRect_h.
+			// We use raw indices 9 and 10 as a stand-in; if a future
+			// reader needs the exact DOS offset, the index can shift.
+			e.raw[9] = 0xff;          // bRect_w
+			e.raw[10] = 0xff;         // bRect_h (overwrites the p_data[10]=0
+			                          // line; DOS does the same since the
+			                          // 0 write happens BEFORE the 0xff —
+			                          // see disassembly order at 1000:514a.)
+			// Note: `p_data[10] = 0` and `p_data[12] = 0` are explicitly
+			// re-written by DOS AFTER the bRect 0xff writes — at this
+			// point the post-bRect indices would land here. Without
+			// exact struct offsets we approximate: the only observable
+			// difference would be if a reader compared bytes 0x12/0x14
+			// of the record. Documented gap.
+			e.raw[12] = 0;
+			return true;
+		}
+	}
+	// No free slot — DOS sets pending error 0x2a.
+	setPendingError(0x2a);
+	return false;
+}
+
+// DOS Op_c4_SetCastEntryPosition @ 1000:51a8 (BUG-ACCURATE port):
+//
+// Disassembly:
+//   1000:51a8  CALL ResolveOpcodeArg1   ; AX = arg1
+//   1000:51ab  MOV  CX, AX               ; CX = arg1  ← saved here…
+//   1000:51ad  CALL ResolveOpcodeArg2   ; AX = arg2
+//   1000:51b0  MOV  DX, AX               ; DX = arg2
+//   1000:51b2  CALL ResolveOpcodeArg0   ; AX = arg0
+//   1000:51b5  MOV  CX, 0x12             ; CX = 0x12 (loop count)
+//                                          ↑ ARG1 IS CLOBBERED HERE
+//   1000:51b8  MOV  SI, 0x1977
+//   1000:51bb  CMP  [SI+0x2], AX         ; cmp slot.id, arg0
+//   1000:51be  JZ   0x51c6               ; match → write
+//   1000:51c0  ADD  SI, 0x59
+//   1000:51c3  LOOP 0x51bb               ; LOOP decrements CX
+//   1000:51c5  RET                        ; no match
+//   1000:51c6  MOV  [SI+0x4], CX         ; wX = CX = remaining_loop_count
+//                                          ↑ NOT arg1 — DOS bug
+//   1000:51c9  MOV  [SI+0x6], DX         ; wY = DX = arg2  (correct)
+//   1000:51cc  RET
+//
+// Effect: when slot N (0-indexed) matches, CX still holds (0x12 - N)
+// after LOOP iterations. So the saved wX = (kCastTableCap - matched_idx).
+// arg1 is silently discarded.
+//
+// To match DOS faithfully we reproduce the bug. If IUC scripts depend
+// on the buggy wX values (or just don't observe them), divergent
+// behaviour would be bug-compatible only by reproducing.
+void Logic::castTableSetPos(uint16 id, int16 x, int16 y) {
+	(void)x;  // DOS bug: arg1 is clobbered before the write.
+	for (uint i = 0; i < _castTable.size(); ++i) {
+		CastEntry &e = _castTable[i];
+		if (e.active != 0 && e.id == id) {
+			// DOS: wX = (0x12 - i_iterations_through_LOOP).
+			// LOOP decrements CX before checking; so for match on i=0,
+			// CX is still 0x12; for i=1, CX is 0x11; etc.
+			// → wX = kCastTableCap - i.
+			e.x = int16(kCastTableCap - i);
+			e.y = y;
+			return;
+		}
+	}
+	// Silent no-op on miss (matches DOS — no pending error).
+}
+
+// DOS Op_c5_ClearCastEntry @ 1000:51cd:
+//   pbVar1 = ResolveOpcodeArg0;  iVar2 = 0x12;  pCVar3 = g_cast_table;
+//   do {
+//     if (pCVar3->w_unk_02 == arg0) {
+//       pCVar3->w_unk_02 = 0;
+//       pCVar3->wActive  = 0;
+//       return;
+//     }
+//     pCVar3 += 1;  iVar2 -= 1;
+//   } while (iVar2 != 0);
+//
+// Note: DOS only zeros the FIRST 4 BYTES of the slot (wActive +
+// w_unk_02). wX/wY/p_data/bRect_w/h are LEFT INTACT. C++ matches.
+void Logic::castTableClear(uint16 id) {
+	for (uint i = 0; i < _castTable.size(); ++i) {
+		CastEntry &e = _castTable[i];
+		if (e.active != 0 && e.id == id) {
+			e.active = 0;
+			e.id = 0;
+			// Intentionally preserve x, y, raw[] — DOS leaves them.
+			return;
+		}
+	}
+}
+
+// DOS ResetCastTable @ 1000:671d: zero out all 18 slots completely.
+// Unlike Op_c5 this clears the entire 89-byte record.
+void Logic::castTableClearAll() {
+	for (uint i = 0; i < _castTable.size(); ++i)
+		_castTable[i] = CastEntry();
+}
+
+// DOS FormatBubbleText_FullPath @ 1000:9333.
+//
+// Iterates the DI-pointed source byte stream, copying to the formatted
+// buffer at 0x40b7 while expanding markup characters. Tracks word count
+// (DAT_1000_94b5) and per-line pixel width (iVar7). At terminator (0x00):
+//   total_height = (word_count * line_height + 2);
+//   if (total_height <= line_height + 2) total_height += line_height;
+// else if buffer overflow (1024 chars without terminator):
+//   pending_error 0x11.
+//
+// Markup byte semantics (per DOS decompile + line-by-line trace):
+//   0x00 → terminator. Emit final row, return total_height.
+//   0x20 (' ') → emit + word_count++.
+//   0x2d ('-') → emit + word_count++.
+//   0x0d → emit row terminator (forced newline).
+//   0x05 → inline literal until next 0x00; each char advances width;
+//          spaces inside increment word_count. Then 2 trailing bytes
+//          (DOS bookkeeping word) are absorbed into the buffer.
+//   0x09 → 1-byte param = X-offset to advance (raw spacing).
+//   0x07 → 1-byte param consumed (no text effect).
+//   0x06 → 2-byte big-endian decimal number formatter (FormatDecimalNumber);
+//          consumes 3 input bytes (marker + 2-byte value).
+//   0x0a → conditional skip-block (3-byte param: 1-byte condition + 2-byte
+//          jump-to-STX). If gameState bit at the indexed offset is FALSE,
+//          skip forward to STX (Start-of-TeXt) marker.
+//   0x0b → inverse of 0x0a (skip if TRUE).
+//   0x02 → fall-through (treated as a printable / emit-via-LookupCharSprite).
+//   else → emit via LookupCharSprite (= advance width by char's sprite width).
+//
+// C++ port: produces the cleaned text (without markup bytes) plus the
+// dimensions DOS computes. Per-glyph widths come from
+// Graphics::getGlyphWidth (the C++ analog of DOS LookupCharSprite —
+// reads the actual font sprite metrics from the loaded font asset).
+// Word/line counts and the total-height formula match DOS exactly.
+Logic::FormattedBubble Logic::formatBubbleText(const byte *src) const {
+	FormattedBubble out;
+	out.lineCount = 1;          // DOS DAT_1000_94b5 init = 1
+	out.totalHeight = 0;
+	out.maxLineWidth = 0;
+	out.truncated = false;
+	if (!src) {
+		out.totalHeight = kBubbleLineHeight * 2 + 2;  // DOS minimum
+		return out;
+	}
+
+	Graphics *g = (_engine ? _engine->graphics() : 0);
+	const byte *p = src;
+	int currentWidth = 0;
+	uint16 bytesEmitted = 0;
+	const uint16 kBufferCap = 1024;     // DOS iVar5 init = 0x400
+
+	// Returns DOS LookupCharSprite-equivalent width. Falls back to a
+	// fixed 6 px width if Graphics isn't available (early-init path) —
+	// in normal gameplay g is always set.
+	auto charPixelWidth = [g](byte ch) -> uint16 {
+		if (g) return g->getGlyphWidth(ch);
+		return 6;
+	};
+
+	while (true) {
+		if (bytesEmitted >= kBufferCap) {
+			// DOS sets g_pendingErrorCode = 0x11 on overflow.
+			out.truncated = true;
+			break;
+		}
+		const byte b = *p++;
+		if (b == 0x00) {
+			// Terminator. Emit final row → return.
+			break;
+		}
+		if (b == 0x20 || b == 0x2d) {
+			// space / dash — word break.
+			out.text += char(b);
+			out.lineCount++;
+			currentWidth += charPixelWidth(b);
+			++bytesEmitted;
+			continue;
+		}
+		if (b == 0x0d) {
+			// Forced newline.
+			out.text += '\n';
+			++bytesEmitted;
+			if (currentWidth > out.maxLineWidth)
+				out.maxLineWidth = currentWidth;
+			currentWidth = 0;
+			continue;
+		}
+		if (b == 0x05) {
+			// Literal-until-null.
+			while (true) {
+				const byte lit = *p++;
+				if (lit == 0x00)
+					break;
+				if (lit == 0x20)
+					out.lineCount++;
+				out.text += char(lit);
+				currentWidth += charPixelWidth(lit);
+				++bytesEmitted;
+				if (bytesEmitted >= kBufferCap) {
+					out.truncated = true;
+					return out;
+				}
+			}
+			// Absorb 2 trailing bookkeeping bytes (DOS).
+			p += 2;
+			continue;
+		}
+		if (b == 0x09) {
+			// 1-byte param = X-offset spacing.
+			const byte amount = *p++;
+			currentWidth += amount;
+			out.lineCount++;
+			continue;
+		}
+		if (b == 0x07) {
+			// 1-byte param consumed (no text effect).
+			(void)*p++;
+			continue;
+		}
+		if (b == 0x06) {
+			// Decimal-number formatter: 2-byte BE value.
+			const uint16 num = (uint16(p[0]) << 8) | uint16(p[1]);
+			p += 2;
+			Common::String numStr = Common::String::format("%u", num);
+			out.text += numStr;
+			for (uint i = 0; i < numStr.size(); ++i)
+				currentWidth += charPixelWidth(byte(numStr[i]));
+			bytesEmitted += uint16(numStr.size());
+			continue;
+		}
+		if (b == 0x0a || b == 0x0b) {
+			// Conditional-skip markup: 3-byte param. Without a wired-up
+			// game-state-bit lookup (DOS DAT_1000_009d table), we
+			// conservatively keep the block (don't skip). The 3 bytes are
+			// consumed; the SkipMarkupBlockToStx scan would advance p
+			// further. We approximate by NOT skipping and consuming only
+			// the 3-byte header.
+			(void)*p++;  (void)*p++;  (void)*p++;
+			continue;
+		}
+		if (b == 0x02) {
+			// Fall-through to printable handling (DOS does the same).
+		}
+		// Default: emit char + advance width via per-glyph lookup.
+		out.text += char(b);
+		currentWidth += charPixelWidth(b);
+		++bytesEmitted;
+	}
+
+	if (currentWidth > out.maxLineWidth)
+		out.maxLineWidth = currentWidth;
+
+	// DOS height formula: word_count * line_height + 2; minimum 2*line_height + 2.
+	out.totalHeight = uint16(out.lineCount) * kBubbleLineHeight + 2;
+	if (out.totalHeight <= kBubbleLineHeight + 2)
+		out.totalHeight += kBubbleLineHeight;
+	return out;
 }
 
 bool Logic::cancelLater(const CodePointer &p) {

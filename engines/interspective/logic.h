@@ -87,6 +87,7 @@ public:
 		  _cameraTargetX(0xffff), _cameraTargetY(0xffff),
 		  _inputEnabled(true) {
 			for (int i = 0; i < 7; ++i) _graphicSlots[i] = 0;
+			_castTable.resize(kCastTableCap);
 		}
 	~Logic();
 
@@ -251,6 +252,187 @@ public:
 	void setCursorMode(uint16 v) { _cursorMode = v; }
 	uint16 dragTarget() const { return _dragTarget; }
 	void setDragTarget(uint16 v) { _dragTarget = v; }
+
+	// Object placement / drag-state subsystem. Mirrors DOS
+	// MovePersonToActor @ 1000:4706 and ResetObjectAtActorPosition @
+	// 1000:4837 — the helpers underlying the drag-and-drop opcode
+	// family (Op_84/0x8b/0x8c/0x8d/0x8f/0x90 and the post-move-callback
+	// continuations of Op_91/0x92/0x93). The DOS routines are tied to
+	// per-object sprite-offset bytes and the dynamic exit list. The
+	// C++ port models the script-observable subset:
+	//   * dragTarget / cursorMode = 0x20  — drag-active state
+	//   * obj.room = 0                     — "carried" sentinel (DOS
+	//                                        clears obj record's room
+	//                                        word in PrepareDragInteraction)
+	//   * obj.x/y = camera-relative pos    — for cross-room placement
+	// AddExitToList / RemoveExitFromList have no C++ analog because
+	// exits are loaded statically per block; the user-observable
+	// effect of "register obj as a clickable hotspot" is captured by
+	// `_objectRoom[id] = currentRoom` (the click handler iterates by
+	// room match).
+	void movePersonToActor(uint16 id);
+	void resetObjectAtActorPosition(uint16 id);
+
+	// Walk driver. Mirrors DOS SendActorToTarget @ 1000:7323 →
+	// MoveProtagonistToEntity @ 1000:7331 → FindNearestExitToPoint @
+	// 1000:72a2 → MoveActorToTargetExit @ 1000:70da. Resolves target
+	// entity (actor / exit / object) → screen point → nearest walkable
+	// frame in the room → starts pathfinding by populating the actor's
+	// `_framequeue`. Returns true on success (walk queued), false if
+	// the target is unresolvable or in a different room (DOS treats
+	// this as a no-op with no error).
+	//
+	// `actor` defaults to the protagonist, matching the DOS
+	// MoveProtagonistToEntity entry point. The 'walker' parameter
+	// exists for the actor-walk opcodes (0xae/0xb8/0xb9/0xba/0xbb)
+	// that move a non-protag actor.
+	bool sendActorToTarget(Actor *walker, uint16 targetId);
+
+	// "Walk-actor-anim" variant — DOS Op_ba/Op_bb @ 1000:4fde/0x4fe5.
+	// Sets walker.field+0x4/+0x6 (= screen pos), field+0x61 (= 0,
+	// "no current frame"), then InitActorState which jumps the script
+	// to the actor's main code. Used for cutscene-driven actor walks
+	// where the script provides the destination explicitly. Returns
+	// true on success, false on actor-id OOB.
+	bool walkActorAnim(uint16 actorId, int16 destX, int16 destY, bool slowSpeed);
+
+	// CheckActorIdle equivalent (DOS @ 1000:645e). Combines
+	// Actor::isMoving() and Actor::isSpeaking() into the
+	// "ready to receive a new command" predicate. Walk-family opcodes
+	// gate on this; if the actor is busy, the opcode yields by
+	// re-queuing itself for next tick (DOS does the same via
+	// RegisterSampleSlot_LoadDefaultsAndMark — pushes a deferred
+	// re-dispatch).
+	bool actorIdle(const Actor *actor) const;
+
+	// Cast table — DOS g_cast_table @ DS:0x1977, 18 entries × 0x59
+	// (89) bytes. Each entry holds an entity id, screen pos, and the
+	// per-cast rendering bookkeeping (sprite anim state, frame counter,
+	// rect width/height, mask flags, etc.) DOS uses during its per-tick
+	// draw pass to render registered entities. The C++ port preserves
+	// every byte that DOS Op_c3/Op_c5 writes so a faithful round-trip
+	// is possible; renderer-internal fields are tracked separately by
+	// ScummVM but kept here for state-mirror fidelity.
+	//
+	// DOS struct layout (89 bytes total):
+	//   +0x00  wActive  (uint16): 0 = free, non-zero = caller code seg
+	//   +0x02  w_unk_02 (uint16): entity id (Op_c3 arg0)
+	//   +0x04  wX       (int16):  screen X
+	//   +0x06  wY       (int16):  screen Y
+	//   +0x08..0x58     (81 bytes): p_data + bRect_w + bRect_h + sub-rects
+	//
+	// Op_c3 init spec (only fields DOS writes; rest left as zero from
+	// table allocation):
+	//   p_data[0] = 0           p_data[1] = 0
+	//   p_data[2] = 0           p_data[3] = 0
+	//   p_data[6] = 1           (frame counter)
+	//   p_data[7] = 0
+	//   p_data[8] = 0xff        (sprite index sentinel)
+	//   bRect_w = 0xff          bRect_h = 0xff   (sprite-bounds sentinel)
+	//   p_data[10] = 0          p_data[12] = 0
+	//
+	// The table is scene-scoped: Op_38 push captures it via SceneFrame;
+	// Op_01 pop restores. Block change in `doChangeRoom` clears it (DOS
+	// LAB_1000_063e calls ResetCastTable @ 1000:671d).
+	struct CastEntry {
+		uint16 active;       // wActive: 0 = free, non-zero = active
+		uint16 id;           // w_unk_02
+		int16 x, y;          // wX, wY
+		uint8 raw[81];       // p_data + bRect_w/h, mirroring DOS bytes 0x08..0x58
+		CastEntry() : active(0), id(0), x(0), y(0) {
+			for (uint8 i = 0; i < 81; ++i) raw[i] = 0;
+		}
+	};
+	enum { kCastTableCap = 18 };
+	bool castTableRegister(uint16 id, int16 x, int16 y);
+	void castTableSetPos(uint16 id, int16 x, int16 y);
+	void castTableClear(uint16 id);
+	void castTableClearAll();
+	const Common::Array<CastEntry> &castTable() const { return _castTable; }
+
+	// Text-bubble + verb-menu modal subsystem.
+	// Mirrors DOS DS:0x66ae..0x66c6 register slots and DS:0x6741 stash
+	// flag. Used by Op_4d-0x54 (and downstream RunVerbMenuModalLoop @
+	// 1000:8730 / RunModalLoop @ 1000:7ea2). The state is a register
+	// snapshot that DOS pushes through SetRectAndApply @ 1000:3f86 and
+	// then the modal loop reads.
+	//
+	// Field roles per DOS disassembly:
+	//   activeDi/activeEs    — modal "active address" (script PC for
+	//                          chained text continuation; falls back to
+	//                          0x40b7 = formatted-text buffer base)
+	//   activeAx/activeBx    — modal screen position (left, top)
+	//   savedDi/savedEs/savedAx/savedBx — Op_53 stash slot (when
+	//                          stashFlag was set, Op_53 copies active*
+	//                          here before its own bubble runs)
+	//   menuChoiceCount      — DOS [0x66c2] (current choice index)
+	//   menuMaxChoices       — DOS [0x66c4] (total choices in this menu)
+	//   paletteMode          — DOS [0x66c6]:
+	//                            1 = verb-menu modal (Op_50/0x51)
+	//                            2 = fixed text bubble (Op_52)
+	//                            3 = text rect with choices (Op_4e/0x4f)
+	//                            4 = stashed text bubble (Op_53 follow-up)
+	//   stashFlag            — DOS [0x6741] (DAT_1cb5_6741):
+	//                            set by Op_50/0x51 (verb-menu opens),
+	//                            cleared by Op_52/Op_53 (next bubble
+	//                            consumes the stash). Op_53 branches on
+	//                            its value.
+	//   selectedItemIdx      — DOS [0x66a2] (modal-loop selection result)
+	//   textContinuationPtr  — DOS [0x6713]-related (g_text_continuation_ptr)
+	//   menuDone             — DOS g_menu_done flag (modal-loop exit)
+	struct ModalState {
+		uint16 activeDi, activeEs;
+		uint16 activeAx, activeBx;
+		uint16 savedDi, savedEs;
+		uint16 savedAx, savedBx;
+		uint16 menuChoiceCount;
+		uint16 menuMaxChoices;
+		uint8 paletteMode;
+		uint8 stashFlag;
+		uint16 selectedItemIdx;
+		uint16 textContinuationPtr;
+		bool menuDone;
+		ModalState() : activeDi(0), activeEs(0), activeAx(0), activeBx(0),
+		               savedDi(0), savedEs(0), savedAx(0), savedBx(0),
+		               menuChoiceCount(0), menuMaxChoices(0),
+		               paletteMode(0), stashFlag(0),
+		               selectedItemIdx(0xffff),
+		               textContinuationPtr(0),
+		               menuDone(false) {}
+	};
+	ModalState &modalState() { return _modalState; }
+	const ModalState &modalState() const { return _modalState; }
+
+	// FormatBubbleText mirrors DOS FormatBubbleText_FullPath @ 1000:9333.
+	// Processes a Pascal-style markup-encoded string, copies the cleaned
+	// text to an output buffer, and returns dimensions.
+	//
+	// Markup characters (DOS-faithful):
+	//   0x00 — terminator (end of input).
+	//   0x05 — inline-literal-until-null: copy bytes verbatim until
+	//          another 0x00 byte, then absorb 2 trailing bytes (DOS
+	//          bookkeeping for the literal block).
+	//   0x06 — decimal-number formatter (3-byte param: 16-bit number,
+	//          renders via FormatDecimalNumber).
+	//   0x07 — single-byte param consumed (no output side-effect on text).
+	//   0x09 — tab/spacing (1-byte param = X-offset to advance).
+	//   0x0a — conditional skip (3-byte param = condition + address);
+	//          if game-state bit is FALSE, skip following block to STX.
+	//   0x0b — conditional skip inverse (3-byte param); skip if TRUE.
+	//   0x0d — forced row terminator.
+	//   0x20 / 0x2d — word-break increment word count.
+	//   else — emit char via the char sprite (LookupCharSprite analog).
+	//
+	// Returns total pixel height = (word_count * line_height + 2),
+	// minimum 2 line-heights + 2.
+	struct FormattedBubble {
+		Common::String text;       // output text (markup expanded)
+		uint16 lineCount;          // logical line / word count
+		uint16 totalHeight;        // pixel height (DOS formula)
+		uint16 maxLineWidth;       // pixel width of widest line
+		bool truncated;            // true if buffer overflowed (DOS sets pending error 0x11)
+	};
+	FormattedBubble formatBubbleText(const byte *src) const;
 	// Second drag-target slot (DS:0x667e — `g_drag_target_mode40`),
 	// distinct from `_dragTarget` (DS:0x667c). Written by Op_76
 	// alongside `_g_cursor_mode = 0x40`. Read by Op_0b only.
@@ -341,6 +523,98 @@ public:
 	void setDialogCursors(uint16 c0, uint16 c1, uint16 gate) {
 		_dialogCursor0 = c0; _dialogCursor1 = c1; _dialogClickGate = gate;
 	}
+
+	// Post-move callback subsystem. Mirrors DOS [DS:0x65ab..] register-
+	// state record and RunPostMoveCallback @ 1000:73a6.
+	//
+	// DOS SetPostMoveCallback (0x7400) saves BP, BX, CX, DX, ES, DI,
+	// DS, SI, AX into the slot. RunPostMoveCallback fires the saved
+	// callback (CALL [BP]) when the protagonist's current frame
+	// matches a saved target frame ([0x6609]); the callback runs an
+	// in-engine continuation (e.g., 0x49df, 0x4a36) that updates
+	// game state. The callback is one-shot and cleared after firing.
+	//
+	// In C++ the in-engine continuations are enumerated explicitly —
+	// only a small set of code paths register post-move callbacks —
+	// so the saved register state collapses to (kind + named args).
+	// The "fire condition" maps cleanly to Actor::isMoving() going
+	// false: when the protagonist's _framequeue empties, the walk
+	// just completed.
+	struct PostMoveCallback {
+		enum Kind {
+			kNone = 0,
+			// DOS trampoline @ 0x49df:
+			//   PUSH CX; PUSH BX; CALL DisableObjectFlag1(AX);
+			//   POP AX; CALL MovePersonToActor(AX);
+			//   POP AX; if (AX != 0) JMP EnableObjectFlag1.
+			// = clearCellBit(cellId) + setDragTarget(arg0) +
+			//   (arg1 != 0 ? setCellBit(arg1) : nothing).
+			// Used by Op_91/Op_92.
+			kDisableMoveOptionalEnable = 1,
+			// DOS trampoline @ 0x4a36:
+			//   PUSH BX; CALL DisableObjectFlag1(AX);
+			//   POP BX; CALL EnableObjectFlag1(AX);  [DOS register
+			//     juggling here is buggy — AX is corrupt between
+			//     the two CALLs. We match the *intent*: enable arg1.]
+			//   JMP Op_8e (cursor=0, drag=0).
+			// = clearCellBit(cellId) + (arg1 != 0 ? setCellBit(arg1)) +
+			//   setCursorMode(0) + setDragTarget(0). Used by Op_93.
+			kDisableEnableUnregister = 2,
+		};
+		Kind kind;
+		uint16 cellId;       // DOS AX = currentEntityId at register time
+		uint16 arg0;         // DOS BX = target person/object id
+		uint16 arg1;         // DOS CX = optional second cell id (0 = no enable)
+		PostMoveCallback() : kind(kNone), cellId(0), arg0(0), arg1(0) {}
+	};
+	void setPostMoveCallback(PostMoveCallback::Kind kind, uint16 cellId, uint16 arg0, uint16 arg1) {
+		_postMoveCallback.kind = kind;
+		_postMoveCallback.cellId = cellId;
+		_postMoveCallback.arg0 = arg0;
+		_postMoveCallback.arg1 = arg1;
+	}
+	const PostMoveCallback &postMoveCallback() const { return _postMoveCallback; }
+	void setPostMoveCallback(const PostMoveCallback &cb) { _postMoveCallback = cb; }
+	bool hasPostMoveCallback() const { return _postMoveCallback.kind != PostMoveCallback::kNone; }
+	void clearPostMoveCallback() { _postMoveCallback = PostMoveCallback(); }
+	void runPostMoveCallbackIfReady();
+
+	// Cutscene-PC state backup (DOS Op_97 @ 1000:4a5d / Op_98 @ 1000:4b40).
+	// Single-slot save/restore of the protagonist's walk callback fields,
+	// the post-move callback record, and the protag's active speech.
+	// DOS captures more (g_speech_slots[6] pool snapshot @ [0x5f08..],
+	// g_room_script_slots[19] entry @ [0x5eeb/0x5eed/0x5eef]) — those
+	// subsystems aren't modeled in the C++ port, so the snapshot is a
+	// state subset. All save/restore actions match DOS for the modeled
+	// state; un-modeled DOS slots have no C++ analog to either save or
+	// restore from.
+	struct CutsceneBackup {
+		bool active;
+		// Protagonist DOS fields cleared by Op_97, restored by Op_98:
+		//   field+0x69 (word): walk callback target  → SetActorTarget
+		//   field+0x62 (byte): walk-step state byte
+		//   field+0x67 (byte): walk-callback status flag (e.g., 5 = armed)
+		uint16 actorField69;
+		uint8 actorField62;
+		uint8 actorField67;
+		// [0x6609]: protag's target frame for post-move-callback frame
+		// match. C++ post-move dispatcher uses isMoving() instead, so
+		// this byte is captured for state-mirror fidelity but doesn't
+		// drive C++ dispatch.
+		uint8 targetFrameMirror;
+		// [0x65ab..]: post-move callback register record.
+		PostMoveCallback savedCallback;
+		// Protagonist speech: text + active flag. DOS captures the
+		// 17-byte speech-slot record at [0x5f08]; we capture only what
+		// our Speech model holds (text), since other slot fields like
+		// frames-left/total are derived state.
+		Common::String speechText;
+		bool hadSpeech;
+		CutsceneBackup() : active(false), actorField69(0), actorField62(0),
+			actorField67(0), targetFrameMirror(0), hadSpeech(false) {}
+	};
+	CutsceneBackup &cutsceneBackup() { return _cutsceneBackup; }
+	const CutsceneBackup &cutsceneBackup() const { return _cutsceneBackup; }
 
 	// Camera (DOS g_camera_x/y, g_target_x/y at DS:0x67??). Op_d4 sets
 	// scroll target (smooth pan); Op_d5 sets camera position
@@ -479,6 +753,7 @@ public:
 	Room *room() const { return _room.get(); }
 	uint16 roomNumber() const { return _currentRoom; }
 	uint16 currentRoom() const { return _currentRoom; }
+	uint16 currentBlock() const { return _currentBlock; }
 	Actor *getActor(uint16 id) const;
 
 	Program *blockProgram() const { return _blockProgram.get(); }
@@ -525,6 +800,8 @@ public:
 		Common::SharedPtr<Room> room;
 		CodePointer resumePC;
 		Common::List<Animation *> savedAnimations;
+		PostMoveCallback savedPostMoveCallback;     // DOS [0x65ab..] block snapshot
+		Common::Array<CastEntry> savedCastTable;    // DOS [0x1977..] cast table snapshot (Op_38 SaveCastBackup)
 	};
 	bool hasSavedScene() const { return _savedScene; }
 	void saveSceneFrame(const CodePointer &resumePC);
@@ -599,6 +876,11 @@ private:
 	bool _inputEnabled;
 	Common::Array<AnimListEntry> _animList;
 	uint16 _dialogCursor0, _dialogCursor1, _dialogClickGate;  // DOS DS:0x6662, 0x6664, 0x6660
+	PostMoveCallback _postMoveCallback; // DOS DS:0x65ab register-state slot
+	CutsceneBackup _cutsceneBackup;     // DOS Op_97/Op_98 backup slot
+	Common::Array<CastEntry> _castTable; // DOS DS:0x1977 cast registry (18 slots)
+	ModalState _modalState;              // DOS DS:0x66ae..0x66c6 modal regs + 0x6741 stash
+	Common::Array<uint16> _menuItemIndices; // DOS DS:0x4f1b — Op_54 lookup for selected idx
 	uint16 _opcodeMode;       // DS:0x670e
 	uint16 _escBreakProc;     // DS:0x6726 (g_break_target_proc)
 	uint16 _escBreakSrcPC;    // DS:0x6728 (g_break_target_di)

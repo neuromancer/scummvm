@@ -22,7 +22,8 @@ MODULE_OBJS := \
 	eventmanager.o \
 	debug.o \
 	movie.o \
-	musicparser.o
+	musicparser.o \
+	sound.o
 
 inter.o: opcode_handlers.cpp
 

@@ -28,6 +28,7 @@
 #include "interspective/actor.h"
 #include "interspective/graphics.h"
 #include "interspective/innocent.h"
+#include "interspective/sound.h"
 #include "interspective/inter.h"
 #include "interspective/logic.h"
 #include "interspective/resources.h"
@@ -134,17 +135,23 @@ void Actor::sayAtPos(const Common::String &text, Common::Point pos) {
 Actor::Speech::~Speech() { while (!_cb.empty()) Log.runLater(_cb.pop()); }
 
 bool Actor::isMoving() const {
-	//TODO stub
-	return false;
+	// Mirrors DOS actor.field+0x65 ("walk-step counter / moving flag"):
+	//   non-zero while a step is in flight or queued.
+	// In C++ the walk path is staged via _framequeue; while it has
+	// entries, more steps remain. After the queue empties the actor is
+	// at the path's last frame and considered "still".
+	return !_framequeue.empty();
 }
 
 void Actor::callMeWhenStill(const CodePointer &cp) {
-	// `isMoving()` is currently a TODO stub that always returns false, so
-	// the actor is always "still" — fire the callback on the next tick.
-	// The previous assert(false) was UB-sanitizer poison; if any caller
-	// reached here we'd crash. Should be replaced once isMoving is wired
-	// to the real walk-state field.
-	Log.runLater(cp);
+	// If the actor is already still, fire on the next tick (immediate
+	// post-walk callback equivalent). While moving, queue into _callBacks
+	// — Animation::tick drains it via callBacks() once attention/state
+	// settles.
+	if (!isMoving())
+		Log.runLater(cp);
+	else
+		_callBacks.push(cp);
 }
 
 void Actor::setFrame(uint16 frame) {
@@ -691,46 +698,270 @@ OPCODE(0x01) {
 }
 
 OPCODE(0x14) {
-	// C++ slot 0x14 = DOS Op_15 WaitForSpeechSlot (CS:0x6af1). 4-byte
-	// opcode: either jumps to script[+2..+3] (loop while still speaking)
-	// or ADD BP,4 (skip past). 1 shift. iter-12 wrongly removed the
-	// shift. FIXED iter-13: consume jump target (don't actually loop —
-	// engine treats speech as instantaneous; the script will exit the
-	// wait loop on first iteration).
+	// C++ slot 0x14 = DOS Op_15 WaitForSpeechSlot @ 1000:6af1.
+	//   AX = g_render_actor_id;
+	//   if (AX == g_main_character_id) {
+	//       CALL CheckScrollDirty; if (no carry) → ADD BP,4 (advance);
+	//   }
+	//   CALL FindSpeechSlotById(this_actor);
+	//   if (carry) → ADD BP,4 (advance, no slot found = silent);
+	//   else → BP = ES:[BP+DI+2] (loop back to jump target = wait).
+	// = "while this actor has an active speech slot, re-enter this
+	// opcode". C++ has per-actor _speech (Actor::isSpeaking()) which
+	// matches the slot model — when the actor is speaking we rewind
+	// _offset back to the start of this opcode (jump target encodes
+	// "this opcode's address" in DOS scripts).
 	uint16 off = shift();
-	debugC(2, kDebugLevelAnimation, "actor opcode 0x14: WaitForSpeechSlot off=0x%04x STUB (no loop) [DOS Op_15]", off);
-	(void)off;
+	if (isSpeaking()) {
+		// Re-execute: rewind to the jump target. The script encodes
+		// the opcode's own address as the target, so following it loops
+		// back here on the next tick. Tick advancement happens through
+		// the dispatch loop's normal flow.
+		_offset = off;
+		debugC(3, kDebugLevelAnimation, "actor opcode 0x14: WaitForSpeechSlot looping (still speaking) [DOS Op_15]");
+		return kFrameDone;
+	}
+	debugC(3, kDebugLevelAnimation, "actor opcode 0x14: WaitForSpeechSlot done (silent) [DOS Op_15]");
 	return kOk;
 }
 
 OPCODE(0x15) {
-	// C++ slot 0x15 = DOS Op_16 PickAnimationSet (CS:0x6c3e). 2-byte
-	// opcode (ADD BP,2). NO script reads beyond the opcode byte.
-	// iter-12 wrongly added byte+shift. FIXED iter-13: 0 extras.
-	debugC(2, kDebugLevelAnimation, "actor opcode 0x15: PickAnimationSet STUB [DOS Op_16]");
+	// C++ slot 0x15 = DOS Op_16 PickAnimationSet @ 1000:6c3e —
+	// FULL-FIDELITY port (matches DOS bounding-rect classifier byte-
+	// for-byte; word-for-word step-toward state machine).
+	//
+	// Op_15 outer (1000:6c3e..0x6cc9):
+	//   PUSH ES, DI, BP, DS, SI                ; preserve regs
+	//   PUSH DS; PUSH ds; POP DS                ; (DS-restore dance)
+	//   CALL RetEmpty;                          ; CX=0, DX=0
+	//   SUB CX, 0; SUB DX, 0;                   ; (no-op subtractions)
+	//   ADD CX, [0x6659]; ADD DX, [0x665b]      ; CX/DX = camera origin
+	//   CMP [0x6678], 0x80                      ; cursor_mode == 0x80?
+	//   POP DS                                   ; restore DS
+	//   JZ verb_mode_path                        ; → cycle pose toward cursor
+	//   MOV [SI+0x68], 0                         ; not verb mode → reset pose
+	//   JMP exit
+	//
+	//   verb_mode_path (1000:6c6b):
+	//     PUSH DS, SI;                            ; protect actor record
+	//     MOV BH,0; MOV BL, [SI+0x18];            ; BX = actor.field+0x18
+	//                                              ; (rect-height portion)
+	//     CALL CalcSpriteOffsetIfPlaced @ 0x700f  ; → BP = target pose
+	//                                              ; (1..8 or 0x63 center)
+	//     POP SI, DS;                             ; restore actor record
+	//     MOV DX, BP                              ; DX = target
+	//     MOV CL, [SI+0x68]                       ; CL = current pose
+	//     CMP CL, 0x63; JZ snap                   ; current is center → snap
+	//     CMP DL, 0x63; JZ snap                   ; target is center → snap
+	//     SUB DL, CL                              ; DL = target - current
+	//     JZ snap                                  ; equal → keep / snap
+	//     JNS pos_delta                            ; signed positive
+	//     ; negative delta path:
+	//       MOV BP, 0x63                           ; default = snap to center
+	//       CMP DL, 0xfa    ; (-6 in signed) JLE inc_with_wrap
+	//                                              ; very large negative → wrap
+	//       CMP DL, 0xfe    ; (-2 in signed) JL exit
+	//                                              ; mid negative deadband
+	//       DEC CL                                  ; small neg: dec current
+	//       CMP CL, 1; JGE write
+	//       MOV CL, 8                               ; wrap 0 → 8
+	//       JMP write
+	//     pos_delta:
+	//       MOV BP, 0x63
+	//       CMP DL, 6; JGE inc_with_wrap
+	//       CMP DL, 2; JG exit                       ; mid pos deadband
+	//       (FALLTHROUGH to inc)
+	//     inc_with_wrap:
+	//       INC CL; CMP CL, 8; JLE write
+	//       MOV CL, 1                                 ; wrap 9 → 1
+	//     write:
+	//       MOV BP, CX
+	//     snap:
+	//       MOV AX, BP; MOV [SI+0x68], AL             ; field+0x68 = result
+	//   exit:
+	//     POP SI, BP, DI, ES, restore regs
+	//     ADD BP, 2                                  ; advance script PC
+	//
+	// CalcSpriteOffsetIfPlaced @ 1000:700f:
+	//   PUSH CX, DX                                  ; save camera (CX=cam_x, DX=cam_y)
+	//   MOV CX, [SI+0x4]; MOV DX, [SI+0x6]            ; CX/DX = actor.field+0x4/0x6
+	//   MOV AH, 0; MOV AL, [SI+0x17]; MOV BP, AX      ; BP = actor.field+0x17 (width)
+	//   MOV AX, [SI+0x8]; CMP AX, 0xffff              ; sprite valid?
+	//   JZ no_sprite_adjust
+	//     PUSH BP, BX, CX, DX
+	//     CALL CalcSpriteOffsetInGraphic              ; loads sprite metrics
+	//     POP DX, CX, BX, BP
+	//     MOV AL, [SI+0x8]; CBW; SUB CX, AX            ; CX -= sprite_offset_x
+	//     MOV AL, [SI+0x9]; CBW; ADD DX, AX            ; DX += sprite_offset_y
+	//   no_sprite_adjust:
+	//     PUSH DX                                       ; save bottom_y
+	//     SUB DX, BX                                    ; DX = top_y = bottom_y - height
+	//     MOV AX, CX; ADD AX, BP                         ; AX = right_x = left_x + width
+	//     POP BX                                         ; BX = bottom_y
+	//     POP DI                                         ; DI = saved cursor_y (caller's CX)
+	//     POP SI                                         ; SI = saved cursor_x (caller's DX)
+	//                                                    ; (note: caller pushed DS, SI, BP, DI, ES,
+	//                                                    ;  so this POP order recovers cursor coords)
+	//     CMP DI, DX; JL above_path                      ; cursor_y < top_y → above
+	//     CMP DI, BX; JG below_path                      ; cursor_y > bottom_y → below
+	//     ; middle row:
+	//       MOV BP, 7      ; left=W
+	//       CMP SI, CX; JL exit
+	//       MOV BP, 0x63    ; center
+	//       CMP SI, AX; JL exit
+	//       MOV BP, 3      ; right=E
+	//       JMP exit
+	//     above_path:                                       ; (label was "below" in some traces)
+	//       MOV BP, 8      ; left=NW
+	//       CMP SI, CX; JL exit
+	//       MOV BP, 1      ; mid=N
+	//       CMP SI, AX; JL exit
+	//       MOV BP, 2      ; right=NE
+	//       JMP exit
+	//     below_path:
+	//       MOV BP, 6      ; left=SW
+	//       CMP SI, CX; JL exit
+	//       MOV BP, 5      ; mid=S
+	//       CMP SI, AX; JL exit
+	//       MOV BP, 4      ; right=SE
+	//   exit: RET
+	//
+	// = compass mapping (1=N, 2=NE, 3=E, 4=SE, 5=S, 6=SW, 7=W, 8=NW,
+	// 0x63=center). Cursor above the actor's bounding rect → row 8/1/2;
+	// cursor inside vertical band → row 7/center/3; cursor below → row
+	// 6/5/4. Within each row, left/middle/right partition by left_x and
+	// right_x.
+	//
+	// Step-toward semantics (1000:6c79..0x6cba):
+	//   delta = target - current (signed byte arithmetic):
+	//     delta == 0 OR current==0x63 OR target==0x63 → snap.
+	//     |delta| >= 6  → INC current with wrap (1↔8). Large delta →
+	//                     short rotation goes via wrap.
+	//     3 ≤  delta ≤ 5 → INC current.
+	//    -5 ≤  delta ≤ -3 → DEC current (with wrap 1→8).
+	//     |delta| ≤ 2     → keep current (deadband for stability).
+	if (Log.cursorMode() != 0x80) {
+		setDosField(0x68, 0);
+		debugC(3, kDebugLevelAnimation,
+			"actor opcode 0x15: PickAnimationSet — cursor_mode=%u != 0x80 → field+0x68 = 0",
+			Log.cursorMode());
+		return kOk;
+	}
+
+	// Verb-mode classifier. Reproduces CalcSpriteOffsetIfPlaced exactly:
+	// build the actor's bounding rect from field+0x4/+0x6 + sprite offset
+	// bytes (+0x8/+0x9) + width/height bytes (+0x17/+0x18); then test
+	// cursor against rect bounds.
+	const Common::Point cursor = Log.engine()->graphics()->cursorPosition();
+	// adjusted_x = field+0x4 - field+0x8 (DOS sprite-offset adjustment)
+	// adjusted_y = field+0x6 + field+0x9
+	// Sprite offset bytes are signed; we read via dosField + cast to
+	// int8 to preserve sign.
+	const int16 adjustedX = int16(position().x) - int8(dosField(0x8));
+	const int16 adjustedY = int16(position().y) + int8(dosField(0x9));
+	const uint8 width  = dosField(0x17);   // BP in DOS
+	const uint8 height = dosField(0x18);   // BX in DOS
+	// Bounding rect (DOS layout):
+	//   left = adjustedX
+	//   right = adjustedX + width
+	//   top = adjustedY - height
+	//   bottom = adjustedY
+	const int16 leftX  = adjustedX;
+	const int16 rightX = adjustedX + int16(width);
+	const int16 topY   = adjustedY - int16(height);
+	const int16 botY   = adjustedY;
+
+	const int16 cx = int16(cursor.x);
+	const int16 cy = int16(cursor.y);
+	uint8 target;
+	if (cy < topY) {
+		// Cursor above actor's rect.
+		if (cx < leftX)        target = 8;  // NW
+		else if (cx < rightX)  target = 1;  // N
+		else                   target = 2;  // NE
+	} else if (cy > botY) {
+		// Cursor below actor's rect.
+		if (cx < leftX)        target = 6;  // SW
+		else if (cx < rightX)  target = 5;  // S
+		else                   target = 4;  // SE
+	} else {
+		// Cursor in vertical band.
+		if (cx < leftX)        target = 7;  // W
+		else if (cx < rightX)  target = 0x63; // center
+		else                   target = 3;  // E
+	}
+
+	const uint8 current = dosField(0x68);
+	if (current == 0x63 || target == 0x63 || target == current) {
+		setDosField(0x68, target);
+		debugC(3, kDebugLevelAnimation,
+			"actor opcode 0x15: PickAnimationSet snap target=%u current=%u",
+			target, current);
+		return kOk;
+	}
+	// Step-toward with wrap and deadband. Reproduces DOS 1000:6c79..0x6cba.
+	const int8 delta = int8(target) - int8(current);
+	uint8 next = current;
+	if (delta <= -6 || delta >= 6) {
+		// Large delta: rotate via INC-with-wrap (matches DOS LAB_1000_6cb1).
+		next = current + 1;
+		if (next > 8) next = 1;
+	} else if (delta >= 3 && delta <= 5) {
+		next = current + 1;
+		if (next > 8) next = 1;
+	} else if (delta >= -5 && delta <= -3) {
+		next = (current == 1) ? 8 : current - 1;
+	}
+	// |delta| <= 2: deadband — next stays = current.
+	if (next != current)
+		setDosField(0x68, next);
+	debugC(3, kDebugLevelAnimation,
+		"actor opcode 0x15: PickAnimationSet rect=(%d..%d, %d..%d) cursor=(%d,%d) target=%u current=%u → %u (delta=%d)",
+		leftX, rightX, topY, botY, cx, cy, target, current, next, int(delta));
 	return kOk;
 }
 
 OPCODE(0x16) {
-	// C++ slot 0x16 = DOS Op_17 BranchIfAnimSetEquals (CS:0x6b17). Reads
-	// embedded byte (anim-set value) + word (jump target). Byte
-	// consumption matches. C++ uses _direction as proxy for field+0x68.
-	byte val = embeddedByte();
-	uint16 off = shift();
-	debugC(3, kDebugLevelAnimation, "actor opcode 0x16: BranchIfAnimSetEquals val=%d off=0x%04x (C++ uses _direction) [DOS Op_17]", val, off);
-	if (val == _direction)
+	// C++ slot 0x16 = DOS Op_17 BranchIfAnimSetEquals @ 1000:6b17.
+	//   AL = actor.field+0x68;
+	//   CMP AL, embedded_byte;
+	//   if (AL == embedded_byte): BP = ES:[BP+DI+0x2];   // jump
+	//   else: ADD BP, 4;                                  // advance past 4-byte opcode
+	//
+	// Was using `_direction` as a proxy. Now correctly compares against
+	// `dosField(0x68)` which is set by Op_15 (ActorOp_16 PickAnimationSet).
+	const byte val = embeddedByte();
+	const uint16 off = shift();
+	const uint8 animSet = dosField(0x68);
+	if (animSet == val) {
+		debugC(3, kDebugLevelAnimation,
+			"actor opcode 0x16: BranchIfAnimSetEquals val=%d field+0x68=%u → jump 0x%04x [DOS Op_17]",
+			val, animSet, off);
 		setAnimation(off);
+	} else {
+		debugC(3, kDebugLevelAnimation,
+			"actor opcode 0x16: BranchIfAnimSetEquals val=%d field+0x68=%u (no match) [DOS Op_17]",
+			val, animSet);
+	}
 	return kOk;
 }
 
 OPCODE(0x17) {
-	// C++ slot 0x17 = DOS Op_18 BranchIfMoodEquals (CS:0x6b29). Reads
-	// embedded byte + word. Byte consumption matches. C++ stashes
-	// _nextAnimator instead of comparing mood — parallel mechanism.
+	// C++ slot 0x17 = DOS Op_18 BranchIfMoodEquals @ 1000:6b29.
+	//   if (actor.field+0x63 == embedded_byte) actor.PC = jump_target;
+	//   else fall through.
+	// Mood is stored sparsely on Actor::_dosFields (set by ActorOp_24).
 	byte val = embeddedByte();
 	uint16 off = shift();
-	debugC(3, kDebugLevelAnimation, "actor opcode 0x17: BranchIfMoodEquals val=%d off=0x%04x (C++ stashes _nextAnimator) [DOS Op_18]", val, off);
-	_nextAnimator = off;
+	const uint8 mood = dosField(0x63);
+	if (mood == val) {
+		debugC(3, kDebugLevelAnimation, "actor opcode 0x17: BranchIfMoodEquals val=%d mood=%d → jump 0x%04x [DOS Op_18]",
+			val, mood, off);
+		setAnimation(off);
+	} else {
+		debugC(3, kDebugLevelAnimation, "actor opcode 0x17: BranchIfMoodEquals val=%d mood=%d (no match) [DOS Op_18]",
+			val, mood);
+	}
 	return kOk;
 }
 
@@ -1181,12 +1412,18 @@ OPCODE(0x22) {
 }
 
 OPCODE(0x25) {
-	// C++ slot 0x25 = DOS Op_26 PlaySfx (CS:0x6c29). 4-BYTE opcode
-	// (ADD BP,4): reads sfx index at script[+2..+3], calls
-	// DispatchSfxRangeCheck, advances 4. iter-12 wrongly consumed 0 args.
-	// FIXED iter-13: 1 shift.
-	uint16 sfx = shift();
-	debugC(2, kDebugLevelAnimation, "actor opcode 0x25: PlaySfx %u STUB [DOS Op_26]", sfx);
+	// C++ slot 0x25 = DOS ActorOp_26 PlaySfx @ 1000:6c29.
+	// 4-byte opcode (opcode + pad + 2-byte sfx index).
+	//   AX = ES:[BP+DI+0x2];     ; AX = sfx index
+	//   CALL DispatchSfxRangeCheck(AX);
+	//   ADD BP, 0x4;
+	// = "play sfx index (range-check gated by active-slot bounds)".
+	// Routes through Logic::engine()->sound()->rangeCheck — same DOS
+	// SFX dispatcher as Op_f2.
+	const uint16 sfx = shift();
+	if (Sound *snd = Log.engine()->sound())
+		snd->rangeCheck(sfx);
+	debugC(2, kDebugLevelAnimation, "actor opcode 0x25: PlaySfx %u [DOS ActorOp_26]", sfx);
 	return kOk;
 }
 

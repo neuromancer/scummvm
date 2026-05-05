@@ -41,6 +41,7 @@
 #include "interspective/logic.h"
 #include "interspective/musicparser.h"
 #include "interspective/resources.h"
+#include "interspective/sound.h"
 
 using namespace Common;
 
@@ -56,6 +57,7 @@ Engine::Engine(OSystem *syst) :
 	_graphics->setEngine(this);
 	_logic = &Logic::instance();
 	_logic->setEngine(this);
+	_sound = new Sound(this);
 	_copyProtection = false;
 	me = this;
 	_lastTicks = 0;
@@ -70,6 +72,7 @@ Engine::Engine(OSystem *syst) :
 
 Engine::~Engine() {
 	MusicParser::destroy();
+	delete _sound;
 	delete _rnd;
 }
 

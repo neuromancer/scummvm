@@ -140,6 +140,7 @@ public:
 		// entity rather than the speaker.
 		Speech(Actor *parent, const Common::String &text, Common::Point overridePos);
 		bool active() const { return !_text.empty(); }
+		const Common::String &text() const { return _text; }
 		void callWhenDone(const CodePointer &cp) { _cb.push(cp); }
 		void paint(Graphics *g);
 		void tick();
@@ -216,6 +217,8 @@ public:
 	void tellMe(const CodePointer &cp, uint16 timeout);
 
 	bool isSpeaking() const;
+	const Common::String &speechText() const { return _speech.text(); }
+	void stopSpeaking() { _speech = Speech(); }
 	void callMeWhenSilent(const CodePointer &cp);
 	void say(const Common::String &text);
 	// DOS Op_40/0x42/0x44 SpeakAtTarget: bubble anchored at `pos`

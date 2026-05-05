@@ -127,13 +127,17 @@ public:
 	/** Go fullscreen. This will hide the interface. */
 	void goFullscreen();
 
-private:
+	// Per-glyph width (variable-width font). Mirrors DOS
+	// LookupCharSprite @ 1000:c69c — used by Logic::formatBubbleText
+	// for DOS-faithful pixel width accumulation.
+	uint16 getGlyphWidth(byte ch) const;
 	enum {
 		kLineHeight = 12
 	};
+
+private:
 	static byte clampChar(byte ch);
 	uint16 calculateLineWidth(const byte *string) const;
-	uint16 getGlyphWidth(byte ch) const;
 	Sprite *getGlyph(byte ch) const;
 
 	/**
