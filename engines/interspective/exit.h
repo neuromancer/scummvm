@@ -46,6 +46,11 @@ public:
 	uint16 room() const { return _room; }
 	void setRoom(uint16 r) { _room = r; }
 	const Common::Point &position() const { return _position; }
+	void setPosition(Common::Point p) {
+		_rect.translate(p.x - _position.x, p.y - _position.y);
+		_position = p;
+	}
+	void setZIndex(byte z) { _zIndex = z; }
 
 	void paint(Graphics *g);
 

@@ -186,6 +186,13 @@ public:
 	uint16 targetFrameId() const { return _nextFrame; }
 	Common::Point position() const { return _position; }
 	int16 ticksLeft() const { return _ticksLeft; }
+	uint8 interval() const { return uint8(_interval); }
+	void setRawPosition(Common::Point p) { _position = p; }
+	void setRawTicksLeft(int16 ticks) { _ticksLeft = ticks; }
+	void setRawInterval(uint8 interval) { _interval = int8(interval); }
+	void setRawFrame(uint16 frame) { _frame = frame; }
+	void setRawTargetFrame(uint16 frame) { _nextFrame = frame; }
+	void setRawSpriteTarget(uint16 target) { setMainSprite(target); _nextFrame = target; }
 	void moveTo(uint16 f);
 	static Common::List<Frame> findPath(Frame from, uint16 to);
 

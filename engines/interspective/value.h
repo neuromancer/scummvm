@@ -96,7 +96,7 @@ private:
 class ByteVariable : public Value {
 public:
 	ByteVariable(byte *ptr) : _ptr(ptr) {}
-	virtual Value &operator=(uint16 value) { assert(value < 256); *_ptr = value; return *this; }
+	virtual Value &operator=(uint16 value) { *_ptr = uint8(value); return *this; }
 	virtual operator uint16() const { return *_ptr; }
 private:
 	byte *_ptr;
@@ -136,7 +136,7 @@ public:
 	CodePointer(const CodePointer &c) : Value(), _offset(c._offset), _interpreter(c._interpreter) { init(); }
 	CodePointer(uint16 offset, Interpreter *interpreter);
 
-	CodePointer &operator=(const CodePointer &cp) { _offset = cp._offset; _interpreter = cp._interpreter; return *this; }
+	CodePointer &operator=(const CodePointer &cp) { _offset = cp._offset; _interpreter = cp._interpreter; init(); return *this; }
 
 	virtual const char *operator+() const { return _inspect; }
 	virtual void run() const;

@@ -71,6 +71,7 @@ public:
 	Common::List<Exit *> exitsForRoom(uint16 room) const;
 
 	Actor *actor(uint16 index) const;
+	uint16 actorsCount() const { return uint16(_actors.size()); }
 
 private:
 	Program() { /* can only be created from a file */ }

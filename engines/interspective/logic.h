@@ -76,19 +76,20 @@ public:
 		  _drawCommandCount(0),
 		  _dialogCursor0(0), _dialogCursor1(0), _dialogClickGate(0),
 		  _opcodeMode(0),
-			  _escBreakProc(0),
-			  _escBreakSrcPC(0),
-			  _parserBufferCapacity(60),
-			  _callDepth(0),
-			  _runningQueued(0),
-			  _motionTextTicks(0),
-			  _slowCpu(false),
-			  _cameraX(0), _cameraY(0),
-			  _cameraTargetX(0xffff), _cameraTargetY(0xffff),
-			  _inputEnabled(true) {
-			for (int i = 0; i < 7; ++i) _graphicSlots[i] = 0;
-			_castTable.resize(kCastTableCap);
-		}
+		  _escBreakProc(0),
+		  _escBreakSrcPC(0),
+		  _parserBufferCapacity(60),
+		  _callDepth(0),
+		  _runningQueued(0),
+		  _runningQueuedMode(0),
+		  _motionTextTicks(0),
+		  _slowCpu(false),
+		  _cameraX(0), _cameraY(0),
+		  _cameraTargetX(0xffff), _cameraTargetY(0xffff),
+		  _inputEnabled(true) {
+		for (int i = 0; i < 7; ++i) _graphicSlots[i] = 0;
+		_castTable.resize(kCastTableCap);
+	}
 	~Logic();
 
 	// Monotonically increasing per-tick counter — wraps at uint16 to mirror the DOS
@@ -771,13 +772,12 @@ public:
 	Interpreter *blockInterpreter() const { return _blockInterpreter.get(); }
 	Interpreter *mainInterpreter() const { return _toplevelInterpreter.get(); }
 	void runLater(const CodePointer &, uint16 delay = 0);
-	uint16 queuedCount() const;
-	// Remove any queued (runLater) entry whose CodePointer matches `p`.
-	// Used by Op_3a / Op_3c to cancel a previously-deferred script.
-	// Returns true if the canceled entry matched the *currently
-	// running* queued script (= DOS `g_break_loop = 1` self-cancel
-	// case). Caller (Op_3a / Op_3c) returns kReturn in that case.
-	bool cancelLater(const CodePointer &p);
+	bool queueDeferred(const CodePointer &p);
+	uint16 deferredQueuedCount() const;
+	// Remove the first deferred entry whose CodePointer matches `p`.
+	// Returns true when the canceled slot has the currently-running
+	// deferred mode, mirroring DOS `g_break_loop = 1`.
+	bool cancelDeferred(const CodePointer &p);
 
 	bool motionTextActive() const { return _motionTextTicks != 0; }
 	void startMotionText(uint16 ticks, const byte *text, uint16 length);
@@ -827,6 +827,7 @@ public:
 private:
 
 	void doChangeRoom();
+	bool redirectDeferredMode(uint16 mode, const CodePointer &target);
 	void runQueued();
 
 
@@ -844,11 +845,12 @@ private:
 	Music *_music;
 
 	struct DelayedRun {
-		DelayedRun(const CodePointer &c, uint16 d, uint16 tick)
-			: code(c), delay(d), queuedTick(tick), canceled(false) {}
+		DelayedRun(const CodePointer &c, uint16 d, uint16 tick, uint16 mode = 0)
+			: code(c), delay(d), queuedTick(tick), deferredMode(mode), canceled(false) {}
 		CodePointer code;
 		uint16 delay;
 		uint16 queuedTick;
+		uint16 deferredMode;
 		bool canceled;
 	};
 	Common::List<DelayedRun> _queued;
@@ -906,6 +908,7 @@ private:
 	uint8 _parserBufferCapacity;
 	uint8 _callDepth;       // DOS call-stack depth (max 8)
 	const CodePointer *_runningQueued; // currently running queued entry (nullable)
+	uint16 _runningQueuedMode; // DOS deferred mode tag (0x0b..0x12), or 0 for generic queued code
 	uint16 _motionTextTicks; // DOS g_unknown_66d6 countdown used by Op_56 text motion
 	Common::Array<byte> _motionText;
 	bool _slowCpu;          // DS:0x67b5 — always false on modern hosts

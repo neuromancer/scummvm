@@ -457,6 +457,7 @@ void Actor::readHeader(const byte *code) {
 		_baseOffset = _offset = 0;
 	}
 	uint16 sprite = READ_LE_UINT16(code + kOffsetMainSprite);
+	_nextFrame = sprite;
 	_room = READ_LE_UINT16(code + kOffsetRoom);
 
 	debugC(3, kDebugLevelFiles, "loading %s: interv %d ticks %d z%d pos%d:%d code %d offset %d sprite %d room %d", _debugInfo, _interval, _ticksLeft, _zIndex, _position.x, _position.y, baseOff, _offset, sprite, _room);

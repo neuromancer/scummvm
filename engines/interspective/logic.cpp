@@ -245,12 +245,35 @@ void Logic::runLater(const CodePointer &p, uint16 delay) {
 	_queued.push_back(DelayedRun(p, delay, frameTicks()));
 }
 
-uint16 Logic::queuedCount() const {
+uint16 Logic::deferredQueuedCount() const {
 	uint16 count = 0;
 	for (Common::List<DelayedRun>::const_iterator it = _queued.begin(); it != _queued.end(); ++it)
-		if (!it->canceled)
+		if (!it->canceled && it->deferredMode != 0)
 			++count;
 	return count;
+}
+
+bool Logic::queueDeferred(const CodePointer &p) {
+	static const uint16 kDeferredModeBase = 0x0b;
+	static const uint16 kDeferredSlotCount = 8;
+
+	for (uint16 slot = 0; slot < kDeferredSlotCount; ++slot) {
+		const uint16 mode = kDeferredModeBase + slot;
+		bool used = false;
+		for (Common::List<DelayedRun>::const_iterator it = _queued.begin(); it != _queued.end(); ++it) {
+			if (!it->canceled && it->deferredMode == mode) {
+				used = true;
+				break;
+			}
+		}
+		if (!used) {
+			debugC(3, kDebugLevelScript, "will call deferred %s in mode 0x%02x", +p, mode);
+			_queued.push_back(DelayedRun(p, 0, frameTicks(), mode));
+			return true;
+		}
+	}
+
+	return false;
 }
 
 void Logic::startMotionText(uint16 ticks, const byte *text, uint16 length) {
@@ -973,26 +996,20 @@ Logic::FormattedBubble Logic::formatBubbleText(const byte *src) const {
 	return out;
 }
 
-bool Logic::cancelLater(const CodePointer &p) {
-	bool selfCancel = false;
+bool Logic::cancelDeferred(const CodePointer &p) {
 	Common::List<DelayedRun>::iterator it = _queued.begin();
 	while (it != _queued.end()) {
-		if (!it->canceled && it->code.offset() == p.offset() && it->code.interpreter() == p.interpreter()) {
-			debugC(3, kDebugLevelScript, "cancel pending %s", +p);
-			// Self-cancel detection (DOS `g_break_loop = 1` case):
-			// `_runningQueued` is set by runQueued() while executing
-			// each entry. If the cancellation target matches the
-			// currently running entry, signal the caller to break.
-			if (_runningQueued
-					&& _runningQueued->offset() == p.offset()
-						&& _runningQueued->interpreter() == p.interpreter()) {
-				selfCancel = true;
-			}
+		if (!it->canceled && it->deferredMode != 0
+				&& it->code.offset() == p.offset()
+				&& it->code.interpreter() == p.interpreter()) {
+			debugC(3, kDebugLevelScript, "cancel deferred %s mode 0x%02x", +p, it->deferredMode);
+			const bool selfCancel = _runningQueuedMode != 0 && it->deferredMode == _runningQueuedMode;
 			it->canceled = true;
+			return selfCancel;
 		}
 		++it;
 	}
-	return selfCancel;
+	return false;
 }
 
 void Logic::runQueued() {
@@ -1027,8 +1044,15 @@ void Logic::runQueued() {
 			}
 			debugC(2, kDebugLevelFlow | kDebugLevelScript, ">>>running %s", +current->code);
 			_runningQueued = &current->code;
-			current->code.run();
+			_runningQueuedMode = current->deferredMode;
+			const uint16 savedOpcodeMode = _opcodeMode;
+			if (current->deferredMode != 0)
+				current->code.run(static_cast<OpcodeMode>(current->deferredMode));
+			else
+				current->code.run();
+			_opcodeMode = savedOpcodeMode;
 			_runningQueued = 0;
+			_runningQueuedMode = 0;
 			debugC(2, kDebugLevelFlow | kDebugLevelScript, "<<<finished %s", +current->code);
 			toRemove.push(current);
 		}
@@ -1066,13 +1090,34 @@ void Logic::setSkipPoint(const CodePointer &p) {
 	_skipPoint = p;
 }
 
+bool Logic::redirectDeferredMode(uint16 mode, const CodePointer &target) {
+	for (Common::List<DelayedRun>::iterator it = _queued.begin(); it != _queued.end(); ++it) {
+		if (!it->canceled && it->deferredMode == mode) {
+			debugC(2, kDebugLevelScript, "redirect deferred mode 0x%02x to %s", mode, +target);
+			it->code = target;
+			it->delay = 0;
+			it->queuedTick = frameTicks();
+			return true;
+		}
+	}
+	return false;
+}
+
 void Logic::skipCutscene() {
 	if (_skipPoint.isEmpty()) return;
 
+	const CodePointer target = _skipPoint;
+	const uint16 proc = _escBreakProc;
+	clearEscBreakPoint();
+
 	debugC(2, kDebugLevelScript, ">>>running animation skip code");
-	_skipPoint.run();
+	if (proc >= 0x0b) {
+		if (!redirectDeferredMode(proc, target))
+			runLater(target);
+	} else {
+		target.run(static_cast<OpcodeMode>(proc));
+	}
 	debugC(2, kDebugLevelScript, "<<<finished animation skip code");
-	_skipPoint.reset();
 }
 
 Animation *Logic::animation(uint16 offset) const {
