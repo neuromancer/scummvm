@@ -72,16 +72,22 @@ public:
 		  _branchState(0),
 		  _pendingError(0),
 		  _gameScore(0),
-		  _maxGameScore(0),
+		  _maxGameScore(100),  // sensible default until iuc_main.dat loader sets it
 		  _currentEntityId(0),
 		  _drawCommandCount(0),
+		  _dialogCursor0(0), _dialogCursor1(0), _dialogClickGate(0),
 		  _opcodeMode(0),
 		  _escBreakProc(0),
 		  _escBreakSrcPC(0),
 		  _parserBufferCapacity(60),
 		  _callDepth(0),
 		  _runningQueued(0),
-		  _slowCpu(false) {}
+		  _slowCpu(false),
+		  _cameraX(0), _cameraY(0),
+		  _cameraTargetX(0xffff), _cameraTargetY(0xffff),
+		  _inputEnabled(true) {
+			for (int i = 0; i < 7; ++i) _graphicSlots[i] = 0;
+		}
 	~Logic();
 
 	// Monotonically increasing per-tick counter — wraps at uint16 to mirror the DOS
@@ -166,6 +172,33 @@ public:
 	void clearObjectRooms() { _objectRoom.clear(); }
 	uint16 objectRoomCount() const { return _objectRoom.size(); }
 
+	// Sparse storage for DOS object record fields not first-class
+	// members of Logic. Keyed by (objId, fieldOffset). Used by Op_67
+	// (WriteObjectFieldSized) for offsets beyond room/x/y. Mirrors
+	// Actor::_dosFields semantics — absent keys read as 0.
+	uint8 objectField(uint16 objId, uint8 off) const {
+		Common::HashMap<uint32, uint8>::const_iterator it = _objectFields.find((uint32(objId) << 8) | off);
+		return it == _objectFields.end() ? 0 : it->_value;
+	}
+	void setObjectField(uint16 objId, uint8 off, uint8 v) {
+		const uint32 key = (uint32(objId) << 8) | off;
+		if (v == 0)
+			_objectFields.erase(key);
+		else
+			_objectFields[key] = v;
+	}
+	uint8 exitField(uint16 exitId, uint8 off) const {
+		Common::HashMap<uint32, uint8>::const_iterator it = _exitFields.find((uint32(exitId) << 8) | off);
+		return it == _exitFields.end() ? 0 : it->_value;
+	}
+	void setExitField(uint16 exitId, uint8 off, uint8 v) {
+		const uint32 key = (uint32(exitId) << 8) | off;
+		if (v == 0)
+			_exitFields.erase(key);
+		else
+			_exitFields[key] = v;
+	}
+
 	// Per-entity cell-bit array. DOS keeps an 8-bit flag byte per entity id
 	// (objects + exits share the id space, indexed against g_object_count_max).
 	// Bit 0 is the "active in current room" visibility bit; bits 1..7 are
@@ -244,13 +277,26 @@ public:
 	// switch hit pending-error 0x04).
 	uint16 branchState() const { return _branchState; }
 	void setBranchState(uint16 v) { _branchState = v; }
-	// `g_game_score` (DS:0x6670) — running score (read by Op_5c).
+	// `g_game_score` (DS:0x6670) — running score (read by Op_5c,
+	// incremented by Op_ee per claimed score event).
 	uint16 gameScore() const { return _gameScore; }
 	void setGameScore(uint16 v) { _gameScore = v; }
+	void addGameScore(uint16 delta) { _gameScore += delta; }
 	// Score-system divisor (CS:[0x91]). Used by Op_5d to compute
-	// percent and tenths display.
+	// percent and tenths display. DOS loads from iuc_main.dat at
+	// LoadCodeBlock; C++ doesn't have that loader path yet.
 	uint16 maxGameScore() const { return _maxGameScore; }
 	void setMaxGameScore(uint16 v) { _maxGameScore = v; }
+	// Per-event "claimed" flag (DOS CS:[0x95+i*2+1]). Op_ee marks
+	// the event as claimed; the score is incremented only on first
+	// claim. Sparse map — absent keys = unclaimed.
+	bool isScoreEventClaimed(uint16 eventId) const {
+		return _scoreEventClaimed.contains(eventId);
+	}
+	void markScoreEventClaimed(uint16 eventId) {
+		_scoreEventClaimed[eventId] = true;
+	}
+	void clearScoreEventClaims() { _scoreEventClaimed.clear(); }
 
 	// Current-entity id (DAT_1cb5_666c) — index of the entity whose
 	// script is currently running. Set by RunEntityScript before
@@ -266,6 +312,85 @@ public:
 	void setDrawCommandCount(uint16 c) { _drawCommandCount = c; }
 	void incrementDrawCommandCount() { _drawCommandCount++; }
 	void clearDrawCommandCount() { _drawCommandCount = 0; }
+
+	// Anim-list (DOS DS:0x3f2d..., counter at `g_anim_list_count`,
+	// 8-entry cap). Op_e4 appends an entry; Op_e5 clears. Each entry
+	// holds 4 words of cutscene-animation state. Used during scene
+	// transitions to replay a sequence of pose changes.
+	struct AnimListEntry {
+		uint16 a, b, c, d;
+	};
+	void animListClear() { _animList.clear(); }
+	bool animListAppend(uint16 a, uint16 b, uint16 c, uint16 d) {
+		if (_animList.size() >= 8)
+			return false;
+		AnimListEntry e = { a, b, c, d };
+		_animList.push_back(e);
+		return true;
+	}
+	uint16 animListCount() const { return uint16(_animList.size()); }
+	const Common::Array<AnimListEntry> &animList() const { return _animList; }
+
+	// Anim-list cursor stash (DOS pbRam000231b2/b4 + g_unknown_6660).
+	// Op_e3 sets these as cursor pointers used by DispatchDialogClick
+	// when iterating the anim-list. Stored as raw values; the +3/+0x9b
+	// offsets are computed at write time to mirror DOS field layout.
+	uint16 dialogCursor0() const { return _dialogCursor0; }
+	uint16 dialogCursor1() const { return _dialogCursor1; }
+	uint16 dialogClickGate() const { return _dialogClickGate; }
+	void setDialogCursors(uint16 c0, uint16 c1, uint16 gate) {
+		_dialogCursor0 = c0; _dialogCursor1 = c1; _dialogClickGate = gate;
+	}
+
+	// Camera (DOS g_camera_x/y, g_target_x/y at DS:0x67??). Op_d4 sets
+	// scroll target (smooth pan); Op_d5 sets camera position
+	// instantly. 0xffff target = no active scroll.
+	int16 cameraX() const { return _cameraX; }
+	int16 cameraY() const { return _cameraY; }
+	void setCameraXY(int16 x, int16 y) { _cameraX = x; _cameraY = y; }
+	uint16 cameraTargetX() const { return _cameraTargetX; }
+	uint16 cameraTargetY() const { return _cameraTargetY; }
+	void setCameraTarget(uint16 x, uint16 y) { _cameraTargetX = x; _cameraTargetY = y; }
+	bool inputEnabled() const { return _inputEnabled; }
+	void setInputEnabled(bool e) { _inputEnabled = e; }
+
+	// Graphic-slot tracking (DOS DS:0x676f..0x677b — 7 slots × 2 bytes).
+	// Op_cb (LoadGraphicToSlot) writes the current graphic id into one
+	// of these slots based on the graphic's type byte. Slot indices:
+	//   type 1 → 0x676f (foreground graphic A)
+	//   type 2 → 0x6771 (foreground graphic B)
+	//   type 3 → 0x6773 (foreground graphic C)
+	//   type 4 → 0x6779 (full-screen alt 1)
+	//   type 5 → 0x677b (full-screen alt 2)
+	//   type 6 → 0x6775 (full-screen)
+	//   type 7 → 0x6777 (full-screen palette)
+	// 0 = no graphic loaded.
+	void setGraphicSlot(uint8 slot, uint16 graphicId) {
+		if (slot < 7) _graphicSlots[slot] = graphicId;
+	}
+	uint16 graphicSlot(uint8 slot) const {
+		return slot < 7 ? _graphicSlots[slot] : 0;
+	}
+
+	// Backdrop-overlay queue (DS:0x37b7..0x37b7+250*6, counter at
+	// DS:0x6621 = `g_unknown_6621`). Op_7e queues a (sprite, x, y)
+	// triple for the chosen entity; DrawBackdropOverlays draws them
+	// after the backdrop on each frame. Reset on room change.
+	struct OverlayEntry {
+		uint16 sprite;
+		int16 x;
+		int16 y;
+	};
+	void overlayQueueClear() { _overlayQueue.clear(); }
+	bool overlayQueuePush(uint16 sprite, int16 x, int16 y) {
+		// DOS cap = 250 entries; pending-error 0x35 on overflow.
+		if (_overlayQueue.size() >= 250)
+			return false;
+		OverlayEntry e = { sprite, x, y };
+		_overlayQueue.push_back(e);
+		return true;
+	}
+	const Common::Array<OverlayEntry> &overlayQueue() const { return _overlayQueue; }
 
 	// `g_opcode_mode` (DS:0x670e) — mode of the currently dispatching
 	// script (entity type for entity scripts, slot index 0xb..0x12 for
@@ -387,6 +512,11 @@ public:
 	// Op_38 (1000:3c58) saves the current scene; Op_01 (1000:59a3)
 	// restores it. DOS uses a single slot, not a stack — see
 	// PLAN.md "Cross-cutting subsystems / Scene-snapshot stack".
+	// _animations is saved as a list snapshot so the sub-scene's
+	// loadActors-appended entries can be unwound on pop. The Program
+	// SharedPtr preserves the old _code buffer; Animation::dropBaseIfIn
+	// is skipped while a snapshot exists so the saved actors' _base
+	// pointers remain valid.
 	struct SceneFrame {
 		Common::SharedPtr<Program> blockProgram;
 		Common::SharedPtr<Interpreter> blockInterpreter;
@@ -394,6 +524,7 @@ public:
 		uint32 currentRoom;
 		Common::SharedPtr<Room> room;
 		CodePointer resumePC;
+		Common::List<Animation *> savedAnimations;
 	};
 	bool hasSavedScene() const { return _savedScene; }
 	void saveSceneFrame(const CodePointer &resumePC);
@@ -441,6 +572,8 @@ private:
 	Common::HashMap<uint16, uint16> _objectRoom; // sparse object-id → room map
 	Common::HashMap<uint16, int16> _objectPosX;
 	Common::HashMap<uint16, int16> _objectPosY;
+	Common::HashMap<uint32, uint8> _objectFields; // (objId<<8)|fieldOffset → byte, for Op_67 unknown offsets
+	Common::HashMap<uint32, uint8> _exitFields;   // (exitId<<8)|fieldOffset → byte, for Op_66 unknown offsets
 	Common::HashMap<uint16, uint8> _cellBits;    // per-entity flag byte (Op_7b/7c/Op_15)
 	Common::HashMap<uint16, uint8> _actorFlag70; // Actor.field_0x70 (Op_49)
 	uint16 _menuStashA, _menuStashB;             // pbRam00023206/8 (Op_4d)
@@ -456,8 +589,16 @@ private:
 	uint8 _pendingError;    // 1000:0003 — DOS pending-error code (0 = none)
 	uint16 _gameScore;      // DS:0x6670
 	uint16 _maxGameScore;   // CS:[0x91]
+	Common::HashMap<uint16, bool> _scoreEventClaimed;
 	uint16 _currentEntityId; // DAT_1cb5_666c
 	uint16 _drawCommandCount; // DS:0x661b
+	Common::Array<OverlayEntry> _overlayQueue;
+	uint16 _graphicSlots[7]; // DS:0x676f..0x677b
+	int16 _cameraX, _cameraY;
+	uint16 _cameraTargetX, _cameraTargetY;
+	bool _inputEnabled;
+	Common::Array<AnimListEntry> _animList;
+	uint16 _dialogCursor0, _dialogCursor1, _dialogClickGate;  // DOS DS:0x6662, 0x6664, 0x6660
 	uint16 _opcodeMode;       // DS:0x670e
 	uint16 _escBreakProc;     // DS:0x6726 (g_break_target_proc)
 	uint16 _escBreakSrcPC;    // DS:0x6728 (g_break_target_di)

@@ -42,6 +42,11 @@ public:
 	void readFile(Common::SeekableReadStream &stream);
 
 	uint32 offsetOfEntry(uint16 index);
+	// DOS Op_ca patches only the low 16 bits of an entry's offset
+	// (`MOV word ptr ES:[DI], AX` at 1000:5269). Index is 1-based.
+	void patchEntryLow16(uint16 index, uint16 value);
+	// Number of 4-byte entries (capacity = 1200/4 = 300).
+	uint16 entryCapacity() const { return 1200 / 4; }
 
 private:
 	byte _data[1200];

@@ -84,6 +84,29 @@ public:
 
 	void addRect(const Room::Rect &f) { _rects.push_back(f); }
 
+	uint16 frameCount() const { return uint16(_actorFrames.size()); }
+
+	// Return the 1-based frame index whose position is closest to (x, y),
+	// or 0 if no valid frame exists. Used by Op_29/0x2a/0x56 to compute
+	// a walk goal for object/exit targets — DOS does this via
+	// FindNearestExitToPoint @ 1000:72a2.
+	uint16 nearestFrameTo(int16 x, int16 y) const {
+		uint16 best = 0;
+		int32 bestDistSq = 0x7fffffff;
+		for (uint16 i = 0; i < _actorFrames.size(); ++i) {
+			Common::Point p = _actorFrames[i].position();
+			if (p.x == 999) continue;  // sentinel for invalidated
+			int32 dx = int32(p.x) - int32(x);
+			int32 dy = int32(p.y) - int32(y);
+			int32 d2 = dx * dx + dy * dy;
+			if (d2 < bestDistSq) {
+				bestDistSq = d2;
+				best = uint16(i + 1);
+			}
+		}
+		return best;
+	}
+
 	friend class Logic;
 
 private:

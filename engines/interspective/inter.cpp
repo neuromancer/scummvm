@@ -104,6 +104,10 @@ void Interpreter::init() {
 
 Status Interpreter::run(uint16 offset, OpcodeMode mode) {
 	_mode = mode;
+	// Mirror DOS `g_opcode_mode = mode_value` set by the script-dispatch
+	// sites (RunEntityScript, runQueued, etc.). Op_3a/Op_3d read this
+	// to decide deferred-mode dispatch behaviour.
+	Logic::instance().setOpcodeMode(uint16(mode));
 	return run(offset);
 }
 

@@ -68,7 +68,9 @@ void Program::loadActors(Interpreter *in) {
 	debugC(3, kDebugLevelFiles, "loading %d actors from the program file", nactors);
 	uint16 actors = READ_LE_UINT16(_footer + kActors);
 	for (int i = 0; i < nactors; ++i) {
-		_actors.push_back(new Actor(CodePointer(actors, in)));
+		Actor *ac = new Actor(CodePointer(actors, in));
+		ac->setId(uint16(i + 1));  // DOS uses 1-based ids
+		_actors.push_back(ac);
 		actors += Actor::Size;
 	}
 }

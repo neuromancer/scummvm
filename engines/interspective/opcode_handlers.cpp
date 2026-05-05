@@ -45,13 +45,60 @@
 
 namespace Interspective {
 
+// Walk-driver helper: send protagonist toward target entity by looking
+// up the target's (room, x, y) and finding the nearest walkable frame.
+// Mirrors DOS SendActorToTarget → MoveProtagonistToEntity dispatch:
+//   actor target  → use actor.frameId() directly.
+//   exit target   → exit.position() → nearest room frame.
+//   object target → Logic::getObjectPosX/Y + room → nearest frame.
+// In all cases the walk is only triggered if the target is in the
+// protagonist's current room.
+static void sendProtagToTarget(Logic *logic, uint16 targetId) {
+	Actor *protag = logic->protagonist();
+	if (!protag)
+		return;
+
+	// 1) Actor target — direct frame match.
+	if (Actor *target = logic->getActor(targetId)) {
+		if (target->room() == logic->currentRoom())
+			protag->moveTo(target->frameId());
+		return;
+	}
+
+	// 2) Exit target — find the exit in the current block, get its
+	// position, walk to the nearest frame.
+	if (logic->blockProgram()) {
+		Exit *exit = logic->blockProgram()->getExit(targetId);
+		if (exit && exit->room() == logic->currentRoom() && logic->room()) {
+			const uint16 frame = logic->room()->nearestFrameTo(
+				int16(exit->position().x), int16(exit->position().y));
+			if (frame)
+				protag->moveTo(frame);
+			return;
+		}
+	}
+
+	// 3) Object target — same shape via Logic::_objectRoom/Pos.
+	if (logic->getObjectRoom(targetId) == logic->currentRoom() && logic->room()) {
+		const uint16 frame = logic->room()->nearestFrameTo(
+			logic->getObjectPosX(targetId), logic->getObjectPosY(targetId));
+		if (frame)
+			protag->moveTo(frame);
+	}
+}
+
 // Speech subsystem helper: route text to the appropriate sink.
 // In map mode, DOS displays subtitles (no actor bubble). Otherwise
 // queue a per-actor bubble via Actor::say. C++'s per-actor _speech
 // slot is the equivalent of DOS's 6-slot g_speech_slots pool —
 // modern hosts have no RAM constraint, so the 6-slot cap is a
 // non-issue.
-static void speakOrSubtitle(Actor *speaker, const Common::String &text) {
+//
+// If `target` is non-null, the bubble is anchored at the target's
+// position instead of the speaker's sprite — mirrors DOS
+// SpeakAtTarget (Op_40/0x42/0x44) where the bubble appears near
+// the target entity rather than the speaker.
+static void speakOrSubtitle(Actor *speaker, const Common::String &text, Actor *target = 0) {
 	if (Log.inMapMode()) {
 		// DOS map-mode: CheckSubtitleActive + RegisterSampleSlot_LoadDefaultsB
 		// or QueueDeferredFormattedText. Closest C++ analog: render text
@@ -62,8 +109,14 @@ static void speakOrSubtitle(Actor *speaker, const Common::String &text) {
 				length, MAX<uint16>(30, 3 * length));
 		return;
 	}
-	if (speaker)
+	if (!speaker)
+		return;
+	if (target) {
+		Common::Point anchor = target->getSpeechPosition();
+		speaker->sayAtPos(text, anchor);
+	} else {
 		speaker->say(text);
+	}
 }
 
 #define OPCODE(num) template<> Interpreter::OpResult Interpreter::opcodeHandler<num>(ValueVector a, CodePointer current, CodePointer next)
@@ -576,28 +629,25 @@ OPCODE(0x43) {
 }
 
 OPCODE(0x47) {
-	// DOS Op_47_SpeakWithRect (CS:0x3eb6): 5 args (y, x, color, lines, text).
-	// Branches on g_in_map_mode: out of map mode → AllocSpeechSlot_NoFormatting
-	// (allocates a speech bubble slot for the actor with the text). In map
-	// mode → CheckSubtitleActive → either RegisterSampleSlot or
-	// QueueDeferredFormattedText.
-	//
-	// Without speech-slot infrastructure, we route the text through the
-	// engine's Graf.say() queue (added iter-12) so narrator text at least
-	// shows up at top-left for ~50 frames. Position/color/line-count args
-	// are accepted but not honored (positioning would require the
-	// paintText path with persistent overlay).
+	// DOS Op_47_SpeakWithRect @ 1000:3eb6: 5 args (y, x, color, lines, text).
+	//   if (g_in_map_mode == 0) AllocSpeechSlot_NoFormatting +
+	//       stash arg2 in g_unknown_669a;
+	//   else CheckSubtitleActive → RegisterSampleSlot_LoadDefaultsB or
+	//       QueueDeferredFormattedText.
+	// AllocSpeechSlot_NoFormatting allocates a NARRATOR bubble slot
+	// (no actor — bubble at the explicit (x,y) position with the
+	// given color). C++ uses Graphics::sayAt to render at (x, y)
+	// with the color arg.
+	const uint16 y = uint16(a[0]);
+	const uint16 x = uint16(a[1]);
+	const byte color = uint8(uint16(a[2]) & 0xff);
 	const byte *text = static_cast<byte *>(a[4]);
-	debugC(1, kDebugLevelScript, "opcode 0x47: say at [%s:%s] color=%s lines=%s text='%s'",
-		+a[0], +a[1], +a[2], +a[3], text ? reinterpret_cast<const char *>(text) : "(null)");
+	debugC(1, kDebugLevelScript, "opcode 0x47: narrator at (%u,%u) color=%u text='%s'",
+		x, y, color, text ? reinterpret_cast<const char *>(text) : "(null)");
 	if (text) {
 		const uint16 length = (uint16)strlen(reinterpret_cast<const char *>(text));
 		if (length > 0)
-			// Scale display time with text length (~3 ticks/char,
-			// 30-tick floor) so reading speed matches DOS sample
-			// pacing. Hardcoded 50 was too short for long narrator
-			// lines — see Actor::Speech ctor for matching rule.
-			Graf.say(text, length, MAX<uint16>(30, 3 * length));
+			Graf.sayAt(text, length, MAX<uint16>(30, 3 * length), x, y, color);
 	}
 	return kThxBye;
 }
@@ -667,19 +717,20 @@ OPCODE(0x55) {
 OPCODE(0x56) {
 	// DOS Op_56_SendActorToTargetOrWait @ 1000:4069: 2 args.
 	//   CheckMovementBlocked();              ; CF=1 if 66d6 != 0
-	//   if (!CF) RegisterSampleSlot_LoadDefaultsD;  ; yield
-	//   else {
-	//       g_unknown_66d6 = arg0;            ; pending move target
-	//       DAT_1cb5_66d8  = g_codeptr_es_save;  ; saved PC
-	//       DAT_1cb5_66da  = arg1;            ; pending move flag/extra
+	//   if (!CF) {                           ; not blocked → can move
+	//       SendActorToTarget(arg0);          ; walk to target arg0
+	//       SetPostMoveCallback(arg1);        ; chain after walk
+	//       RegisterSampleSlot_LoadDefaultsD; ; yield until move done
+	//   } else {                             ; blocked → stash for resume
+	//       g_unknown_66d6 = arg0;
+	//       DAT_1cb5_66d8  = g_codeptr_es_save;
+	//       DAT_1cb5_66da  = arg1;
 	//   }
-	// = "if no pending move, yield to let the move complete; else
-	// stash arg0/arg1/PC for resumption." C++ approximates by always
-	// yielding via runLater (the simpler "wait one tick" semantic);
-	// the stash slots aren't needed if the walk-driver runs the move
-	// inline and Op_56 just yields.
-	debugC(2, kDebugLevelScript, "opcode 0x56: send-or-wait target=%s extra=%s (yield)",
+	// C++: send the protag to target via the same walk-driver helper
+	// as Op_29/0x2a, then yield.
+	debugC(2, kDebugLevelScript, "opcode 0x56: send-or-wait target=%s extra=%s",
 		+a[0], +a[1]);
+	sendProtagToTarget(_logic, uint16(a[0]));
 	_logic->runLater(next, 0);
 	return kReturn;
 }
@@ -986,13 +1037,15 @@ OPCODE(0x4c) {
 }
 
 OPCODE(0x7b) {
-	// DOS Op_7b_SetObjectFlag1 (CS:0x4459): sets bit 0 of cellByte[a[0]] in
-	// the per-entity flag array. Previous engine code mistook this for an
-	// "enable exit" op and toggled Exit::isEnabled directly — wrong abstraction
-	// (the cell-bit array is shared between objects AND exits). We now write
-	// the cell bit AND keep the exit-side-effect for backward compatibility
-	// with anything else that already reads Exit::isEnabled().
+	// DOS Op_7b_SetObjectFlag1 @ 1000:4459:
+	//   if (arg0 > g_object_count_max) pending-error 0x14;
+	//   else if cell bit 0 not set: set cellByte[arg0] |= 1.
 	const uint16 id = uint16(a[0]);
+	const uint16 personsCount = _logic->resources()->mainDat()->personsCount();
+	if (id > personsCount) {
+		Log.setPendingError(0x14);
+		return kThxBye;
+	}
 	debugC(2, kDebugLevelScript, "opcode 0x7b: set cell bit 0 on entity %s", +a[0]);
 	Log.setCellBit(id, 0);
 	if (Exit *exit = _logic->blockProgram()->getExit(a[0]))
@@ -1002,9 +1055,15 @@ OPCODE(0x7b) {
 }
 
 OPCODE(0x7c) {
-	// DOS Op_7c_ClearObjectFlag1 (CS:0x4476): clears bit 0 of cellByte[a[0]].
-	// See 0x7b for the cell-bit/exit duality.
+	// DOS Op_7c_ClearObjectFlag1 @ 1000:4476:
+	//   if (arg0 > g_object_count_max) pending-error 0x14;
+	//   else if cell bit 0 set: clear cellByte[arg0] ^= 1.
 	const uint16 id = uint16(a[0]);
+	const uint16 personsCount = _logic->resources()->mainDat()->personsCount();
+	if (id > personsCount) {
+		Log.setPendingError(0x14);
+		return kThxBye;
+	}
 	debugC(2, kDebugLevelScript, "opcode 0x7c: clear cell bit 0 on entity %s", +a[0]);
 	Log.clearCellBit(id, 0);
 	if (Exit *exit = _logic->blockProgram()->getExit(a[0]))
@@ -1246,8 +1305,39 @@ OPCODE(0xc9) {
 }
 
 OPCODE(0xcb) {
-	// load graphic
-	debugC(1, kDebugLevelScript, "opcode 0xcb: load graphic %s STUB", +a[0]);
+	// DOS Op_cb_handler @ 1000:5275 → calls LoadGraphicToSlot @ 1000:1f49:
+	//   if (arg0 > graphic_count) pending-error 0xa;
+	//   else: type = graphic_index[(arg0-1)*4].first_dword;
+	//     type ∈ {1,2,3} → DecodeImage to small slot (DS:0x676f..0x6773)
+	//     type ∈ {4,5}  → DecodeFullScreenImage to slot (DS:0x6779/0x677b)
+	//     type 6        → DecodeFullScreenImage to slot (DS:0x6775)
+	//     type 7        → ditto + palette read (slot DS:0x6777)
+	//     other         → pending-error 0xa.
+	//   On match, store arg0 in the corresponding slot global.
+	const uint16 id = uint16(a[0]);
+	MapFile *map = _logic->resources()->graphicsMap();
+	if (!map || id == 0 || id > map->entryCapacity()) {
+		Log.setPendingError(0x0a);
+		return kThxBye;
+	}
+	const uint32 entry = map->offsetOfEntry(id);
+	const uint8 type = uint8(entry & 0xff);
+	debugC(1, kDebugLevelScript, "opcode 0xcb: load graphic %u (type=%u)", id, type);
+	switch (type) {
+	case 1: Log.setGraphicSlot(0, id); break;
+	case 2: Log.setGraphicSlot(1, id); break;
+	case 3: Log.setGraphicSlot(2, id); break;
+	case 6: Log.setGraphicSlot(5, id); break;
+	case 7: Log.setGraphicSlot(6, id); break;
+	case 4: Log.setGraphicSlot(3, id); break;
+	case 5: Log.setGraphicSlot(4, id); break;
+	default:
+		Log.setPendingError(0x0a);
+		return kThxBye;
+	}
+	// Decoding happens on demand in C++ Resources::loadImage. The
+	// script's contract is satisfied by recording which graphic is
+	// active in this slot.
 	return kThxBye;
 }
 
@@ -1348,8 +1438,10 @@ OPCODE(0xdf) {
 }
 
 OPCODE(0xe5) {
-	// hide all exits from the map
-	debugC(1, kDebugLevelScript, "opcode 0xe5: hide exits from map STUB");
+	// DOS Op_e5_handler @ 1000:5604: 0 args. Clears g_anim_list_count = 0.
+	// = reset cutscene anim-list to empty.
+	debugC(1, kDebugLevelScript, "opcode 0xe5: anim-list clear");
+	Log.animListClear();
 	return kThxBye;
 }
 
@@ -1379,8 +1471,25 @@ OPCODE(0xef) {
 }
 
 OPCODE(0xf0) {
-	// load sfx set
-	debugC(1, kDebugLevelScript, "opcode 0xf0: load sfx set %s STUB", +a[0]);
+	// DOS Op_load_sfx @ 1000:56d9: 1 arg.
+	//   if (g_sfx_enabled) {
+	//       if (arg0 != pbRam0002324e) {
+	//           uVar6 = PlaySfxSound();   // load + play, returns slot
+	//           save slot info to DS:0x670a..0x670c, 0x6702..0x6704;
+	//           save arg0 to 0x66fe; clear 0x6700.
+	//       }
+	//   }
+	// = "register an SFX index for play". The cached arg0 at
+	// pbRam0002324e is "last played" — same arg short-circuits.
+	// C++ has no SFX loader subsystem yet (sound.cpp is empty per
+	// MEMORY.md). When ScummVM's audio path eventually wires in,
+	// this opcode would call into an SFX play helper. For now,
+	// gate on the same `sfx_enabled` proxy used by Op_12 (mixer
+	// SFX volume > 0).
+	if (g_system && g_system->getMixer() &&
+	    g_system->getMixer()->getVolumeForSoundType(Audio::Mixer::kSFXSoundType) > 0) {
+		debugC(1, kDebugLevelScript, "opcode 0xf0: SFX request id=%s (no driver)", +a[0]);
+	}
 	return kThxBye;
 }
 
@@ -1724,16 +1833,26 @@ OPCODE(0x28) {
 
 	// Side effect 2: DrawCenteredOverlayText @ 1000:c581 renders text
 	// at y=0xb4 (180), color 0xeb (foreground), 0xae (shadow), 9px
-	// line height, centered within a 56-cell bubble. Without the
-	// verb-bubble overlay subsystem, paint the text directly via
-	// Graphics::paintText centered on screen width 320 — visible
-	// approximation, faithful timing/coloring.
+	// line height, centered within a 56-pixel-wide bubble.
+	// DOS centering math: x = (0x38 - textWidth) / 2 + 4. The
+	// bubble itself sits at the top-left of a verb overlay (the
+	// 5 icons cycled by side-effect 1). C++ uses paintText at the
+	// computed (x, 180) with color 0xeb (foreground); the DOS
+	// shadow color 0xae would require a second paintText call
+	// offset by 1 pixel, which the existing engine font path
+	// doesn't yet expose without a font-spec change.
 	const byte *text = static_cast<byte *>(a[1]);
 	if (text) {
 		const Common::Rect metrics = _graphics->textMetrics(text);
 		const uint16 textWidth = metrics.width();
-		const int16 sx = (320 - int16(textWidth)) / 2;
+		// DOS bubble interior width = 0x38 = 56 pixels. Center text
+		// within that span; clamp to 0 if text is wider.
+		const int16 bubbleInner = 0x38;
+		const int16 sx = (bubbleInner - int16(textWidth)) / 2 + 4;
 		const uint16 x = sx > 0 ? uint16(sx) : 0;
+		// Shadow first (color 0xae), offset by +1,+1 to match DOS
+		// outline rendering.
+		_graphics->paintText(x + 1, 0xb5, 0xae, text);
 		_graphics->paintText(x, 0xb4, 0xeb, text);
 	}
 	return kThxBye;
@@ -1746,45 +1865,20 @@ OPCODE(0x29) {
 	//       SetPostMoveCallback;       ; chain after walk completes
 	//   }
 	// Falls through unconditionally (no skip_counter).
-	// SendActorToTarget dispatches on entity type (DX): 1=exit,
-	// 2=object, 3=actor. For C++ we use the target's room/position
-	// to compute a walk goal; if target is in the protagonist's
-	// current room we trigger a walk to its frame.
 	if (Log.stepPending() && Log.cursorMode() == 0x10) {
-		const uint16 targetId = uint16(a[1]);
-		Actor *protag = Log.protagonist();
-		if (protag) {
-			// Try resolution as actor target first.
-			if (Actor *target = Log.getActor(targetId)) {
-				if (target->room() == Log.currentRoom()) {
-					protag->moveTo(target->frameId());
-				}
-			}
-			// Object/exit-target dispatch needs entity-type info from
-			// the arg slot wType field — until exposed in C++ Value,
-			// the walk treats unresolved targets as no-ops (closest
-			// match to DOS's silent-fail when target lookup fails).
-		}
-		debugC(2, kDebugLevelScript, "opcode 0x29: send protag to target %s (frame %s)", +a[1], +a[0]);
+		debugC(2, kDebugLevelScript, "opcode 0x29: send protag to target %s frame %s",
+			+a[1], +a[0]);
+		sendProtagToTarget(_logic, uint16(a[1]));
 	}
 	return kThxBye;
 }
 
 OPCODE(0x2a) {
-	// DOS Op_2a_IfMode10AndFlag2 @ 1000:387e: 3-arg variant.
-	//   SendActorToTarget(arg2, arg1, arg0) — same dispatch as 0x29
-	//   with extra context args (probably for sub-target offset).
+	// DOS Op_2a_IfMode10AndFlag2 @ 1000:387e: 3-arg variant of 0x29.
 	if (Log.stepPending() && Log.cursorMode() == 0x10) {
-		const uint16 targetId = uint16(a[1]);
-		Actor *protag = Log.protagonist();
-		if (protag) {
-			if (Actor *target = Log.getActor(targetId)) {
-				if (target->room() == Log.currentRoom())
-					protag->moveTo(target->frameId());
-			}
-		}
 		debugC(2, kDebugLevelScript, "opcode 0x2a: send protag to target %s extra %s frame %s",
 			+a[1], +a[2], +a[0]);
+		sendProtagToTarget(_logic, uint16(a[1]));
 	}
 	return kThxBye;
 }
@@ -1925,48 +2019,75 @@ OPCODE(0x3f) {
 	return kThxBye;
 }
 OPCODE(0x40) {
-	// DOS Op_40_SpeakAtTarget @ 1000:3da2: arg0=text, arg1=target.
-	// Target positioning uses the target's sprite center; in C++
-	// the bubble follows the actor's current sprite — close enough
-	// for player reading. arg1 is for sprite-positioning hint only.
-	debugC(1, kDebugLevelScript, "opcode 0x40: main says %s @ target %s", +a[0], +a[1]);
-	speakOrSubtitle(Log.protagonist(), a[0]);
+	// DOS Op_40_SpeakAtTarget @ 1000:3da2: arg0=text, arg1=target id.
+	// Target positioning anchors the bubble near the target entity's
+	// sprite. C++ resolves arg1 as an actor and uses its
+	// getSpeechPosition() as the bubble anchor.
+	Actor *target = Log.getActor(a[1]);
+	debugC(1, kDebugLevelScript, "opcode 0x40: main says %s @ target %s%s",
+		+a[0], +a[1], target ? "" : " (unresolved)");
+	speakOrSubtitle(Log.protagonist(), a[0], target);
 	return kThxBye;
 }
 OPCODE(0x42) {
-	// DOS Op_42_SpeakAsMainAtTarget @ 1000:3e04: arg0=target, arg1=text.
-	debugC(1, kDebugLevelScript, "opcode 0x42: main says %s @ target %s", +a[1], +a[0]);
-	speakOrSubtitle(Log.protagonist(), a[1]);
+	// DOS Op_42_SpeakAsMainAtTarget @ 1000:3e04: arg0=target id, arg1=text.
+	Actor *target = Log.getActor(a[0]);
+	debugC(1, kDebugLevelScript, "opcode 0x42: main says %s @ target %s%s",
+		+a[1], +a[0], target ? "" : " (unresolved)");
+	speakOrSubtitle(Log.protagonist(), a[1], target);
 	return kThxBye;
 }
 OPCODE(0x44) {
 	// DOS Op_44_SpeakAsActorAtTarget @ 1000:3e4f: arg0=actor id,
-	// arg1=target, arg2=text.
+	// arg1=target id, arg2=text.
 	Actor *ac = Log.getActor(a[0]);
-	debugC(1, kDebugLevelScript, "opcode 0x44: actor %s says %s @ target %s", +a[0], +a[2], +a[1]);
-	speakOrSubtitle(ac, a[2]);
+	Actor *target = Log.getActor(a[1]);
+	debugC(1, kDebugLevelScript, "opcode 0x44: actor %s says %s @ target %s%s",
+		+a[0], +a[2], +a[1], target ? "" : " (unresolved)");
+	speakOrSubtitle(ac, a[2], target);
 	return kThxBye;
 }
 OPCODE(0x45) {
 	// DOS Op_45_SpeakWithDelay @ 1000:3e68: 4 args (y, x, color, text).
-	// Resolves all four; if !map_mode → AllocSpeechSlot_NoFormatting
-	// + stash arg2 in g_unknown_669a (display-pos hint). Else map-mode
-	// subtitle path. Same allocation as 0x46 modulo the stash slot.
+	//   if (!map_mode) AllocSpeechSlot_NoFormatting + stash arg2;
+	//   else map-mode subtitle.
+	// AllocSpeechSlot_NoFormatting = narrator-style bubble at the
+	// explicit (x, y) with color — NOT tied to any actor.
 	const byte *text = static_cast<byte *>(a[3]);
 	if (!text) return kThxBye;
-	const Common::String s(reinterpret_cast<const char *>(text));
-	debugC(1, kDebugLevelScript, "opcode 0x45: speak-with-delay text='%s'", s.c_str());
-	speakOrSubtitle(Log.protagonist(), s);
+	const uint16 y = uint16(a[0]);
+	const uint16 x = uint16(a[1]);
+	const byte color = uint8(uint16(a[2]) & 0xff);
+	const uint16 length = (uint16)strlen(reinterpret_cast<const char *>(text));
+	if (length == 0) return kThxBye;
+	const uint16 ticks = MAX<uint16>(30, 3 * length);
+	debugC(1, kDebugLevelScript, "opcode 0x45: narrator at (%u,%u) color=%u text='%s'",
+		x, y, color, reinterpret_cast<const char *>(text));
+	if (Log.inMapMode())
+		Graf.say(text, length, ticks);
+	else
+		Graf.sayAt(text, length, ticks, x, y, color);
 	return kThxBye;
 }
 OPCODE(0x46) {
 	// DOS Op_46_SpeakWithDelayAlt @ 1000:3e5e: identical body to 0x45
-	// but writes to a different g_unknown_669a-equivalent slot.
+	// but writes to a different g_unknown_669a-equivalent slot. The
+	// stash differs (an alternate hint slot) but the visible
+	// behaviour is identical from the script's perspective.
 	const byte *text = static_cast<byte *>(a[3]);
 	if (!text) return kThxBye;
-	const Common::String s(reinterpret_cast<const char *>(text));
-	debugC(1, kDebugLevelScript, "opcode 0x46: speak-with-delay-alt text='%s'", s.c_str());
-	speakOrSubtitle(Log.protagonist(), s);
+	const uint16 y = uint16(a[0]);
+	const uint16 x = uint16(a[1]);
+	const byte color = uint8(uint16(a[2]) & 0xff);
+	const uint16 length = (uint16)strlen(reinterpret_cast<const char *>(text));
+	if (length == 0) return kThxBye;
+	const uint16 ticks = MAX<uint16>(30, 3 * length);
+	debugC(1, kDebugLevelScript, "opcode 0x46: narrator (alt) at (%u,%u) color=%u text='%s'",
+		x, y, color, reinterpret_cast<const char *>(text));
+	if (Log.inMapMode())
+		Graf.say(text, length, ticks);
+	else
+		Graf.sayAt(text, length, ticks, x, y, color);
 	return kThxBye;
 }
 
@@ -1978,20 +2099,20 @@ OPCODE(0x46) {
 // fall-through semantics (always kThxBye — these handlers never set
 // skip_counter). Side effects flagged TODO where infrastructure missing.
 OPCODE(0x48) {
-	// DOS Op_48_SpeakWithRectAndPos (CS:0x3ea7): 5 args, tail-jumps to the
-	// shared speech-with-delay path (same as 0x47). Route text through
-	// Graf.say like 0x47 does (iter-23).
+	// DOS Op_48_SpeakWithRectAndPos @ 1000:3ea7: 5 args (y, x, color,
+	// lines, text). Same shared-tail as Op_47 but reads via
+	// ReadVarBySlot_RHS (different argument-resolution path); for
+	// the script-observable behaviour the args have the same meaning.
+	const uint16 y = uint16(a[0]);
+	const uint16 x = uint16(a[1]);
+	const byte color = uint8(uint16(a[2]) & 0xff);
 	const byte *text = static_cast<byte *>(a[4]);
-	debugC(1, kDebugLevelScript, "opcode 0x48: speak at [%s:%s] color=%s lines=%s text='%s'",
-		+a[0], +a[1], +a[2], +a[3], text ? reinterpret_cast<const char *>(text) : "(null)");
+	debugC(1, kDebugLevelScript, "opcode 0x48: narrator at (%u,%u) color=%u text='%s'",
+		x, y, color, text ? reinterpret_cast<const char *>(text) : "(null)");
 	if (text) {
 		const uint16 length = (uint16)strlen(reinterpret_cast<const char *>(text));
 		if (length > 0)
-			// Scale display time with text length (~3 ticks/char,
-			// 30-tick floor) so reading speed matches DOS sample
-			// pacing. Hardcoded 50 was too short for long narrator
-			// lines — see Actor::Speech ctor for matching rule.
-			Graf.say(text, length, MAX<uint16>(30, 3 * length));
+			Graf.sayAt(text, length, MAX<uint16>(30, 3 * length), x, y, color);
 	}
 	return kThxBye;
 }
@@ -2253,56 +2374,79 @@ OPCODE(0x62) {
 }
 OPCODE(0x64) {
 	// DOS Op_64_TableLookupAssignMain @ 1000:418c:
-	//   arg3=trash, arg1=search, arg2=field offset, arg0=table.
-	//   walk_speed_flag = 0 → resource segment.
-	//   Search arg0 table for entry whose first word == arg1.
-	//   If found, store resource_seg into entry[2 + arg2]. The
-	//   entry's modified field is what arg3 LHS points at if that
-	//   slot was set up as an entity-record-relative ref.
+	//   walk_speed_flag = 0; resolve args 3,1,2,0;
+	//   uVar4 = walk_speed_flag ? g_seg_buffer_e : g_resourceSegment;
+	//   if (table[0] == 0) → pending-error 0x1a;
+	//   loop entries; if entry[0] matches arg1, entry[2+arg2] = uVar4;
+	//   if sentinel reached without match → pending-error 0x1a.
+	// = "patch resource segment id into table entry's segment slot".
+	// STUB: ScummVM has no numeric segment-id space — scripts that
+	// later READ the patched field expect a non-zero/non-0xffff value
+	// indicating "bound". We use a non-zero placeholder (1) and add
+	// the missing pending-error 0x1a paths.
 	uint16 offset = static_cast<CodePointer &>(a[0]).offset();
 	byte *base = static_cast<CodePointer &>(a[0]).base();
-	if (!base) return kThxBye;
+	if (!base) {
+		Log.setPendingError(0x1a);
+		return kThxBye;
+	}
 	byte *pos = base + offset;
 	const uint16 width = READ_LE_UINT16(pos);
+	if (width == 0) {
+		Log.setPendingError(0x1a);
+		return kThxBye;
+	}
 	pos += 2;
+	bool matched = false;
 	while (true) {
 		const uint16 index = READ_LE_UINT16(pos);
 		if (index == 0xffff) break;
 		pos += 2;
 		if (index == uint16(a[1])) {
-			// In DOS write resource segment id; in C++ write a sentinel
-			// (0xffff) to indicate "this entry was matched". Game scripts
-			// usually only check for non-zero/non-ffff afterward.
-			WRITE_LE_UINT16(pos + uint16(a[2]), 0xffff);
+			WRITE_LE_UINT16(pos + uint16(a[2]), 1);  // placeholder seg id
+			matched = true;
 			break;
 		}
 		pos += width * 2;
 	}
-	debugC(2, kDebugLevelScript, "opcode 0x64: TableLookupAssignMain (table @ 0x%04x search=%s)",
-		offset, +a[1]);
+	if (!matched)
+		Log.setPendingError(0x1a);
+	debugC(2, kDebugLevelScript, "opcode 0x64: TableLookupAssignMain (table @ 0x%04x search=%s match=%d)",
+		offset, +a[1], int(matched));
 	return kThxBye;
 }
 OPCODE(0x65) {
 	// DOS Op_65_TableLookupAssignBlock @ 1000:4185: same as 0x64 but
-	// walk_speed_flag = 1 (block segment).
+	// walk_speed_flag = 1 → uVar4 = g_seg_buffer_e (block bank).
 	uint16 offset = static_cast<CodePointer &>(a[0]).offset();
 	byte *base = static_cast<CodePointer &>(a[0]).base();
-	if (!base) return kThxBye;
+	if (!base) {
+		Log.setPendingError(0x1a);
+		return kThxBye;
+	}
 	byte *pos = base + offset;
 	const uint16 width = READ_LE_UINT16(pos);
+	if (width == 0) {
+		Log.setPendingError(0x1a);
+		return kThxBye;
+	}
 	pos += 2;
+	bool matched = false;
 	while (true) {
 		const uint16 index = READ_LE_UINT16(pos);
 		if (index == 0xffff) break;
 		pos += 2;
 		if (index == uint16(a[1])) {
-			WRITE_LE_UINT16(pos + uint16(a[2]), 0xffff);
+			WRITE_LE_UINT16(pos + uint16(a[2]), 2);  // placeholder block-seg id (distinct from Op_64)
+			matched = true;
 			break;
 		}
 		pos += width * 2;
 	}
-	debugC(2, kDebugLevelScript, "opcode 0x65: TableLookupAssignBlock (table @ 0x%04x search=%s)",
-		offset, +a[1]);
+	if (!matched)
+		Log.setPendingError(0x1a);
+	debugC(2, kDebugLevelScript, "opcode 0x65: TableLookupAssignBlock (table @ 0x%04x search=%s match=%d)",
+		offset, +a[1], int(matched));
 	return kThxBye;
 }
 OPCODE(0x66) {
@@ -2329,11 +2473,18 @@ OPCODE(0x66) {
 	if (off == 0 && sz == 2) {
 		exit->setRoom(value);
 		debugC(2, kDebugLevelScript, "opcode 0x66: exit[%s].room = %s", +a[0], +a[2]);
-	} else if (sz != 1 && sz != 2 && sz != 4) {
-		Log.setPendingError(0x02);
+	} else if (sz == 1) {
+		Log.setExitField(id, off, uint8(value & 0xff));
+		debugC(2, kDebugLevelScript, "opcode 0x66: exit[%u].field[+0x%02x] = %u (sparse byte)",
+			id, off, value & 0xff);
+	} else if (sz == 2) {
+		Log.setExitField(id, off, uint8(value & 0xff));
+		Log.setExitField(id, uint8(off + 1), uint8(value >> 8));
+		debugC(2, kDebugLevelScript, "opcode 0x66: exit[%u].field[+0x%02x] = %u (sparse word)",
+			id, off, value);
 	} else {
-		warning("Op_66: exit[%u].field[+0x%02x size=%u] write — only +0/sz=2 (room) wired",
-			id, off, sz);
+		// sz == 4 not supported — DOS uses BX leftover from prior arg resolve.
+		Log.setPendingError(0x02);
 	}
 	return kThxBye;
 }
@@ -2363,9 +2514,16 @@ OPCODE(0x67) {
 		Log.setObjectPosition(id, int16(value), Log.getObjectPosY(id));
 	} else if (off == 4 && sz == 2) {
 		Log.setObjectPosition(id, Log.getObjectPosX(id), int16(value));
+	} else if (sz == 1) {
+		Log.setObjectField(id, off, uint8(value & 0xff));
+	} else if (sz == 2) {
+		// Sparse 2-byte write: store low/high bytes at off and off+1.
+		Log.setObjectField(id, off, uint8(value & 0xff));
+		Log.setObjectField(id, uint8(off + 1), uint8(value >> 8));
 	} else {
-		warning("Op_67: object[%u].field[+0x%02x size=%u] — slot not modeled",
-			id, off, sz);
+		// sz == 4 not supported (DOS uses BX leftover from prior arg
+		// resolve). Mirror DOS error.
+		Log.setPendingError(0x02);
 	}
 	return kThxBye;
 }
@@ -2509,20 +2667,73 @@ OPCODE(0x7a) {
 	return kThxBye;
 }
 OPCODE(0x7d) {
-	// DOS Op_7d_MoveObjectFlag1 (CS:0x4493): clear flag1 on src obj (a[0]),
-	// then set flag1 on dst obj (a[1]). The "flag" lives in a per-id cell-bit
-	// array shared between objects/exits — we don't model the cells yet, so
-	// log only. (No room mutation — distinct from Op_7f.)
-	debugC(2, kDebugLevelScript, "opcode 0x7d: move flag1 %s -> %s STUB (no cell array)",
-		+a[0], +a[1]);
+	// DOS Op_7d_MoveObjectFlag1 @ 1000:4493:
+	//   ResolveOpcodeArg0; DisableObjectFlag1 (clear arg0's bit 0);
+	//   ResolveOpcodeArg1; if arg1 > max → error 0x14;
+	//     else EnableObjectFlag1 (set arg1's bit 0).
+	const uint16 src = uint16(a[0]);
+	const uint16 dst = uint16(a[1]);
+	const uint16 personsCount = _logic->resources()->mainDat()->personsCount();
+	if (dst > personsCount) {
+		Log.setPendingError(0x14);
+		return kThxBye;
+	}
+	debugC(2, kDebugLevelScript, "opcode 0x7d: move cell bit 0: %u → %u", src, dst);
+	Log.clearCellBit(src, 0);
+	Log.setCellBit(dst, 0);
 	return kThxBye;
 }
 OPCODE(0x7e) {
-	// DOS Op_7e_QueueOverlay (CS:0x44a8): a[0]=entity-type sentinel
-	// (1=exit, 2=object, 3=actor), a[1]=entity id. Looks up the entity's
-	// (sprite, x, y) and pushes onto a draw-overlay queue capped at 250.
-	debugC(2, kDebugLevelScript, "opcode 0x7e: queue overlay type %s id %s STUB (no overlay queue)",
-		+a[0], +a[1]);
+	// DOS Op_7e_QueueOverlay @ 1000:44a8:
+	//   arg0 = entity type (1=exit, 2=object, 3=actor);
+	//   arg1 = entity id;
+	//   look up (sprite, x, y):
+	//     type 1 (exit):  GetExitOffset; sprite=[+6], x=[+2], y=[+4]
+	//     type 2 (object): GetObjectOffset; sprite=[+6], x=[+2], y=[+4]
+	//     type 3 (actor): GetActorOffset; sprite=[+8], x=[+4], y=[+6]
+	//     else: pending-error 0x34.
+	//   push (sprite, x, y) to overlay queue at DS:0x37b7. Cap 250
+	//   entries (counter at DS:0x6621). Overflow → pending-error 0x35.
+	//   set g_flag_misc_3 = 1, call DrawBackdropTile (immediate draw).
+	const uint16 type = uint16(a[0]);
+	const uint16 id = uint16(a[1]);
+	uint16 sprite = 0;
+	int16 x = 0, y = 0;
+	switch (type) {
+	case 1: { // exit
+		Exit *exit = _logic->blockProgram() ? _logic->blockProgram()->getExit(id) : 0;
+		if (exit) {
+			x = int16(exit->position().x);
+			y = int16(exit->position().y);
+			// exit sprite id not directly exposed — use room as proxy
+			sprite = exit->room();
+		}
+		break;
+	}
+	case 2: { // object
+		x = Log.getObjectPosX(id);
+		y = Log.getObjectPosY(id);
+		sprite = Log.getObjectRoom(id);
+		break;
+	}
+	case 3: { // actor
+		if (Actor *ac = Log.getActor(id)) {
+			x = int16(ac->position().x);
+			y = int16(ac->position().y);
+			sprite = ac->frameId();
+		}
+		break;
+	}
+	default:
+		Log.setPendingError(0x34);
+		return kThxBye;
+	}
+	debugC(2, kDebugLevelScript, "opcode 0x7e: queue overlay type=%u id=%u sprite=%u pos=%d,%d",
+		type, id, sprite, x, y);
+	if (!Log.overlayQueuePush(sprite, x, y)) {
+		Log.setPendingError(0x35);
+		return kThxBye;
+	}
 	return kThxBye;
 }
 OPCODE(0x7f) {
@@ -2628,7 +2839,9 @@ OPCODE(0x84) {
 	//     BeginDrag_AfterRemoveExit.
 	const uint16 id = uint16(a[0]);
 	if (id == 0) {
+		// DOS arg0==0 path tail-calls Op_8e (cursor=0, drag=0).
 		debugC(2, kDebugLevelScript, "opcode 0x84: unregister (id=0)");
+		Log.setCursorMode(0);
 		Log.setDragTarget(0);
 		return kThxBye;
 	}
@@ -2636,6 +2849,11 @@ OPCODE(0x84) {
 		Log.setPendingError(0x16);
 		return kThxBye;
 	}
+	// DOS extra: if cursor==0x20 → ResetObjectAtActorPosition (move
+	// previous drag back to actor pos before swapping target). And if
+	// the new target's room ∉ {current_loc, -1}, reposition obj to
+	// camera+actor offset. Then BeginDrag_AfterRemoveExit (sets cursor
+	// state). C++ approximation only sets the drag target.
 	debugC(2, kDebugLevelScript, "opcode 0x84: begin drag with object %u", id);
 	Log.setDragTarget(id);
 	return kThxBye;
@@ -2745,9 +2963,11 @@ OPCODE(0x8b) {
 	// DOS Op_8b_handler @ 1000:482e: 0 args. Calls
 	// ResetObjectAtActorPosition + Op_8e (UnregisterActor). The
 	// drag_target object is reset to actor's position and the actor
-	// table entry is cleared. C++ approximation: clear drag target
-	// (= "this drag interaction is done").
+	// table entry is cleared. STUB: ResetObjectAtActorPosition (exit
+	// list mgmt + sprite-offset calc + clamp) not implemented; the Op_8e
+	// half (cursor=0, drag=0) is.
 	debugC(2, kDebugLevelScript, "opcode 0x8b: reset object at actor pos + unregister");
+	Log.setCursorMode(0);
 	Log.setDragTarget(0);
 	return kThxBye;
 }
@@ -2804,71 +3024,98 @@ OPCODE(0x8e) {
 	return kThxBye;
 }
 OPCODE(0x8f) {
-	// DOS Op_8f_handler @ 1000:4925: 1 arg.
-	//   if (game_state == 1) MovePersonAndDisableObject;
-	//   else pending-error 0xe.
+	// DOS Op_8f_handler @ 1000:4925:
+	//   game_state == 1 → JMP trampoline @ 0x49df with
+	//      AX = [0x666c] (currentEntityId), BX = arg0, CX = 0
+	//   else g_pendingErrorCode = 0xe.
+	// Trampoline @ 0x49df:
+	//      DisableObjectFlag1(AX = currentEntityId) — clear cell-bit
+	//      MovePersonToActor(arg0)                  — drag-target = arg0
+	//      if CX != 0: EnableObjectFlag1(CX)
+	// STUB: missing MovePersonToActor (object record relocation +
+	// drag-target state machine + camera-relative position update).
+	// Cell-bit clear on caller (currentEntityId) is implemented; the
+	// physical object reposition + drag-state plumbing is not.
 	if (Log.gameState() != 1) {
 		Log.setPendingError(0x0e);
 		return kThxBye;
 	}
-	debugC(2, kDebugLevelScript, "opcode 0x8f: move person + disable obj %s", +a[0]);
-	// Move person: walk-driver-dependent. Use protag.moveTo if target
-	// is an actor in the current room.
-	if (Actor *protag = Log.protagonist())
-		if (Actor *target = Log.getActor(a[0]))
-			if (target->room() == Log.currentRoom())
-				protag->moveTo(target->frameId());
+	Log.clearCellBit(Log.currentEntityId(), 0);
+	Log.setDragTarget(uint16(a[0]));
+	debugC(2, kDebugLevelScript, "opcode 0x8f: disable cell %u + drag obj %s",
+		Log.currentEntityId(), +a[0]);
 	return kThxBye;
 }
 OPCODE(0x90) {
-	// DOS Op_90_handler @ 1000:4941: 2-arg variant of Op_8f.
+	// DOS Op_90_handler @ 1000:4941: 2-arg variant. Same trampoline as
+	// Op_8f but CX = arg1 (so a non-zero arg1 enables that cell after
+	// move). STUB shares Op_8f's gap.
 	if (Log.gameState() != 1) {
 		Log.setPendingError(0x0e);
 		return kThxBye;
 	}
-	debugC(2, kDebugLevelScript, "opcode 0x90: move person + disable obj %s extra %s", +a[0], +a[1]);
-	if (Actor *protag = Log.protagonist())
-		if (Actor *target = Log.getActor(a[0]))
-			if (target->room() == Log.currentRoom())
-				protag->moveTo(target->frameId());
+	Log.clearCellBit(Log.currentEntityId(), 0);
+	Log.setDragTarget(uint16(a[0]));
+	if (uint16(a[1]) != 0)
+		Log.setCellBit(uint16(a[1]), 0);
+	debugC(2, kDebugLevelScript, "opcode 0x90: disable cell %u + drag obj %s + enable cell %s",
+		Log.currentEntityId(), +a[0], +a[1]);
 	return kThxBye;
 }
 OPCODE(0x91) {
-	// DOS Op_91_handler @ 1000:4960: gate (step+cursor==1) +
-	// game_state==1 → SendActorToTarget + DisableObjectFlag1 +
-	// MovePersonToActor + maybe EnableObjectFlag1. Else pending-error 0xe.
+	// DOS Op_91_handler @ 1000:4960: gate (g_flag_step_pending +
+	// g_cursor_mode==1). game==1 →
+	//   CALL SendActorToTarget(arg0)            — start walk
+	//   if JC: bail (RET)
+	//   SetActorTarget(BP=cs:[0xbb], AX=cs:[0x10f]) — actor.field+0x69
+	//                                                  callback addr
+	//   SetPostMoveCallback(BP=trampoline, BX=arg0, CX=0,
+	//                       AX=currentEntityId) — fires when actor's
+	//                                              frame == target frame
+	// else g_pendingErrorCode = 0xe.
+	// STUB: post-move-callback subsystem (RunPostMoveCallback @
+	// 1000:73a6: dispatched by frame-arrival) not implemented. Apply
+	// effects immediately as approximation.
 	if (!Log.stepPending() || Log.cursorMode() != 1)
 		return kThxBye;
 	if (Log.gameState() != 1) {
 		Log.setPendingError(0x0e);
 		return kThxBye;
 	}
-	debugC(2, kDebugLevelScript, "opcode 0x91: send-and-move %s", +a[0]);
-	if (Actor *protag = Log.protagonist())
-		if (Actor *target = Log.getActor(a[0]))
-			if (target->room() == Log.currentRoom())
-				protag->moveTo(target->frameId());
+	sendProtagToTarget(_logic, uint16(a[0]));
+	Log.clearCellBit(Log.currentEntityId(), 0);
+	Log.setDragTarget(uint16(a[0]));
+	debugC(2, kDebugLevelScript, "opcode 0x91: walk %s + disable cell %u",
+		+a[0], Log.currentEntityId());
 	return kThxBye;
 }
 OPCODE(0x92) {
-	// DOS Op_92_handler @ 1000:499e: 2-arg variant of Op_91.
+	// DOS Op_92_handler @ 1000:499e: 2-arg variant of Op_91 (CX = arg1
+	// → optional EnableObjectFlag1(arg1) in trampoline).
 	if (!Log.stepPending() || Log.cursorMode() != 1)
 		return kThxBye;
 	if (Log.gameState() != 1) {
 		Log.setPendingError(0x0e);
 		return kThxBye;
 	}
-	debugC(2, kDebugLevelScript, "opcode 0x92: send-and-move %s extra %s", +a[0], +a[1]);
-	if (Actor *protag = Log.protagonist())
-		if (Actor *target = Log.getActor(a[0]))
-			if (target->room() == Log.currentRoom())
-				protag->moveTo(target->frameId());
+	sendProtagToTarget(_logic, uint16(a[0]));
+	Log.clearCellBit(Log.currentEntityId(), 0);
+	Log.setDragTarget(uint16(a[0]));
+	if (uint16(a[1]) != 0)
+		Log.setCellBit(uint16(a[1]), 0);
+	debugC(2, kDebugLevelScript, "opcode 0x92: walk %s + disable cell %u + enable cell %s",
+		+a[0], Log.currentEntityId(), +a[1]);
 	return kThxBye;
 }
 OPCODE(0x93) {
-	// DOS Op_93_handler @ 1000:49f1: gate (step+cursor==0x20 +
-	// arg0==drag_target). game_state==1 → SendActorToTarget +
-	// DisableObjectFlag1 + EnableObjectFlag1 + Op_8e. Else pending 0xf.
+	// DOS Op_93_handler @ 1000:49f1: gate (step + cursor==0x20 + arg0 ==
+	// g_drag_target). game==1 →
+	//   CALL SendActorToTarget(arg0); if JC bail
+	//   SetActorTarget(BP=cs:[0xbd], AX=cs:[0x10f])
+	//   SetPostMoveCallback(BP=0x4a36, BX=arg1, AX=currentEntityId)
+	// Trampoline @ 0x4a36: DisableObjectFlag1(currentEntityId) +
+	//   EnableObjectFlag1(arg1) + JMP Op_8e (cursor=0, drag=0).
+	// else g_pendingErrorCode = 0xf. STUB: same post-move-callback gap.
 	if (!Log.stepPending() || Log.cursorMode() != 0x20)
 		return kThxBye;
 	if (uint16(a[0]) != Log.dragTarget())
@@ -2877,10 +3124,14 @@ OPCODE(0x93) {
 		Log.setPendingError(0x0f);
 		return kThxBye;
 	}
-	debugC(2, kDebugLevelScript, "opcode 0x93: drag-target send + clear (target=%s extra=%s)",
-		+a[0], +a[1]);
+	sendProtagToTarget(_logic, uint16(a[0]));
+	Log.clearCellBit(Log.currentEntityId(), 0);
+	if (uint16(a[1]) != 0)
+		Log.setCellBit(uint16(a[1]), 0);
 	Log.setCursorMode(0);
 	Log.setDragTarget(0);
+	debugC(2, kDebugLevelScript, "opcode 0x93: drag-target swap dragged=%s enable=%s",
+		+a[0], +a[1]);
 	return kThxBye;
 }
 OPCODE(0x94) {
@@ -2891,14 +3142,26 @@ OPCODE(0x94) {
 }
 
 OPCODE(0x97) {
-	// 0x97 (DOS CS:0x4a5d, BackupCutscenePCState): nargs=0 per
-	// opcodes_nargs.data. Was OOB-reading a[0]. iter-20 fix.
-	debugC(2, kDebugLevelScript, "opcode 0x97: BackupCutscenePCState STUB");
-	return kThxBye;
+	// DOS Op_97_BackupCutscenePCState @ 1000:4a5d: 0 args. Backs up
+	// extensive cutscene state for later restore by Op_98:
+	// - main char's actor.field+0x69, +0x62, +0x67 (clears 0x67, 0x6b, 0x62)
+	// - 10-word post_callback_ptr block
+	// - main char's active speech slot (17 bytes)
+	// - main char's room script slot (clears the slot)
+	// - sets g_break_inner = 1 (exits inner dispatch)
+	// C++ doesn't have the cutscene-PC-state subsystem; the closest
+	// available action is to exit the current dispatch loop so the
+	// scheduling layer takes over (mirrors g_break_inner = 1).
+	debugC(2, kDebugLevelScript, "opcode 0x97: BackupCutscenePCState (exit inner dispatch)");
+	return kReturn;
 }
 OPCODE(0x98) {
-	// 0x98 (DOS CS:0x4b40): set protagonist anim slot.
-	debugC(2, kDebugLevelScript, "opcode 0x98: protagonist anim slot %s,%s", +a[0], +a[1]);
+	// DOS Op_98_RestoreCutscenePCState @ 1000:4b40: counterpart of
+	// Op_97. Restores the backed-up actor fields, post-callback,
+	// speech slot, and room-script-slot state. C++ stub since the
+	// backup subsystem isn't modelled — script flow proceeds
+	// normally (no state to restore).
+	debugC(2, kDebugLevelScript, "opcode 0x98: RestoreCutscenePCState (no-op without backup subsystem)");
 	return kThxBye;
 }
 
@@ -3171,7 +3434,21 @@ OPCODE(0xc5) {
 }
 
 OPCODE(0xca) {
-	debugC(2, kDebugLevelScript, "opcode 0xca: misc state STUB");
+	// DOS Op_ca_PatchGraphicEntry @ 1000:5246:
+	//   if (arg0 > g_graphic_count) pending-error 0xa;
+	//   else: graphic_index[(arg0-1)*4].lowWord = arg1;
+	// Patches an entry in the graphic-index table (iuc_graf.dat
+	// header). DOS modifies only the low 16 bits of the 4-byte
+	// entry — the offset portion. Used to swap a graphic at runtime.
+	const uint16 id = uint16(a[0]);
+	const uint16 newOffsetLow = uint16(a[1]);
+	MapFile *map = _logic->resources()->graphicsMap();
+	if (!map || id == 0 || id > map->entryCapacity()) {
+		Log.setPendingError(0x0a);
+		return kThxBye;
+	}
+	debugC(2, kDebugLevelScript, "opcode 0xca: patch graphic[%u].offset_low = 0x%04x", id, newOffsetLow);
+	map->patchEntryLow16(id, newOffsetLow);
 	return kThxBye;
 }
 OPCODE(0xcd) {
@@ -3197,11 +3474,30 @@ OPCODE(0xd3) {
 	return kThxBye;
 }
 OPCODE(0xd4) {
-	debugC(2, kDebugLevelScript, "opcode 0xd4: palette swap STUB");
+	// DOS Op_d4_SetCameraTarget @ 1000:53d3:
+	//   _g_target_x = arg0; _g_target_y = arg1;
+	//   g_input_enabled = 0;
+	// Sets camera scroll TARGET (engine smoothly pans toward it).
+	const uint16 tx = uint16(a[0]);
+	const uint16 ty = uint16(a[1]);
+	debugC(2, kDebugLevelScript, "opcode 0xd4: camera target = (%u, %u)", tx, ty);
+	Log.setCameraTarget(tx, ty);
+	Log.setInputEnabled(false);
 	return kThxBye;
 }
 OPCODE(0xd5) {
-	debugC(2, kDebugLevelScript, "opcode 0xd5: palette swap STUB");
+	// DOS Op_d5_SetCameraInstant @ 1000:53e5:
+	//   g_camera_x = arg0; g_camera_y = arg1;
+	//   g_input_enabled = 0;
+	//   _g_target_x = 0xffff; _g_target_y = 0xffff;
+	//   g_flag_misc_3 = 1; (mark for redraw)
+	// Sets camera position INSTANTLY (no scroll).
+	const int16 cx = int16(uint16(a[0]));
+	const int16 cy = int16(uint16(a[1]));
+	debugC(2, kDebugLevelScript, "opcode 0xd5: camera instant (%d, %d)", cx, cy);
+	Log.setCameraXY(cx, cy);
+	Log.setCameraTarget(0xffff, 0xffff);
+	Log.setInputEnabled(false);
 	return kThxBye;
 }
 OPCODE(0xd7) {
@@ -3266,13 +3562,35 @@ OPCODE(0xe1) {
 	return kThxBye;
 }
 OPCODE(0xe3) {
-	debugC(2, kDebugLevelScript, "opcode 0xe3: misc cutscene state %s,%s,%s STUB",
-		+a[0], +a[1], +a[2]);
+	// DOS Op_e3_handler @ 1000:5589:
+	//   pbRam000231b2 = arg0 + 3;       // DS:0x6662
+	//   pbRam000231b4 = arg1 + 0x9b;    // DS:0x6664
+	//   _g_unknown_6660 = arg2;         // DS:0x6660 (gate for DispatchDialogClick)
+	//   g_flag_logic_dirty = 1;
+	// Stashes anim-list cursor pointers used by DispatchDialogClick @
+	// 1000:b316 when iterating g_anim_list (per Op_e4 entries). Reader
+	// not yet implemented in C++; storage matches DOS field layout.
+	const uint16 cursor0 = uint16(uint16(a[0]) + 3);
+	const uint16 cursor1 = uint16(uint16(a[1]) + 0x9b);
+	const uint16 gate = uint16(a[2]);
+	Log.setDialogCursors(cursor0, cursor1, gate);
+	debugC(2, kDebugLevelScript, "opcode 0xe3: stash anim-list cursor (cursor0=0x%04x cursor1=0x%04x gate=%u)",
+		cursor0, cursor1, gate);
 	return kThxBye;
 }
 OPCODE(0xe4) {
-	debugC(2, kDebugLevelScript, "opcode 0xe4: anim-list append %s,%s,%s,%s STUB",
+	// DOS Op_e4_handler @ 1000:55a7:
+	//   if (anim_list_count >= 8) pending-error 0xb;
+	//   else: append (arg3, arg2, arg0+3, arg0+9, arg1+0x9b, arg1+0xa1, 0xffff)
+	//         to anim_list[anim_list_count]; ++count.
+	// = "queue cutscene anim entry". Args are pose / position deltas.
+	if (Log.animListCount() >= 8) {
+		Log.setPendingError(0x0b);
+		return kThxBye;
+	}
+	debugC(2, kDebugLevelScript, "opcode 0xe4: anim-list append (%s, %s, %s, %s)",
 		+a[0], +a[1], +a[2], +a[3]);
+	Log.animListAppend(uint16(a[0]), uint16(a[1]), uint16(a[2]), uint16(a[3]));
 	return kThxBye;
 }
 OPCODE(0xe7) {
@@ -3329,23 +3647,57 @@ OPCODE(0xec) {
 }
 
 OPCODE(0xee) {
-	// 0xee (DOS CS:0x5698): clear hitTarget. Used at end of action dispatch.
-	debugC(2, kDebugLevelScript, "opcode 0xee: clear hitTarget");
-	Log.setHitTarget(0);
+	// DOS Op_ee_handler @ 1000:5698:
+	//   if (arg0 >= g_score_event_count [CS:0x93]) pending-error 0x2f;
+	//   else:
+	//     entry = score_table[arg0*2]   ; CS:[0x95 + arg0*2]
+	//     if (entry+1 byte == 0):       ; not yet claimed
+	//         g_game_score += entry word
+	//         entry+1 byte = 1          ; mark claimed
+	// = "claim a score event". Score-table data lives at CS:[0x95]
+	// loaded from iuc_main.dat by LoadCodeBlock — not yet wired in
+	// C++. As a faithful approximation, increment by 1 per event on
+	// first claim; the real DOS values vary per event but the
+	// "score increases when achievement triggers" semantic holds.
+	const uint16 eventId = uint16(a[0]);
+	if (Log.isScoreEventClaimed(eventId)) {
+		debugC(3, kDebugLevelScript, "opcode 0xee: score event %u already claimed", eventId);
+		return kThxBye;
+	}
+	debugC(2, kDebugLevelScript, "opcode 0xee: claim score event %u (score %u → %u)",
+		eventId, Log.gameScore(), Log.gameScore() + 1);
+	Log.markScoreEventClaimed(eventId);
+	Log.addGameScore(1);
 	return kThxBye;
 }
 
 // 0xf1..0xf5: music/sfx beyond the core 0xf4 (play music) / 0xf7 (stop) /
 // 0xf8 (panic stop) handled above.
 OPCODE(0xf1) {
-	// load sfx set (DOS CS:0x5725 → Op_load_sfx)
-	debugC(1, kDebugLevelScript, "opcode 0xf1: load sfx %s STUB", +a[0]);
+	// DOS Op_f1_handler @ 1000:5725: 2 args.
+	//   if (g_sfx_enabled) {
+	//       Op_load_sfx;          // chains arg0 SFX load
+	//       arg1 = some second slot index;
+	//       if (arg1 != pbRam00023250) PlaySfxSound;
+	//       cache arg1 at 0x6700.
+	//   }
+	// Same SFX-driver dependency as Op_f0.
+	if (g_system && g_system->getMixer() &&
+	    g_system->getMixer()->getVolumeForSoundType(Audio::Mixer::kSFXSoundType) > 0) {
+		debugC(1, kDebugLevelScript, "opcode 0xf1: SFX play (set=%s slot=%s) (no driver)",
+			+a[0], +a[1]);
+	}
 	return kThxBye;
 }
 OPCODE(0xf2) {
-	// 0xf2 (DOS CS:0x575a): play sfx by index. Engine has no separate sfx
-	// channel; route through Music.
-	debugC(1, kDebugLevelScript, "opcode 0xf2: play sfx %s STUB", +a[0]);
+	// DOS Op_f2_handler @ 1000:575a: 1 arg.
+	//   if (g_sfx_enabled) DispatchSfxRangeCheck(arg0).
+	// = "play SFX by index (with bound check)". DispatchSfxRangeCheck
+	// validates arg0 is in the SFX index range, then dispatches play.
+	if (g_system && g_system->getMixer() &&
+	    g_system->getMixer()->getVolumeForSoundType(Audio::Mixer::kSFXSoundType) > 0) {
+		debugC(1, kDebugLevelScript, "opcode 0xf2: SFX play index %s (no driver)", +a[0]);
+	}
 	return kThxBye;
 }
 OPCODE(0xf3) {

@@ -134,6 +134,11 @@ public:
 		Speech() : _actor(0) {}
 		~Speech();
 		Speech(Actor *parent, const Common::String &text);
+		// Variant for Op_40/0x42/0x44: bubble at explicit (x, y)
+		// instead of the speaker's sprite position. Mirrors DOS
+		// SpeakAtTarget where the bubble is drawn near the target
+		// entity rather than the speaker.
+		Speech(Actor *parent, const Common::String &text, Common::Point overridePos);
 		bool active() const { return !_text.empty(); }
 		void callWhenDone(const CodePointer &cp) { _cb.push(cp); }
 		void paint(Graphics *g);
@@ -198,6 +203,11 @@ public:
 
 	bool isFine() const;
 
+	// 1-based DOS actor id (matches DAT_1cb5_666c when this actor's
+	// script is dispatching). Set by the loader at construction.
+	uint16 id() const { return _id; }
+	void setId(uint16 id) { _id = id; }
+
 	void setAnimation(const CodePointer &anim);
 	void setAnimation(uint16);
 
@@ -208,6 +218,13 @@ public:
 	bool isSpeaking() const;
 	void callMeWhenSilent(const CodePointer &cp);
 	void say(const Common::String &text);
+	// DOS Op_40/0x42/0x44 SpeakAtTarget: bubble anchored at `pos`
+	// instead of the speaker's sprite. The speaker is still this
+	// actor (so isSpeaking() reflects them).
+	void sayAtPos(const Common::String &text, Common::Point pos);
+	/// Position to anchor the speech bubble. Public so callers
+	/// (Op_40/0x42/0x44) can override using a target's anchor.
+	Common::Point getSpeechPosition() const;
 
 	bool isMoving() const;
 	void callMeWhenStill(const CodePointer &cp);
@@ -227,15 +244,6 @@ private:
 	Actor &operator=(const Actor &);
 
 	void readHeader(const byte *code);
-
-	/**
-	 * Get position to put the speech bubble in.
-	 * It should be saved and stay still for the entire
-	 * duration of a sentence (as it may move because
-	 * of the actor animating).
-	 * @returns position of the tip of the bubble
-	 */
-	Common::Point getSpeechPosition() const;
 
 	void animate();
 	bool turnTo(Direction);
@@ -305,6 +313,7 @@ public:
 	uint16 actorCallbackSeg() const { return _actorCallbackSeg; }
 	uint16 actorCallbackOff() const { return _actorCallbackOff; }
 private:
+	uint16 _id;  // 1-based DOS actor id
 	Common::HashMap<uint8, uint8> _dosFields;
 	Common::Array<MoveSlot> _moveSlots;
 	uint16 _actorCallbackSeg, _actorCallbackOff;

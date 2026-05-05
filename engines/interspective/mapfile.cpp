@@ -42,4 +42,10 @@ uint32 MapFile::offsetOfEntry(uint16 index) {
 	return READ_LE_UINT32(_data + (index-1)*4);
 }
 
+void MapFile::patchEntryLow16(uint16 index, uint16 value) {
+	if (index == 0 || index * 4 > 1200)
+		return;
+	WRITE_LE_UINT16(_data + (index - 1) * 4, value);
+}
+
 } // End of namespace Interspective

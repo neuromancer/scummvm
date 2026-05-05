@@ -59,6 +59,9 @@ void Graphics::setEngine(Engine *engine) {
 
 	_speech = 0;
 	_speechFramesLeft = 0;
+	_speechX = 0;
+	_speechY = 0;
+	_speechColor = 235;
 	_fullscreen = false;
 }
 
@@ -155,13 +158,16 @@ void Graphics::paintSpeech() {
 			SpeechEntry next = _speechQueue.pop();
 			_speech = next.text;
 			_speechFramesLeft = next.frames;
+			_speechX = next.x;
+			_speechY = next.y;
+			_speechColor = next.color;
 			_speechDoneCallback = next.cb;
-			paintText(0, 0, 235, _speech);
+			paintText(_speechX, _speechY, _speechColor, _speech);
 		}
 		return;
 	}
 
-	paintText(0, 0, 235, _speech);
+	paintText(_speechX, _speechY, _speechColor, _speech);
 
 	_speechFramesLeft--;
 }
@@ -689,6 +695,13 @@ bool Graphics::fadeOut(FadeFlags f) {
 }
 
 void Graphics::say(const byte *text, uint16 length, uint16 frames) {
+	// Default position/color = top-left, color 235 (matches the
+	// pre-Pass2 behaviour). Op_47/0x48 use sayAt() instead.
+	sayAt(text, length, frames, 0, 0, 235);
+}
+
+void Graphics::sayAt(const byte *text, uint16 length, uint16 frames,
+                     uint16 x, uint16 y, byte color) {
 	// Callers pass `length = strlen(text)` (no NUL counted). paintText
 	// scans with `while ((ch = *string++))` and needs a NUL terminator,
 	// so over-allocate by 1 and write a sentinel. Without this, paintText
@@ -704,9 +717,12 @@ void Graphics::say(const byte *text, uint16 length, uint16 frames) {
 		e.text[length] = 0;
 		e.length = length;
 		e.frames = frames;
+		e.x = x;
+		e.y = y;
+		e.color = color;
 		_speechQueue.push(e);
-		debugC(2, kDebugLevelGraphics, "queued speech (queue size %u)",
-			(uint)_speechQueue.size());
+		debugC(2, kDebugLevelGraphics, "queued speech at %u,%u (queue size %u)",
+			x, y, (uint)_speechQueue.size());
 		return;
 	}
 
@@ -714,6 +730,9 @@ void Graphics::say(const byte *text, uint16 length, uint16 frames) {
 	memcpy(_speech, text, length);
 	_speech[length] = 0;
 	_speechFramesLeft = frames;
+	_speechX = x;
+	_speechY = y;
+	_speechColor = color;
 	paintSpeech();
 }
 

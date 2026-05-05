@@ -37,7 +37,7 @@
 namespace Interspective {
 //
 
-Actor::Actor(const CodePointer &code) : Animation(code, Common::Point()) {
+Actor::Actor(const CodePointer &code) : Animation(code, Common::Point()), _id(0) {
 	byte *header = code.code();
 	_base = header - code.offset();
 	readHeader(header);
@@ -125,6 +125,10 @@ void Actor::callMeWhenSilent(const CodePointer &cp) {
 
 void Actor::say(const Common::String &text) {
 	_speech = Speech(this, text);
+}
+
+void Actor::sayAtPos(const Common::String &text, Common::Point pos) {
+	_speech = Speech(this, text, pos);
 }
 
 Actor::Speech::~Speech() { while (!_cb.empty()) Log.runLater(_cb.pop()); }
@@ -436,10 +440,19 @@ Animation::Status Actor::tick() {
 	callBacks();
 
 	if (_room == Log.currentRoom()) {
+		// DOS RunActorScript writes DAT_1cb5_666c = current actor id
+		// before InterpretBytecode dispatches the actor's script.
+		// Op_5b reads this to know "which actor am I scripting for".
+		// Save/restore so nested dispatches don't trash the value.
+		const uint16 savedEntityId = Log.currentEntityId();
+		Log.setCurrentEntityId(_id);
+
 		Animation::Status s;
 		if (_debug) gDebugLevel += 3;
 			s = Animation::tick();
 		if (_debug) gDebugLevel -= 3;
+
+		Log.setCurrentEntityId(savedEntityId);
 		return s;
 	} else
 		return kOk;
@@ -547,6 +560,15 @@ Actor::Speech::Speech(Actor *parent, const Common::String &text) : _text(text), 
 		text.c_str(), (uint)_ticksLeft, parent->_debugInfo, position.x, position.y);
 	_image = new Interspective::Sprite;
 	_rect = Graf.paintSpeechInBubble(position, 235, reinterpret_cast<const byte *>(text.c_str()), _image);
+}
+
+Actor::Speech::Speech(Actor *parent, const Common::String &text, Common::Point overridePos)
+		: _text(text), _actor(parent) {
+	_ticksLeft = MAX<uint16>(30, 3 * uint16(text.size()));
+	debugC(1, kDebugLevelActor, "adding speech \"%s\" (%u ticks) for %s at OVERRIDE %d:%d",
+		text.c_str(), (uint)_ticksLeft, parent->_debugInfo, overridePos.x, overridePos.y);
+	_image = new Interspective::Sprite;
+	_rect = Graf.paintSpeechInBubble(overridePos, 235, reinterpret_cast<const byte *>(text.c_str()), _image);
 }
 
 void Actor::Speech::tick() {

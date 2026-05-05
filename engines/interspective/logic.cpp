@@ -150,8 +150,14 @@ void Logic::doChangeRoom() {
 		// Animation::tick at `_base + _offset`. Find any such animation
 		// and drop its _base now — the actor becomes inert until the
 		// script re-attaches it (Op_bd/Op_be).
+		// EXCEPTION: when a saved scene frame is holding a SharedPtr to
+		// the outgoing _blockProgram, its _code buffer survives the
+		// reassignment — Op_01's pop will restore the program. Skip the
+		// drop in that case so the saved actors' _base pointers remain
+		// valid for the popped scene to resume.
 		Program *oldProgram = _blockProgram.get();
-		if (oldProgram) {
+		const bool oldProgramPreserved = _savedScene && _savedScene->blockProgram == _blockProgram;
+		if (oldProgram && !oldProgramPreserved) {
 			const byte *lo = oldProgram->codeBegin();
 			const byte *hi = oldProgram->codeEnd();
 			foreach(Animation *, _animations)
@@ -160,6 +166,10 @@ void Logic::doChangeRoom() {
 
 		_currentBlock = newBlock;
 		_blockProgram = Common::SharedPtr<Program>(_resources->loadCodeBlock(newBlock));
+		// Reset per-block transient state (mirrors DOS LAB_1000_063e):
+		// overlay queue, draw command count, error.
+		_overlayQueue.clear();
+		_drawCommandCount = 0;
 
 		char buf[100];
 		snprintf(buf, 100, "block %d code", newBlock);
@@ -223,6 +233,9 @@ void Logic::saveSceneFrame(const CodePointer &resumePC) {
 	frame->currentRoom = _currentRoom;
 	frame->room = _room;
 	frame->resumePC = resumePC;
+	// Snapshot _animations so the sub-scene's loadActors-appended
+	// entries can be unwound on pop (DOS RestoreActorTableBackup).
+	frame->savedAnimations = _animations;
 	_savedScene = Common::SharedPtr<SceneFrame>(frame);
 }
 
@@ -248,6 +261,12 @@ bool Logic::restoreSceneFrame() {
 	_currentBlock = frame.currentBlock;
 	_currentRoom = frame.currentRoom;
 	_room = frame.room;
+	// Restore the _animations list to the pre-Op_38 state. The
+	// sub-scene's loadActors appended new entries; replacing the
+	// list drops them. The saved actors are still alive because the
+	// SceneFrame held the old Program SharedPtr keeping their _code
+	// buffer valid.
+	_animations = frame.savedAnimations;
 	debugC(2, kDebugLevelScript, "Op_01 popped scene; resuming at %s next tick", +frame.resumePC);
 	_queued.push_back(DelayedRun(frame.resumePC, 0));
 	return true;

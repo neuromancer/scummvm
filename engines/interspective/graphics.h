@@ -82,6 +82,11 @@ public:
 	bool fadeOut(FadeFlags f = kFullFade);
 
 	void say(const byte *text, uint16, uint16 frames = 50);
+	// DOS Op_47/0x48: narrator bubble with explicit position + color.
+	// y/x in DOS units (e.g. y=0xb4 = 180 for bottom-of-screen narrator).
+	// color = 0xeb is the canonical DOS narrator color; 0xae is shadow.
+	void sayAt(const byte *text, uint16 length, uint16 frames,
+	           uint16 x, uint16 y, byte color);
 	void runWhenSaid(const CodePointer &p);
 
 	uint16 ask(uint16 left, uint16 top, byte width, byte height, byte *string);
@@ -161,12 +166,16 @@ private:
 	// set), then pops the next entry from _speechQueue. The queue is FIFO.
 	byte *_speech;
 	uint16 _speechFramesLeft;
+	uint16 _speechX, _speechY;  // current narrator-bubble position
+	byte _speechColor;          // current narrator-bubble color
 	CodePointer _speechDoneCallback;
 	struct SpeechEntry {
-		SpeechEntry() : text(0), length(0), frames(0) {}
+		SpeechEntry() : text(0), length(0), frames(0), x(0), y(0), color(235) {}
 		byte *text;          // owned: caller transferred via say()
 		uint16 length;
 		uint16 frames;
+		uint16 x, y;          // top-left coords (Op_47/0x48 narrator pos)
+		byte color;           // text color (Op_47/0x48 color arg)
 		CodePointer cb;
 	};
 	Common::Queue<SpeechEntry> _speechQueue;

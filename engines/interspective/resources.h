@@ -130,12 +130,12 @@ public:
 	void loadSpeechBubbles();
 
 	MainDat *mainDat() const { return _main.get(); }
+	MapFile *graphicsMap() const { return _graphicsMap.get(); }
 
 	static void decodeImage(Common::ReadStream *stream, byte *target, uint16 size);
 	static void readPalette(Common::ReadStream *stream, byte *palette);
 
 private:
-	MapFile *graphicsMap() const { return _graphicsMap.get(); }
 	MapFile *tuneMap() const { return _tuneMap.get(); }
 	ProgDat *progDat() const { return _progDat.get(); }
 
