@@ -177,7 +177,7 @@ public:
 		Common::HashMap<uint16, int16>::const_iterator it = _objectPosY.find(objId);
 		return it == _objectPosY.end() ? 0 : it->_value;
 	}
-	void clearObjectRooms() { _objectRoom.clear(); }
+	void clearObjectRooms() { _objectRoom.clear(); _objectExitList.clear(); }
 	uint16 objectRoomCount() const { return _objectRoom.size(); }
 
 	// Sparse storage for DOS object record fields not first-class
@@ -272,13 +272,46 @@ public:
 	//                                        clears obj record's room
 	//                                        word in PrepareDragInteraction)
 	//   * obj.x/y = camera-relative pos    — for cross-room placement
-	// AddExitToList / RemoveExitFromList have no C++ analog because
-	// exits are loaded statically per block; the user-observable
-	// effect of "register obj as a clickable hotspot" is captured by
-	// `_objectRoom[id] = currentRoom` (the click handler iterates by
-	// room match).
+		// Dynamic object exits are tracked separately from static block exits;
+		// room 0xffff remains the DOS room word while `_objectExitList`
+		// models AddExitToList / RemoveExitFromList membership.
 	void movePersonToActor(uint16 id);
 	void resetObjectAtActorPosition(uint16 id);
+	bool prepareDragInteraction(uint16 id);
+	bool isObjectExitRegistered(uint16 id) const {
+		for (uint i = 0; i < _objectExitList.size(); ++i)
+			if (_objectExitList[i] == id)
+				return true;
+		return false;
+	}
+	bool registerObjectExit(uint16 id) {
+		if (isObjectExitRegistered(id))
+			return true;
+		if (_objectExitList.size() >= 20) {
+			setPendingError(0x21);
+			return false;
+		}
+		_objectExitList.push_back(id);
+		return true;
+	}
+	void unregisterObjectExit(uint16 id) {
+		for (uint i = 0; i < _objectExitList.size(); ++i) {
+			if (_objectExitList[i] == id) {
+				_objectExitList.remove_at(i);
+				return;
+			}
+		}
+	}
+	void remapObjectExit(uint16 fromId, uint16 toId) {
+		for (uint i = 0; i < _objectExitList.size(); ++i) {
+			if (_objectExitList[i] == fromId) {
+				_objectExitList[i] = toId;
+				return;
+			}
+		}
+		if (toId != 0)
+			registerObjectExit(toId);
+	}
 
 	// Walk driver. Mirrors DOS SendActorToTarget @ 1000:7323 →
 	// MoveProtagonistToEntity @ 1000:7331 → FindNearestExitToPoint @
@@ -871,6 +904,7 @@ private:
 	Common::HashMap<uint16, int16> _objectPosY;
 	Common::HashMap<uint32, uint8> _objectFields; // (objId<<8)|fieldOffset → byte, for Op_67 unknown offsets
 	Common::HashMap<uint32, uint8> _exitFields;   // (exitId<<8)|fieldOffset → byte, for Op_66 unknown offsets
+	Common::Array<uint16> _objectExitList;        // dynamic object exits registered through AddExitToList-style paths
 	Common::HashMap<uint16, uint8> _cellBits;    // per-entity flag byte (Op_7b/7c/Op_15)
 	Common::HashMap<uint16, uint8> _actorFlag70; // Actor.field_0x70 (Op_49)
 	uint16 _menuStashA, _menuStashB;             // pbRam00023206/8 (Op_4d)

@@ -192,6 +192,7 @@ public:
 	void setRawInterval(uint8 interval) { _interval = int8(interval); }
 	void setRawFrame(uint16 frame) { _frame = frame; }
 	void setRawTargetFrame(uint16 frame) { _nextFrame = frame; }
+	void setRawMainSprite(uint16 sprite) { setMainSprite(sprite); }
 	void setRawSpriteTarget(uint16 target) { setMainSprite(target); _nextFrame = target; }
 	void moveTo(uint16 f);
 	static Common::List<Frame> findPath(Frame from, uint16 to);

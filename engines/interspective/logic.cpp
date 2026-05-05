@@ -184,10 +184,11 @@ void Logic::doChangeRoom() {
 
 		_currentBlock = newBlock;
 		_blockProgram = Common::SharedPtr<Program>(_resources->loadCodeBlock(newBlock));
-		// Reset per-block transient state (mirrors DOS LAB_1000_063e):
-		// overlay queue, draw command count, error.
-		_overlayQueue.clear();
-		_drawCommandCount = 0;
+			// Reset per-block transient state (mirrors DOS LAB_1000_063e):
+			// overlay queue, draw command count, error.
+			_overlayQueue.clear();
+			_objectExitList.clear();
+			_drawCommandCount = 0;
 		// Drop any armed post-move callback — its captured cellId/arg0
 		// reference entities from the outgoing block. The protagonist's
 		// _framequeue gets reset by the new block's loadActors, which
@@ -471,22 +472,36 @@ void Logic::movePersonToActor(uint16 id) {
 		setPendingError(0x16);
 		return;
 	}
-	if (_cursorMode == 0x20 && _dragTarget != 0)
-		resetObjectAtActorPosition(_dragTarget);
+		if (_cursorMode == 0x20 && _dragTarget != 0)
+			resetObjectAtActorPosition(_dragTarget);
 
-	setDragTarget(id);
+		setDragTarget(id);
 
-	// If the object is in another (non-sentinel) room, snap its position
+		// If the object is in another (non-sentinel) room, snap its position
 	// to the camera origin so the drag pickup happens "where the actor
 	// is" rather than wherever the obj was previously drawn.
-	const uint16 objRoom = getObjectRoom(id);
-	if (objRoom != _currentRoom && objRoom != 0xffff)
-		setObjectPosition(id, _cameraX, _cameraY);
+		const uint16 objRoom = getObjectRoom(id);
+		if (objRoom != _currentRoom && objRoom != 0xffff)
+			setObjectPosition(id, _cameraX, _cameraY);
 
-	// PrepareDragInteraction subset: cursor-mode + drag-target + obj
-	// "carried" room sentinel.
+		// PrepareDragInteraction subset: cursor-mode + drag-target + obj
+		// "carried" room sentinel.
+		setCursorMode(0x20);
+		setObjectRoom(id, 0);
+		if (objRoom == 0xffff)
+			unregisterObjectExit(id);
+}
+
+bool Logic::prepareDragInteraction(uint16 id) {
+	if (id == 0 || (_resources && _resources->mainDat() && id > _resources->mainDat()->personsCount())) {
+		setPendingError(0x16);
+		return false;
+	}
+
 	setCursorMode(0x20);
+	setDragTarget(id);
 	setObjectRoom(id, 0);
+	return true;
 }
 
 // DOS ResetObjectAtActorPosition @ 1000:4837.
@@ -503,22 +518,24 @@ void Logic::movePersonToActor(uint16 id) {
 //   < more sprite metadata save >
 //   set dirty flags.
 //
-// C++ port: place the object as a clickable hotspot at the protagonist's
-// current room/position. The full sprite-centering math is rendering-
-// engine territory and the dynamic exit-list slot management has no
-// C++ analog (exits are loaded statically per block). Script-observable
-// effect: obj.room = current room, obj.x/y = actor.x/y.
+	// C++ port: keep the DOS room sentinel and model dynamic-list membership
+	// explicitly. The exact sprite-centering math is rendering-side; use the
+	// protagonist position as the screen anchor when available.
 void Logic::resetObjectAtActorPosition(uint16 id) {
-	if (!_protagonist) return;
-	if (id == 0) return;
-	if (_resources && _resources->mainDat() && id > _resources->mainDat()->personsCount()) {
-		setPendingError(0x21);
+	if (id == 0 || (_resources && _resources->mainDat() && id > _resources->mainDat()->personsCount())) {
+		setPendingError(0x16);
 		return;
 	}
-	setObjectRoom(id, _protagonist->room());
-	setObjectPosition(id,
-		int16(_protagonist->position().x),
-		int16(_protagonist->position().y));
+
+	if (getObjectRoom(id) == 0xffff)
+		unregisterObjectExit(id);
+	if (!registerObjectExit(id))
+		return;
+
+	setObjectRoom(id, 0xffff);
+	const int16 x = _protagonist ? int16(_protagonist->position().x) : getObjectPosX(id);
+	const int16 y = _protagonist ? int16(_protagonist->position().y) : getObjectPosY(id);
+	setObjectPosition(id, x, y);
 }
 
 // DOS SendActorToTarget @ 1000:7323 dispatches MoveProtagonistToEntity

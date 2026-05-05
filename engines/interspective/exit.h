@@ -61,6 +61,8 @@ public:
 
 	bool isEnabled() const { return _enabled; }
 	void setEnabled(bool en) { _enabled = en; }
+	uint16 spriteField() const { return _spriteField; }
+	void setSpriteField(uint16 sprite) { _spriteField = sprite; }
 
 	friend class Program;
 private:
@@ -71,6 +73,7 @@ private:
 
 	byte _zIndex;
 	Common::SharedPtr<Sprite> _sprite;
+	uint16 _spriteField;
 	Common::Point _position;
 	Common::Rect _rect;
 	uint16 _room;

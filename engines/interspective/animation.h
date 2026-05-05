@@ -62,6 +62,7 @@ public:
 	virtual void setAnimation(uint16 anim) { _offset = anim; }
 
 	virtual bool isActor() const { return false; }
+	uint16 mainSpriteId() const { return _mainSpriteId; }
 
 	// Used by Logic::doChangeRoom before freeing the outgoing block's
 	// code buffer. If this animation's _base lies within the [low, high)
@@ -108,6 +109,7 @@ protected:
 	char _debugInfo[50];
 	Common::List<Sprite *> _sprites;
 	Common::SharedPtr<Interspective::Sprite> _mainSprite;
+	uint16 _mainSpriteId;
 	int8 _counter;
 	uint16 _loopStart;
 	/** offset of the animation from the start of its codeblock */

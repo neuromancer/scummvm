@@ -86,6 +86,7 @@ Animation::Animation(const CodePointer &code, Common::Point position) :
 	_offset(0),
 	_interval(1),
 	_ticksLeft(0),
+	_mainSpriteId(0xffff),
 	_counter(0),
 	_debugInvalid(false),
 	_opRingIdx(0) {
@@ -196,6 +197,7 @@ void Animation::runOnNextFrame(const CodePointer &cp) {
 
 
 void Animation::setMainSprite(uint16 sprite) {
+	_mainSpriteId = sprite;
 	// 0xffff is the DOS "no sprite" sentinel (initial value of
 	// actor.field+0x8). Loading it would index past the end of the
 	// spritemap and ASan-trip in SpriteInfo's spritemap += index *
@@ -208,6 +210,7 @@ void Animation::setMainSprite(uint16 sprite) {
 }
 
 void Animation::clearMainSprite() {
+	_mainSpriteId = 0xffff;
 	_mainSprite.reset();
 }
 

@@ -837,6 +837,8 @@ static uint8 exitRecordByte(Logic *logic, Exit *exit, uint16 id, uint8 off) {
 		return wordRecordByte(uint16(exit->position().x), 2, off);
 	if (off == 4 || off == 5)
 		return wordRecordByte(uint16(exit->position().y), 4, off);
+	if (off == 6 || off == 7)
+		return wordRecordByte(exit->spriteField(), 6, off);
 	if (off == 0x0b)
 		return exit->zIndex();
 	return logic->exitField(id, off);
@@ -864,6 +866,10 @@ static void writeExitRecordByte(Logic *logic, Exit *exit, uint16 id, uint8 off, 
 		Common::Point p = exit->position();
 		p.y = int16(wordRecordWithByte(uint16(p.y), 4, off, value));
 		exit->setPosition(p);
+		return;
+	}
+	if (off == 6 || off == 7) {
+		exit->setSpriteField(wordRecordWithByte(exit->spriteField(), 6, off, value));
 		return;
 	}
 	if (off == 0x0b) {
@@ -938,7 +944,7 @@ static uint8 actorRecordByte(Actor *actor, uint8 off) {
 	if (off == Actor::kOffsetTop || off == Actor::kOffsetTop + 1)
 		return wordRecordByte(uint16(actor->position().y), Actor::kOffsetTop, off);
 	if (off == Actor::kOffsetMainSprite || off == Actor::kOffsetMainSprite + 1)
-		return wordRecordByte(actor->targetFrameId(), Actor::kOffsetMainSprite, off);
+		return wordRecordByte(actor->mainSpriteId(), Actor::kOffsetMainSprite, off);
 	if (off == Actor::kOffsetTicksLeft || off == Actor::kOffsetTicksLeft + 1)
 		return wordRecordByte(uint16(actor->ticksLeft()), Actor::kOffsetTicksLeft, off);
 	if (off == Actor::kOffsetInterval)
@@ -976,8 +982,8 @@ static void writeActorRecordByte(Actor *actor, uint8 off, uint8 value) {
 		return;
 	}
 	if (off == Actor::kOffsetMainSprite || off == Actor::kOffsetMainSprite + 1) {
-		const uint16 target = wordRecordWithByte(actor->targetFrameId(), Actor::kOffsetMainSprite, off, value);
-		actor->setRawSpriteTarget(target);
+		const uint16 sprite = wordRecordWithByte(actor->mainSpriteId(), Actor::kOffsetMainSprite, off, value);
+		actor->setRawMainSprite(sprite);
 		return;
 	}
 	if (off == Actor::kOffsetTicksLeft || off == Actor::kOffsetTicksLeft + 1) {
@@ -1008,7 +1014,7 @@ static void writeActorRecordSizedLowWord(Actor *actor, uint8 off,
 	if (sz != 1 && off == Actor::kOffsetMainSprite) {
 		actor->setDosField(off, uint8(lowWord & 0xff));
 		actor->setDosField(uint8(off + 1), uint8(lowWord >> 8));
-		actor->setRawSpriteTarget(lowWord);
+		actor->setRawMainSprite(lowWord);
 		if (sz == 4) {
 			writeActorRecordByte(actor, uint8(off + 2), uint8(highWord & 0xff));
 			writeActorRecordByte(actor, uint8(off + 3), uint8(highWord >> 8));
@@ -1177,16 +1183,16 @@ OPCODE(0x73) {
 }
 
 	OPCODE(0x77) {
-	// DOS Op_77 @ 1000:433d = GoToRoomWithFrame(room, frame).
-	// Ghidra's "Op_77_CheckActorAnimReady" rename is INCOMPLETE — only
-	// the first 2 instructions decompiled (likely the no-return-analyzer
-	// trap). The actual handler:
-	//
-	//   1. CALL CheckActorAnimReady(g_main_character_id).
-	//   2. If carry clear (anim ready): JMP @ 0x3078 to save the script
-	//      PC and defer execution (retry next tick when actor is idle).
-	//   3. If carry set (NOT ready — e.g. fresh actor with
-	//      actor.room != g_current_location): fall through and place:
+		// DOS Op_77 @ 1000:433d = GoToRoomWithFrame(room, frame).
+		// Ghidra's "Op_77_CheckActorAnimReady" rename is INCOMPLETE — only
+		// the first 2 instructions decompiled (likely the no-return-analyzer
+		// trap). The actual handler:
+		//
+		//   1. CALL CheckActorAnimReady(g_main_character_id).
+		//   2. If carry clear: JMP @ 0x3078 to save the script PC and defer
+		//      execution (retry next tick).
+		//   3. If carry set (not currently active/busy in the current scene):
+		//      fall through and place:
 	//        - actor.field+0x61 = arg1_lo  (current frame)
 	//        - actor.field+0x62 = arg1_lo  (target frame)
 	//        - actor.field+0x59 = arg0     (room)
@@ -1238,14 +1244,17 @@ OPCODE(0x79) {
 	//       MoveActorToTargetExit;            ; auto-walk
 	debugC(1, kDebugLevelScript, "opcode 0x79: move actor %s to room %s frame %s",
 		+a[0], +a[1], +a[2]);
-	if (Log.inMapMode())
-		return kThxBye;
-	Actor *ac = _logic->getActor(a[0]);
-	if (!ac) return kThxBye;
-	ac->placeIn(uint16(a[1]), uint16(a[2]));  // sets _room, _frame, _nextFrame, _position
-	// Clear walk-target field (actor.field+0x6b/0x6c, word):
-	ac->setDosField(0x6b, 0);
-	ac->setDosField(0x6c, 0);
+		if (Log.inMapMode())
+			return kThxBye;
+		Actor *ac = _logic->getActor(a[0]);
+		if (!ac) {
+			Log.setPendingError(0x17);
+			return kThxBye;
+		}
+		ac->placeIn(uint16(a[1]), uint8(a[2]));  // sets _room, _frame, _nextFrame, _position
+		// Clear walk-target field (actor.field+0x6b/0x6c, word):
+		ac->setDosField(0x6b, 0);
+		ac->setDosField(0x6c, 0);
 	return kThxBye;
 }
 
@@ -1310,37 +1319,37 @@ OPCODE(0x4c) {
 
 OPCODE(0x7b) {
 	// DOS Op_7b_SetObjectFlag1 @ 1000:4459:
-	//   if (arg0 > g_object_count_max) pending-error 0x14;
+	//   if (arg0 > active block exit count) pending-error 0x14;
 	//   else if cell bit 0 not set: set cellByte[arg0] |= 1.
 	const uint16 id = uint16(a[0]);
-	const uint16 personsCount = _logic->resources()->mainDat()->personsCount();
-	if (id > personsCount) {
-		Log.setPendingError(0x14);
-		return kThxBye;
-	}
+		const uint16 exitCount = _logic->blockProgram() ? _logic->blockProgram()->exitsCount() : 0;
+		if (id > exitCount) {
+			Log.setPendingError(0x14);
+			return kThxBye;
+		}
 	debugC(2, kDebugLevelScript, "opcode 0x7b: set cell bit 0 on entity %s", +a[0]);
 	Log.setCellBit(id, 0);
-	if (Exit *exit = _logic->blockProgram()->getExit(a[0]))
-		if (!exit->isEnabled())
-			exit->setEnabled(true);
+		if (Exit *exit = _logic->blockProgram() ? _logic->blockProgram()->getExit(id) : 0)
+			if (!exit->isEnabled())
+				exit->setEnabled(true);
 	return kThxBye;
 }
 
 OPCODE(0x7c) {
 	// DOS Op_7c_ClearObjectFlag1 @ 1000:4476:
-	//   if (arg0 > g_object_count_max) pending-error 0x14;
+	//   if (arg0 > active block exit count) pending-error 0x14;
 	//   else if cell bit 0 set: clear cellByte[arg0] ^= 1.
 	const uint16 id = uint16(a[0]);
-	const uint16 personsCount = _logic->resources()->mainDat()->personsCount();
-	if (id > personsCount) {
-		Log.setPendingError(0x14);
-		return kThxBye;
-	}
+		const uint16 exitCount = _logic->blockProgram() ? _logic->blockProgram()->exitsCount() : 0;
+		if (id > exitCount) {
+			Log.setPendingError(0x14);
+			return kThxBye;
+		}
 	debugC(2, kDebugLevelScript, "opcode 0x7c: clear cell bit 0 on entity %s", +a[0]);
 	Log.clearCellBit(id, 0);
-	if (Exit *exit = _logic->blockProgram()->getExit(a[0]))
-		if (exit->isEnabled())
-			exit->setEnabled(false);
+		if (Exit *exit = _logic->blockProgram() ? _logic->blockProgram()->getExit(id) : 0)
+			if (exit->isEnabled())
+				exit->setEnabled(false);
 	return kThxBye;
 }
 
@@ -3249,11 +3258,11 @@ OPCODE(0x76) {
 	Log.setStepPending(false);
 	return kThxBye;
 }
-OPCODE(0x78) {
-	// DOS Op_78_CheckActorAnimReadyAlt @ 1000:4359:
-	//   CheckActorAnimReady(g_main_character_id);
-	//   if (!CF) yield (RegisterSampleSlot_LoadDefaultsAndMark);
-	//   else: GetActorOffset(main_char), place protagonist:
+	OPCODE(0x78) {
+		// DOS Op_78_CheckActorAnimReadyAlt @ 1000:4359:
+		//   CheckActorAnimReady(g_main_character_id);
+		//   if (!CF) yield (RegisterSampleSlot_LoadDefaultsAndMark);
+		//   else: GetActorOffset(main_char), place protagonist:
 	//     actor.field+0x61 = arg1 (current frame)
 	//     actor.field+0x62 = arg2 (target frame)
 	//     actor.field+0x59 = arg0 (room)
@@ -3290,32 +3299,46 @@ OPCODE(0x7a) {
 	// from frame[a[2]]), FindPlaceById, InitActorState. If the new room
 	// matches g_current_location and target!=current, MoveActorToTargetExit.
 	// Previous C++ was a logging stub mislabelled as "deactivate object".
-	debugC(1, kDebugLevelScript, "opcode 0x7a: place actor %s in room %s frame %s target %s",
-		+a[0], +a[1], +a[2], +a[3]);
-	if (Log.inMapMode())
-		return kThxBye;
-	if (Actor *ac = _logic->getActor(a[0]))
-		ac->placeIn(uint16(a[1]), uint16(a[2]), uint16(a[3]));
-	return kThxBye;
-}
-OPCODE(0x7d) {
-	// DOS Op_7d_MoveObjectFlag1 @ 1000:4493:
-	//   ResolveOpcodeArg0; DisableObjectFlag1 (clear arg0's bit 0);
-	//   ResolveOpcodeArg1; if arg1 > max → error 0x14;
-	//     else EnableObjectFlag1 (set arg1's bit 0).
-	const uint16 src = uint16(a[0]);
-	const uint16 dst = uint16(a[1]);
-	const uint16 personsCount = _logic->resources()->mainDat()->personsCount();
-	if (dst > personsCount) {
-		Log.setPendingError(0x14);
+		debugC(1, kDebugLevelScript, "opcode 0x7a: place actor %s in room %s frame %s target %s",
+			+a[0], +a[1], +a[2], +a[3]);
+		if (Log.inMapMode())
+			return kThxBye;
+		Actor *ac = _logic->getActor(a[0]);
+		if (!ac) {
+			Log.setPendingError(0x17);
+			return kThxBye;
+		}
+		ac->placeIn(uint16(a[1]), uint8(a[2]), uint8(a[3]));
+		ac->setDosField(0x6b, 0);
+		ac->setDosField(0x6c, 0);
+		if (uint16(a[1]) == Log.currentRoom() && uint8(a[3]) != uint8(a[2]))
+			ac->moveTo(uint8(a[3]));
 		return kThxBye;
 	}
-	debugC(2, kDebugLevelScript, "opcode 0x7d: move cell bit 0: %u → %u", src, dst);
-	Log.clearCellBit(src, 0);
-	Log.setCellBit(dst, 0);
-	return kThxBye;
-}
-OPCODE(0x7e) {
+	OPCODE(0x7d) {
+	// DOS Op_7d_MoveObjectFlag1 @ 1000:4493:
+	//   ResolveOpcodeArg0; DisableObjectFlag1 (clear arg0's bit 0);
+		//   ResolveOpcodeArg1; if arg1 > active block exit count → error 0x14;
+	//     else EnableObjectFlag1 (set arg1's bit 0).
+		const uint16 src = uint16(a[0]);
+		const uint16 dst = uint16(a[1]);
+		const uint16 exitCount = _logic->blockProgram() ? _logic->blockProgram()->exitsCount() : 0;
+		if (dst > exitCount) {
+			Log.setPendingError(0x14);
+			return kThxBye;
+		}
+		debugC(2, kDebugLevelScript, "opcode 0x7d: move cell bit 0: %u → %u", src, dst);
+		Log.clearCellBit(src, 0);
+		if (Exit *exit = _logic->blockProgram() ? _logic->blockProgram()->getExit(src) : 0)
+			if (exit->isEnabled())
+				exit->setEnabled(false);
+		Log.setCellBit(dst, 0);
+		if (Exit *exit = _logic->blockProgram() ? _logic->blockProgram()->getExit(dst) : 0)
+			if (!exit->isEnabled())
+				exit->setEnabled(true);
+		return kThxBye;
+	}
+	OPCODE(0x7e) {
 	// DOS Op_7e_QueueOverlay @ 1000:44a8:
 	//   arg0 = entity type (1=exit, 2=object, 3=actor);
 	//   arg1 = entity id;
@@ -3330,32 +3353,45 @@ OPCODE(0x7e) {
 	const uint16 type = uint16(a[0]);
 	const uint16 id = uint16(a[1]);
 	uint16 sprite = 0;
-	int16 x = 0, y = 0;
-	switch (type) {
-	case 1: { // exit
-		Exit *exit = _logic->blockProgram() ? _logic->blockProgram()->getExit(id) : 0;
-		if (exit) {
-			x = int16(exit->position().x);
-			y = int16(exit->position().y);
-			// exit sprite id not directly exposed — use room as proxy
-			sprite = exit->room();
+		int16 x = 0, y = 0;
+		switch (type) {
+		case 1: { // exit
+			const uint16 exitCount = _logic->blockProgram() ? _logic->blockProgram()->exitsCount() : 0;
+			if (id == 0 || id > exitCount) {
+				Log.setPendingError(0x14);
+				return kThxBye;
+			}
+			Exit *exit = _logic->blockProgram() ? _logic->blockProgram()->getExit(id) : 0;
+			if (!exit) {
+				Log.setPendingError(0x14);
+				return kThxBye;
+			}
+			sprite = exitRecordSizedLowWord(_logic, exit, id, 6, 2);
+			x = int16(exitRecordSizedLowWord(_logic, exit, id, 2, 2));
+			y = int16(exitRecordSizedLowWord(_logic, exit, id, 4, 2));
+			break;
 		}
-		break;
-	}
-	case 2: { // object
-		x = Log.getObjectPosX(id);
-		y = Log.getObjectPosY(id);
-		sprite = Log.getObjectRoom(id);
-		break;
-	}
-	case 3: { // actor
-		if (Actor *ac = Log.getActor(id)) {
-			x = int16(ac->position().x);
-			y = int16(ac->position().y);
-			sprite = ac->frameId();
+		case 2: { // object
+			if (id == 0 || id > _logic->resources()->mainDat()->personsCount()) {
+				Log.setPendingError(0x16);
+				return kThxBye;
+			}
+			sprite = objectRecordSizedLowWord(_logic, id, 6, 2);
+			x = int16(objectRecordSizedLowWord(_logic, id, 2, 2));
+			y = int16(objectRecordSizedLowWord(_logic, id, 4, 2));
+			break;
 		}
-		break;
-	}
+		case 3: { // actor
+			if (Actor *ac = Log.getActor(id)) {
+				sprite = actorRecordSizedLowWord(ac, Actor::kOffsetMainSprite, 2);
+				x = int16(actorRecordSizedLowWord(ac, Actor::kOffsetLeft, 2));
+				y = int16(actorRecordSizedLowWord(ac, Actor::kOffsetTop, 2));
+			} else {
+				Log.setPendingError(0x17);
+				return kThxBye;
+			}
+			break;
+		}
 	default:
 		Log.setPendingError(0x34);
 		return kThxBye;
@@ -3373,12 +3409,23 @@ OPCODE(0x7f) {
 	// Object[a[0]].position = -1, Object[a[0]].field4 = 0. Marks logic dirty.
 	// Used both to place an object in a scene AND to add it to the player's
 	// inventory (room == kInventoryRoom). Op_18 / Op_1b / Op_21 read this.
-	const uint16 id = uint16(a[0]);
-	const uint16 room = uint16(a[1]);
-	debugC(1, kDebugLevelScript, "opcode 0x7f: place object %s in room %s", +a[0], +a[1]);
-	Log.setObjectRoom(id, room);
-	return kThxBye;
-}
+		const uint16 id = uint16(a[0]);
+		const uint16 room = uint16(a[1]);
+		if (id == 0 || id > _logic->resources()->mainDat()->personsCount()) {
+			Log.setPendingError(0x16);
+			return kThxBye;
+		}
+		debugC(1, kDebugLevelScript, "opcode 0x7f: place object %s in room %s", +a[0], +a[1]);
+		if (id == Log.dragTarget()) {
+			Log.setCursorMode(0);
+			Log.setDragTarget(0);
+		}
+		if (Log.getObjectRoom(id) == 0xffff)
+			Log.unregisterObjectExit(id);
+		Log.setObjectRoom(id, room);
+		Log.setObjectPosition(id, -1, 0);
+		return kThxBye;
+	}
 
 // 0x80..0x94: Object placement / hotspot manipulation. iter-20 audit per
 // opcodes_nargs.data discovered SEVEN OOB-read bugs in this range — the
@@ -3390,31 +3437,35 @@ OPCODE(0x80) {
 	//   if (arg0 > g_persons_count) pending-error 0x16;
 	//   else GetObjectOffset(arg0); object[+0] = arg1 (room),
 	//        object[+2] = arg2 (x), object[+4] = arg3 (y);
-	//        if room == 0xffff: AddExitToList + pending-error 0x21;
-	//        else ClampSpriteOnScreen + g_flag_logic_dirty = 1;
+		//        if room == 0xffff: AddExitToList; if carry set, pending-error 0x21;
+		//        on successful room==0xffff: ClampSpriteOnScreen + g_flag_logic_dirty = 1;
 	//        g_flag_misc_1 = 1.
-	const uint16 id = uint16(a[0]);
-	if (id > _logic->resources()->mainDat()->personsCount()) {
-		Log.setPendingError(0x16);
-		return kThxBye;
-	}
+		const uint16 id = uint16(a[0]);
+		if (id == 0 || id > _logic->resources()->mainDat()->personsCount()) {
+			Log.setPendingError(0x16);
+			return kThxBye;
+		}
 	const uint16 room = uint16(a[1]);
 	debugC(2, kDebugLevelScript, "opcode 0x80: place object %s at room %s pos %sx%s",
 		+a[0], +a[1], +a[2], +a[3]);
-	Log.setObjectRoom(id, room);
-	Log.setObjectPosition(id, int16(uint16(a[2])), int16(uint16(a[3])));
-	if (room == 0xffff)
-		Log.setPendingError(0x21);
-	return kThxBye;
-}
+		Log.setObjectRoom(id, room);
+		Log.setObjectPosition(id, int16(uint16(a[2])), int16(uint16(a[3])));
+		if (room == 0xffff && !Log.registerObjectExit(id))
+			return kThxBye;
+		return kThxBye;
+	}
 OPCODE(0x81) {
 	// DOS Op_81 @ 1000:45ce: same as Op_80 but room = current_location.
 	// nargs=3 (id, x, y).
-	debugC(2, kDebugLevelScript, "opcode 0x81: place object %s at current room pos %s,%s",
-		+a[0], +a[1], +a[2]);
-	const uint16 id = uint16(a[0]);
-	Log.setObjectRoom(id, Log.currentRoom());
-	Log.setObjectPosition(id, int16(uint16(a[1])), int16(uint16(a[2])));
+		debugC(2, kDebugLevelScript, "opcode 0x81: place object %s at current room pos %s,%s",
+			+a[0], +a[1], +a[2]);
+		const uint16 id = uint16(a[0]);
+		if (id == 0 || id > _logic->resources()->mainDat()->personsCount()) {
+			Log.setPendingError(0x16);
+			return kThxBye;
+		}
+		Log.setObjectRoom(id, Log.currentRoom());
+		Log.setObjectPosition(id, int16(uint16(a[1])), int16(uint16(a[2])));
 	return kThxBye;
 }
 OPCODE(0x82) {
@@ -3423,42 +3474,84 @@ OPCODE(0x82) {
 	// the drag target → PrepareDragInteraction. If either object's
 	// room is -1 (unplaced) → RemapEntityRefById to fix references.
 	const uint16 a0 = uint16(a[0]);
-	const uint16 b0 = uint16(a[1]);
-	const uint16 personsCount = _logic->resources()->mainDat()->personsCount();
-	if (a0 > personsCount || b0 > personsCount) {
-		Log.setPendingError(0x16);
-		return kThxBye;
-	}
-	const uint16 ra = Log.getObjectRoom(a0);
-	const uint16 rb = Log.getObjectRoom(b0);
-	const int16 xa = Log.getObjectPosX(a0);
+		const uint16 b0 = uint16(a[1]);
+		const uint16 personsCount = _logic->resources()->mainDat()->personsCount();
+		if (a0 == 0 || b0 == 0 || a0 > personsCount || b0 > personsCount) {
+			Log.setPendingError(0x16);
+			return kThxBye;
+		}
+		if (a0 == Log.dragTarget() && !Log.prepareDragInteraction(b0))
+			return kThxBye;
+		if (b0 == Log.dragTarget() && !Log.prepareDragInteraction(a0))
+			return kThxBye;
+		const uint16 ra = Log.getObjectRoom(a0);
+		const uint16 rb = Log.getObjectRoom(b0);
+		const int16 xa = Log.getObjectPosX(a0);
 	const int16 ya = Log.getObjectPosY(a0);
-	const int16 xb = Log.getObjectPosX(b0);
-	const int16 yb = Log.getObjectPosY(b0);
-	debugC(2, kDebugLevelScript, "opcode 0x82: swap objects %u<->%u (room+pos)", a0, b0);
+		const int16 xb = Log.getObjectPosX(b0);
+		const int16 yb = Log.getObjectPosY(b0);
+		if (ra == 0xffff)
+			Log.remapObjectExit(a0, b0);
+		if (rb == 0xffff)
+			Log.remapObjectExit(b0, a0);
+		debugC(2, kDebugLevelScript, "opcode 0x82: swap objects %u<->%u (room+pos)", a0, b0);
 	Log.setObjectRoom(a0, rb);
 	Log.setObjectRoom(b0, ra);
 	Log.setObjectPosition(a0, xb, yb);
 	Log.setObjectPosition(b0, xa, ya);
 	return kThxBye;
 }
+static bool objectHotspotRegistered(Logic *logic, uint16 id, bool isDragTarget) {
+	if (id == 0)
+		return false;
+	if (isDragTarget)
+		return true;
+	return logic->isObjectExitRegistered(id) ||
+		(logic->hasObjectRoom(id) && logic->getObjectRoom(id) != 0xffff);
+}
+
 OPCODE(0x83) {
-	// DOS Op_83_handler @ 1000:4684:
-	//   bound-check arg0 (object id); if drag target → drag handling;
-	//   else: ensure both arg0 and arg1 are placed (remap unplaced
-	//   refs); then write arg1.x/y to arg1.x/y (no-op trip) and zero
-	//   arg1.room. Net effect: object arg1's room cleared (= missing).
-	const uint16 a0 = uint16(a[0]);
-	const uint16 a1 = uint16(a[1]);
-	const uint16 personsCount = _logic->resources()->mainDat()->personsCount();
-	if (a0 > personsCount || a1 > personsCount) {
-		Log.setPendingError(0x16);
+		// DOS Op_83_handler @ 1000:4684:
+		//   arg0 > persons_count → 0x16.
+		//   If arg0 is the current drag target: Op_8e, then
+		//   PrepareDragInteraction(arg1). Otherwise copy object[arg0]'s
+		//   room/x/y into object[arg1], set object[arg0].room = 0, and
+		//   remap dynamic-exit-list references for any side whose room was -1.
+		const uint16 a0 = uint16(a[0]);
+		const uint16 a1 = uint16(a[1]);
+		const uint16 personsCount = _logic->resources()->mainDat()->personsCount();
+		if (a0 > personsCount) {
+			Log.setPendingError(0x16);
+			return kThxBye;
+		}
+		if (a0 == Log.dragTarget()) {
+			Log.setCursorMode(0);
+			Log.setDragTarget(0);
+			if (!Log.prepareDragInteraction(a1))
+				return kThxBye;
+			debugC(2, kDebugLevelScript, "opcode 0x83: transfer drag object %u -> %u", a0, a1);
+			return kThxBye;
+		}
+		if (a0 == 0 || a1 == 0 || a1 > personsCount) {
+			Log.setPendingError(0x16);
+			return kThxBye;
+		}
+
+		const uint16 room0 = Log.getObjectRoom(a0);
+		const int16 x0 = Log.getObjectPosX(a0);
+		const int16 y0 = Log.getObjectPosY(a0);
+		if (room0 == 0xffff)
+			Log.remapObjectExit(a0, a1);
+		if (Log.getObjectRoom(a1) == 0xffff)
+			Log.remapObjectExit(a1, a0);
+
+		debugC(2, kDebugLevelScript, "opcode 0x83: move object %u record to %u and clear source", a0, a1);
+		Log.setObjectRoom(a1, room0);
+		Log.setObjectPosition(a1, x0, y0);
+		Log.setObjectRoom(a0, 0);
+		Log.unregisterObjectExit(a0);
 		return kThxBye;
 	}
-	debugC(2, kDebugLevelScript, "opcode 0x83: clear object %u room (context obj %u)", a1, a0);
-	Log.setObjectRoom(a1, 0);
-	return kThxBye;
-}
 OPCODE(0x84) {
 	// DOS Op_84_handler @ 1000:4703:
 	//   if (arg0 == 0) Op_8e (UnregisterActor); return;
@@ -3494,33 +3587,43 @@ OPCODE(0x85) {
 	return kThxBye;
 }
 OPCODE(0x86) {
-	// DOS Op_86_handler @ 1000:4789:
-	//   start = arg0 ? arg0 : 1;
-	//   if (start > persons_count) write start to arg1 LHS, return;
+		// DOS Op_86_handler @ 1000:4789:
+		//   start = arg0 ? arg0 : 1;
+		//   if (start > persons_count) write 0 to arg1 LHS, return;
 	//   for (id = start; id <= persons_count && obj[id].room != arg2; id++);
 	//   write id to arg1 LHS.
 	// = "find next object (starting id arg0) with room == arg2".
 	const uint16 startId = uint16(a[0]) == 0 ? 1 : uint16(a[0]);
 	const uint16 searchRoom = uint16(a[2]);
 	const uint16 personsCount = _logic->resources()->mainDat()->personsCount();
-	uint16 found = startId;
-	if (startId <= personsCount) {
-		while (found <= personsCount) {
-			if (Log.getObjectRoom(found) == searchRoom)
-				break;
-			found++;
+		uint16 found = 0;
+		if (startId <= personsCount) {
+			found = startId;
+			while (found <= personsCount) {
+				if (Log.getObjectRoom(found) == searchRoom)
+					break;
+				found++;
+			}
+			if (found > personsCount)
+				found = 0;
 		}
-	}
-	a[1] = found;
+		a[1] = found;
 	debugC(2, kDebugLevelScript, "opcode 0x86: search obj room=%u from %u → id=%u", searchRoom, startId, found);
 	return kThxBye;
 }
-OPCODE(0x87) {
-	// nargs=0 — was OOB-reading a[0]. DOS does some sub-action with no
-	// script args.
-	debugC(2, kDebugLevelScript, "opcode 0x87: exit/object sub-action (no args) STUB");
-	return kThxBye;
-}
+	OPCODE(0x87) {
+		// DOS Op_87 @ 1000:47a4: HandleHotspotInteraction(g_drag_target).
+		// Success follows the drag-target branch of Op_88 and calls
+		// PauseAndLockCursor; failure raises 0x25.
+		const uint16 id = Log.dragTarget();
+		if (!objectHotspotRegistered(_logic, id, true)) {
+			Log.setPendingError(0x25);
+			return kThxBye;
+		}
+		Log.setHitTarget(id);
+		debugC(2, kDebugLevelScript, "opcode 0x87: drag-target hotspot interaction object %u", id);
+		return kThxBye;
+	}
 OPCODE(0x88) {
 	// DOS Op_88_handler @ 1000:47bd:
 	//   RetEmpty;  arg0 = ResolveOpcodeArg0;
@@ -3536,24 +3639,21 @@ OPCODE(0x88) {
 	// click handler (FindHotspotByPoint / FindHotspotByCursor),
 	// invokes its bytecode, returns 0 on no-handler / failure.
 	//
-	// C++ port: "object has a registered hotspot" maps to
-	// `_objectRoom[id] != 0xffff` (the click handler iterates by
-	// room match). We treat the in-engine click-handler dispatch as
-	// "set hit target so downstream Op_13/0x59 see it" — the actual
-	// click-handler script runs through the normal EventManager path.
+		// C++ port: use explicit dynamic-exit membership plus non-sentinel
+		// object room as the HandleHotspotInteraction success proxy. We
+		// model the in-engine click-handler dispatch as "set hit target";
+		// actual EventManager clicks still run through normal handlers.
 	const uint16 id = uint16(a[0]);
 	const bool isDragTarget = (id == Log.dragTarget());
-	if (!isDragTarget) {
-		if (id > _logic->resources()->mainDat()->personsCount()) {
-			Log.setPendingError(0x16);
-			return kThxBye;
-		}
+		if (!isDragTarget) {
+			if (id == 0 || id > _logic->resources()->mainDat()->personsCount()) {
+				Log.setPendingError(0x16);
+				return kThxBye;
+			}
 	}
-	// Approximate "HandleHotspotInteraction returned non-zero" =
-	// "object id is bound to a click handler in the current scene".
-	// In our model, the proxy is `obj.room != 0xffff` (registered) OR
-	// drag-target (id matches the drag in flight).
-	const bool registered = isDragTarget || Log.getObjectRoom(id) != 0xffff;
+		// Approximate "HandleHotspotInteraction returned non-zero" through
+		// the modeled dynamic-object-exit / placed-object state.
+		const bool registered = objectHotspotRegistered(_logic, id, isDragTarget);
 	if (!registered) {
 		Log.setPendingError(0x25);
 		debugC(2, kDebugLevelScript, "opcode 0x88: hotspot interaction object %u → not registered (pending 0x25)", id);
@@ -3568,11 +3668,11 @@ OPCODE(0x89) {
 	//   bound-check arg0; obj[arg0].room = arg1; obj[arg0].x = -1;
 	//   obj[arg0].y = -1; if (arg0 == drag_target) PauseAndLockCursor.
 	// = "place object in room, mark position as 'sentinel' (-1,-1)".
-	const uint16 id = uint16(a[0]);
-	if (id > _logic->resources()->mainDat()->personsCount()) {
-		Log.setPendingError(0x16);
-		return kThxBye;
-	}
+		const uint16 id = uint16(a[0]);
+		if (id == 0 || id > _logic->resources()->mainDat()->personsCount()) {
+			Log.setPendingError(0x16);
+			return kThxBye;
+		}
 	debugC(2, kDebugLevelScript, "opcode 0x89: place object %u in room %s (sentinel pos)", id, +a[1]);
 	Log.setObjectRoom(id, uint16(a[1]));
 	Log.setObjectPosition(id, -1, -1);
@@ -3584,13 +3684,13 @@ OPCODE(0x8a) {
 	// to the click handler context (cursor coords).
 	const uint16 id = uint16(a[0]);
 	const bool isDragTarget = (id == Log.dragTarget());
-	if (!isDragTarget) {
-		if (id > _logic->resources()->mainDat()->personsCount()) {
-			Log.setPendingError(0x16);
-			return kThxBye;
+		if (!isDragTarget) {
+			if (id == 0 || id > _logic->resources()->mainDat()->personsCount()) {
+				Log.setPendingError(0x16);
+				return kThxBye;
+			}
 		}
-	}
-	const bool registered = isDragTarget || Log.getObjectRoom(id) != 0xffff;
+		const bool registered = objectHotspotRegistered(_logic, id, isDragTarget);
 	if (!registered) {
 		Log.setPendingError(0x25);
 		debugC(2, kDebugLevelScript, "opcode 0x8a: hotspot interaction object %u (3-arg) → not registered (pending 0x25)", id);
@@ -3619,16 +3719,20 @@ OPCODE(0x8c) {
 	//   if (arg0 == drag_target) → Op_8b_handler (reset + unregister);
 	//   else: GetObjectOffset(arg0); if obj.room != -1
 	//         → ResetObjectAtActorPosition(arg0).
-	const uint16 id = uint16(a[0]);
-	if (id == Log.dragTarget()) {
-		debugC(2, kDebugLevelScript, "opcode 0x8c: drag target %u → reset + unregister", id);
-		if (id != 0)
-			Log.resetObjectAtActorPosition(id);
+		const uint16 id = uint16(a[0]);
+		if (id == Log.dragTarget()) {
+			debugC(2, kDebugLevelScript, "opcode 0x8c: drag target %u → reset + unregister", id);
+			if (id != 0)
+				Log.resetObjectAtActorPosition(id);
 		Log.setCursorMode(0);
-		Log.setDragTarget(0);
-		return kThxBye;
-	}
-	if (Log.getObjectRoom(id) != 0xffff) {
+			Log.setDragTarget(0);
+			return kThxBye;
+		}
+		if (id == 0 || id > _logic->resources()->mainDat()->personsCount()) {
+			Log.setPendingError(0x16);
+			return kThxBye;
+		}
+		if (Log.getObjectRoom(id) != 0xffff) {
 		debugC(2, kDebugLevelScript, "opcode 0x8c: reset object %u at actor pos", id);
 		Log.resetObjectAtActorPosition(id);
 	} else {

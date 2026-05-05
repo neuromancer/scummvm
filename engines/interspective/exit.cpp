@@ -44,18 +44,20 @@ enum Offsets {
 };
 
 Exit::Exit(const CodePointer &c)
-  :	_enabled(false), _sprite() {
+  :	_enabled(false), _sprite(), _spriteField(0xffff) {
 	debugC(4, kDebugLevelFiles, "loading exit from %s", +c);
 
 	bool nosprite;
 	c.field(nosprite, kOffsetNoSprite);
 	if (!nosprite) {
+		c.field(_spriteField, kOffsetSprite);
 		c.field(_sprite, kOffsetSprite);
 		_rect = Common::Rect(_sprite->w, _sprite->h);
 	} else {
 		byte w, h;
 		c.field(w, kOffsetWidth);
 		c.field(h, kOffsetHeight);
+		_spriteField = uint16(w) | (uint16(h) << 8);
 		_rect = Common::Rect(w, h);
 		debugC(5, kDebugLevelFiles, "exit has no sprite");
 	}

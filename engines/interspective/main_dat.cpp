@@ -159,11 +159,17 @@ void MainDat::loadObjectStates() {
 	uint nonZero = 0;
 	for (uint16 i = 0; i < count; ++i) {
 		const byte *rec = _data + listOff + i * stride;
+		const uint16 id = uint16(i + 1);
 		const uint16 room = READ_LE_UINT16(rec);
 		// Object IDs are 1-based per DOS GetObjectOffset (it does DEC AX
 		// before multiplying). Room 0 = missing/destroyed (default in DOS)
 		// — store anyway so isObjectMissing() returns true correctly.
-		Log.setObjectRoom(uint16(i + 1), room);
+		Log.setObjectRoom(id, room);
+		Log.setObjectPosition(id,
+			int16(READ_LE_UINT16(rec + 2)),
+			int16(READ_LE_UINT16(rec + 4)));
+		for (uint8 off = 6; off < stride; ++off)
+			Log.setObjectField(id, off, rec[off]);
 		if (room != 0)
 			++nonZero;
 	}
