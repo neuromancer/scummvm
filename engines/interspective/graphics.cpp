@@ -35,6 +35,7 @@
 #include "graphics/cursorman.h"
 
 #include "interspective/animation.h"
+#include "interspective/actor.h"
 #include "interspective/debug.h"
 #include "interspective/debugger.h"
 #include "interspective/exit.h"
@@ -128,6 +129,14 @@ void Graphics::setBackdrop(uint16 id) {
 	paintBackdrop();
 }
 
+void Graphics::loadGraphicPalette(uint16 id) {
+	byte palette[0x300];
+	byte *scratch = new byte[320 * 200];
+	_resources->loadImage(id, scratch, 320 * 200, palette);
+	delete[] scratch;
+	setPalette(palette, 0, 256);
+}
+
 void Graphics::willFadein(FadeFlags f) {
 	_willFadein = true;
 	_fadeFlags = f;
@@ -144,34 +153,38 @@ void Graphics::paintBackdrop() {
 }
 
 void Graphics::paintSpeech() {
-	if (!_speech) return;
+	if (_speech) {
+		if (!_speechFramesLeft) {
+			delete[] _speech;
+			_speech = 0;
+			CodePointer cb = _speechDoneCallback;
+			_speechDoneCallback.reset();
+			cb.run();
 
-	if (!_speechFramesLeft) {
-		delete[] _speech;
-		_speech = 0;
-		CodePointer cb = _speechDoneCallback;
-		_speechDoneCallback.reset();
-		cb.run();
-
-		// Pop the next queued utterance (if any) and start painting it.
-		// Run cb FIRST so any side-effects of the previous speech complete
-		// before the new one starts (matches DOS behaviour).
-		if (!_speechQueue.empty()) {
-			SpeechEntry next = _speechQueue.pop();
-			_speech = next.text;
-			_speechFramesLeft = next.frames;
-			_speechX = next.x;
-			_speechY = next.y;
-			_speechColor = next.color;
-			_speechDoneCallback = next.cb;
+			// Pop the next queued utterance (if any) and start painting it.
+			// Run cb FIRST so any side-effects of the previous speech complete
+			// before the new one starts (matches DOS behaviour).
+			if (!_speechQueue.empty()) {
+				SpeechEntry next = _speechQueue.pop();
+				_speech = next.text;
+				_speechFramesLeft = next.frames;
+				_speechX = next.x;
+				_speechY = next.y;
+				_speechColor = next.color;
+				_speechDoneCallback = next.cb;
+				paintText(_speechX, _speechY, _speechColor, _speech);
+			}
+		} else {
 			paintText(_speechX, _speechY, _speechColor, _speech);
+			_speechFramesLeft--;
 		}
-		return;
 	}
 
-	paintText(_speechX, _speechY, _speechColor, _speech);
-
-	_speechFramesLeft--;
+	Common::List<Animation *> animations = _engine->logic()->animations();
+	for (Common::List<Animation *>::iterator it = animations.begin(); it != animations.end(); ++it) {
+		if ((*it)->isActor())
+			static_cast<Actor *>(*it)->paintSpeech(this);
+	}
 }
 
 void Graphics::paintAnimations() {
@@ -375,11 +388,13 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const
 	debugC(2, kDebugLevelGraphics, "painting speech bubble \"%s\" at (adjusted) %d:%d", string, left, top);
 
 	uint8 vertical_tiles = 1;
-	int16 vtiles_height = lines * 12 - 42;
-	if (vtiles_height > 5)
-		vertical_tiles += (vtiles_height - 58) / 6;
+	const uint16 bubbleHeight = MAX<uint16>(60, lines * kLineHeight + 16);
+	if (bubbleHeight > 60)
+		vertical_tiles += (bubbleHeight - 60 + 5) / 6;
 
-	uint8 horizontal_tiles = (textSize.width() - 39) / 4;
+	uint8 horizontal_tiles = 1;
+	if (textSize.width() > 39)
+		horizontal_tiles = (textSize.width() - 39) / 4;
 	if (horizontal_tiles == 0)
 		horizontal_tiles = 1;
 

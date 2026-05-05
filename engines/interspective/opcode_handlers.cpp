@@ -1712,16 +1712,19 @@ OPCODE(0xcb) {
 	case 2: Log.setGraphicSlot(1, id); break;
 	case 3: Log.setGraphicSlot(2, id); break;
 	case 6: Log.setGraphicSlot(5, id); break;
-	case 7: Log.setGraphicSlot(6, id); break;
+	case 7:
+		Log.setGraphicSlot(6, id);
+		Graf.loadGraphicPalette(id);
+		break;
 	case 4: Log.setGraphicSlot(3, id); break;
 	case 5: Log.setGraphicSlot(4, id); break;
 	default:
 		Log.setPendingError(0x0a);
 		return kThxBye;
 	}
-	// Decoding happens on demand in C++ Resources::loadImage. The
-	// script's contract is satisfied by recording which graphic is
-	// active in this slot.
+	// Sprite pixels are still decoded on demand in C++ Resources::loadImage;
+	// type 7 also applies the graphic palette immediately, matching the DOS
+	// LoadGraphicToSlot palette-read path.
 	return kThxBye;
 }
 

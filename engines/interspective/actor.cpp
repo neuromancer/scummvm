@@ -564,7 +564,16 @@ Common::Point Actor::getSpeechPosition() const {
 }
 
 void Actor::paint(Graphics *g) {
+	if (_room != Log.currentRoom())
+		return;
+
 	Animation::paint(g);
+}
+
+void Actor::paintSpeech(Graphics *g) {
+	if (_room != Log.currentRoom())
+		return;
+
 	_speech.paint(g);
 }
 

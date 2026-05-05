@@ -72,6 +72,7 @@ public:
 	void hookAfterRepaint(CodePointer &p);
 
 	void setBackdrop(uint16 id);
+	void loadGraphicPalette(uint16 id);
 	void paintBackdrop();
 
 	enum FadeFlags {

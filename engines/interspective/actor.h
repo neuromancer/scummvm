@@ -250,6 +250,7 @@ public:
 
 	Animation::Status tick();
 	void paint(Graphics *g);
+	void paintSpeech(Graphics *g);
 
 	void toggleDebug();
 
