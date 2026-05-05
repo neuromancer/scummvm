@@ -39,10 +39,8 @@
 
 #include "common/events.h"
 #include "common/util.h"
-#include "common/system.h"
 
 #include "audio/mididrv.h"
-#include "audio/mixer.h"
 
 namespace Interspective {
 
@@ -106,15 +104,12 @@ OPCODE(0x01) {
 	// In C++ the snapshot is held in Logic::_savedScene (single slot,
 	// matching DOS sentinel `_g_block_pc_offset == 0`). When restored,
 	// the caller's _blockProgram/_blockInterpreter/Room are reinstated
-	// and the resume PC is queued for next tick. The caller-side push
-	// is Op_38 (still destructive in this engine — see PLAN.md
-	// Cross-cutting subsystems; will be wired when 0x38 is reached in
-	// table order). Until Op_38 is wired, hasSavedScene() is always
-	// false and this opcode behaves identically to the plain-exit case
-	// — but with the pop infrastructure now in place to make the
-	// implementation Ghidra-faithful.
+	// and the returned CodePointer transfers the dispatcher directly to
+	// the saved caller PC. No saved scene means the plain-exit path.
 	debugC(2, kDebugLevelScript, "opcode 0x01: exit");
-	Log.restoreSceneFrame();
+	CodePointer resume = Log.restoreSceneFrame();
+	if (!resume.isEmpty())
+		return resume;
 	return kReturn;
 }
 
@@ -211,33 +206,21 @@ OPCODE(0x12) {
 	// based on detected sound hardware: bit 0 = Adlib, bit 1 = SB,
 	// bit 2 = Roland MT-32.
 	//
-	// In C++ the equivalent state lives in ScummVM's MidiDriver detection
-	// and the mixer's per-channel volume:
+	// In C++ the equivalent startup state is derived from ScummVM's
+	// selected MIDI device and the always-available digital mixer:
 	//   - music device class derived from `MidiDriver::detectDevice` →
 	//     MT_ADLIB → bit 0, MT_MT32/MT_GM → bit 2, others → bit 0 fallback.
 	//   - sfx is unconditionally SB-class (bit 1) — ScummVM always offers
 	//     digital sample mixing.
-	//   - each bit is ZEROED if the corresponding mixer channel is muted
-	//     (volume == 0), matching DOS where g_music_enabled = 0 disables
-	//     the music's bits entirely.
-	uint16 musicMask = 0;
-	uint16 sfxMask = 0;
-	if (g_system && g_system->getMixer()) {
-		Audio::Mixer *mix = g_system->getMixer();
-		const int musicVol = mix->getVolumeForSoundType(Audio::Mixer::kMusicSoundType);
-		const int sfxVol = mix->getVolumeForSoundType(Audio::Mixer::kSFXSoundType);
-		if (musicVol > 0) {
-			MidiDriver::DeviceHandle dev =
-				MidiDriver::detectDevice(MDT_MIDI | MDT_ADLIB | MDT_PREFER_GM);
-			MusicType mt = MidiDriver::getMusicType(dev);
-			if (mt == MT_MT32 || mt == MT_GM)
-				musicMask = kSoundRoland;
-			else
-				musicMask = kSoundAdlib;
-		}
-		if (sfxVol > 0)
-			sfxMask = kSoundSB;
-	}
+	// Mixer volume is deliberately not part of this predicate: DOS reads
+	// configuration/device-enable bytes, not the current playback volume.
+	uint16 musicMask = kSoundAdlib;
+	MidiDriver::DeviceHandle dev =
+		MidiDriver::detectDevice(MDT_MIDI | MDT_ADLIB | MDT_PREFER_GM);
+	MusicType mt = MidiDriver::getMusicType(dev);
+	if (mt == MT_MT32 || mt == MT_GM)
+		musicMask = kSoundRoland;
+	uint16 sfxMask = kSoundSB;
 	const uint16 combined = uint16(musicMask | sfxMask);
 	const uint16 want = uint16(a[0]);
 	debugC(2, kDebugLevelScript, "opcode 0x12: if sound type %u in mask 0x%02x", want, combined);
@@ -338,21 +321,25 @@ OPCODE(0x10) {
 }
 
 OPCODE(0x11) {
-	// "if slow CPU" — body executes only on slow machines (the original calibrated
-	// at startup and set g_slow_cpu when a frame took too long). Modern hosts are
-	// always fast, so the body is always skipped.
-	// DOS handler at CS:0x391d: skip if g_slow_cpu (DS:0x67b5) == 0.
-	debugC(2, kDebugLevelScript, "opcode 0x11: if slow CPU (always false)");
-	return kFail;
+	// "if slow CPU" — body executes only when the startup calibration
+	// set g_slow_cpu. DOS handler at CS:0x391d skips if DS:0x67b5 == 0.
+	debugC(2, kDebugLevelScript, "opcode 0x11: if slow CPU");
+	if (!Log.slowCpu())
+		return kFail;
+	return kThxBye;
 }
 
 OPCODE(0x17) {
 	// DOS Op_17_IfExitMissing @ 1000:3996. Reads `exit_record[0]`
 	// (the room field — kOffsetRoom = 0 in C++ Exit) at SI =
 	// GetExitOffset(arg0); skips if it equals 0. Run if room != 0.
-	// Loaded `Exit *` is never null in C++; the meaningful check is
-	// against `exit->room() == 0`, not pointer-nullness.
+	// C++ Program::getExit accepts the same 1-based id and returns null
+	// instead of walking past the loaded table; valid exits test room==0.
 	debugC(1, kDebugLevelScript, "opcode 0x17: if exit %s exists", +a[0]);
+	if (uint16(a[0]) == 0) {
+		Log.setPendingError(0x14);
+		return kThxBye;
+	}
 	Exit *exit = _logic->blockProgram()->getExit(a[0]);
 	if (exit == nullptr || exit->room() == 0)
 		return kFail;
@@ -365,8 +352,12 @@ OPCODE(0x19) {
 	// Sets implicit actor (SI side-effect of GetActorOffset).
 	debugC(1, kDebugLevelScript, "opcode 0x19: if actor %s in some room", +a[0]);
 	Actor *ac = Log.getActor(a[0]);
+	if (!ac) {
+		Log.setPendingError(0x17);
+		return kThxBye;
+	}
 	Log.setImplicitActor(ac);
-	if (!ac || ac->room() == 0)
+	if (ac->room() == 0)
 		return kFail;
 	return kThxBye;
 }
@@ -376,6 +367,10 @@ OPCODE(0x1a) {
 	// when `exit_record[0] != 0` (exit room is set → exit "present").
 	// Body runs when exit room == 0 (or slot null).
 	debugC(1, kDebugLevelScript, "opcode 0x1a: if exit %s missing", +a[0]);
+	if (uint16(a[0]) == 0) {
+		Log.setPendingError(0x14);
+		return kThxBye;
+	}
 	Exit *exit = _logic->blockProgram()->getExit(a[0]);
 	if (exit != nullptr && exit->room() != 0)
 		return kFail;
@@ -388,8 +383,12 @@ OPCODE(0x1c) {
 	// Sets implicit actor (SI side-effect of GetActorOffset).
 	debugC(1, kDebugLevelScript, "opcode 0x1c: if actor %s not placed", +a[0]);
 	Actor *ac = Log.getActor(a[0]);
+	if (!ac) {
+		Log.setPendingError(0x17);
+		return kThxBye;
+	}
 	Log.setImplicitActor(ac);
-	if (ac && ac->room() != 0)
+	if (ac->room() != 0)
 		return kFail;
 	return kThxBye;
 }
@@ -400,8 +399,12 @@ OPCODE(0x1d) {
 	// actor.frame == arg0. Sets implicit actor.
 	debugC(1, kDebugLevelScript, "opcode 0x1d: if actor %s in current room AND at %s", +a[1], +a[0]);
 	Actor *ac = Log.getActor(a[1]);
+	if (!ac) {
+		Log.setPendingError(0x17);
+		return kThxBye;
+	}
 	Log.setImplicitActor(ac);
-	if (!ac || ac->room() != Log.currentRoom() || ac->frameId() != a[0])
+	if (ac->room() != Log.currentRoom() || uint8(ac->frameId()) != uint8(uint16(a[0])))
 		return kFail;
 	return kThxBye;
 }
@@ -412,8 +415,12 @@ OPCODE(0x1f) {
 	// actor.frame != arg0. Sets implicit actor.
 	debugC(1, kDebugLevelScript, "opcode 0x1f: if actor %s is in current room but not at %s then", +a[1], +a[0]);
 	Actor *ac = Log.getActor(a[1]);
+	if (!ac) {
+		Log.setPendingError(0x17);
+		return kThxBye;
+	}
 	Log.setImplicitActor(ac);
-	if (!ac || ac->room() != Log.currentRoom() || ac->frameId() == a[0])
+	if (ac->room() != Log.currentRoom() || uint8(ac->frameId()) == uint8(uint16(a[0])))
 		return kFail;
 	return kThxBye;
 }
@@ -730,23 +737,27 @@ OPCODE(0x55) {
 
 OPCODE(0x56) {
 	// DOS Op_56_SendActorToTargetOrWait @ 1000:4069: 2 args.
-	//   CheckMovementBlocked();              ; CF=1 if 66d6 != 0
-	//   if (!CF) {                           ; not blocked → can move
-	//       SendActorToTarget(arg0);          ; walk to target arg0
-	//       SetPostMoveCallback(arg1);        ; chain after walk
-	//       RegisterSampleSlot_LoadDefaultsD; ; yield until move done
-	//   } else {                             ; blocked → stash for resume
-	//       g_unknown_66d6 = arg0;
-	//       DAT_1cb5_66d8  = g_codeptr_es_save;
-	//       DAT_1cb5_66da  = arg1;
-	//   }
-	// C++: send the protag to target via the same walk-driver helper
-	// as Op_29/0x2a, then yield.
-	debugC(2, kDebugLevelScript, "opcode 0x56: send-or-wait target=%s extra=%s",
+	//   CheckMovementBlocked() tests g_unknown_66d6, the countdown used by
+	//   UpdateActorMotion's transient text renderer.
+	//   if countdown active: RegisterSampleSlot_LoadDefaultsD; RET;
+	//   else:
+	//       g_unknown_66d6 = arg0;      // frames
+	//       DAT_1cb5_66d8  = current code segment
+	//       DAT_1cb5_66da  = arg1;      // text/control string
+	//
+	// Earlier C++ treated this as a protagonist walk request and queued `next`
+	// immediately. In the intro that advanced room-84's script through Op_57
+	// and Op_d0 in the same queued pass. Model the DOS countdown/text gate
+	// instead; queued-pass isolation in Logic::runQueued() handles the
+	// RegisterSampleSlot side of the wait path.
+	debugC(2, kDebugLevelScript, "opcode 0x56: motion text frames=%s text=%s",
 		+a[0], +a[1]);
-	sendProtagToTarget(_logic, uint16(a[0]));
-	_logic->runLater(next, 0);
-	return kReturn;
+	if (Log.motionTextActive()) {
+		_logic->runLater(current, 0);
+		return kReturn;
+	}
+	Log.startMotionText(uint16(a[0]), static_cast<byte *>(a[1]), uint16(a[1]));
+	return kThxBye;
 }
 
 OPCODE(0x57) {
@@ -1128,8 +1139,12 @@ OPCODE(0x99) {
 OPCODE(0x9a) {
 	// wait for actor to exit
 	debugC(2, kDebugLevelScript, "opcode 0x9a: wait for actor %s to exit", +a[0]);
+	if (Log.inMapMode())
+		return kThxBye;
 
 	Actor *ac = _logic->getActor(a[0]);
+	if (!ac)
+		return kThxBye;
 	if (ac->room() != _logic->currentRoom())
 		return kThxBye;
 
@@ -1146,9 +1161,13 @@ OPCODE(0x9b) {
 
 OPCODE(0x9c) {
 	// wait until another room
-	debugC(2, kDebugLevelScript, "opcode 0x9a: wait until actor %s enters or %s ticks", +a[0], +a[1]);
+	debugC(2, kDebugLevelScript, "opcode 0x9c: wait until actor %s enters or %s ticks", +a[0], +a[1]);
+	if (Log.inMapMode())
+		return kThxBye;
 
 	Actor *ac = _logic->getActor(a[0]);
+	if (!ac)
+		return kThxBye;
 	if (ac->room() != _logic->currentRoom()) {
 		ac->tellMe(next, a[1]);
 		return kReturn;
@@ -1664,11 +1683,8 @@ OPCODE(0x0b) {
 	// regular `g_drag_target` @ DS:0x667c (which Op_0e uses). The
 	// mode-40 slot is set exclusively by Op_76_BeginDragWithTarget
 	// (1000:4325) together with `_g_cursor_mode = 0x40`.
-	// In C++ this is `Logic::_dragTargetMode40` — until Op_76 is
-	// audited (still `?` in PLAN.md status table), the slot is never
-	// populated and Op_0b will always take the SKIP branch. That is
-	// honest: the predicate is evaluated against the right state,
-	// the producer just doesn't exist yet.
+	// In C++ this is `Logic::_dragTargetMode40`; Op_76 populates it
+	// and sets cursor mode 0x40.
 	uint16 mask = uint16(a[0]);
 	debugC(2, kDebugLevelScript, "opcode 0x0b: if step && cursor==0x40 && dragMode40==%u", mask);
 	if (Log.stepPending() && Log.cursorMode() == 0x40 && Log.dragTargetMode40() == mask)
@@ -1703,8 +1719,8 @@ OPCODE(0x0e) {
 }
 
 OPCODE(0x14) {
-	// IfFreshGameState (DOS CS:0x395a): fail if gameState != 0.
-	debugC(2, kDebugLevelScript, "opcode 0x14: if game state == 0");
+		// IfFreshGameState (DOS CS:0x395a): fail if current entity type != 0.
+		debugC(2, kDebugLevelScript, "opcode 0x14: if current entity type == 0");
 	if (Log.gameState() != 0)
 		return kFail;
 	return kThxBye;
@@ -1720,18 +1736,18 @@ OPCODE(0x15) {
 	// cellByte[id] bit `bit_idx` (LSB-indexed). Body runs if bit SET.
 	//
 	// Bound checks:
-	//   bit_idx > 7: matches DOS — halt-equivalent (warning + skip).
-	//   id > max: not relevant in C++. DOS guards an unsafe array
-	//     access; `Logic::_cellBits` is a HashMap returning 0 for any
-	//     unknown id, so OOB is structurally impossible. The DOS
-	//     halt would be a hard error in DOS but no observable
-	//     misbehaviour in C++.
+	//   bit_idx > 7: SetError15ArgOutOfRange.
+	//   id > max: SetError14NoExit.
 	const uint16 rawBit = uint16(a[1]);
 	if (rawBit > 7) {
 		Log.setPendingError(0x15);
-		return kFail;
+		return kThxBye;
 	}
 	const uint16 id = uint16(a[0]);
+	if (id > _logic->resources()->mainDat()->personsCount()) {
+		Log.setPendingError(0x14);
+		return kThxBye;
+	}
 	const uint8 bit = uint8(rawBit);
 	const bool set = Log.cellBit(id, bit);
 	debugC(2, kDebugLevelScript, "opcode 0x15: if cell bit %u of entity %s set (=%s)",
@@ -1740,11 +1756,18 @@ OPCODE(0x15) {
 }
 
 OPCODE(0x16) {
-	// 0x16 (DOS CS:0x3991): just calls ResolveOpcodeArg0 — read-and-discard.
-	// Useful for triggering side-effects of evaluating an expression without
-	// using the result.
-	debugC(3, kDebugLevelScript, "opcode 0x16: read-discard %s", +a[0]);
-	return kThxBye;
+	// DOS Op_16 @ 1000:3991 sets CX=1 then tail-jumps into the same
+	// cell-byte tester used by Op_15. The common tail increments CX
+	// before `RCR AL,CL`, so this tests bit 1 of cellByte[arg0].
+	const uint16 id = uint16(a[0]);
+	if (id > _logic->resources()->mainDat()->personsCount()) {
+		Log.setPendingError(0x14);
+		return kThxBye;
+	}
+	const bool set = Log.cellBit(id, 1);
+	debugC(2, kDebugLevelScript, "opcode 0x16: if cell bit 1 of entity %s set (=%s)",
+		+a[0], set ? "yes" : "no");
+	return set ? kThxBye : kFail;
 }
 
 OPCODE(0x18) {
@@ -1754,6 +1777,10 @@ OPCODE(0x18) {
 	// "IfObjectMissing" describes the SKIP condition, not the run condition.
 	// Without a loaded Object table we default to "present" → run body.
 	const uint16 id = uint16(a[0]);
+	if (id == 0) {
+		Log.setPendingError(0x16);
+		return kThxBye;
+	}
 	const bool missing = Log.isObjectMissing(id);
 	debugC(2, kDebugLevelScript, "opcode 0x18: if object %s present (room=%u%s)",
 		+a[0], Log.getObjectRoom(id), Log.hasObjectRoom(id) ? "" : " default");
@@ -1765,6 +1792,10 @@ OPCODE(0x1b) {
 	// (i.e. SKIPS the body when the object is PRESENT). Net semantics: the
 	// conditional body executes when the object is MISSING. Inverse of 0x18.
 	const uint16 id = uint16(a[0]);
+	if (id == 0) {
+		Log.setPendingError(0x16);
+		return kThxBye;
+	}
 	const bool missing = Log.isObjectMissing(id);
 	debugC(2, kDebugLevelScript, "opcode 0x1b: if object %s missing (room=%u%s)",
 		+a[0], Log.getObjectRoom(id), Log.hasObjectRoom(id) ? "" : " default");
@@ -1772,24 +1803,33 @@ OPCODE(0x1b) {
 }
 
 OPCODE(0x1e) {
-	// DOS Op_1e_IfImplicitActorAtFrame @ 1000:3a0a: uses the actor
-	// whose offset SI was last set to (= Logic::implicitActor() in
-	// C++). Run if actor.room == current_loc AND actor.frame == arg0.
-	// Note: does NOT call ResolveOpcodeArg1 — the implicit actor is
-	// inherited from the previous opcode.
-	Actor *ac = Log.implicitActor();
-	debugC(2, kDebugLevelScript, "opcode 0x1e: if implicit actor at frame %s", +a[0]);
-	if (!ac || ac->room() != Log.currentRoom() || ac->frameId() != uint16(a[0]))
+	// DOS Op_1e_IfMainActorAtRoomFrame @ 1000:3a0a:
+	//   MOV AX, CS:[0x010f] (g_main_character_id), then tail into
+	//   the Op_1d room/frame tester. Run if protagonist.room ==
+	//   current_loc AND byte field+0x61 == low(arg0).
+	Actor *ac = Log.protagonist();
+	debugC(2, kDebugLevelScript, "opcode 0x1e: if protagonist at frame %s", +a[0]);
+	if (!ac) {
+		Log.setPendingError(0x17);
+		return kThxBye;
+	}
+	Log.setImplicitActor(ac);
+	if (ac->room() != Log.currentRoom() || uint8(ac->frameId()) != uint8(uint16(a[0])))
 		return kFail;
 	return kThxBye;
 }
 
 OPCODE(0x20) {
-	// DOS Op_20_IfImplicitActorNotAtFrame @ 1000:3a33: inverse of 0x1e.
-	// Uses implicit actor (no ResolveOpcodeArg1).
-	Actor *ac = Log.implicitActor();
-	debugC(2, kDebugLevelScript, "opcode 0x20: if implicit actor not at frame %s", +a[0]);
-	if (!ac || ac->room() != Log.currentRoom() || ac->frameId() == uint16(a[0]))
+	// DOS Op_20_IfMainActorNotAtRoomFrame @ 1000:3a33:
+	// protagonist variant of Op_1f; same room check, byte frame mismatch.
+	Actor *ac = Log.protagonist();
+	debugC(2, kDebugLevelScript, "opcode 0x20: if protagonist not at frame %s", +a[0]);
+	if (!ac) {
+		Log.setPendingError(0x17);
+		return kThxBye;
+	}
+	Log.setImplicitActor(ac);
+	if (ac->room() != Log.currentRoom() || uint8(ac->frameId()) == uint8(uint16(a[0])))
 		return kFail;
 	return kThxBye;
 }
@@ -1798,8 +1838,11 @@ OPCODE(0x21) {
 	// DOS Op_21 (CS:0x3a75): SETS skip_counter when Object[a[0]].room != -1
 	// (i.e. SKIPS the body when the object IS placed). Net semantics: the
 	// conditional body executes when the object is NOT placed (room == 0xffff).
-	// Without a loaded Object table we default to placed → fail.
 	const uint16 id = uint16(a[0]);
+	if (id == 0) {
+		Log.setPendingError(0x16);
+		return kThxBye;
+	}
 	const uint16 room = Log.getObjectRoom(id);
 	const bool unplaced = (room == uint16(0xffff));
 	debugC(2, kDebugLevelScript, "opcode 0x21: if object %s unplaced (room=%u%s)",
@@ -1835,13 +1878,12 @@ OPCODE(0x23) {
 	//   `_translateBuf`; `uint16(a[i])` returns the `_length` field. The
 	//   DOS arg0/arg1 format asymmetry (length-prefix vs null-term) is
 	//   flattened by the C++ argument loader. The Ghidra-faithful
-	//   comparison is "are the two translated strings equal?", using the
-	//   _length field for arg0 (matching DOS's CL counter).
-	// Old C++ used `s[0]` as length — a real bug because `s[0]` is the
-	// FIRST CHAR of the translated text, not a Pascal length prefix.
+	//   comparison is "are the two translated strings equal?". `_length`
+	//   includes the terminating NUL in C++, while DOS's CL counter does
+	//   not, so use strlen() for the payload length.
 	const byte *s = static_cast<byte *>(a[0]);
 	const byte *t = static_cast<byte *>(a[1]);
-	const uint16 sLen = uint16(a[0]);
+	const uint16 sLen = s ? uint16(strlen(reinterpret_cast<const char *>(s))) : 0;
 	debugC(2, kDebugLevelScript, "opcode 0x23: if %s == %s", +a[0], +a[1]);
 	if (!s || !t)
 		return kFail;
@@ -1867,6 +1909,7 @@ OPCODE(0x26) {
 		return kThxBye;
 	Actor *protag = Log.protagonist();
 	if (!protag) return kThxBye;
+	Log.setImplicitActor(protag);
 	// CheckActorScripting: idle iff both field+0x6f (byte) and
 	// field+0x6b/0x6c (word) are zero.
 	const bool idle = protag->dosField(0x6f) == 0
@@ -1875,7 +1918,15 @@ OPCODE(0x26) {
 	debugC(2, kDebugLevelScript, "opcode 0x26: step+cursor==4, protag idle=%d", int(idle));
 	if (!idle) return kThxBye;
 	// Tail-jump to Op_41: speak as main, no target.
-	protag->say(a[0]);
+	if (protag->isSpeaking()) {
+		protag->callMeWhenSilent(current);
+		return kReturn;
+	}
+	if (protag->isMoving()) {
+		protag->callMeWhenStill(current);
+		return kReturn;
+	}
+	speakOrSubtitle(protag, a[0]);
 	return kThxBye;
 }
 
@@ -1886,10 +1937,8 @@ OPCODE(0x27) {
 	// nargs=1 — when the gate fires, dispatches into Op_3f with the same
 	// arg list (which Op_3f's ResolveOpcodeArg0 will consume).
 	debugC(2, kDebugLevelScript, "opcode 0x27: if step && cursor==4, speak as main");
-	if (Log.stepPending() && Log.cursorMode() == 4) {
-		if (Log.protagonist())
-			Log.protagonist()->say(a[0]);
-	}
+	if (Log.stepPending() && Log.cursorMode() == 4)
+		speakOrSubtitle(Log.protagonist(), a[0]);
 	return kThxBye;
 }
 
@@ -1949,14 +1998,22 @@ OPCODE(0x28) {
 OPCODE(0x29) {
 	// DOS Op_29_IfMode10AndFlag @ 1000:3863:
 	//   if (step_pending && cursor == 0x10) {
-	//       SendActorToTarget(arg1);  ; protag walks to target entity
-	//       SetPostMoveCallback;       ; chain after walk completes
+	//       SendActorToTarget();       ; protag walks to current entity
+	//       SetPostMoveCallback(BP=0x4376, AX=arg0, BX=CX=arg1);
 	//   }
 	// Falls through unconditionally (no skip_counter).
 	if (Log.stepPending() && Log.cursorMode() == 0x10) {
-		debugC(2, kDebugLevelScript, "opcode 0x29: send protag to target %s frame %s",
-			+a[1], +a[0]);
-		sendProtagToTarget(_logic, uint16(a[1]));
+		debugC(2, kDebugLevelScript,
+			"opcode 0x29: walk current entity, then place protag room %s frame %s",
+			+a[0], +a[1]);
+		if (Log.sendActorToCurrentEntity(Log.protagonist())) {
+			Log.setPostMoveCallback(
+				Logic::PostMoveCallback::kPlaceProtagonistAfterMove,
+				uint16(a[0]),
+				uint8(uint16(a[1])),
+				uint8(uint16(a[1]))
+			);
+		}
 	}
 	return kThxBye;
 }
@@ -1964,9 +2021,17 @@ OPCODE(0x29) {
 OPCODE(0x2a) {
 	// DOS Op_2a_IfMode10AndFlag2 @ 1000:387e: 3-arg variant of 0x29.
 	if (Log.stepPending() && Log.cursorMode() == 0x10) {
-		debugC(2, kDebugLevelScript, "opcode 0x2a: send protag to target %s extra %s frame %s",
-			+a[1], +a[2], +a[0]);
-		sendProtagToTarget(_logic, uint16(a[1]));
+		debugC(2, kDebugLevelScript,
+			"opcode 0x2a: walk current entity, then place protag room %s frame %s next %s",
+			+a[0], +a[1], +a[2]);
+		if (Log.sendActorToCurrentEntity(Log.protagonist())) {
+			Log.setPostMoveCallback(
+				Logic::PostMoveCallback::kPlaceProtagonistAfterMove,
+				uint16(a[0]),
+				uint8(uint16(a[1])),
+				uint8(uint16(a[2]))
+			);
+		}
 	}
 	return kThxBye;
 }
@@ -1980,7 +2045,12 @@ OPCODE(0x2b) {
 	// If equal: fall through.
 	Actor *ac = Log.protagonist();
 	debugC(2, kDebugLevelScript, "opcode 0x2b: jump unless protagonist at %s -> %s", +a[0], +a[1]);
-	if (ac && ac->frameId() != uint16(a[0]))
+	if (!ac) {
+		Log.setPendingError(0x17);
+		return kThxBye;
+	}
+	Log.setImplicitActor(ac);
+	if (uint8(ac->frameId()) != uint8(uint16(a[0])))
 		return static_cast<CodePointer &>(a[1]);
 	return kThxBye;
 }
@@ -2485,9 +2555,9 @@ OPCODE(0x59) {
 	return kThxBye;
 }
 OPCODE(0x5a) {
-	// DOS Op_5a @ 1000:409d: BX = [DS:0x666e] = g_game_state.
+	// DOS Op_5a @ 1000:409d: BX = [DS:0x666e] = current entity type.
 	a[0] = Log.gameState();
-	debugC(2, kDebugLevelScript, "opcode 0x5a: %s = g_game_state (%u)", +a[0], Log.gameState());
+	debugC(2, kDebugLevelScript, "opcode 0x5a: %s = current entity type (%u)", +a[0], Log.gameState());
 	return kThxBye;
 }
 OPCODE(0x5b) {

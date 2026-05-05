@@ -164,107 +164,61 @@ void Actor::setFrame(uint16 frame) {
 }
 
 Common::List<Actor::Frame> Actor::findPath(Actor::Frame from, uint16 to) {
-	// BFS over the room's frame-transition graph. Modeled on DOS
-	// FindActorPath at CS:0x713e — three behaviors verified from the
-	// disassembly that the original C++ port missed:
-	//
-	//   1. Visited-set dedup. DOS keeps `g_pathfind_visited` (a flat byte
-	//      array of seen frame indices) and linear-scans it before adding
-	//      each candidate. Without this, cycles in the frame graph make
-	//      the BFS double its queue size each iteration.
-	//   2. Invalid-frame skip. DOS gates each frame's nexts-expansion on
-	//      `*piVar14 != 999 || ... != 999` — i.e. don't expand placeholder
-	//      frames whose position is (999,999). The room data has these as
-	//      gaps in the frame index range.
-	//   3. Termination on exhausted reachable set. DOS bound-checks the
-	//      visited buffer at 0x1918 bytes / 9 bytes per entry ≈ 160 frames
-	//      and bails. The C++ equivalent: if a level adds zero new frames,
-	//      we've exhausted the reachable set without finding the target —
-	//      return empty list (moveTo() falls back to a single-frame warp).
-	//
-	// Without these guards the BFS hung the engine (SIGSTOP traceback in
-	// list insert at actor.cpp:180) when scripts called Op_07 SetTargetFrame
-	// with a target that wasn't reachable from the actor's current frame.
-	Common::HashMap<uint16, bool> visited;
-	visited[from.index()] = true;
-
-	Common::List<Common::List<Frame> > reachable;
-	Common::List<Frame> zero;
-	zero.push_back(from);
-	reachable.push_back(zero);
-
-	bool found = false;
-	while (!found) {
-		Common::List<Common::List<Frame> >::iterator back = reachable.end();
-		back--;
-		Common::List<Frame>::iterator current = back->begin();
-		Common::List<Frame> next;
-		Common::String s;
-		while (!found && current != back->end()) {
-			// DOS skips nexts-expansion for placeholder frames (position
-			// 999,999). Match that — these are gaps in the frame table.
-			if (current->position().x == 999 && current->position().y == 999) {
-				current++;
-				continue;
-			}
-			Common::Array<byte> nexts = current->nexts();
-			for (int i = 0; i < 8; i++) {
-				const byte n = nexts[i];
-				if (!n)
-					continue;
-				if (visited.contains(n))
-					continue;
-				visited[n] = true;
-				s += Common::String::format(", %d", int(n));
-				next.push_back(Log.room()->getFrame(n));
-				if (n == to) {
-					found = true;
-					break;
-				}
-			}
-			current++;
-		}
-		if (!found && next.empty()) {
-			// Exhausted reachable set without finding the target. Return an
-			// empty list; moveTo() will treat this as a single-frame warp.
-			debugC(2, kDebugLevelActor,
-				"findPath: frame %u unreachable from %u (%u frames explored)",
-				to, from.index(), (uint)visited.size());
-			return Common::List<Frame>();
-		}
-		reachable.push_back(next);
-		debugC(4, kDebugLevelActor, "reachable on this level:%s", s.c_str());
-	}
-
+	// BFS over the room's frame-transition graph. DOS keeps a visited table
+	// and backtracks through the discovered path. The old C++ code stored
+	// per-level lists and reconstructed parents by counting outgoing edges;
+	// that can select a sibling as the parent and produce impossible steps
+	// like room-1 frame 13 -> 7. Keep an explicit parent map instead.
 	Common::List<Frame> path;
+	if (from.index() == 0)
+		return path;
 
-	Common::List<Common::List<Frame> >::iterator level = reachable.end();
-	level--;
-	Common::List<Frame>::iterator current = level->end();
-	current--;
-	uint16 index = level->size() - 1;
+	Common::HashMap<uint16, uint16> parent;
+	Common::Queue<uint16> queue;
+	parent[from.index()] = 0;
+	queue.push(from.index());
 
-	forever {
-		path.push_front(*current);
-		if (*current == from)
-			break;
-		if (level == reachable.begin()) {
-			// Backtrack underflow — shouldn't happen given the BFS guaranteed
-			// a path exists, but bail rather than UB-decrement past begin().
-			debugC(1, kDebugLevelActor, "findPath: backtrack underflow at frame %u", current->index());
-			break;
+	bool found = from.index() == to;
+	while (!found && !queue.empty()) {
+		const uint16 currentIndex = queue.pop();
+		const Frame current = Log.room()->getFrame(currentIndex);
+
+		// DOS skips nexts-expansion for placeholder frames (position
+		// 999,999). Match that — these are gaps in the frame table.
+		if (current.position().x == 999 && current.position().y == 999)
+			continue;
+
+		const Common::Array<byte> &nexts = current.nexts();
+		for (int i = 0; i < 8; i++) {
+			const uint16 nextIndex = nexts[i];
+			if (!nextIndex || parent.contains(nextIndex))
+				continue;
+
+			const Frame next = Log.room()->getFrame(nextIndex);
+			if (next.position().x == 999 && next.position().y == 999)
+				continue;
+
+			parent[nextIndex] = currentIndex;
+			if (nextIndex == to) {
+				found = true;
+				break;
+			}
+			queue.push(nextIndex);
 		}
-		level--;
-		current = level->begin();
-		uint16 new_index = 0;
-		while (index >= current->nextCount()) {
-			index -= current->nextCount();
-			new_index++;
-			current++;
-		}
-		index = new_index;
 	}
 
+	if (!found) {
+		debugC(2, kDebugLevelActor,
+			"findPath: frame %u unreachable from %u (%u frames explored)",
+			to, from.index(), (uint)parent.size());
+		return path;
+	}
+
+	for (uint16 index = to; index != 0; index = parent[index]) {
+		path.push_front(Log.room()->getFrame(index));
+		if (index == from.index())
+			break;
+	}
 	return path;
 }
 
@@ -516,12 +470,12 @@ void Actor::callBacks() {
 		Common::Queue<CodePointer> cb = _callBacks;
 		_callBacks.clear();
 		while (!cb.empty())
-			cb.pop().run();
+			Log.runLater(cb.pop());
 	}
 
 	foreach (RoomCallback, _roomCallbacks) {
 		if (_room == Log.currentRoom() || !it->timeout) {
-			it->callback.run();
+			Log.runLater(it->callback);
 			Common::List<RoomCallback>::iterator done = it;
 			it++;
 			_roomCallbacks.erase(done);

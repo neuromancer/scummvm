@@ -54,7 +54,6 @@ class Logic : public Common::Singleton<Logic> {
 public:
 	Logic()
 		: _frameCounter(0),
-		  _verbMode(0),
 		  _gameState(0),
 		  _inMapMode(false),
 		  _stepPending(false),
@@ -77,15 +76,16 @@ public:
 		  _drawCommandCount(0),
 		  _dialogCursor0(0), _dialogCursor1(0), _dialogClickGate(0),
 		  _opcodeMode(0),
-		  _escBreakProc(0),
-		  _escBreakSrcPC(0),
-		  _parserBufferCapacity(60),
-		  _callDepth(0),
-		  _runningQueued(0),
-		  _slowCpu(false),
-		  _cameraX(0), _cameraY(0),
-		  _cameraTargetX(0xffff), _cameraTargetY(0xffff),
-		  _inputEnabled(true) {
+			  _escBreakProc(0),
+			  _escBreakSrcPC(0),
+			  _parserBufferCapacity(60),
+			  _callDepth(0),
+			  _runningQueued(0),
+			  _motionTextTicks(0),
+			  _slowCpu(false),
+			  _cameraX(0), _cameraY(0),
+			  _cameraTargetX(0xffff), _cameraTargetY(0xffff),
+			  _inputEnabled(true) {
 			for (int i = 0; i < 7; ++i) _graphicSlots[i] = 0;
 			_castTable.resize(kCastTableCap);
 		}
@@ -96,8 +96,14 @@ public:
 	uint16 frameTicks() const { return uint16(_frameCounter); }
 
 	// VM state (mirrors DS:0x6XXX globals from the binary).
-	uint16 verbMode() const { return _verbMode; }
-	void setVerbMode(uint16 v) { _verbMode = v; }
+	// Legacy alias: earlier C++ called DOS `g_cursor_mode` "verb mode".
+	// Ghidra names the real global at DS:0x6678; DS:0x665d is
+	// `g_drag_step_idx`, not the cursor/verb mode predicate used by
+	// opcodes 0x0a/0x0b/0x0d/0x0e and the cursor gate helpers.
+	uint16 verbMode() const { return _cursorMode; }
+	void setVerbMode(uint16 v) { _cursorMode = v; }
+	// DS:0x666e — current entity type for the active entity script:
+	// 0 = none, 1 = exit, 2 = object/person, 3 = actor.
 	uint16 gameState() const { return _gameState; }
 	void setGameState(uint16 s) { _gameState = s; }
 	bool inMapMode() const { return _inMapMode; }
@@ -287,6 +293,7 @@ public:
 	// exists for the actor-walk opcodes (0xae/0xb8/0xb9/0xba/0xbb)
 	// that move a non-protag actor.
 	bool sendActorToTarget(Actor *walker, uint16 targetId);
+	bool sendActorToCurrentEntity(Actor *walker);
 
 	// "Walk-actor-anim" variant — DOS Op_ba/Op_bb @ 1000:4fde/0x4fe5.
 	// Sets walker.field+0x4/+0x6 (= screen pos), field+0x61 (= 0,
@@ -439,11 +446,10 @@ public:
 	uint16 dragTargetMode40() const { return _dragTargetMode40; }
 	void setDragTargetMode40(uint16 v) { _dragTargetMode40 = v; }
 	// "Implicit actor" — DOS opcodes that take an actor id call
-	// GetActorOffset(id) which sets SI to the actor record. SI is
-	// preserved across opcodes by the dispatcher; opcodes that take
-	// no explicit actor arg (Op_1e/Op_20) read whatever SI was last
-	// pointed at. C++ models this via an explicit `_implicitActor`
-	// pointer updated by every opcode that resolves an actor by id.
+	// GetActorOffset(id) which sets SI to the actor record. Keep the
+	// last resolved actor modeled explicitly for opcodes that reuse SI.
+	// Op_1e/Op_20 were audited separately: they load
+	// g_main_character_id directly, not this implicit actor.
 	Actor *implicitActor() const { return _implicitActor; }
 	void setImplicitActor(Actor *ac) { _implicitActor = ac; }
 	uint16 hitTarget() const { return _hitTarget; }
@@ -560,6 +566,11 @@ public:
 			// = clearCellBit(cellId) + (arg1 != 0 ? setCellBit(arg1)) +
 			//   setCursorMode(0) + setDragTarget(0). Used by Op_93.
 			kDisableEnableUnregister = 2,
+			// DOS callback @ 0x4376:
+			//   if !map: protag.frame=arg0, protag.nextFrame=arg1,
+			//   protag.room=currentRoom=cellId, then SetActorPosition.
+			// Used by Op_29/Op_2a after walking to the current entity.
+			kPlaceProtagonistAfterMove = 3,
 		};
 		Kind kind;
 		uint16 cellId;       // DOS AX = currentEntityId at register time
@@ -760,13 +771,18 @@ public:
 	Interpreter *blockInterpreter() const { return _blockInterpreter.get(); }
 	Interpreter *mainInterpreter() const { return _toplevelInterpreter.get(); }
 	void runLater(const CodePointer &, uint16 delay = 0);
-	uint16 queuedCount() const { return uint16(_queued.size()); }
+	uint16 queuedCount() const;
 	// Remove any queued (runLater) entry whose CodePointer matches `p`.
 	// Used by Op_3a / Op_3c to cancel a previously-deferred script.
 	// Returns true if the canceled entry matched the *currently
 	// running* queued script (= DOS `g_break_loop = 1` self-cancel
 	// case). Caller (Op_3a / Op_3c) returns kReturn in that case.
 	bool cancelLater(const CodePointer &p);
+
+	bool motionTextActive() const { return _motionTextTicks != 0; }
+	void startMotionText(uint16 ticks, const byte *text, uint16 length);
+	void tickMotionText();
+	void paintMotionText();
 
 	bool canSkipCutscene() const { return !_skipPoint.isEmpty(); }
 	void setSkipPoint(const CodePointer &);
@@ -805,7 +821,7 @@ public:
 	};
 	bool hasSavedScene() const { return _savedScene; }
 	void saveSceneFrame(const CodePointer &resumePC);
-	bool restoreSceneFrame();
+	CodePointer restoreSceneFrame();
 
 	friend class Debugger;
 private:
@@ -828,16 +844,18 @@ private:
 	Music *_music;
 
 	struct DelayedRun {
-		DelayedRun(const CodePointer &c, uint16 d) : code(c), delay(d) {}
+		DelayedRun(const CodePointer &c, uint16 d, uint16 tick)
+			: code(c), delay(d), queuedTick(tick), canceled(false) {}
 		CodePointer code;
 		uint16 delay;
+		uint16 queuedTick;
+		bool canceled;
 	};
 	Common::List<DelayedRun> _queued;
 
 	CodePointer _skipPoint;
 	uint32 _frameCounter;
-	uint16 _verbMode;       // DS:0x6678 — current verb (LOOK/USE/etc), 0x80 = system
-	uint16 _gameState;      // DS:0x666e — 0=fresh, 1=running, 2=in dialog
+	uint16 _gameState;      // DS:0x666e — current entity type (0 none, 1 exit, 2 object, 3 actor)
 	bool _inMapMode;        // DS:0x676e — true while world map is shown
 	uint16 _currentPlace;   // DOS CS:[0x111] — savegame "place" id, set by Op_c9
 	bool _stepPending;      // DS:0x6748 — set by hotspot click, cleared on action
@@ -855,10 +873,10 @@ private:
 	Common::HashMap<uint16, uint8> _actorFlag70; // Actor.field_0x70 (Op_49)
 	uint16 _menuStashA, _menuStashB;             // pbRam00023206/8 (Op_4d)
 	bool _menuStashConsumed;                     // uRam00023291 stash flag
-	uint16 _cursorMode;     // DS:0x665d — 0x04=walk, 0x20=drag, 0x40/0x80=verb-style
+	uint16 _cursorMode;     // DS:0x6678 — g_cursor_mode: 0x04=walk, 0x20=drag, 0x40/0x80=verb-style
 	uint16 _dragTarget;     // current drag-source object id
 	uint16 _dragTargetMode40; // DS:0x667e — written by Op_76, read by Op_0b
-	Actor *_implicitActor;  // SI register's last-resolved actor (Op_1e/Op_20)
+	Actor *_implicitActor;  // SI register's last-resolved actor
 	uint16 _hitTarget;      // last-hit hotspot id (mirrors g_current_hit_region)
 	uint16 _switchValue;    // last value pushed for case dispatch (sign of active switch)
 	uint16 _switchTarget;   // bytecode offset to jump to on case match
@@ -888,6 +906,8 @@ private:
 	uint8 _parserBufferCapacity;
 	uint8 _callDepth;       // DOS call-stack depth (max 8)
 	const CodePointer *_runningQueued; // currently running queued entry (nullable)
+	uint16 _motionTextTicks; // DOS g_unknown_66d6 countdown used by Op_56 text motion
+	Common::Array<byte> _motionText;
 	bool _slowCpu;          // DS:0x67b5 — always false on modern hosts
 	Common::SharedPtr<SceneFrame> _savedScene; // null = empty (matches DOS sentinel)
 };

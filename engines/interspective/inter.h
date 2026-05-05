@@ -123,6 +123,7 @@ public:
 
 private:
 	Status run(uint16 offset);
+	Status run(uint16 offset, int ifDepth);
 
 	void setRoomLoop(byte *code);
 

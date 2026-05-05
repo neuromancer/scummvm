@@ -158,7 +158,9 @@ void Program::loadExits(Interpreter *in) {
 }
 
 Exit *Program::getExit(uint16 index) const {
-	return _exits[index];
+	if (!_exits || index == 0 || index > _exitsCount)
+		return nullptr;
+	return _exits[index - 1];
 }
 
 Common::List<Exit *> Program::exitsForRoom(uint16 room) const {
@@ -174,10 +176,14 @@ Actor *Program::actor(uint16 index) const {
 	Common::List<Actor *>::const_iterator it = _actors.begin();
 
 	while (index) {
+		if (it == _actors.end())
+			return nullptr;
 		it++;
 		index--;
 	}
 
+	if (it == _actors.end())
+		return nullptr;
 	return *it;
 }
 

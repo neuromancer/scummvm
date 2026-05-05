@@ -79,6 +79,7 @@ void Graphics::paint() {
 	paintAnimations();
 	paintExits();
 	paintSpeech();
+	_engine->logic()->paintMotionText();
 
 	debugC(3, kDebugLevelGraphics, "painting paintables");
 	foreach (Paintable *, _paintables)

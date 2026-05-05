@@ -65,6 +65,7 @@ public:
 	void loadActors(Interpreter *i);
 	void loadExits(Interpreter *i);
 
+	// DOS GetExitOffset uses 1-based script ids (DEC AX before scaling).
 	Exit *getExit(uint16 index) const;
 	uint16 exitsCount() const { return _exitsCount; }
 	Common::List<Exit *> exitsForRoom(uint16 room) const;

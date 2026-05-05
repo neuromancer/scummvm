@@ -99,6 +99,7 @@ void Logic::tick() {
 	}
 
 	runQueued();
+	tickMotionText();
 }
 
 void Logic::callAnimations() {
@@ -241,7 +242,37 @@ void Logic::doChangeRoom() {
 
 void Logic::runLater(const CodePointer &p, uint16 delay) {
 	debugC(3, kDebugLevelScript, "will call %s after %d ticks", +p, delay);
-	_queued.push_back(DelayedRun(p, delay));
+	_queued.push_back(DelayedRun(p, delay, frameTicks()));
+}
+
+uint16 Logic::queuedCount() const {
+	uint16 count = 0;
+	for (Common::List<DelayedRun>::const_iterator it = _queued.begin(); it != _queued.end(); ++it)
+		if (!it->canceled)
+			++count;
+	return count;
+}
+
+void Logic::startMotionText(uint16 ticks, const byte *text, uint16 length) {
+	_motionTextTicks = ticks;
+	const uint16 copyLen = length ? length : 1;
+	_motionText.resize(copyLen);
+	if (text && length)
+		memcpy(&_motionText[0], text, length);
+	else
+		_motionText[0] = 0;
+	if (_motionText[copyLen - 1] != 0)
+		_motionText.push_back(0);
+}
+
+void Logic::tickMotionText() {
+	if (_motionTextTicks)
+		--_motionTextTicks;
+}
+
+void Logic::paintMotionText() {
+	if (_motionTextTicks && !_motionText.empty())
+		Graf.paintText(0, 0, 0xeb, &_motionText[0]);
 }
 
 // DOS Op_38_SwitchToScene @ 1000:3c58 saves the caller's PC plus a
@@ -279,16 +310,13 @@ void Logic::saveSceneFrame(const CodePointer &resumePC) {
 // RestoreActorTableBackup, and returns WITHOUT setting g_break_loop —
 // the dispatch loop continues at the restored PC.
 //
-// In C++ we cannot redirect the running interpreter loop mid-flight
-// (the loop's `_base` is the sub-scene's program), so we restore the
-// caller's _blockProgram/_blockInterpreter/Room state and queue the
-// resume PC for the next tick via the standard runLater mechanism.
-// The caller's interpreter is the same SharedPtr that the resumePC
-// holds (raw Interpreter *), so the queued resume runs in the
-// restored block. Returns true if a frame was popped.
-bool Logic::restoreSceneFrame() {
+// C++ restores the caller's _blockProgram/_blockInterpreter/Room state
+// and returns the saved PC to the bytecode dispatcher. The dispatcher
+// then transfers directly to that interpreter in the same script run,
+// preserving DOS's "return without g_break_loop" behaviour.
+CodePointer Logic::restoreSceneFrame() {
 	if (!_savedScene)
-		return false;
+		return CodePointer();
 	SceneFrame frame = *_savedScene;
 	_savedScene.reset();
 	_blockProgram = frame.blockProgram;
@@ -309,9 +337,8 @@ bool Logic::restoreSceneFrame() {
 	// Restore cast table (DOS RestoreCastBackup memcpys g_cast_table
 	// from the saved buffer).
 	_castTable = frame.savedCastTable;
-	debugC(2, kDebugLevelScript, "Op_01 popped scene; resuming at %s next tick", +frame.resumePC);
-	_queued.push_back(DelayedRun(frame.resumePC, 0));
-	return true;
+	debugC(2, kDebugLevelScript, "Op_01 popped scene; resuming immediately at %s", +frame.resumePC);
+	return frame.resumePC;
 }
 
 // Mirrors DOS RunPostMoveCallback @ 1000:73a6. The DOS check sequence is:
@@ -362,6 +389,19 @@ void Logic::runPostMoveCallbackIfReady() {
 			setCellBit(cb.arg1, 0);
 		setCursorMode(0);
 		setDragTarget(0);
+		break;
+	case PostMoveCallback::kPlaceProtagonistAfterMove:
+		// DOS @ 0x4376: place the protagonist in the destination
+		// room/frame after the approach walk reaches the current entity.
+		// The callback is inert in map mode apart from renderer flags.
+		if (!_inMapMode && _protagonist) {
+			const uint16 room = cb.cellId;
+			const uint16 frame = uint8(cb.arg0);
+			const uint16 nextFrame = uint8(cb.arg1);
+			_protagonist->placeIn(room, frame, nextFrame);
+			if (room != _currentRoom)
+				changeRoom(room);
+		}
 		break;
 	case PostMoveCallback::kNone:
 	default:
@@ -515,6 +555,65 @@ bool Logic::sendActorToTarget(Actor *walker, uint16 targetId) {
 		}
 	}
 	return false;
+}
+
+bool Logic::sendActorToCurrentEntity(Actor *walker) {
+	if (!walker) {
+		walker = _protagonist;
+		if (!walker)
+			return false;
+	}
+	if (!_room)
+		return false;
+
+	const uint16 id = _currentEntityId;
+	switch (_gameState) {
+	case 1: { // exit
+		if (id == 0) {
+			setPendingError(0x14);
+			return false;
+		}
+		if (!_blockProgram)
+			return false;
+		Exit *exit = _blockProgram->getExit(id);
+		if (!exit)
+			return false;
+		if (exit->room() != _currentRoom)
+			return false;
+		const uint16 frame = _room->nearestFrameTo(
+			int16(exit->position().x), int16(exit->position().y));
+		if (!frame)
+			return false;
+		walker->moveTo(frame);
+		return true;
+	}
+	case 2: { // object/person
+		if (id == 0) {
+			setPendingError(0x16);
+			return false;
+		}
+		if (getObjectRoom(id) != _currentRoom)
+			return false;
+		const uint16 frame = _room->nearestFrameTo(getObjectPosX(id), getObjectPosY(id));
+		if (!frame)
+			return false;
+		walker->moveTo(frame);
+		return true;
+	}
+	case 3: { // actor
+		Actor *target = getActor(id);
+		if (!target) {
+			setPendingError(0x17);
+			return false;
+		}
+		if (target->room() != _currentRoom)
+			return false;
+		walker->moveTo(target->frameId());
+		return true;
+	}
+	default:
+		return false;
+	}
 }
 
 // DOS Op_ba @ 1000:4fe5 / Op_bb @ 1000:4fde:
@@ -878,7 +977,7 @@ bool Logic::cancelLater(const CodePointer &p) {
 	bool selfCancel = false;
 	Common::List<DelayedRun>::iterator it = _queued.begin();
 	while (it != _queued.end()) {
-		if (it->code.offset() == p.offset() && it->code.interpreter() == p.interpreter()) {
+		if (!it->canceled && it->code.offset() == p.offset() && it->code.interpreter() == p.interpreter()) {
 			debugC(3, kDebugLevelScript, "cancel pending %s", +p);
 			// Self-cancel detection (DOS `g_break_loop = 1` case):
 			// `_runningQueued` is set by runQueued() while executing
@@ -886,13 +985,12 @@ bool Logic::cancelLater(const CodePointer &p) {
 			// currently running entry, signal the caller to break.
 			if (_runningQueued
 					&& _runningQueued->offset() == p.offset()
-					&& _runningQueued->interpreter() == p.interpreter()) {
+						&& _runningQueued->interpreter() == p.interpreter()) {
 				selfCancel = true;
 			}
-			it = _queued.erase(it);
-		} else {
-			++it;
+			it->canceled = true;
 		}
+		++it;
 	}
 	return selfCancel;
 }
@@ -904,27 +1002,37 @@ void Logic::runQueued() {
 	Interpreter * const liveBlock = _blockInterpreter.get();
 
 	Common::Queue<Common::List<DelayedRun>::iterator> toRemove;
+	const uint16 entriesAtStart = uint16(_queued.size());
 	debugC(2, kDebugLevelFlow | kDebugLevelScript, ">>>running queued code");
-	foreach (DelayedRun, _queued)
-		if (it->delay) {
-			debugC(3, kDebugLevelScript, "delayed %s, delay now %d", +it->code,
-					it->delay);
-			it->delay--;
+	Common::List<DelayedRun>::iterator it = _queued.begin();
+	for (uint16 visited = 0; visited < entriesAtStart && it != _queued.end(); ++visited) {
+		Common::List<DelayedRun>::iterator current = it;
+		++it;
+
+		if (current->canceled) {
+			toRemove.push(current);
+		} else if (current->delay == 0 && current->queuedTick == frameTicks()) {
+			debugC(3, kDebugLevelScript, "deferred fresh %s until next tick", +current->code);
+		} else if (current->delay) {
+			debugC(3, kDebugLevelScript, "delayed %s, delay now %d", +current->code,
+					current->delay);
+			current->delay--;
 		} else {
-			Interpreter *target = it->code.interpreter();
+			Interpreter *target = current->code.interpreter();
 			if (target != liveTopLevel && target != liveBlock) {
 				warning("dropping stale queued CodePointer (interpreter %p not live)",
 						(void *)target);
-				toRemove.push(it);
+				toRemove.push(current);
 				continue;
 			}
-			debugC(2, kDebugLevelFlow | kDebugLevelScript, ">>>running %s", +it->code);
-			_runningQueued = &it->code;
-			it->code.run();
+			debugC(2, kDebugLevelFlow | kDebugLevelScript, ">>>running %s", +current->code);
+			_runningQueued = &current->code;
+			current->code.run();
 			_runningQueued = 0;
-			debugC(2, kDebugLevelFlow | kDebugLevelScript, "<<<finished %s", +it->code);
-			toRemove.push(it);
+			debugC(2, kDebugLevelFlow | kDebugLevelScript, "<<<finished %s", +current->code);
+			toRemove.push(current);
 		}
+	}
 	debugC(2, kDebugLevelFlow | kDebugLevelScript, "<<<finished queued code");
 
 	while (!toRemove.empty())
@@ -945,13 +1053,13 @@ void Logic::setRoomLoop(const CodePointer &code) {
 
 /* counting starts with 1 */
 Actor *Logic::getActor(uint16 id) const {
+	if (id == 0)
+		return nullptr;
 	id--;
 	if (id < _resources->mainDat()->actorsCount())
 		return _resources->mainDat()->actor(id);
-	else {
-		id -= _resources->mainDat()->actorsCount();
-		return _blockProgram->actor(id);
-	}
+	id -= _resources->mainDat()->actorsCount();
+	return _blockProgram ? _blockProgram->actor(id) : nullptr;
 }
 
 void Logic::setSkipPoint(const CodePointer &p) {

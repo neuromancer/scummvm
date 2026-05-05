@@ -117,10 +117,14 @@ Status Interpreter::run(uint16 offset, OpcodeMode mode) {
 }
 
 Status Interpreter::run(uint16 offset) {
+	return run(offset, 0);
+}
+
+Status Interpreter::run(uint16 offset, int ifDepth) {
 	byte *last, *code;
 	last = code = _base + offset;
 
-	int if_depth = 0;
+	int if_depth = ifDepth;
 	while (true) {
 		byte opcode = *code;
 		last = code;
@@ -170,8 +174,13 @@ Status Interpreter::run(uint16 offset) {
 		case kEndIf:
 			if_depth = MAX(if_depth - 1, 0);
 			break;
-		case kJump:
-			code = _base + result.address;
+		case kJump: {
+			Interpreter *target = result.address.interpreter();
+			if (target && target != this)
+				return target->run(result.address.offset(), if_depth);
+			code = _base + result.address.offset();
+			break;
+		}
 		case kThxBye:
 			// ok
 			;
@@ -182,9 +191,9 @@ Status Interpreter::run(uint16 offset) {
 		// any opcode that raised a pending error terminates the
 		// interpreter loop with a fatal error.
 		if (Logic::instance().pendingError() != 0) {
-			const uint8 code = Logic::instance().pendingError();
+			const uint8 pendingCode = Logic::instance().pendingError();
 			Logic::instance().clearPendingError();
-			error("Interspective: pending error 0x%02x raised by opcode 0x%02x — halting", code, opcode);
+			error("Interspective: pending error 0x%02x raised by opcode 0x%02x — halting", pendingCode, opcode);
 		}
 	}
 
