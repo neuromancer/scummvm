@@ -46,7 +46,7 @@ class Sprite;
 
 class Graphics : public Common::Singleton<Graphics> {
 public:
-	Graphics() {}
+	Graphics() : _cursorPosition(160, 100) {}
 	
 	void setEngine(Engine *engine);
 
@@ -127,6 +127,7 @@ public:
 	void paint(const Sprite *sprite, Common::Point pos, Surface *s, int flags = kPaintNormal) const;
 
 	Common::Point cursorPosition() const;
+	void setCursorPosition(Common::Point pos);
 	void showCursor();
 	void hideCursor();
 
@@ -158,6 +159,7 @@ private:
 	Engine *_engine;
 	Resources *_resources;
 	OSystem *_system;
+	Common::Point _cursorPosition;
 	Common::SharedPtr<Surface> _backdrop, _framebuffer;
 
 	static const char _charwidths[];

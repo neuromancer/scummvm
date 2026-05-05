@@ -103,6 +103,8 @@ void Actor::setAnimation(const CodePointer &anim) {
 }
 
 void Actor::hide() {
+	clearSprites();
+	clearMainSprite();
 	_base = 0;
 	_baseOffset = _offset = 0;
 }
@@ -1001,10 +1003,10 @@ OPCODE(0x17) {
 
 OPCODE(0x18) {
 	// C++ slot 0x18 = DOS Op_19 SetField6d (CS:0x6b43). Reads 1 int16.
-	// Byte consumption matches. Engine doesn't model field+0x6d yet.
+	// Stores the full word at actor.field+0x6d.
 	uint16 val = shift();
-	debugC(3, kDebugLevelAnimation, "actor opcode 0x18: SetField6d = 0x%04x STUB [DOS Op_19]", val);
-	setDosField(0x6d, uint8(val));  // store low byte; field is actually word but no readers yet
+	debugC(3, kDebugLevelAnimation, "actor opcode 0x18: SetField6d = 0x%04x [DOS Op_19]", val);
+	setDosFieldWord(0x6d, val);
 	return kOk;
 }
 

@@ -629,8 +629,14 @@ void Graphics::paint(const Sprite *sprite, Common::Point pos, Surface *dest, int
 }
 
 Common::Point Graphics::cursorPosition() const {
-	debugC(1, kDebugLevelGraphics, "cursor position STUB");
-	return Common::Point(160, 100);
+	return _cursorPosition;
+}
+
+void Graphics::setCursorPosition(Common::Point pos) {
+	// DOS keeps the live cursor within x=1..318 and y=0..199, then copies it
+	// to g_cursor_x_locked/g_cursor_y_locked before script dispatch.
+	_cursorPosition.x = CLIP<int16>(pos.x, 1, 318);
+	_cursorPosition.y = CLIP<int16>(pos.y, 0, 199);
 }
 
 void Graphics::updateScreen() {

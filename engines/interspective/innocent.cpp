@@ -115,8 +115,16 @@ void Engine::handleEvents() {
 				_debugger->attach();
 			break;
 
+		case Common::EVENT_MOUSEMOVE:
+		case Common::EVENT_LBUTTONDOWN:
 		case Common::EVENT_LBUTTONUP:
+		case Common::EVENT_RBUTTONDOWN:
+		case Common::EVENT_RBUTTONUP:
+			_graphics->setCursorPosition(event.mouse);
+			if (event.type != Common::EVENT_LBUTTONUP)
+				break;
 			EventManager::instance().clicked(event.mouse);
+			break;
 
 		default:
 			break;

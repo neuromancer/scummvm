@@ -271,6 +271,11 @@ void Logic::runLater(const CodePointer &p, uint16 delay) {
 	_queued.push_back(DelayedRun(p, delay, frameTicks()));
 }
 
+void Logic::runLaterWithCurrentMode(const CodePointer &p, uint16 delay) {
+	debugC(3, kDebugLevelScript, "will call %s after %d ticks in mode 0x%02x", +p, delay, _opcodeMode);
+	_queued.push_back(DelayedRun(p, delay, frameTicks(), _opcodeMode, true));
+}
+
 uint16 Logic::deferredQueuedCount() const {
 	uint16 count = 0;
 	for (Common::List<DelayedRun>::const_iterator it = _queued.begin(); it != _queued.end(); ++it)
@@ -294,7 +299,13 @@ bool Logic::queueDeferred(const CodePointer &p) {
 		}
 		if (!used) {
 			debugC(3, kDebugLevelScript, "will call deferred %s in mode 0x%02x", +p, mode);
-			_queued.push_back(DelayedRun(p, 0, frameTicks(), mode));
+			// DOS RunDeferredScripts runs after init/new-room/new-block scripts
+			// but before the first object/speech paint of the tick.
+			const bool preDeferredPhase = _opcodeMode == kCodeInitial
+			                           || _opcodeMode == kCodeNewRoom
+			                           || _opcodeMode == kCodeNewBlock;
+			const uint16 queuedTick = preDeferredPhase ? uint16(frameTicks() - 1) : frameTicks();
+			_queued.push_back(DelayedRun(p, 0, queuedTick, mode, true, mode));
 			return true;
 		}
 	}
@@ -1126,8 +1137,8 @@ void Logic::runQueued() {
 			_runningQueued = &current->code;
 			_runningQueuedMode = current->deferredMode;
 			const uint16 savedOpcodeMode = _opcodeMode;
-			if (current->deferredMode != 0)
-				current->code.run(static_cast<OpcodeMode>(current->deferredMode));
+			if (current->hasRunMode)
+				current->code.run(static_cast<OpcodeMode>(current->runMode));
 			else
 				current->code.run();
 			_opcodeMode = savedOpcodeMode;

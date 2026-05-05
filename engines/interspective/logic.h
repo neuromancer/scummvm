@@ -813,6 +813,7 @@ public:
 	Interpreter *blockInterpreter() const { return _blockInterpreter.get(); }
 	Interpreter *mainInterpreter() const { return _toplevelInterpreter.get(); }
 	void runLater(const CodePointer &, uint16 delay = 0);
+	void runLaterWithCurrentMode(const CodePointer &, uint16 delay = 0);
 	bool queueDeferred(const CodePointer &p);
 	uint16 deferredQueuedCount() const;
 	// Remove the first deferred entry whose CodePointer matches `p`.
@@ -887,11 +888,15 @@ private:
 	Music *_music;
 
 	struct DelayedRun {
-		DelayedRun(const CodePointer &c, uint16 d, uint16 tick, uint16 mode = 0)
-			: code(c), delay(d), queuedTick(tick), deferredMode(mode), canceled(false) {}
+		DelayedRun(const CodePointer &c, uint16 d, uint16 tick, uint16 mode = 0,
+		           bool hasMode = false, uint16 deferredSlotMode = 0)
+			: code(c), delay(d), queuedTick(tick), runMode(mode), hasRunMode(hasMode),
+			  deferredMode(deferredSlotMode), canceled(false) {}
 		CodePointer code;
 		uint16 delay;
 		uint16 queuedTick;
+		uint16 runMode;
+		bool hasRunMode;
 		uint16 deferredMode;
 		bool canceled;
 	};

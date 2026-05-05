@@ -141,10 +141,8 @@ public:
 		Speech() : _actor(0) {}
 		~Speech();
 		Speech(Actor *parent, const Common::String &text, uint16 maxLines);
-		// Variant for Op_40/0x42/0x44: bubble at explicit (x, y)
-		// instead of the speaker's sprite position. Mirrors DOS
-		// SpeakAtTarget where the bubble is drawn near the target
-		// entity rather than the speaker.
+		// Variant for Op_40/0x42/0x44: use the target-speech paging mode
+		// while anchoring at the DOS-computed speaker position.
 		Speech(Actor *parent, const Common::String &text, Common::Point overridePos, uint16 maxLines);
 		bool active() const { return !_text.empty(); }
 		const Common::String &text() const { return _text; }
@@ -242,12 +240,10 @@ public:
 	void stopSpeaking() { _speech = Speech(); }
 	void callMeWhenSilent(const CodePointer &cp);
 	void say(const Common::String &text);
-	// DOS Op_40/0x42/0x44 SpeakAtTarget: bubble anchored at `pos`
-	// instead of the speaker's sprite. The speaker is still this
-	// actor (so isSpeaking() reflects them).
+	// DOS Op_40/0x42/0x44 target-speech variant. The caller supplies the
+	// DOS-computed speaker anchor and the shorter page height is used.
 	void sayAtPos(const Common::String &text, Common::Point pos);
-	/// Position to anchor the speech bubble. Public so callers
-	/// (Op_40/0x42/0x44) can override using a target's anchor.
+	/// Position to anchor the speech bubble.
 	Common::Point getSpeechPosition() const;
 
 	bool isMoving() const;
@@ -293,11 +289,18 @@ public:
 		Common::HashMap<uint8, uint8>::const_iterator it = _dosFields.find(off);
 		return it == _dosFields.end() ? 0 : it->_value;
 	}
+	uint16 dosFieldWord(uint8 off) const {
+		return uint16(dosField(off)) | (uint16(dosField(uint8(off + 1))) << 8);
+	}
 	void setDosField(uint8 off, uint8 v) {
 		if (v == 0)
 			_dosFields.erase(off);
 		else
 			_dosFields[off] = v;
+	}
+	void setDosFieldWord(uint8 off, uint16 v) {
+		setDosField(off, uint8(v & 0xff));
+		setDosField(uint8(off + 1), uint8(v >> 8));
 	}
 
 	// DOS actor's 8-slot move queue at field+0x19 (32 bytes total: 8 entries

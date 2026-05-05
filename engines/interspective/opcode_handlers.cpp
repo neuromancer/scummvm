@@ -326,7 +326,7 @@ OPCODE(0xd8) {
 	// DOS handler at CS:0x542d calls FUN_1000_3154 which writes into the per-mode room-script
 	// slot then sets g_break_outer = 1 so MainGameLoop dispatches it next frame.
 	debugC(2, kDebugLevelScript, "opcode 0xd8: yield to next frame");
-	_logic->runLater(next, 1);
+	_logic->runLaterWithCurrentMode(next, 1);
 	return kReturn;
 }
 
@@ -816,7 +816,7 @@ OPCODE(0x56) {
 			Log.setPendingError(0x39);
 			return kThxBye;
 		}
-		_logic->runLater(current, 0);
+		_logic->runLaterWithCurrentMode(current, 0);
 		return kReturn;
 	}
 	Log.startMotionText(uint16(a[0]), static_cast<byte *>(a[1]), uint16(a[1]));
@@ -830,15 +830,14 @@ OPCODE(0x57) {
 	//       room_script_slots[opcode_mode] = (PC, regs);
 	//       g_break_outer = 1;
 	//   } else g_pendingErrorCode = 0x39;
-	// = "yield to next tick, resume from saved PC". C++ uses the
-	// generic _queued mechanism: runLater(next, 0) + kReturn —
-	// resumes the script on the next runQueued() pass.
+	// = "yield to next tick, resume from saved PC". C++ uses the queued
+	// mechanism while preserving the active opcode mode.
 	if (Log.branchState() != 0 || Log.callDepth() != 0) {
 		Log.setPendingError(0x39);
 		return kThxBye;
 	}
 	debugC(2, kDebugLevelScript, "opcode 0x57: yield (resume next tick)");
-	_logic->runLater(next, 0);
+	_logic->runLaterWithCurrentMode(next, 0);
 	return kReturn;
 }
 
@@ -1203,52 +1202,28 @@ OPCODE(0x73) {
 	return kThxBye;
 }
 
-	OPCODE(0x77) {
-		// DOS Op_77 @ 1000:433d = GoToRoomWithFrame(room, frame).
-		// Ghidra's "Op_77_CheckActorAnimReady" rename is INCOMPLETE — only
-		// the first 2 instructions decompiled (likely the no-return-analyzer
-		// trap). The actual handler:
-		//
-		//   1. CALL CheckActorAnimReady(g_main_character_id).
-		//   2. If carry clear: JMP @ 0x3078 to save the script PC and defer
-		//      execution (retry next tick).
-		//   3. If carry set (not currently active/busy in the current scene):
-		//      fall through and place:
-	//        - actor.field+0x61 = arg1_lo  (current frame)
-	//        - actor.field+0x62 = arg1_lo  (target frame)
-	//        - actor.field+0x59 = arg0     (room)
-	//        - g_current_location = arg0
-	//        - FlushDirtyObjectSlotsToActor + g_flag_restart_room=1 etc.
-	//
-	// Critical Ghidra naming gotcha: 0x2eef = ResolveOpcodeArg1, 0x2f08 =
-	// ResolveOpcodeArg0 (NOT what the names suggest!). Re-checking the
-	// chain: CALL 0x2f08(=Arg0) gives AX=arg0, then BX=arg0; CALL
-	// 0x2eef(=Arg1) gives AX=arg1. So at the placement: BL=arg0_lo →
-	// frame, AX=arg1 → room. WAIT — let me re-verify in Op_77 itself.
-	// The Op_77 chain uses 0x434d:CALL 0x2eef (=Arg1) first, MOV BX,AX,
-	// MOV CX,AX, then 0x4354:CALL 0x2f08 (=Arg0). So BX=CX=arg1 and
-	// AX=arg0 at the placement: BL→frame=arg1, AX→room=arg0.
-	//
-	// Thus Op_77(arg0=room, arg1=frame). Script Op_77(67, 10) →
-	// room=67, frame=10. The OLD C++ port's `changeRoom(a[0]);
-	// protagonist->setRoom(a[0], a[1])` happened to match DOS
-	// semantics; the iter-24 "fix" reversed it incorrectly.
-		debugC(2, kDebugLevelScript, "opcode 0x77: go to room %s frame %s", +a[0], +a[1]);
-		if (Log.inMapMode())
-			return kThxBye;
-		Actor *ac = Log.protagonist();
-		if (!ac) {
-			Log.setPendingError(0x17);
-			return kThxBye;
-		}
-		if (ac->isFine()) {
-			ac->callMe(current);
-			return kReturn;
-		}
-		ac->placeIn(uint16(a[0]), uint16(a[1]));
-		_logic->changeRoom(a[0]);
+OPCODE(0x77) {
+	// DOS Op_77 @ 1000:433d = GoToRoomWithFrame(room, frame). It first
+	// calls CheckActorAnimReady(g_main_character_id); the wait path calls
+	// RegisterSampleSlot_LoadDefaultsAndMark, which retries this opcode from
+	// the current-opcode snapshot saved by InterpretBytecode. Args are
+	// arg0=room, arg1=frame.
+	debugC(2, kDebugLevelScript, "opcode 0x77: go to room %s frame %s", +a[0], +a[1]);
+	if (Log.inMapMode())
+		return kThxBye;
+	Actor *ac = Log.protagonist();
+	if (!ac) {
+		Log.setPendingError(0x17);
 		return kThxBye;
 	}
+	if (ac->isFine()) {
+		Log.runLaterWithCurrentMode(current);
+		return kReturn;
+	}
+	ac->placeIn(uint16(a[0]), uint16(a[1]));
+	_logic->changeRoom(a[0]);
+	return kThxBye;
+}
 
 OPCODE(0x79) {
 	// DOS Op_79_PlaceActorInRoom @ 1000:43d3:
@@ -1423,7 +1398,7 @@ OPCODE(0x9a) {
 OPCODE(0x9b) {
 	// delay
 	debugC(2, kDebugLevelScript, "opcode 0x9b: delay %s frames", +a[0]);
-	_logic->runLater(next, a[0]);
+	_logic->runLaterWithCurrentMode(next, a[0]);
 	return kReturn;
 }
 
@@ -1469,44 +1444,21 @@ OPCODE(0x9e) {
 
 OPCODE(0xab) {
 	// DOS Op_ab_handler @ 1000:4e3e: protag-specific exit transition.
-	//   if (g_in_map_mode != 0) RET;
-	//   CheckActorIdle(g_main_character_id);
-	//   if (CLC ready): RegisterSampleSlot_LoadDefaultsAndMark — saves
-	//     g_block_start_es/di (script entry) to the room_script_slots
-	//     pool indexed by g_opcode_mode, sets g_break_outer = 1.
-	//     Per-tick MainGameLoop's RunScriptByMode for that mode reads
-	//     the slot and re-runs from saved entry.
-	//   if (STC busy/elsewhere): ResolveOpcodeArg0 + QueueExitTransition
-	//     ([0x6609] = target_frame; g_break_inner=1;
-	//      g_post_callback_ptr=0; CancelSpeechSlots; MoveActorToRoom).
-	//
-	// FULL-FIDELITY YIELD requires the room_script_slots subsystem
-	// (5-mode slot pool + per-tick dispatcher) which is NOT yet
-	// implemented in C++. Direct re-queueing via runLater(current, 0)
-	// causes an infinite tight loop (Pass2-14a regression: per game.log,
-	// 784k repeated frame-4 calls hung the engine before reaching
-	// room 1 render). Re-queueing the script's entry offset via
-	// `runLater(CodePointer(this->runEntry(), this), 0)` would
-	// re-run the WHOLE script (including room-entry setup ops like
-	// changeRoom / addActorFrame), which is also wrong.
-	//
-	// **Pass2-14b stop-gap**: actor-bound yield via `callMe(current)`.
-	// This drains via Actor::callBacks() when isFine becomes false
-	// (e.g., actor's animation consumes _attentionNeeded). It's the
-	// pre-Pass2-14 working pattern. NOT DOS-faithful in mechanism but
-	// produces equivalent end-to-end behavior because the actor's
-	// state oscillates over animation ticks. Marked PARTIAL pending
-	// proper room_script_slots subsystem implementation (cross-cutting).
+	// If CheckActorIdle says the actor is still in the active scene,
+	// RegisterSampleSlot_LoadDefaultsAndMark rewinds to the current opcode
+	// pointer saved by InterpretBytecode and retries on a later script pass.
+	// Otherwise DOS resolves arg0 and QueueExitTransition starts the walk.
 	debugC(2, kDebugLevelScript, "opcode 0xab: queue protag exit transition to frame %s", +a[0]);
 	if (Log.inMapMode())
 		return kThxBye;
 	Actor *ac = Log.protagonist();
-	if (!ac)
+	if (!ac) {
+		Log.setPendingError(0x17);
 		return kThxBye;
+	}
 
 	if (ac->isFine()) {
-		// Actor-bound yield (Pass2-14b stop-gap; see comment above).
-		ac->callMe(current);
+		Log.runLaterWithCurrentMode(current);
 		return kReturn;
 	}
 
@@ -1518,13 +1470,8 @@ OPCODE(0xab) {
 
 OPCODE(0xad) {
 	// DOS Op_ad_handler @ 1000:4e8c: actor-targeted move (any actor id).
-	//   ResolveOpcodeArg0 → AX = actor id;
-	//   CheckActorIdle(AX);
-	//   if (CLC ready): RegisterSampleSlot_LoadDefaultsAndMark (yield
-	//     to room_script_slots — see Op_ab note for the full-fidelity
-	//     subsystem requirement).
-	//   if (STC busy/elsewhere): ResolveOpcodeArg1 → AX = target_frame;
-	//                            MoveActorToTargetExit.
+	// CheckActorIdle gates through the same current-opcode retry path as
+	// Op_ab; the ready path resolves arg1 and calls MoveActorToTargetExit.
 	//
 	// MoveActorToTargetExit (1000:70da) dispatches by actor type:
 	//   - Protagonist: QueueExitTransition (cancel speech + walk +
@@ -1535,17 +1482,16 @@ OPCODE(0xad) {
 	//     warp via SI[0x61]=target_frame + SetActorPosition (using
 	//     actor.room's frame table).
 	//
-	// Pass2-14b: dispatch path is full-fidelity (warp/walk based on
-	// actor.room == currentRoom). Yield path is actor-bound stop-gap
-	// per Op_ab note — same room_script_slots gap.
 	debugC(2, kDebugLevelScript, "opcode 0xad: move actor %s to frame %s next",
 		+a[0], +a[1]);
 	Actor *ac = _logic->getActor(a[0]);
-	if (!ac)
+	if (!ac) {
+		Log.setPendingError(0x17);
 		return kThxBye;
+	}
 
 	if (ac->isFine()) {
-		ac->callMe(current);
+		Log.runLaterWithCurrentMode(current);
 		return kReturn;
 	}
 
@@ -1569,12 +1515,20 @@ OPCODE(0xad) {
 }
 
 OPCODE(0xb9) {
-	// set local animation
+	// DOS Op_b9_WalkActorWaitWithBreak @ 1000:5026: fast actor animation,
+	// map-mode no-op, validate actor id, retry current opcode while
+	// CheckActorAnimReady says the actor is still active, otherwise
+	// InitActorState(arg1).
 	debugC(2, kDebugLevelScript, "opcode 0xb9: set actor %s animation to %s", +a[0], +a[1]);
-
+	if (Log.inMapMode())
+		return kThxBye;
 	Actor *ac = Log.getActor(a[0]);
+	if (!ac) {
+		Log.setPendingError(0x17);
+		return kThxBye;
+	}
 	if (ac->isFine()) {
-		ac->callMe(current);
+		Log.runLaterWithCurrentMode(current);
 		return kReturn;
 	}
 
@@ -1583,20 +1537,36 @@ OPCODE(0xb9) {
 }
 
 OPCODE(0xbc) {
-	// hide actor
+	// DOS Op_bc_handler @ 1000:5085: no-op in map mode, otherwise resolve
+	// actor id, validate against GetActorOffset-style bounds, then
+	// UnregisterActor. Rendering stops because the id is removed from
+	// g_actor_table; Actor::hide clears the C++ paintable sprite equivalent.
 	debugC(2, kDebugLevelScript, "opcode 0xbc: hide actor %s", +a[0]);
-	_logic->getActor(a[0])->hide();
+	if (Log.inMapMode())
+		return kThxBye;
+	Actor *ac = _logic->getActor(a[0]);
+	if (!ac) {
+		Log.setPendingError(0x17);
+		return kThxBye;
+	}
+	ac->hide();
 	return kThxBye;
 }
 
 OPCODE(0xbd) {
-	// set protagonist animation
+	// DOS Op_bd_handler @ 1000:50ea: slow protagonist animation, same
+	// current-opcode retry gate as Op_b9.
 	CodePointer p(static_cast<CodePointer &>(a[0]).offset(), Log.mainInterpreter());
 	debugC(2, kDebugLevelScript, "opcode 0xbd: set protagonist animation to %s", +p);
-
+	if (Log.inMapMode())
+		return kThxBye;
 	Actor *ac = Log.protagonist();
+	if (!ac) {
+		Log.setPendingError(0x17);
+		return kThxBye;
+	}
 	if (ac->isFine()) {
-		ac->callMe(current);
+		Log.runLaterWithCurrentMode(current);
 		return kReturn;
 	}
 
@@ -1605,12 +1575,18 @@ OPCODE(0xbd) {
 }
 
 OPCODE(0xbe) {
-	// set protagonist animation
+	// DOS Op_be_handler @ 1000:50e3: fast protagonist animation, same
+	// current-opcode retry gate as Op_b9.
 	debugC(2, kDebugLevelScript, "opcode 0xbe: set protagonist animation to %s", +a[0]);
-
+	if (Log.inMapMode())
+		return kThxBye;
 	Actor *ac = Log.protagonist();
+	if (!ac) {
+		Log.setPendingError(0x17);
+		return kThxBye;
+	}
 	if (ac->isFine()) {
-		ac->callMe(current);
+		Log.runLaterWithCurrentMode(current);
 		return kReturn;
 	}
 
@@ -1625,13 +1601,6 @@ OPCODE(0xc2) {
 	// initial position. The animation script then does its own Op_05/06
 	// to set the sprite + reposition. Engine equivalent: spawn a fresh
 	// Animation registered in Logic::_animations.
-	//
-	// Differences from DOS that are observable but harmless during the
-	// intro: we use the live cursor position (currently hardcoded to
-	// 160,100 — graphics.cpp:cursorPosition is a STUB) instead of the
-	// frame-start snapshot. The script always repositions its animation
-	// in the first tick, so the initial position only matters for the
-	// very first frame.
 	debugC(2, kDebugLevelScript, "opcode 0xc2: add animation %s at cursor", +a[0]);
 	uint transientCount = 0;
 	Common::List<Animation *> animations = _logic->animations();
@@ -3313,35 +3282,26 @@ OPCODE(0x76) {
 	Log.setStepPending(false);
 	return kThxBye;
 }
-	OPCODE(0x78) {
-		// DOS Op_78_CheckActorAnimReadyAlt @ 1000:4359:
-		//   CheckActorAnimReady(g_main_character_id);
-		//   if (!CF) yield (RegisterSampleSlot_LoadDefaultsAndMark);
-		//   else: GetActorOffset(main_char), place protagonist:
-	//     actor.field+0x61 = arg1 (current frame)
-	//     actor.field+0x62 = arg2 (target frame)
-	//     actor.field+0x59 = arg0 (room)
-	//     g_current_location = arg0 (room transition)
-	//     uRam00023159 = arg2 (rendering hint)
-	// Args: arg0=room, arg1=current frame, arg2=target frame.
-	// C++: always-ready model (Actor::isMoving stub = false), so
-	// place + change room directly.
+OPCODE(0x78) {
+	// DOS Op_78_CheckActorAnimReadyAlt @ 1000:4359. Same current-opcode
+	// retry gate as Op_77; args are arg0=room, arg1=current frame,
+	// arg2=target frame.
 	debugC(2, kDebugLevelScript, "opcode 0x78: go to room %s frame curr=%s target=%s",
 		+a[0], +a[1], +a[2]);
-		if (Log.inMapMode())
-			return kThxBye;
-		Actor *protag = Log.protagonist();
-		if (!protag) {
-			Log.setPendingError(0x17);
-			return kThxBye;
-		}
-		if (protag->isFine()) {
-			protag->callMe(current);
-			return kReturn;
-		}
-		protag->placeIn(uint16(a[0]), uint16(a[1]), uint16(a[2]));
-		_logic->changeRoom(uint16(a[0]));
+	if (Log.inMapMode())
 		return kThxBye;
+	Actor *protag = Log.protagonist();
+	if (!protag) {
+		Log.setPendingError(0x17);
+		return kThxBye;
+	}
+	if (protag->isFine()) {
+		Log.runLaterWithCurrentMode(current);
+		return kReturn;
+	}
+	protag->placeIn(uint16(a[0]), uint16(a[1]), uint16(a[2]));
+	_logic->changeRoom(uint16(a[0]));
+	return kThxBye;
 }
 OPCODE(0x7a) {
 	// DOS Op_7a_PlaceActorInRoomXY (CS:0x4443). nargs=4 per dispatch

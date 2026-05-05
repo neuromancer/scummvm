@@ -104,10 +104,10 @@ void Interpreter::init() {
 
 Status Interpreter::run(uint16 offset, OpcodeMode mode) {
 	_mode = mode;
-	// Capture the script's entry offset so opcodes that need to yield
-	// "restart script from start" semantics (DOS Op_ab/0xad's
-	// RegisterSampleSlot_LoadDefaultsAndMark path) can re-queue the
-	// block-start PC instead of the current opcode's PC.
+	// Capture the script's entry offset for diagnostics. DOS updates
+	// g_block_start_di/es before every opcode dispatch; wait opcodes that call
+	// RegisterSampleSlot_LoadDefaultsAndMark requeue the current opcode, not
+	// this entry offset.
 	_runEntry = offset;
 	// Mirror DOS `g_opcode_mode = mode_value` set by the script-dispatch
 	// sites (RunEntityScript, runQueued, etc.). Op_3a/Op_3d read this
