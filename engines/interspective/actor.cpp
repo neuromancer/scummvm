@@ -445,7 +445,7 @@ void Actor::readHeader(const byte *code) {
 	else error("segment %x", segment);*/
 	_interval = code[kOffsetInterval];
 	_ticksLeft = READ_LE_UINT16(code + kOffsetTicksLeft);
-	_zIndex = 0;
+	_zIndex = int8(code[kOffsetZIndex]);
 	_position = Common::Point(READ_LE_UINT16(code + kOffsetLeft), READ_LE_UINT16(code + kOffsetTop));
 	uint16 baseOff = READ_LE_UINT16(code + kOffsetCode);
 	_offset = READ_LE_UINT16(code + kOffsetOffset);
@@ -954,12 +954,13 @@ OPCODE(0x19) {
 OPCODE(0x1a) {
 	// C++ slot 0x1a = DOS Op_1b SetField12ClearFlag16 (CS:0x6b4e). Reads
 	// embedded byte at +1 only. Animation::0x1a ("set z index") happens
-	// to use embeddedByte too — accidentally aligned, but writing
-	// _zIndex instead of field+0x12. Override for correctness.
+	// to use embeddedByte too. DOS stores the byte in actor field+0x12,
+	// and DrawAllRoomObjects uses that byte as the actor render layer.
 	byte v = embeddedByte();
-	debugC(3, kDebugLevelAnimation, "actor opcode 0x1a: SetField12ClearFlag16 = %d STUB [DOS Op_1b]", v);
+	debugC(3, kDebugLevelAnimation, "actor opcode 0x1a: SetField12ClearFlag16 = %d [DOS Op_1b]", v);
 	setDosField(0x12, v);
 	setDosField(0x16, 0);
+	_zIndex = int8(v);
 	return kOk;
 }
 

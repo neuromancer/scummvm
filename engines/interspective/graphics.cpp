@@ -28,6 +28,7 @@
 #include "graphics/palette.h"
 #include "graphics/paletteman.h"
 
+#include "common/array.h"
 #include "common/events.h"
 #include "common/system.h"
 #include "common/util.h"
@@ -176,8 +177,24 @@ void Graphics::paintSpeech() {
 void Graphics::paintAnimations() {
 	debugC(3, kDebugLevelGraphics, "painting animations");
 	Common::List<Animation *> animations = _engine->logic()->animations();
+	Common::Array<Animation *> sorted;
 	for (Common::List<Animation *>::iterator it = animations.begin(); it != animations.end(); ++it)
-		(*it)->paint(this);
+		sorted.push_back(*it);
+
+	// DOS DrawAllRoomObjects renders layer 0x0b down to 0x00, then 0xff.
+	// Later draws appear on top, so sort descending by signed z index.
+	for (uint i = 1; i < sorted.size(); ++i) {
+		Animation *anim = sorted[i];
+		uint j = i;
+		while (j > 0 && sorted[j - 1]->zIndex() < anim->zIndex()) {
+			sorted[j] = sorted[j - 1];
+			--j;
+		}
+		sorted[j] = anim;
+	}
+
+	for (uint i = 0; i < sorted.size(); ++i)
+		sorted[i]->paint(this);
 }
 
 // it's modal anyway

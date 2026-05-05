@@ -44,12 +44,26 @@
 
 namespace Interspective {
 
-// Walk-driver helper: send protagonist toward target entity. Now a
-// thin wrapper over Logic::sendActorToTarget which generalizes to any
-// actor (used by Op_ae and the actor-walk family). Kept as a helper
-// for opcode-side readability.
-static inline void sendProtagToTarget(Logic *logic, uint16 targetId) {
-	logic->sendActorToTarget(/* walker = */ nullptr, targetId);
+static bool runDisableMoveOptionalEnable(Logic *logic, uint16 cellId, uint16 targetId, uint16 enableId) {
+	if (!logic->disableObjectFlag1(cellId))
+		return false;
+	const uint8 pendingBefore = logic->pendingError();
+	logic->movePersonToActor(targetId);
+	if (logic->pendingError() != pendingBefore)
+		return false;
+	if (enableId != 0)
+		return logic->enableObjectFlag1(enableId);
+	return true;
+}
+
+static bool runDisableEnableUnregister(Logic *logic, uint16 cellId, uint16 enableId) {
+	if (!logic->disableObjectFlag1(cellId))
+		return false;
+	if (enableId != 0 && !logic->enableObjectFlag1(enableId))
+		return false;
+	logic->setCursorMode(0);
+	logic->setDragTarget(0);
+	return true;
 }
 
 // Speech subsystem helper: route text to the appropriate sink.
@@ -337,10 +351,12 @@ OPCODE(0xde) {
 }
 
 OPCODE(0xe2) {
-	// Clear g_walkbox_count (walkbox list at DS:0x6617).
+	// Clear g_walkbox_count (the same frame table populated by Op_df).
 	// DOS handler at CS:0x5582.
 	debugC(2, kDebugLevelScript, "opcode 0xe2: clear walkbox count");
 	Log.walkboxesClear();
+	if (Room *room = Log.room())
+		room->clearActorFrames();
 	return kThxBye;
 }
 
@@ -1607,10 +1623,19 @@ OPCODE(0xc2) {
 	// Differences from DOS that are observable but harmless during the
 	// intro: we use the live cursor position (currently hardcoded to
 	// 160,100 — graphics.cpp:cursorPosition is a STUB) instead of the
-	// frame-start snapshot, and we don't enforce the 18-slot cap. The
-	// script always repositions its animation in the first tick, so the
-	// initial position only matters for the very first frame.
+	// frame-start snapshot. The script always repositions its animation
+	// in the first tick, so the initial position only matters for the
+	// very first frame.
 	debugC(2, kDebugLevelScript, "opcode 0xc2: add animation %s at cursor", +a[0]);
+	uint transientCount = 0;
+	Common::List<Animation *> animations = _logic->animations();
+	for (Common::List<Animation *>::iterator it = animations.begin(); it != animations.end(); ++it)
+		if (!(*it)->isActor())
+			++transientCount;
+	if (transientCount >= 18) {
+		Log.setPendingError(0x2a);
+		return kThxBye;
+	}
 	_logic->addAnimation(new Animation(static_cast<CodePointer &>(a[0]), _graphics->cursorPosition()));
 	return kThxBye;
 }
@@ -1667,7 +1692,7 @@ OPCODE(0xc9) {
 OPCODE(0xcb) {
 	// DOS Op_cb_handler @ 1000:5275 → calls LoadGraphicToSlot @ 1000:1f49:
 	//   if (arg0 > graphic_count) pending-error 0xa;
-	//   else: type = graphic_index[(arg0-1)*4].first_dword;
+	//   else: type = image_directory[(arg0-1)*4].type_word;
 	//     type ∈ {1,2,3} → DecodeImage to small slot (DS:0x676f..0x6773)
 	//     type ∈ {4,5}  → DecodeFullScreenImage to slot (DS:0x6779/0x677b)
 	//     type 6        → DecodeFullScreenImage to slot (DS:0x6775)
@@ -1680,8 +1705,7 @@ OPCODE(0xcb) {
 		Log.setPendingError(0x0a);
 		return kThxBye;
 	}
-	const uint32 entry = map->offsetOfEntry(id);
-	const uint8 type = uint8(entry & 0xff);
+	const uint16 type = _logic->resources()->mainDat()->imageType(id);
 	debugC(1, kDebugLevelScript, "opcode 0xcb: load graphic %u (type=%u)", id, type);
 	switch (type) {
 	case 1: Log.setGraphicSlot(0, id); break;
@@ -1775,14 +1799,35 @@ OPCODE(0xd6) {
 }
 
 OPCODE(0xdb) {
-	// add active rect
-	debugC(1, kDebugLevelScript, "opcode 0xdb: add rect %s:%s-%s:%s::%s", +a[0], +a[1], +a[2], +a[3], +a[4]);
-	Log.room()->addRect(Room::Rect(a[4].signd(), Common::Rect(a[0].signd(), a[1].signd(), a[2].signd(), a[3].signd())));
+	// DOS Op_db_handler @ 1000:546e: append to g_collision_zone[24].
+	// Args 0..3 are the rectangle words; arg4 is read via ReadVarBySlot_RHS,
+	// must be < 13, and is stored as value - 1. Overflow raises 0x2e;
+	// invalid slot raises 0x1f.
+	if (Log.collisionZones().size() >= 24) {
+		Log.setPendingError(0x2e);
+		return kThxBye;
+	}
+	const int16 slot = a[4].signd();
+	if (slot >= 13) {
+		Log.setPendingError(0x1f);
+		return kThxBye;
+	}
+	Logic::CollisionZone z = {
+		uint16(a[0]), uint16(a[1]), uint16(a[2]), uint16(a[3]), int16(slot - 1)
+	};
+	debugC(1, kDebugLevelScript, "opcode 0xdb: add collision zone %s:%s-%s:%s slot=%d",
+		+a[0], +a[1], +a[2], +a[3], z.slot);
+	Log.collisionZonesAdd(z);
 	return kThxBye;
 }
 
 OPCODE(0xdf) {
-	// add actor frame
+	// DOS Op_df_handler @ 1000:5504: append one 12-byte frame/walkbox
+	// record while g_walkbox_count < 0xfd, else pending-error 0x30.
+	if (Log.room() && Log.room()->frameCount() >= 0xfd) {
+		Log.setPendingError(0x30);
+		return kThxBye;
+	}
 	Common::Array<byte> nexts;
 	nexts.resize(8);
 	for (int i = 0; i < 4; i++) {
@@ -1793,7 +1838,8 @@ OPCODE(0xdf) {
 	const int16 left = a[0].signd();
 	const int16 top = a[1].signd();
 	debugC(2, kDebugLevelScript, "opcode 0xdf: add actor frame %d %d %d %d %d %d %d %d %d %d", left, top, nexts[0], nexts[1], nexts[2], nexts[3], nexts[4], nexts[5], nexts[6], nexts[7]);
-	Log.room()->addActorFrame(Common::Point(left, top), nexts);
+	if (Log.room())
+		Log.room()->addActorFrame(Common::Point(left, top), nexts);
 	return kThxBye;
 }
 
@@ -3743,42 +3789,23 @@ OPCODE(0x8c) {
 OPCODE(0x8d) {
 	// DOS Op_8d_handler @ 1000:48df:
 	//   ResolveOpcodeArg0; GetObjectOffset(id) → ES:SI;
-	//   uVar5 = (obj.room != -1);
-	//   if (obj.room == -1) RemoveExitFromList;     // was an exit
-	//   AddExitToList;                               // re-register
-	//   if (!uVar5):                                  // was -1 (= exit)
-	//     ResolveOpcodeArg1, ResolveOpcodeArg2;
-	//     obj.room = -1;
-	//     CalcSpriteOffsetInGraphic;
-	//     obj.x = arg1 + sprite_x_off;
-	//     obj.y = arg2 + sprite_y_off;
-	//     ClampSpriteOnScreen;
-	//     // mark dirty
-	//   else: pending error 0x21.
-	// = "register object as an exit (hotspot) at (arg1, arg2). Fails
-	// (pending-error 0x21) if the object is already placed in a
-	// regular room — you can't repurpose a placed obj as an exit".
-	//
-	// C++ port: "0xffff in _objectRoom" maps to DOS "-1 = is-exit /
-	// available-for-exit-registration" (the C++ port has no separate
-	// "is in exit list" state; click handler treats obj-in-current-room
-	// as the hotspot). RemoveExitFromList / AddExitToList have no
-	// dynamic-list analog (exits are loaded statically per block);
-	// the script-observable effect is captured by setObjectRoom +
-	// setObjectPosition. Sprite offset / clamp are renderer concerns.
+	//   if (obj.room == -1) RemoveExitFromList(id);
+	//   AddExitToList(id); if carry → pending-error 0x21;
+	//   ResolveOpcodeArg1/2; jump to the common object-exit placement
+	//   tail at 0x486b, which writes obj.room = -1 plus sprite-adjusted
+	//   x/y and marks dirty.
 	const uint16 id = uint16(a[0]);
-	if (id > _logic->resources()->mainDat()->personsCount()) {
+	if (id == 0 || id > _logic->resources()->mainDat()->personsCount()) {
 		Log.setPendingError(0x16);
 		return kThxBye;
 	}
-	const uint16 oldRoom = Log.getObjectRoom(id);
-	if (oldRoom != 0xffff) {
-		Log.setPendingError(0x21);
+	if (Log.getObjectRoom(id) == 0xffff)
+		Log.unregisterObjectExit(id);
+	if (!Log.registerObjectExit(id))
 		return kThxBye;
-	}
 	debugC(2, kDebugLevelScript, "opcode 0x8d: register obj %u as exit at pos %s,%s",
 		id, +a[1], +a[2]);
-	Log.setObjectRoom(id, Log.currentRoom());
+	Log.setObjectRoom(id, 0xffff);
 	Log.setObjectPosition(id, int16(uint16(a[1])), int16(uint16(a[2])));
 	return kThxBye;
 }
@@ -3806,10 +3833,9 @@ OPCODE(0x8f) {
 		Log.setPendingError(0x0e);
 		return kThxBye;
 	}
-	Log.clearCellBit(Log.currentEntityId(), 0);
-	Log.movePersonToActor(uint16(a[0]));
-	debugC(2, kDebugLevelScript, "opcode 0x8f: disable cell %u + movePersonToActor %s",
-		Log.currentEntityId(), +a[0]);
+	if (runDisableMoveOptionalEnable(_logic, Log.currentEntityId(), uint16(a[0]), 0))
+		debugC(2, kDebugLevelScript, "opcode 0x8f: disable cell %u + movePersonToActor %s",
+			Log.currentEntityId(), +a[0]);
 	return kThxBye;
 }
 OPCODE(0x90) {
@@ -3820,74 +3846,86 @@ OPCODE(0x90) {
 		Log.setPendingError(0x0e);
 		return kThxBye;
 	}
-	Log.clearCellBit(Log.currentEntityId(), 0);
-	Log.movePersonToActor(uint16(a[0]));
-	if (uint16(a[1]) != 0)
-		Log.setCellBit(uint16(a[1]), 0);
-	debugC(2, kDebugLevelScript, "opcode 0x90: disable cell %u + movePersonToActor %s + enable cell %s",
-		Log.currentEntityId(), +a[0], +a[1]);
+	if (runDisableMoveOptionalEnable(_logic, Log.currentEntityId(), uint16(a[0]), uint16(a[1])))
+		debugC(2, kDebugLevelScript, "opcode 0x90: disable cell %u + movePersonToActor %s + enable cell %s",
+			Log.currentEntityId(), +a[0], +a[1]);
 	return kThxBye;
 }
 OPCODE(0x91) {
 	// DOS Op_91_handler @ 1000:4960: gate (g_flag_step_pending +
 	// g_cursor_mode==1). game==1 →
-	//   CALL SendActorToTarget(arg0)            — start walk;
-	//   SetActorTarget(BP=cs:[0xbb], AX=cs:[0x10f]) — actor.field+0x69
-	//                                                callback addr;
-	//   SetPostMoveCallback(BP=0x49df, BX=arg0, CX=0,
-	//                       AX=currentEntityId) — fires when actor's
-	//                                              frame == target.
-	// Trampoline @ 0x49df: DisableObjectFlag1(currentEntityId) +
-	// MovePersonToActor(arg0).
-	// else g_pendingErrorCode = 0xe. C++ uses Logic::PostMoveCallback
-	// (kDisableMoveOptionalEnable kind) — fires when protagonist's
-	// _framequeue empties (Actor::isMoving() goes false).
+	//   CALL SendActorToTarget() for the current clicked entity;
+	//   if carry set, jump to trampoline @ 0x49df immediately;
+	//   otherwise SetActorTarget and SetPostMoveCallback(BP=0x49df,
+	//   BX=arg0, CX=0, AX=currentEntityId).
 	if (!Log.stepPending() || Log.cursorMode() != 1)
 		return kThxBye;
 	if (Log.gameState() != 1) {
 		Log.setPendingError(0x0e);
 		return kThxBye;
 	}
-	sendProtagToTarget(_logic, uint16(a[0]));
-	Log.setPostMoveCallback(
-		Logic::PostMoveCallback::kDisableMoveOptionalEnable,
-		Log.currentEntityId(),  // cellId (DOS AX)
-		uint16(a[0]),            // arg0 (DOS BX)
-		0                        // arg1 (DOS CX = 0 → no enable)
-	);
-	debugC(2, kDebugLevelScript, "opcode 0x91: walk %s + arm post-move callback (cellId=%u)",
-		+a[0], Log.currentEntityId());
+	const uint16 cellId = Log.currentEntityId();
+	const uint16 exitCount = _logic->blockProgram() ? _logic->blockProgram()->exitsCount() : 0;
+	if (cellId == 0 || cellId > exitCount) {
+		Log.setPendingError(0x14);
+		return kThxBye;
+	}
+	Actor *protag = Log.protagonist();
+	const bool waitForWalk = Log.sendActorToCurrentEntity(protag) && protag && protag->isMoving();
+	if (waitForWalk) {
+		Log.setPostMoveCallback(
+			Logic::PostMoveCallback::kDisableMoveOptionalEnable,
+			cellId,
+			uint16(a[0]),
+			0
+		);
+		debugC(2, kDebugLevelScript, "opcode 0x91: walk current entity + arm post-move callback (cellId=%u obj=%s)",
+			cellId, +a[0]);
+	} else {
+		if (runDisableMoveOptionalEnable(_logic, cellId, uint16(a[0]), 0))
+			debugC(2, kDebugLevelScript, "opcode 0x91: immediate disable cell %u + movePersonToActor %s",
+				cellId, +a[0]);
+	}
 	return kThxBye;
 }
 OPCODE(0x92) {
-	// DOS Op_92_handler @ 1000:499e: 2-arg variant of Op_91 (CX = arg1
-	// → trampoline branches to EnableObjectFlag1(arg1) after move).
+	// DOS Op_92_handler @ 1000:499e: 2-arg variant of Op_91
+	// with CX=arg1 for the optional EnableObjectFlag1 tail.
 	if (!Log.stepPending() || Log.cursorMode() != 1)
 		return kThxBye;
 	if (Log.gameState() != 1) {
 		Log.setPendingError(0x0e);
 		return kThxBye;
 	}
-	sendProtagToTarget(_logic, uint16(a[0]));
-	Log.setPostMoveCallback(
-		Logic::PostMoveCallback::kDisableMoveOptionalEnable,
-		Log.currentEntityId(),
-		uint16(a[0]),
-		uint16(a[1])  // CX = arg1 → fire EnableObjectFlag1(arg1) after move
-	);
-	debugC(2, kDebugLevelScript, "opcode 0x92: walk %s + arm post-move callback (cellId=%u enable=%s)",
-		+a[0], Log.currentEntityId(), +a[1]);
+	const uint16 cellId = Log.currentEntityId();
+	const uint16 exitCount = _logic->blockProgram() ? _logic->blockProgram()->exitsCount() : 0;
+	if (cellId == 0 || cellId > exitCount) {
+		Log.setPendingError(0x14);
+		return kThxBye;
+	}
+	Actor *protag = Log.protagonist();
+	const bool waitForWalk = Log.sendActorToCurrentEntity(protag) && protag && protag->isMoving();
+	if (waitForWalk) {
+		Log.setPostMoveCallback(
+			Logic::PostMoveCallback::kDisableMoveOptionalEnable,
+			cellId,
+			uint16(a[0]),
+			uint16(a[1])
+		);
+		debugC(2, kDebugLevelScript, "opcode 0x92: walk current entity + arm post-move callback (cellId=%u obj=%s enable=%s)",
+			cellId, +a[0], +a[1]);
+	} else {
+		if (runDisableMoveOptionalEnable(_logic, cellId, uint16(a[0]), uint16(a[1])))
+			debugC(2, kDebugLevelScript, "opcode 0x92: immediate disable cell %u + movePersonToActor %s + enable cell %s",
+				cellId, +a[0], +a[1]);
+	}
 	return kThxBye;
 }
 OPCODE(0x93) {
-	// DOS Op_93_handler @ 1000:49f1: gate (step + cursor==0x20 + arg0 ==
-	// g_drag_target). game==1 →
-	//   CALL SendActorToTarget(arg0);
-	//   SetActorTarget(BP=cs:[0xbd], AX=cs:[0x10f]);
-	//   SetPostMoveCallback(BP=0x4a36, BX=arg1, AX=currentEntityId).
-	// Trampoline @ 0x4a36: DisableObjectFlag1(currentEntityId) +
-	// EnableObjectFlag1(arg1) + Op_8e (cursor=0, drag=0).
-	// else g_pendingErrorCode = 0xf.
+	// DOS Op_93_handler @ 1000:49f1: gate (step + cursor==0x20 +
+	// arg0 == g_drag_target). Then walk to the current clicked entity;
+	// if carry set, run trampoline @ 0x4a36 immediately; otherwise
+	// arm SetPostMoveCallback(BP=0x4a36, BX=arg1, AX=currentEntityId).
 	if (!Log.stepPending() || Log.cursorMode() != 0x20)
 		return kThxBye;
 	if (uint16(a[0]) != Log.dragTarget())
@@ -3896,15 +3934,28 @@ OPCODE(0x93) {
 		Log.setPendingError(0x0f);
 		return kThxBye;
 	}
-	sendProtagToTarget(_logic, uint16(a[0]));
-	Log.setPostMoveCallback(
-		Logic::PostMoveCallback::kDisableEnableUnregister,
-		Log.currentEntityId(),
-		uint16(a[0]),    // arg0 (unused by the kDisableEnableUnregister handler but kept for trace)
-		uint16(a[1])     // arg1 = cell to enable after disable
-	);
-	debugC(2, kDebugLevelScript, "opcode 0x93: walk %s + arm post-move drag-swap (cellId=%u enable=%s)",
-		+a[0], Log.currentEntityId(), +a[1]);
+	const uint16 cellId = Log.currentEntityId();
+	const uint16 exitCount = _logic->blockProgram() ? _logic->blockProgram()->exitsCount() : 0;
+	if (cellId == 0 || cellId > exitCount) {
+		Log.setPendingError(0x14);
+		return kThxBye;
+	}
+	Actor *protag = Log.protagonist();
+	const bool waitForWalk = Log.sendActorToCurrentEntity(protag) && protag && protag->isMoving();
+	if (waitForWalk) {
+		Log.setPostMoveCallback(
+			Logic::PostMoveCallback::kDisableEnableUnregister,
+			cellId,
+			uint16(a[0]),
+			uint16(a[1])
+		);
+		debugC(2, kDebugLevelScript, "opcode 0x93: walk current entity + arm unregister callback drag=%s enable=%s",
+			+a[0], +a[1]);
+	} else {
+		if (runDisableEnableUnregister(_logic, cellId, uint16(a[1])))
+			debugC(2, kDebugLevelScript, "opcode 0x93: immediate unregister drag=%s after disabling cell %u enable=%s",
+				+a[0], cellId, +a[1]);
+	}
 	return kThxBye;
 }
 OPCODE(0x94) {

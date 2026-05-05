@@ -86,6 +86,7 @@ Animation::Animation(const CodePointer &code, Common::Point position) :
 	_offset(0),
 	_interval(1),
 	_ticksLeft(0),
+	_zIndex(-1),
 	_mainSpriteId(0xffff),
 	_counter(0),
 	_debugInvalid(false),

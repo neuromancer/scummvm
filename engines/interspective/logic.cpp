@@ -116,6 +116,15 @@ void Logic::callAnimations() {
 	}
 }
 
+void Logic::clearRoomTransientAnimations() {
+	for (Common::List<Animation *>::iterator it = _animations.begin(); it != _animations.end();) {
+		if (!(*it)->isActor())
+			it = _animations.erase(it);
+		else
+			++it;
+	}
+}
+
 void Logic::setProtagonist(uint16 actor) {
 	_protagonist = getActor(actor);
 }
@@ -141,6 +150,31 @@ void Logic::doChangeRoom() {
 	_currentRoom = _nextRoom;
 	_nextRoom = 0;
 	_roomLoop.reset();
+
+	// DOS ApplyChangeRoomTransition sets g_flag_restart_room; MainGameLoop's
+	// restart-room path then resets the cast table, actor render table, zone
+	// counts, overlay count, anim-list count, no-step/step flags, and the
+	// post-move callback before running the new room script. Mirror the
+	// modeled pieces here for every room change, not only block changes.
+	clearRoomTransientAnimations();
+	castTableClearAll();
+	_overlayQueue.clear();
+	_drawCommandCount = 0;
+	_postMoveCallback = PostMoveCallback();
+	_zones.clear();
+	_collisionZones.clear();
+	_zonesB.clear();
+	_walkboxes.clear();
+	_animList.clear();
+	_dialogCursor0 = _dialogCursor1 = _dialogClickGate = 0;
+	_noStep = false;
+	_stepPending = false;
+	_hitTarget = 0;
+	_inMapMode = false;
+	_inputEnabled = true;
+	_motionText.clear();
+	_motionTextTicks = 0;
+
 	uint16 newBlock = _resources->blockOfRoom(_currentRoom);
 
 	if (newBlock != _currentBlock) {
@@ -184,20 +218,9 @@ void Logic::doChangeRoom() {
 
 		_currentBlock = newBlock;
 		_blockProgram = Common::SharedPtr<Program>(_resources->loadCodeBlock(newBlock));
-			// Reset per-block transient state (mirrors DOS LAB_1000_063e):
-			// overlay queue, draw command count, error.
-			_overlayQueue.clear();
-			_objectExitList.clear();
-			_drawCommandCount = 0;
-		// Drop any armed post-move callback — its captured cellId/arg0
-		// reference entities from the outgoing block. The protagonist's
-		// _framequeue gets reset by the new block's loadActors, which
-		// would synthesize a "walk completed" edge in the new context
-		// and fire the stale callback against unrelated cells.
-		_postMoveCallback = PostMoveCallback();
-		// Reset cast table (DOS LAB_1000_063e in MainGameLoop calls
-		// ResetCastTable on block change).
-		castTableClearAll();
+		// Reset per-block transient state. Per-room visual/runtime
+		// state is reset above on every room change.
+		_objectExitList.clear();
 
 		char buf[100];
 		snprintf(buf, 100, "block %d code", newBlock);
@@ -299,6 +322,34 @@ void Logic::paintMotionText() {
 		Graf.paintText(0, 0, 0xeb, &_motionText[0]);
 }
 
+bool Logic::enableObjectFlag1(uint16 id) {
+	const uint16 exitCount = _blockProgram ? _blockProgram->exitsCount() : 0;
+	if (id > exitCount) {
+		setPendingError(0x14);
+		return false;
+	}
+
+	setCellBit(id, 0);
+	if (Exit *exit = _blockProgram ? _blockProgram->getExit(id) : 0)
+		if (!exit->isEnabled())
+			exit->setEnabled(true);
+	return true;
+}
+
+bool Logic::disableObjectFlag1(uint16 id) {
+	const uint16 exitCount = _blockProgram ? _blockProgram->exitsCount() : 0;
+	if (id > exitCount) {
+		setPendingError(0x14);
+		return false;
+	}
+
+	clearCellBit(id, 0);
+	if (Exit *exit = _blockProgram ? _blockProgram->getExit(id) : 0)
+		if (exit->isEnabled())
+			exit->setEnabled(false);
+	return true;
+}
+
 // DOS Op_38_SwitchToScene @ 1000:3c58 saves the caller's PC plus a
 // memcpy of the cast (0x642 bytes) and actor tables. C++ instead
 // captures the entire _blockProgram (which owns _actors) plus the
@@ -397,10 +448,16 @@ void Logic::runPostMoveCallbackIfReady() {
 	case PostMoveCallback::kDisableMoveOptionalEnable:
 		// DOS @ 0x49df: clearCellBit(cellId) + MovePersonToActor(arg0)
 		// + (arg1 != 0 → EnableObjectFlag1 = setCellBit(arg1)).
-		clearCellBit(cb.cellId, 0);
-		movePersonToActor(cb.arg0);
+		if (!disableObjectFlag1(cb.cellId))
+			break;
+		{
+			const uint8 pendingBefore = pendingError();
+			movePersonToActor(cb.arg0);
+			if (pendingError() != pendingBefore)
+				break;
+		}
 		if (cb.arg1 != 0)
-			setCellBit(cb.arg1, 0);
+			enableObjectFlag1(cb.arg1);
 		break;
 	case PostMoveCallback::kDisableEnableUnregister:
 		// DOS @ 0x4a36: clearCellBit(cellId) + (arg1 != 0 → setCellBit(arg1))
@@ -408,9 +465,11 @@ void Logic::runPostMoveCallbackIfReady() {
 		// continuation (DOS register juggling between the two CALLs is
 		// broken — AX gets corrupted by DisableObjectFlag1's cell-byte
 		// load — but the script-visible intent is the swap-and-cleanup).
-		clearCellBit(cb.cellId, 0);
+		if (!disableObjectFlag1(cb.cellId))
+			break;
 		if (cb.arg1 != 0)
-			setCellBit(cb.arg1, 0);
+			if (!enableObjectFlag1(cb.arg1))
+				break;
 		setCursorMode(0);
 		setDragTarget(0);
 		break;
@@ -847,11 +906,13 @@ void Logic::castTableClear(uint16 id) {
 	}
 }
 
-// DOS ResetCastTable @ 1000:671d: zero out all 18 slots completely.
-// Unlike Op_c5 this clears the entire 89-byte record.
+// DOS ResetCastTable @ 1000:671d clears only wActive + w_unk_02 for
+// all 18 slots. Position/raw renderer bytes are left as-is, like Op_c5.
 void Logic::castTableClearAll() {
-	for (uint i = 0; i < _castTable.size(); ++i)
-		_castTable[i] = CastEntry();
+	for (uint i = 0; i < _castTable.size(); ++i) {
+		_castTable[i].active = 0;
+		_castTable[i].id = 0;
+	}
 }
 
 // DOS FormatBubbleText_FullPath @ 1000:9333.

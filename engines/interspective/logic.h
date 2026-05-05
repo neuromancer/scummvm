@@ -123,6 +123,10 @@ public:
 	struct Zone {
 		uint16 a, b, c, d;          // 4 raw uint16 args (typically a bbox)
 	};
+	struct CollisionZone {
+		uint16 a, b, c, d;
+		int16 slot;                 // Op_db stores ReadVarBySlot_RHS() - 1
+	};
 	struct ZoneB {
 		uint16 a, b, c, d, var;     // Op_dd writes 5 fields per entry
 	};
@@ -131,7 +135,8 @@ public:
 	const Common::Array<Zone> &zones() const { return _zones; }
 
 	void collisionZonesClear() { _collisionZones.clear(); }
-	const Common::Array<Zone> &collisionZones() const { return _collisionZones; }
+	void collisionZonesAdd(const CollisionZone &z) { if (_collisionZones.size() < 24) _collisionZones.push_back(z); }
+	const Common::Array<CollisionZone> &collisionZones() const { return _collisionZones; }
 
 	void zonesBClear() { _zonesB.clear(); }
 	void zonesBAdd(const ZoneB &z) { if (_zonesB.size() < 30) _zonesB.push_back(z); }
@@ -229,6 +234,8 @@ public:
 		else
 			_cellBits[id] = v;
 	}
+	bool enableObjectFlag1(uint16 id);
+	bool disableObjectFlag1(uint16 id);
 	void clearAllCellBits() { _cellBits.clear(); }
 
 	// Per-actor flag70 (DOS Actor.field_0x70). Op_49 writes; nothing reads
@@ -373,8 +380,8 @@ public:
 	//   p_data[10] = 0          p_data[12] = 0
 	//
 	// The table is scene-scoped: Op_38 push captures it via SceneFrame;
-	// Op_01 pop restores. Block change in `doChangeRoom` clears it (DOS
-	// LAB_1000_063e calls ResetCastTable @ 1000:671d).
+	// Op_01 pop restores. Room restart in `doChangeRoom` clears active/id
+	// fields (DOS MainGameLoop LAB_1000_063e calls ResetCastTable @ 1000:671d).
 	struct CastEntry {
 		uint16 active;       // wActive: 0 = free, non-zero = active
 		uint16 id;           // w_unk_02
@@ -860,6 +867,7 @@ public:
 private:
 
 	void doChangeRoom();
+	void clearRoomTransientAnimations();
 	bool redirectDeferredMode(uint16 mode, const CodePointer &target);
 	void runQueued();
 
@@ -896,7 +904,7 @@ private:
 	bool _stepPending;      // DS:0x6748 — set by hotspot click, cleared on action
 	bool _noStep;           // DS:0x6747 — true while control is locked (Op_95/Op_96)
 	Common::Array<Zone> _zones;            // mirrors g_zone[8], cleared by Op_da
-	Common::Array<Zone> _collisionZones;   // mirrors g_collision_zone[*], cleared by Op_dc
+	Common::Array<CollisionZone> _collisionZones; // mirrors g_collision_zone[24], cleared by Op_dc
 	Common::Array<ZoneB> _zonesB;          // mirrors g_zone_b[30], cleared by Op_de
 	Common::Array<Zone> _walkboxes;        // mirrors g_walkbox[*], cleared by Op_e2
 	Common::HashMap<uint16, uint16> _objectRoom; // sparse object-id → room map

@@ -176,6 +176,7 @@ public:
 		kOffsetTicksLeft = 0xa,
 		kOffsetCode = 0xc,
 		kOffsetInterval = 0x10,
+		kOffsetZIndex = 0x12,
 		kOffsetRoom = 0x59
 	};
 

@@ -233,6 +233,11 @@ uint16 MainDat::fileIndexOfImage(uint16 index) const {
 	return snd;
 }
 
+uint16 MainDat::imageType(uint16 index) const {
+	uint32 offset = (index - 1) * 4;
+	return READ_LE_UINT16(_imageDirectory + offset);
+}
+
 uint16 MainDat::fileIndexOfTune(uint16 index) const {
 	uint32 offset = (index - 1) * 2;
 	return READ_LE_UINT16(_tunesDirectory + offset);

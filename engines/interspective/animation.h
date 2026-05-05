@@ -63,6 +63,7 @@ public:
 
 	virtual bool isActor() const { return false; }
 	uint16 mainSpriteId() const { return _mainSpriteId; }
+	int8 zIndex() const { return _zIndex; }
 
 	// Used by Logic::doChangeRoom before freeing the outgoing block's
 	// code buffer. If this animation's _base lies within the [low, high)

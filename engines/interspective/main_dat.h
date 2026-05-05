@@ -70,6 +70,7 @@ public:
 	 * @returns index of graphics data file containing the image.
 	 */
 	uint16 fileIndexOfImage(uint16 index) const;
+	uint16 imageType(uint16 index) const;
 	uint16 fileIndexOfTune(uint16 index) const;
 
 	uint16 interfaceImageIndex() const;

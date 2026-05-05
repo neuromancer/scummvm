@@ -55,6 +55,7 @@ public:
 	const Common::List<Exit *> &exits() const { return _exits; }
 
 	void addActorFrame(Common::Point p, Common::Array<byte> nexts);
+	void clearActorFrames() { _actorFrames.clear(); }
 	Actor::Frame getFrame(uint16 index) const {
 		// 1-based indexing: valid range is 1..size(). Previously used
 		// `index >= size()` which excluded the LAST frame (off-by-one).
