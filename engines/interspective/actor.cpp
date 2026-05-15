@@ -448,7 +448,10 @@ void Actor::sayAtPos(const Common::String &text, Common::Point pos, uint16 maxLi
 	_speech = Speech(this, text, pos, maxLines);
 }
 
-Actor::Speech::~Speech() { while (!_cb.empty()) Log.runLater(_cb.pop()); }
+Actor::Speech::~Speech() {
+	// Destruction is used for ESC/room cleanup too; DOS ResetSpeechSlots
+	// drops pending speech callbacks instead of dispatching them.
+}
 
 bool Actor::isMoving() const {
 	// DOS CheckActorScripting @ 1000:6499 treats movement/scripting wait
@@ -463,9 +466,9 @@ void Actor::callMeWhenStill(const CodePointer &cp) {
 	// — Animation::tick drains it via callBacks() once attention/state
 	// settles.
 	if (!isMoving())
-		Log.runLater(cp);
+		Log.runLaterWithMode(cp, Log.opcodeMode());
 	else
-		_callBacks.push(cp);
+		_callBacks.push(ScriptCallback(cp, Log.opcodeMode(), true));
 }
 
 void Actor::setFrame(uint16 frame) {
@@ -1013,7 +1016,12 @@ Actor::Speech::Speech(Actor *parent, const Common::String &text, Common::Point o
 	startPage(0);
 }
 
+void Actor::Speech::callWhenDone(const CodePointer &cp) {
+	_cb.push(SpeechCallback(cp, Log.opcodeMode(), true));
+}
+
 void Actor::Speech::startPage(uint page) {
+	delete _image;
 	_pageIndex = page;
 	_text = _pages[_pageIndex];
 	_ticksLeft = speechTicksForText(_text);
@@ -1037,8 +1045,13 @@ void Actor::Speech::tick() {
 	}
 
 	_text.clear();
-	while (!_cb.empty())
-		Log.runLater(_cb.pop());
+	while (!_cb.empty()) {
+		SpeechCallback cb = _cb.pop();
+		if (cb.hasMode)
+			Log.runLaterWithMode(cb.callback, cb.mode);
+		else
+			Log.runLater(cb.callback);
+	}
 }
 
 Common::Point Actor::getSpeechPosition() const {

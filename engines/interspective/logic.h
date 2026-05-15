@@ -188,8 +188,8 @@ public:
 
 	// Object-table runtime state. Mirrors the per-object 18-byte record
 	// (DOS GetObjectOffset, stride 0x12) field at +0 (room id). Op_7f writes
-	// it; Op_18 / Op_1b / Op_21 read it. Engine doesn't load the original
-	// table from iuc_main.dat yet — entries default to "present" when absent.
+	// it; Op_18 / Op_1b / Op_21 read it. Entries absent from the sparse map
+	// default to the DOS "unplaced" sentinel.
 	//
 	// Convention (matches DOS):
 	//   room == 0           — destroyed/missing (Op_18 fires)
@@ -794,6 +794,7 @@ public:
 	// Op_3d sets it; used by HandleEscDuringScript to dispatch ESC.
 	uint16 escBreakProc() const { return _escBreakProc; }
 	uint16 escBreakSrcPC() const { return _escBreakSrcPC; }
+	bool escBreakPending() const { return _escBreakPending; }
 	void setEscBreakPoint(uint16 proc, uint16 srcPC, const CodePointer &target) {
 		_escBreakProc = proc;
 		_escBreakSrcPC = srcPC;

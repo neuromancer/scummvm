@@ -142,7 +142,7 @@ public:
 
 	class Speech {
 	public:
-		Speech() : _actor(0) {}
+		Speech() : _pageIndex(0), _ticksLeft(0), _actor(0), _color(0), _image(0) {}
 		~Speech();
 		Speech(Actor *parent, const Common::String &text, uint16 maxLines);
 		// Variant for Op_40/0x42/0x44: use the target-speech paging mode
@@ -150,16 +150,24 @@ public:
 		Speech(Actor *parent, const Common::String &text, Common::Point overridePos, uint16 maxLines);
 		bool active() const { return !_text.empty(); }
 		const Common::String &text() const { return _text; }
-		void callWhenDone(const CodePointer &cp) { _cb.push(cp); }
+		void callWhenDone(const CodePointer &cp);
 		void paint(Graphics *g);
 		void tick();
 
 	private:
+		struct SpeechCallback {
+			SpeechCallback() : mode(0), hasMode(false) {}
+			SpeechCallback(const CodePointer &p, uint16 m, bool h)
+				: callback(p), mode(m), hasMode(h) {}
+			CodePointer callback;
+			uint16 mode;
+			bool hasMode;
+		};
 		void startPage(uint page);
 		Common::Array<Common::String> _pages;
 		uint _pageIndex;
 		Common::String _text;
-		Common::Queue<CodePointer> _cb;
+		Common::Queue<SpeechCallback> _cb;
 		uint16 _ticksLeft;
 		Actor *_actor;
 		Common::Point _anchor;
@@ -268,6 +276,7 @@ public:
 	bool isSpeaking() const;
 	const Common::String &speechText() const { return _speech.text(); }
 	void stopSpeaking() { _speech = Speech(); }
+	void setAttentionNeededLikeDos(bool v) { setDosField(0x65, v ? 1 : 0); _attentionNeeded = v; }
 	void callMeWhenSilent(const CodePointer &cp);
 	void say(const Common::String &text, uint16 maxLines = 0);
 	void sayAtPos(const Common::String &text, Common::Point pos, uint16 maxLines = 0);

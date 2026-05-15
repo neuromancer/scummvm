@@ -67,6 +67,8 @@ void Graphics::setEngine(Engine *engine) {
 	_speechColor = 235;
 	_speechBubble = false;
 	_speechBubbleMode = kSpeechBubbleType1;
+	_speechDoneCallbackMode = 0;
+	_speechDoneCallbackHasMode = false;
 	_fullscreen = false;
 }
 
@@ -176,13 +178,25 @@ void Graphics::paintBackdrop() {
 }
 
 void Graphics::paintSpeech() {
+	if (_engine->logic()->escBreakPending())
+		return;
+
 	if (_speech) {
 		if (!_speechFramesLeft) {
 			delete[] _speech;
 			_speech = 0;
 			CodePointer cb = _speechDoneCallback;
+			const uint16 cbMode = _speechDoneCallbackMode;
+			const bool cbHasMode = _speechDoneCallbackHasMode;
 			_speechDoneCallback.reset();
-			cb.run();
+			_speechDoneCallbackMode = 0;
+			_speechDoneCallbackHasMode = false;
+			if (!cb.isEmpty()) {
+				if (cbHasMode)
+					cb.run(static_cast<OpcodeMode>(cbMode));
+				else
+					cb.run();
+			}
 
 			// Pop the next queued utterance (if any) and start painting it.
 			// Run cb FIRST so any side-effects of the previous speech complete
@@ -197,6 +211,8 @@ void Graphics::paintSpeech() {
 				_speechBubble = next.bubble;
 				_speechBubbleMode = next.bubbleMode;
 				_speechDoneCallback = next.cb;
+				_speechDoneCallbackMode = next.cbMode;
+				_speechDoneCallbackHasMode = next.cbHasMode;
 				if (_speechBubble) {
 					Sprite bubble;
 					bubble._hotPoint = Common::Point(0, 0);
@@ -1018,6 +1034,8 @@ void Graphics::clearSpeech() {
 	_speechBubble = false;
 	_speechBubbleMode = kSpeechBubbleType1;
 	_speechDoneCallback.reset();
+	_speechDoneCallbackMode = 0;
+	_speechDoneCallbackHasMode = false;
 
 	while (!_speechQueue.empty()) {
 		SpeechEntry entry = _speechQueue.pop();
@@ -1030,6 +1048,7 @@ void Graphics::runWhenSaid(const CodePointer &cb) {
 	// current one if the queue is empty). DOS pattern is: emit speech →
 	// emit "wait until said" → callback fires when THAT speech finishes.
 	if (!_speechQueue.empty()) {
+		const uint16 mode = Log.opcodeMode();
 		// Patch the back of the queue. Common::Queue doesn't expose
 		// random access, so drain-and-rebuild — cheap given queue is
 		// almost always 1..3 entries.
@@ -1040,9 +1059,14 @@ void Graphics::runWhenSaid(const CodePointer &cb) {
 		if (!last.cb.isEmpty()) {
 			// Multiple runWhenSaid for the same entry — chain by
 			// running the old callback first via runLater.
-			Log.runLater(last.cb);
+			if (last.cbHasMode)
+				Log.runLaterWithMode(last.cb, last.cbMode);
+			else
+				Log.runLater(last.cb);
 		}
 		last.cb = cb;
+		last.cbMode = mode;
+		last.cbHasMode = true;
 		while (!tmp.empty())
 			_speechQueue.push(tmp.pop());
 		_speechQueue.push(last);
@@ -1053,9 +1077,14 @@ void Graphics::runWhenSaid(const CodePointer &cb) {
 		// Active speech already has a callback bound — chain via runLater
 		// so both fire (older one first, then this one as part of the
 		// post-speech callback chain).
-		Log.runLater(_speechDoneCallback);
+		if (_speechDoneCallbackHasMode)
+			Log.runLaterWithMode(_speechDoneCallback, _speechDoneCallbackMode);
+		else
+			Log.runLater(_speechDoneCallback);
 	}
 	_speechDoneCallback = cb;
+	_speechDoneCallbackMode = Log.opcodeMode();
+	_speechDoneCallbackHasMode = true;
 }
 
 } // End of namespace Interspective

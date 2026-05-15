@@ -2064,8 +2064,11 @@ void Logic::skipCutscene() {
 	const CodePointer target = _skipPoint;
 	const uint16 proc = _escBreakProc;
 	resetSpeechSlotsLikeDos();
-	if (proc < 0x0b)
-		resetQueuedRunMode(proc);
+	resetQueuedRunMode(proc);
+	if (Actor *protag = protagonist())
+		protag->setAttentionNeededLikeDos(true);
+	else
+		setPendingError(0x17);
 	clearEscBreakPoint();
 
 	debugC(2, kDebugLevelScript, ">>>running animation skip code");

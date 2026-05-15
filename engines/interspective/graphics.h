@@ -199,8 +199,12 @@ private:
 	bool _speechBubble;
 	SpeechBubbleMode _speechBubbleMode;
 	CodePointer _speechDoneCallback;
+	uint16 _speechDoneCallbackMode;
+	bool _speechDoneCallbackHasMode;
 	struct SpeechEntry {
-		SpeechEntry() : text(0), length(0), frames(0), x(0), y(0), color(235), bubble(false), bubbleMode(kSpeechBubbleType1) {}
+		SpeechEntry() : text(0), length(0), frames(0), x(0), y(0), color(235),
+		                bubble(false), bubbleMode(kSpeechBubbleType1),
+		                cbMode(0), cbHasMode(false) {}
 		byte *text;          // owned: caller transferred via say()
 		uint16 length;
 		uint16 frames;
@@ -209,6 +213,8 @@ private:
 		bool bubble;          // explicit speech-slot bubble vs raw subtitle text
 		SpeechBubbleMode bubbleMode;
 		CodePointer cb;
+		uint16 cbMode;
+		bool cbHasMode;
 	};
 	Common::Queue<SpeechEntry> _speechQueue;
 	bool _fullscreen;

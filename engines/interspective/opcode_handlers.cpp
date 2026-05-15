@@ -888,7 +888,7 @@ OPCODE(0x1f) {
 }
 
 OPCODE(0x24) {
-	// check nonzeroness
+	// DOS Op_24_IfArgNonZero @ 1000:3ae1.
 	debugC(2, kDebugLevelScript, "opcode 0x24: if (%s)", +a[0]);
 	if (a[0] == 0)
 		return kFail;
@@ -896,8 +896,7 @@ OPCODE(0x24) {
 }
 
 OPCODE(0x25) {
-	// check zeroness — opposite of 0x24.
-	// DOS handler at CS:0x3aef.
+	// DOS Op_25_IfArgZero @ 1000:3aef.
 	debugC(2, kDebugLevelScript, "opcode 0x25: if not (%s)", +a[0]);
 	if (a[0] != 0)
 		return kFail;
@@ -2634,7 +2633,7 @@ OPCODE(0x20) {
 }
 
 OPCODE(0x21) {
-	// DOS Op_21 (CS:0x3a75): SETS skip_counter when Object[a[0]].room != -1
+	// DOS Op_21_IfObjectUnplaced @ 1000:3a75: SETS skip_counter when Object[a[0]].room != -1
 	// (i.e. SKIPS the body when the object IS placed). Net semantics: the
 	// conditional body executes when the object is NOT placed (room == 0xffff).
 	const uint16 id = uint16(a[0]);
@@ -2699,7 +2698,7 @@ OPCODE(0x26) {
 	// DOS Op_26_RunCheckActorIfStepCursor4 @ 1000:382f:
 	//   if (step_pending && cursor == 4) {
 	//       AX = g_main_character_id;
-	//       CheckActorScripting(AX);    // CF=1 if actor.f6f==0 && actor.f6b==0
+	//       CheckActorScripting(AX);    // CF=1 if actor.f6f==0 && word f6b==0
 	//       if (CF == 1) JMP Op_41_SpeakAsMainNoTarget;
 	//   }
 	// Net: speak-as-main only if the main char is "idle" (both
@@ -2707,13 +2706,15 @@ OPCODE(0x26) {
 	if (!Log.stepPending() || Log.cursorMode() != 4)
 		return kThxBye;
 	Actor *protag = Log.protagonist();
-	if (!protag) return kThxBye;
+	if (!protag) {
+		Log.setPendingError(0x17);
+		return kThxBye;
+	}
 	Log.setImplicitActor(protag);
 	// CheckActorScripting: idle iff both field+0x6f (byte) and
-	// field+0x6b/0x6c (word) are zero.
+	// word field+0x6b are zero.
 	const bool idle = protag->dosField(0x6f) == 0
-		&& protag->dosField(0x6b) == 0
-		&& protag->dosField(0x6c) == 0;
+		&& protag->dosFieldWord(0x6b) == 0;
 	debugC(2, kDebugLevelScript, "opcode 0x26: step+cursor==4, protag idle=%d", int(idle));
 	if (!idle) return kThxBye;
 	// Tail-jump to Op_41: speak as main, no target.
