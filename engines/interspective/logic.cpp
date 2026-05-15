@@ -285,6 +285,7 @@ void Logic::setEngine(Engine *e) {
 	_nextRoom = 0;
 	_currentPlace = 0;
 	_defaultCursorMode = 0x10;
+	_cursorStepIndex = 0;
 	setCursorMode(_defaultCursorMode);
 	_actorFrameTable.clear();
 	_actorFrameCount = 0;
@@ -581,8 +582,18 @@ void Logic::doChangeRoom() {
 	}
 
 	_room = Common::SharedPtr<Room>(new Room(this));
+	const uint16 roomHandler = _blockProgram->roomHandler(_currentRoom);
+	if (roomHandler == 0) {
+		// DOS EnsureRoomLoaded scans the room table as 4-byte
+		// (room, handler) pairs and raises error 0x07 when the current
+		// location is not found in any block; it never interprets offset 0.
+		setPendingError(0x07);
+		warning("Interspective: room %u has no handler in block %u",
+			(uint)_currentRoom, (uint)_currentBlock);
+		return;
+	}
 	debugC(2, kDebugLevelScript, ">>>running room entry code for room %d", _currentRoom);
-	_blockInterpreter->run(_blockProgram->roomHandler(_currentRoom), kCodeNewRoom);
+	_blockInterpreter->run(roomHandler, kCodeNewRoom);
 	debugC(2, kDebugLevelScript, "<<<finished room entry code for room %d", _currentRoom);
 
 	// (iter-27's unconditional `_protagonist->forceRoom(_currentRoom)`
@@ -1198,11 +1209,14 @@ bool Logic::castTableRegister(uint16 id, int16 x, int16 y, Interpreter *interpre
 	for (uint i = 0; i < _castTable.size(); ++i) {
 		CastEntry &e = _castTable[i];
 		if (e.active == 0) {
+			if (e.animation)
+				removeAnimation(e.animation);
 			e.active = 1;            // DOS stores caller seg; we use 1 (non-zero = active).
 			e.id = id;
 			e.x = x;
 			e.y = y;
 			e.interpreter = interpreter;
+			e.animation = 0;
 			// Re-init the bookkeeping per DOS Op_c3. Ghidra's CastEntry
 			// layout is exact: raw[0]=bRect_w, raw[1]=bRect_h, and
 			// raw[2 + N]=p_data[N].
@@ -1212,6 +1226,10 @@ bool Logic::castTableRegister(uint16 id, int16 x, int16 y, Interpreter *interpre
 			e.raw[8] = 1;             // p_data[6] — frame counter
 			e.raw[10] = 0xff;         // p_data[8] — sprite index
 			// p_data[0/1/2/3/7/10/12] remain zero from the clear above.
+			if (interpreter) {
+				e.animation = new Animation(CodePointer(id, interpreter), Common::Point(x, y));
+				addAnimation(e.animation);
+			}
 			return true;
 		}
 	}
@@ -1282,9 +1300,12 @@ void Logic::castTableClear(uint16 id) {
 	for (uint i = 0; i < _castTable.size(); ++i) {
 		CastEntry &e = _castTable[i];
 		if (e.id == id) {
+			if (e.animation)
+				removeAnimation(e.animation);
 			e.active = 0;
 			e.id = 0;
 			e.interpreter = 0;
+			e.animation = 0;
 			// Intentionally preserve x, y, raw[] — DOS leaves them.
 			return;
 		}
@@ -1295,9 +1316,12 @@ void Logic::castTableClear(uint16 id) {
 // all 18 slots. Position/raw renderer bytes are left as-is, like Op_c5.
 void Logic::castTableClearAll() {
 	for (uint i = 0; i < _castTable.size(); ++i) {
+		if (_castTable[i].animation)
+			removeAnimation(_castTable[i].animation);
 		_castTable[i].active = 0;
 		_castTable[i].id = 0;
 		_castTable[i].interpreter = 0;
+		_castTable[i].animation = 0;
 	}
 }
 

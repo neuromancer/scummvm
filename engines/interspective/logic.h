@@ -70,6 +70,7 @@ public:
 			  _menuStashConsumed(false),
 			  _defaultCursorMode(0x10),
 			  _cursorMode(0x10),
+			  _cursorStepIndex(0),
 		  _dragTarget(0),
 		  _dragTargetMode40(0),
 		  _implicitActor(0),
@@ -306,8 +307,11 @@ public:
 	uint16 cursorMode() const { return _cursorMode; }
 	void setCursorMode(uint16 v) {
 		_cursorMode = v;
+		_cursorStepIndex = 0;
 		_stepPending = false;
 	}
+	uint16 cursorStepIndex() const { return _cursorStepIndex; }
+	void setCursorStepIndex(uint16 v) { _cursorStepIndex = v; }
 	uint16 dragTarget() const { return _dragTarget; }
 	void setDragTarget(uint16 v) { _dragTarget = v; }
 
@@ -437,7 +441,8 @@ public:
 		int16 x, y;          // wX, wY
 		uint8 raw[81];       // raw[0/1]=bRect_w/h, raw[2+n]=p_data[n]
 		Interpreter *interpreter; // C++ mirror of wActive's caller code segment
-		CastEntry() : active(0), id(0), x(0), y(0), interpreter(0) {
+		Animation *animation; // C++ runner for the cast-entry actor script
+		CastEntry() : active(0), id(0), x(0), y(0), interpreter(0), animation(0) {
 			for (uint8 i = 0; i < 81; ++i) raw[i] = 0;
 		}
 	};
@@ -1016,6 +1021,7 @@ private:
 	bool _menuStashConsumed;                     // uRam00023291 stash flag
 	uint16 _defaultCursorMode; // DS:0x667a — restored by ApplyChangeRoomTransition after Op_cc map/fullscreen gate
 	uint16 _cursorMode;     // DS:0x6678 — g_cursor_mode: 0x04=walk, 0x20=drag, 0x40/0x80=verb-style
+	uint16 _cursorStepIndex; // DS:0x6680 — g_drag_step_idx, also used by the software cursor sequence
 	uint16 _dragTarget;     // current drag-source object id
 	uint16 _dragTargetMode40; // DS:0x667e — written by Op_76, read by Op_0b
 	Actor *_implicitActor;  // SI register's last-resolved actor

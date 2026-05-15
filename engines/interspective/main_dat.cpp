@@ -84,8 +84,8 @@ enum Offsets {
 	kByteVars			= 0x3E,
 	kEntryPoint			= 0x42,
 	kCharacterMap		= 0x48,
-//	kCursors			= 0x54, another set
-	kCursors			= 0x58,
+	kCursors			= 0x54,
+	kMenuCursors		= 0x58,
 	kInterfaceImgIdx	= 0xB4,
 
 	kFrameTopLeftOffset = 0x76,
@@ -348,14 +348,18 @@ uint16 MainDat::getRoomScriptId(uint16 room) const {
 
 	byte *programInfo = _programsMap;
 	for (int i = 1; i <= _programsCount; i++) {
+		// DOS LoadRoomFromProgDat @ 1000:1ad9 reads one resource-set word
+		// before scanning the room ids, and advances past every word it
+		// reads, including the 0xffff terminator.
 		programInfo += 2;
 
-		uint16 this_room;
-		while ((this_room = READ_LE_UINT16(programInfo)) != 0xffff) {
+		for (;;) {
+			const uint16 this_room = READ_LE_UINT16(programInfo);
+			programInfo += 2;
+			if (this_room == 0xffff)
+				break;
 			if (this_room == room)
 				return i;
-			else
-				programInfo += 2;
 		}
 	}
 
@@ -386,6 +390,41 @@ uint16 MainDat::getCursorSpriteId() const {
 	uint16 sprite = 0x6c;
 	debugC(1, kDebugLevelGraphics | kDebugLevelFiles, "loading cursor STUB, sprite %d", sprite);
 	return sprite;
+}
+
+bool MainDat::nextCursorSprite(uint16 mode, uint16 &stepIndex, bool &stepPending, uint16 &spriteId) const {
+	byte *table = _data + READ_LE_UINT16(_footer + kCursors);
+
+	for (;;) {
+		const int16 tableMode = int16(READ_LE_UINT16(table));
+		table += 2;
+		if (tableMode == -2)
+			return false;
+
+		if (uint16(tableMode) == mode)
+			break;
+
+		while (int16(READ_LE_UINT16(table)) != 0)
+			table += 2;
+		table += 2;
+	}
+
+	for (;;) {
+		const int16 frame = int16(READ_LE_UINT16(table + stepIndex * 2));
+		if (frame == -1) {
+			if (stepPending) {
+				++stepIndex;
+				continue;
+			}
+		} else if (frame != 0) {
+			spriteId = uint16(frame);
+			++stepIndex;
+			return true;
+		}
+
+		stepIndex = 0;
+		stepPending = false;
+	}
 }
 
 bool MainDat::cycleCursorOverlayAnimation(uint16 maskBit, uint16 &spriteId, uint16 &x, uint16 &y) {

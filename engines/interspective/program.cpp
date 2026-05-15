@@ -102,11 +102,11 @@ uint16 Program::roomHandler(uint16 room) {
 
 	uint16 r;
 	while ((r = READ_LE_UINT16(index)) != 0xffff) {
-		index += 2;
+		const uint16 handler = READ_LE_UINT16(index + 2);
 		if (r == room) {
-			uint16 offset = READ_LE_UINT16(index);
-			return offset;
+			return handler;
 		}
+		index += 4;
 	}
 
 	return 0;

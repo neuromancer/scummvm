@@ -134,15 +134,39 @@ void Graphics::paintInterface() {
 
 void Graphics::paintCursorSprite() {
 	Logic *logic = _engine->logic();
-	if (!logic || logic->cursorMode() != 0x20 || logic->dragTarget() == 0)
+	if (!logic)
 		return;
 
-	const uint16 id = logic->dragTarget();
-	if (_resources->mainDat() && id > _resources->mainDat()->personsCount())
+	if (logic->cursorMode() == 0x20) {
+		if (logic->noStep() || logic->dragTarget() == 0)
+			return;
+
+		const uint16 id = logic->dragTarget();
+		if (_resources->mainDat() && id > _resources->mainDat()->personsCount())
+			return;
+
+		Common::ScopedPtr<Sprite> sprite(_resources->loadSprite(id));
+		paint(sprite.get(), cursorPosition(), kPaintPositionIsTop);
+		return;
+	}
+
+	if (!logic->stepPending() && logic->noStep())
 		return;
 
-	Common::ScopedPtr<Sprite> sprite(_resources->loadSprite(id));
-	paint(sprite.get(), cursorPosition(), kPaintPositionIsTop);
+	uint16 stepIndex = logic->cursorStepIndex();
+	bool stepPending = logic->stepPending();
+	uint16 spriteId = 0xffff;
+	if (!_resources->mainDat()->nextCursorSprite(logic->cursorMode(), stepIndex, stepPending, spriteId)) {
+		logic->setPendingError(0x26);
+		return;
+	}
+
+	logic->setCursorStepIndex(stepIndex);
+	if (stepPending != logic->stepPending())
+		logic->setStepPending(stepPending);
+
+	Common::ScopedPtr<Sprite> sprite(_resources->loadSprite(spriteId));
+	paint(sprite.get(), cursorPosition());
 }
 
 void Graphics::setBackdrop(uint16 id) {

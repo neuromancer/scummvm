@@ -470,6 +470,8 @@ static bool castEntryActive(uint16 id) {
 		const Logic::CastEntry &entry = castTable[i];
 		if (entry.active == 0 || entry.id != id)
 			continue;
+		if (entry.animation)
+			return entry.animation->scriptActive();
 		if (READ_LE_UINT16(entry.raw + 2) == 0 && entry.interpreter) {
 			const uint16 scriptOffset = uint16(READ_LE_UINT16(entry.raw + 4) + id);
 			byte *script = entry.interpreter->rawCode(scriptOffset);

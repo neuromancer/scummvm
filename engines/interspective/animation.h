@@ -64,6 +64,7 @@ public:
 	virtual void setAnimation(uint16 anim) { _offset = anim; }
 
 	virtual bool isActor() const { return false; }
+	bool scriptActive() const { return _base != 0; }
 	uint16 mainSpriteId() const { return _mainSpriteId; }
 	int8 zIndex() const { return _zIndex; }
 
