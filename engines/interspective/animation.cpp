@@ -242,6 +242,8 @@ void Animation::paint(Graphics *g) {
 
 	for (Common::List<Sprite *>::iterator it = _sprites.begin(); it != _sprites.end(); ++it)
 		(*it)->paint(g);
+
+	paintAnimationMoveSlotsLikeDos(g);
 }
 
 void Animation::Sprite::paint(Graphics *g) const {
@@ -338,9 +340,6 @@ void Animation::clearAnimationMoveSlotsLikeDos() {
 	for (uint i = 0; i < 8; ++i) {
 		const uint8 off = uint8(0x19 + i * 8);
 		setAnimationDosFieldWord(off, 0xffff);
-		setAnimationDosFieldWord(uint8(off + 2), 0);
-		setAnimationDosFieldWord(uint8(off + 4), 0);
-		setAnimationDosFieldWord(uint8(off + 6), 0);
 	}
 }
 
@@ -356,6 +355,27 @@ bool Animation::queueAnimationMoveSlotLikeDos(uint16 arg1, uint16 arg2, uint16 a
 	setAnimationDosFieldWord(uint8(off + 4), arg2);
 	setAnimationDosFieldWord(uint8(off + 6), mode);
 	return true;
+}
+
+void Animation::paintMoveSlotLikeDos(Graphics *g, uint16 spriteId, uint16 x, uint16 y, uint8 mode, const Common::Point &base) const {
+	if (spriteId == 0xffff)
+		return;
+
+	Common::Point pos;
+	if (mode == 0)
+		pos = Common::Point(int16(x), int16(y));
+	else
+		pos = Common::Point(base.x + int16(x), base.y + int16(y));
+
+	Common::SharedPtr<Interspective::Sprite> sprite(_resources->loadSprite(spriteId));
+	g->paint(sprite.get(), pos);
+}
+
+void Animation::paintAnimationMoveSlotsLikeDos(Graphics *g) const {
+	for (uint i = 0; i < _animationMoveSlots.size(); ++i) {
+		const AnimationMoveSlot &slot = _animationMoveSlots[i];
+		paintMoveSlotLikeDos(g, slot.a, slot.b, slot.c, slot.mode, _position);
+	}
 }
 
 Animation::Status Animation::op(byte opcode) {

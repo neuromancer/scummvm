@@ -111,18 +111,7 @@ void Actor::setAnimation(uint16 offset) {
 	_base = base - baseOff + offset;
 	_baseOffset = offset;
 	_offset = 0;
-	_debugInvalid = false;
-	_confused = _attentionNeeded = false;
-	clearMainSprite();
-	_interval = 1;
-	_counter = _ticksLeft = 0;
-	_nextDirection = kDirNone;
-	// DOS SetActorAnimation @ 1000:6336 clears fields +0x64, +0x65,
-	// and +0x6f. Leaving +0x65 set makes CheckActorAnimReady report
-	// ready while a queued walk still has +0x6b frames left.
-	setDosField(0x64, 0);
-	setDosField(0x65, 0);
-	setDosField(0x6f, 0);
+	resetActorStateFieldsLikeDos();
 }
 
 void Actor::setAnimation(const CodePointer &anim) {
@@ -130,15 +119,28 @@ void Actor::setAnimation(const CodePointer &anim) {
 	_base = anim.code();
 	_baseOffset = anim.offset();
 	_offset = 0;
+	resetActorStateFieldsLikeDos();
+}
+
+void Actor::resetActorStateFieldsLikeDos() {
+	// InitActorState @ 1000:6336 preserves actor x/y, installs the new
+	// script pointer, then resets the per-script animation fields.
 	_debugInvalid = false;
 	_confused = _attentionNeeded = false;
 	clearMainSprite();
 	_interval = 1;
-	_counter = _ticksLeft = 0;
+	_counter = 0;
+	_ticksLeft = 0;
+	_explicitFrameDelay = false;
 	_nextDirection = kDirNone;
-	// DOS SetActorAnimation @ 1000:6336 clears fields +0x64, +0x65,
-	// and +0x6f. Leaving +0x65 set makes CheckActorAnimReady report
-	// ready while a queued walk still has +0x6b frames left.
+	setDosFieldWord(0x08, 0xffff);
+	setDosFieldWord(0x0a, 0);
+	setDosFieldWord(0x0c, 0);
+	setDosField(0x10, 1);
+	setDosField(0x11, 0);
+	setDosField(0x14, 1);
+	setDosField(0x15, 1);
+	setDosField(0x16, 1);
 	setDosField(0x64, 0);
 	setDosField(0x65, 0);
 	setDosField(0x6f, 0);
@@ -326,6 +328,12 @@ void Actor::decrementTicksLeftLikeDos() {
 	// on every active actor update after the optional script dispatch.
 	_ticksLeft = uint16(_ticksLeft - 1);
 	setDosFieldWord(0x0a, _ticksLeft);
+	if (_ticksLeft == 0 && _base && int8(*(_base + _offset)) == -2) {
+		// DOS 1000:64ed..64f3 marks field +0x64 when the next actor
+		// opcode is ActorOp_02_UnregisterAndEnd (0xfe).
+		setDosField(0x64, 1);
+		_confused = true;
+	}
 }
 
 static bool zoneContainsPoint(uint16 left, uint16 top, uint16 right, uint16 bottom, const Common::Point &p) {
@@ -787,6 +795,9 @@ void Actor::animate() {
 		if (turnTo(kDirDown))
 			return;
 		_direction = kDirDown;
+		setDosField(0x63, kDirDown);
+		setAnimation(_puppeteer.offset());
+		return;
 	}
 /*	} else {
 		if (turnTo(kDirUp))
@@ -865,10 +876,12 @@ void Actor::readHeader(const byte *code) {
 	setActorCallback(READ_LE_UINT16(code + 0x5d), READ_LE_UINT16(code + 0x5f));
 	static const uint8 sparseFields[] = {
 		0x0e, 0x0f, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16,
-		0x17, 0x18, 0x63, 0x65, 0x66, 0x68, 0x6b, 0x6c, 0x6d, 0x6e, 0x70
+		0x17, 0x18, 0x63, 0x64, 0x65, 0x66, 0x68, 0x6b, 0x6c, 0x6d, 0x6e, 0x70
 	};
 	for (uint i = 0; i < ARRAYSIZE(sparseFields); ++i)
 		setDosField(sparseFields[i], code[sparseFields[i]]);
+	_confused = dosField(0x64) != 0;
+	_attentionNeeded = dosField(0x65) != 0;
 
 	debugC(3, kDebugLevelFiles, "loading %s: interv %d ticks %u z%d pos%d:%d code %d offset %d sprite %d room %d", _debugInfo, _interval, _ticksLeft, _zIndex, _position.x, _position.y, baseOff, _offset, sprite, _room);
 
@@ -1096,6 +1109,11 @@ void Actor::paint(Graphics *g) {
 		return;
 
 	Animation::paint(g);
+
+	for (uint i = 0; i < _moveSlots.size(); ++i) {
+		const MoveSlot &slot = _moveSlots[i];
+		paintMoveSlotLikeDos(g, slot.a, slot.b, slot.c, slot.mode, _position);
+	}
 
 	uint8 width = 0;
 	uint8 height = 0;

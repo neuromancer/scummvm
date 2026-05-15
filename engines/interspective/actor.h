@@ -306,6 +306,7 @@ private:
 
 	void animate();
 	void updateZoneAtPointLikeDos();
+	void resetActorStateFieldsLikeDos();
 	bool turnTo(Direction);
 	bool nextFrame();
 	void copyIntervalToTicks();
@@ -363,11 +364,21 @@ public:
 		// the opcode handler can set g_pendingErrorCode = 0xc.
 		if (_moveSlots.size() >= 8)
 			return false;
+		const uint slotIndex = _moveSlots.size();
 		_moveSlots.push_back(slot);
+		const uint8 off = uint8(0x19 + slotIndex * 8);
+		setDosFieldWord(off, slot.a);
+		setDosFieldWord(uint8(off + 2), slot.b);
+		setDosFieldWord(uint8(off + 4), slot.c);
+		setDosFieldWord(uint8(off + 6), slot.mode);
 		return true;
 	}
 	const Common::Array<MoveSlot> &moveSlots() const { return _moveSlots; }
-	void clearMoveSlots() { _moveSlots.clear(); }
+	void clearMoveSlots() {
+		_moveSlots.clear();
+		for (uint i = 0; i < 8; ++i)
+			setDosFieldWord(uint8(0x19 + i * 8), 0xffff);
+	}
 
 	// DOS callback (field+0x5d/0x5f). Set by Op_21/Op_22, cleared by Op_23.
 	// Segment 0xffff = no callback; DOS leaves the offset word untouched

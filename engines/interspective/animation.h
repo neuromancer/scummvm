@@ -94,6 +94,8 @@ protected:
 	void copyIntervalToTicksLikeDos();
 	void clearAnimationMoveSlotsLikeDos();
 	bool queueAnimationMoveSlotLikeDos(uint16 arg1, uint16 arg2, uint16 arg3, uint8 mode);
+	void paintMoveSlotLikeDos(Graphics *g, uint16 sprite, uint16 x, uint16 y, uint8 mode, const Common::Point &base) const;
+	void paintAnimationMoveSlotsLikeDos(Graphics *g) const;
 
 	void setMainSprite(uint16 sprite);
 	void clearMainSprite();

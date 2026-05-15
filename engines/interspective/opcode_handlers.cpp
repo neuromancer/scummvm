@@ -287,7 +287,7 @@ static void placeActorInRoomWithPositionLikeDos(Actor *actor, uint16 room, uint8
 static bool checkActorAnimReadyModeled(Actor *actor) {
 	// DOS CheckActorAnimReady @ 1000:6415 returns carry set when the
 	// actor is ready. Actor::animReadyLikeDos mirrors the field-level
-	// predicate, including +0x65/+0x6b/+0x69/+0x6f.
+	// predicate, including +0x64/+0x65/+0x6b/+0x69/+0x6f.
 	return !actor || actor->animReadyLikeDos();
 }
 
