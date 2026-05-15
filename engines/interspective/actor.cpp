@@ -469,9 +469,9 @@ void Actor::callMeWhenStill(const CodePointer &cp) {
 }
 
 void Actor::setFrame(uint16 frame) {
-	_frame = frame;
+	setRawFrame(frame);
 	Frame f(Log.room()->getFrame(frame));
-	_position = f.position();
+	setRawPosition(f.position());
 	debugC(5, kDebugLevelActor, "actor set to frame %d, position %d:%d", f.index(), _position.x, _position.y);
 }
 
@@ -688,7 +688,42 @@ bool Actor::turnTo(Direction dir) {
 	if (dir == _direction)
 		return false;
 
-	Direction d = _direction>>dir;
+	Direction d = _direction >> dir;
+	if (_direction >= kDirUp && _direction <= kDirUpLeft &&
+			dir >= kDirUp && dir <= kDirUpLeft) {
+		// DOS PickActorAnimSet @ 1000:6f7e steps one compass slot toward
+		// the requested direction. For exact 180-degree turns it uses field
+		// +0x66, set by LookupActorAndStartPath from target-vs-current X, to
+		// choose the rotation side.
+		int8 delta = int8(dir) - int8(_direction);
+		uint8 tie = dosField(0x66);
+		if (_direction == kDirUp)
+			tie ^= 1;
+
+		bool increment;
+		if (delta < 0) {
+			if (delta < -4)
+				increment = true;
+			else if (delta != -4)
+				increment = false;
+			else
+				increment = tie != 0;
+		} else {
+			if (delta > 4)
+				increment = false;
+			else if (delta != 4)
+				increment = true;
+			else
+				increment = tie != 0;
+		}
+
+		int step = int(_direction) + (increment ? 1 : -1);
+		if (step < kDirUp)
+			step = kDirUpLeft;
+		if (step > kDirUpLeft)
+			step = kDirUp;
+		d = Direction(step);
+	}
 	debugC(4, kDebugLevelActor, "turning %d -> %d >> %d", _direction, d, dir);
 	setAnimation(_puppeteer.turnAnimator(d));
 	return true;
@@ -698,17 +733,21 @@ void Actor::animate() {
 	unless (_puppeteer.valid())
 		return;
 
-	unless (_attentionNeeded || _confused || !_framequeue.empty()/* || _timedOut*/)
+	bool queuedWalkReady = false;
+	if (!_framequeue.empty() && Log.room()) {
+		const Frame current = Log.room()->getFrame(_frame);
+		queuedWalkReady = current.position() == _position;
+	}
+	unless (_attentionNeeded || _confused || queuedWalkReady/* || _timedOut*/)
 		return;
 
-	// Don't switch to the next walk frame while the current animator is still
-	// in its inter-frame wait. The move animator sets _attentionNeeded via
-	// actor opcode 0x24 and ends with kFrameDone, queueing _ticksLeft =
-	// _interval. setAnimation() in nextFrame()/turnTo()/etc. resets
-	// _ticksLeft to 0, so consuming attention before the wait elapses
-	// effectively plays each walk frame for 1 tick instead of _interval+1
-	// ticks — visibly too fast. Let Animation::tick decrement _ticksLeft to 0
-	// first; only then do we advance.
+	// DOS UpdateActors @ 1000:6d3a advances queued walking through the
+	// actor state bytes (+0x65/+0x64), not merely because field +0x6b has
+	// queued path entries. While an actor script is moving between two
+	// room frames, let its pixel-delta sequence reach the current logical
+	// frame coordinate before selecting the next path node; otherwise the
+	// queue restarts the move animator after its first delta and consumes
+	// a 5-pixel frame edge after walking only 1 pixel.
 	if (_ticksLeft)
 		return;
 
@@ -1507,7 +1546,7 @@ OPCODE(0x24) {
 	byte v = embeddedByte();
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x24: SetField65 = %d (C++ also sets _attentionNeeded for walking) [DOS Op_25]", v);
 	setDosField(0x65, v);
-	_attentionNeeded = true;
+	_attentionNeeded = v != 0;
 	return kOk;
 }
 
@@ -1542,8 +1581,7 @@ OPCODE(0x02) {
 	const uint16 x = shift();
 	const uint16 y = shift();
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x02: SetPosition (%u,%u) [DOS Op_03]", x, y);
-	_position.x = (int16)x;
-	_position.y = (int16)y;
+	setRawPosition(Common::Point((int16)x, (int16)y));
 	return kOk;
 }
 
@@ -1601,8 +1639,7 @@ OPCODE(0x05) {
 	const uint16 target = shift();
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x05: WalkRelativeWithFrame d=(%d,%d) target=%u [DOS Op_06]",
 		dx, dy, target);
-	_position.x += dx;
-	_position.y += dy;
+	setRawPosition(Common::Point(_position.x + dx, _position.y + dy));
 	setMainSprite(target);  // sprite ID write (DOS field+0x8 analog)
 	copyIntervalToTicks();   // DOS field+0xa = zero-extended field+0x10.
 	return kFrameDone;
@@ -1659,8 +1696,7 @@ OPCODE(0x08) {
 	const int8 dx = shiftByte();
 	const int8 dy = shiftByte();
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x08: WalkRelative d=(%d,%d) [DOS Op_09]", dx, dy);
-	_position.x += dx;
-	_position.y += dy;
+	setRawPosition(Common::Point(_position.x + dx, _position.y + dy));
 	copyIntervalToTicks();
 	return kFrameDone;
 }
@@ -1674,8 +1710,7 @@ OPCODE(0x09) {
 	const uint16 x = shift();
 	const uint16 y = shift();
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x09: WalkAbsolute (%u,%u) [DOS Op_0a]", x, y);
-	_position.x = (int16)x;
-	_position.y = (int16)y;
+	setRawPosition(Common::Point((int16)x, (int16)y));
 	copyIntervalToTicks();
 	return kFrameDone;
 }
@@ -1697,8 +1732,7 @@ OPCODE(0x0a) {
 	const uint16 target = shift();
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x0a: WalkAbsoluteWithFrame (%u,%u) target=%u [DOS Op_0b]",
 		x, y, target);
-	_position.x = (int16)x;
-	_position.y = (int16)y;
+	setRawPosition(Common::Point((int16)x, (int16)y));
 	setMainSprite(target);
 	copyIntervalToTicks();
 	return kFrameDone;

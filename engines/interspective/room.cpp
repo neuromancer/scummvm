@@ -62,16 +62,20 @@ uint16 Room::frameCount() const {
 
 uint16 Room::nearestFrameTo(int16 x, int16 y) const {
 	uint16 best = 0;
-	int32 bestDistSq = 0x7fffffff;
+	int32 bestDistance = 0xfff;
 	for (uint16 i = 0; i < _logic->actorFrameCount(); ++i) {
 		Common::Point p = _logic->actorFrame(uint16(i + 1)).position();
-		if (p.x == 999)
-			continue;  // sentinel for invalidated
-		int32 dx = int32(p.x) - int32(x);
-		int32 dy = int32(p.y) - int32(y);
-		int32 d2 = dx * dx + dy * dy;
-		if (d2 < bestDistSq) {
-			bestDistSq = d2;
+		// DOS FindNearestExitToPoint @ 1000:72a2 uses Manhattan distance,
+		// not squared Euclidean distance, and keeps the first frame on ties.
+		int32 dx = int32(x) - int32(p.x);
+		int32 dy = int32(y) - int32(p.y);
+		if (dx < 0)
+			dx = -dx;
+		if (dy < 0)
+			dy = -dy;
+		const int32 distance = dx + dy;
+		if (distance < bestDistance) {
+			bestDistance = distance;
 			best = uint16(i + 1);
 		}
 	}
