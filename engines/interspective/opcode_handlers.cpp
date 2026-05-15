@@ -1770,7 +1770,8 @@ OPCODE(0x7c) {
 }
 
 OPCODE(0x95) {
-	// LOCK control: disallow user clicks/cursor movement.
+	// LOCK control: suppresses automatic step/cursor idle drawing, but DOS
+	// HandleClick itself does not gate on g_flag_no_step.
 	// DOS handler at CS:0x4a4c sets g_flag_no_step (DS:0x6747) = 1.
 	debugC(1, kDebugLevelScript, "opcode 0x95: lock control");
 	Log.setNoStep(true);

@@ -50,7 +50,7 @@ Clickable::~Clickable() {
 
 void EventManager::clicked(Common::Point pos) {
 	Logic &logic = Logic::instance();
-	if (!logic.roomActive() || logic.noStep())
+	if (!logic.roomActive() || logic.canSkipCutscene())
 		return;
 
 	Clickable *handler = 0;

@@ -137,6 +137,9 @@ void Graphics::paintCursorSprite() {
 	if (!logic)
 		return;
 
+	if (logic->canSkipCutscene())
+		return;
+
 	if (logic->cursorMode() == 0x20) {
 		if (logic->noStep() || logic->dragTarget() == 0)
 			return;
