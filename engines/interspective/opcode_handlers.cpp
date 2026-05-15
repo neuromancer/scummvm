@@ -492,8 +492,25 @@ static bool showFormattedModalTextAndWait(const Logic::FormattedBubble &fb,
 		const CodePointer &next) {
 	if (fb.text.empty())
 		return false;
-	const byte *out = reinterpret_cast<const byte *>(fb.text.c_str());
-	const uint16 length = uint16(fb.text.size());
+	// The DOS formatted buffer now includes bubble-row centering records
+	// emitted by EmitTextRowTerminator. This helper is only the C++ modal
+	// stand-in that routes through Graphics::paintText, whose 0x0c control
+	// has different no-width-byte semantics, so remove the synthetic row
+	// records before passing it there.
+	Common::String visible;
+	bool atRowStart = true;
+	for (uint i = 0; i < fb.text.size(); ++i) {
+		const byte ch = byte(fb.text[i]);
+		if (atRowStart && ch == kStringCenter && i + 1 < fb.text.size()) {
+			++i;
+			atRowStart = false;
+			continue;
+		}
+		visible += char(ch);
+		atRowStart = (ch == '\r' || ch == '\n');
+	}
+	const byte *out = reinterpret_cast<const byte *>(visible.c_str());
+	const uint16 length = uint16(visible.size());
 	Graf.say(out, length, MAX<uint16>(1, fb.totalHeight));
 	Graf.runWhenSaid(next);
 	return true;

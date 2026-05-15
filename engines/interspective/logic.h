@@ -503,7 +503,8 @@ public:
 
 	// FormatBubbleText mirrors DOS FormatBubbleText_FullPath @ 1000:9333.
 	// Processes a markup-encoded string, copies the DOS formatted text
-	// buffer (including render-control bytes), and returns dimensions.
+	// buffer (including render-control bytes and synthetic row-center
+	// records), and returns dimensions.
 	//
 	// Markup characters (DOS-faithful):
 	//   0x00 — terminator (end of input).
@@ -517,6 +518,8 @@ public:
 	//          if game-state bit is FALSE, skip following block to STX.
 	//   0x0b — conditional skip inverse (2-byte param); skip if TRUE.
 	//   0x0d — forced row terminator.
+	//   0x0c — synthetic row-center marker emitted as
+	//          (0x0c, row_width_byte) before each rendered row.
 	//   0x02 — conditional-block terminator, consumed but not copied.
 	//   0x20 / 0x2d — word-break increment word count.
 	//   else — emit char via the char sprite (LookupCharSprite analog).

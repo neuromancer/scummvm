@@ -1307,10 +1307,10 @@ void Logic::castTableClearAll() {
 //   pending_error 0x11.
 //
 // Markup byte semantics (per DOS decompile + line-by-line trace):
-//   0x00 → terminator. Emit final row, return total_height.
+//   0x00 → terminator. Patch final row width, return total_height.
 //   0x20 (' ') → emit + word_count++.
 //   0x2d ('-') → emit + word_count++.
-//   0x0d → emit row terminator (forced newline).
+//   0x0d → emit forced newline, patch row width, start next centered row.
 //   0x05 → inline literal until next 0x00; each char advances width;
 //          spaces inside increment word_count. Then 2 trailing bytes
 //          (DOS bookkeeping word) are copied into the buffer.
@@ -1324,10 +1324,15 @@ void Logic::castTableClearAll() {
 //   0x02 → STX marker: consumed, not copied to the formatted buffer.
 //   else → emit via LookupCharSprite (= advance width by char's sprite width).
 //
-// C++ port: produces the DOS formatted text buffer, preserving the
-// rendering markup bytes that Graphics::paintText consumes, plus the
-// dimensions DOS computes. Per-glyph widths come from Graphics::getGlyphWidth
-// (the C++ analog of DOS LookupCharSprite).
+// EmitTextRowTerminator @ 1000:94b7 writes a 0x0c center marker at the
+// start of each rendered row and later patches the following byte with the
+// row width held in BL. RenderSpeechBubbleText consumes that pair to center
+// each bubble row.
+//
+// C++ port: produces the DOS formatted text buffer, preserving the rendering
+// markup bytes and synthetic row-centering records, plus the dimensions DOS
+// computes. Per-glyph widths come from Graphics::getGlyphWidth (the C++
+// analog of DOS LookupCharSprite).
 Logic::FormattedBubble Logic::formatBubbleText(const byte *src) const {
 	FormattedBubble out;
 	out.lineCount = 1;          // DOS DAT_1000_94b5 init = 1
@@ -1344,7 +1349,24 @@ Logic::FormattedBubble Logic::formatBubbleText(const byte *src) const {
 	Graphics *g = (_engine ? _engine->graphics() : 0);
 	const byte *p = src;
 	int currentWidth = 0;
+	uint rowWidthPatch = 0;
+	bool rowFinished = false;
 	uint16 remaining = 0x1f4;   // DOS AX countdown in FormatBubbleText_Inner
+
+	auto startTextRow = [&]() {
+		out.text += char(kStringCenter);
+		out.text += char(0);
+		rowWidthPatch = out.text.size() - 1;
+		rowFinished = false;
+	};
+
+	auto finishTextRow = [&]() {
+		out.text.setChar(char(uint8(currentWidth)), rowWidthPatch);
+		if (currentWidth > out.maxLineWidth)
+			out.maxLineWidth = currentWidth;
+		currentWidth = 0;
+		rowFinished = true;
+	};
 
 	// Returns DOS LookupCharSprite-equivalent width. Falls back to a
 	// fixed 6 px width if Graphics isn't available (early-init path) —
@@ -1393,10 +1415,12 @@ Logic::FormattedBubble Logic::formatBubbleText(const byte *src) const {
 		return true;
 	};
 
+	startTextRow();
 	while (true) {
 		const byte b = *p++;
 		if (b == 0x00) {
-			// Terminator. Emit final row → return.
+			// Terminator. Patch final row width → return.
+			finishTextRow();
 			break;
 		}
 		if (b == 0x20 || b == 0x2d) {
@@ -1411,10 +1435,9 @@ Logic::FormattedBubble Logic::formatBubbleText(const byte *src) const {
 		if (b == 0x0d) {
 			// Forced newline.
 			out.text += char(b);
-			if (currentWidth > out.maxLineWidth)
-				out.maxLineWidth = currentWidth;
-			currentWidth = 0;
+			finishTextRow();
 			++out.rowCount;
+			startTextRow();
 			if (!tickInputCountdown())
 				break;
 			continue;
@@ -1497,8 +1520,8 @@ Logic::FormattedBubble Logic::formatBubbleText(const byte *src) const {
 			break;
 	}
 
-	if (currentWidth > out.maxLineWidth)
-		out.maxLineWidth = currentWidth;
+	if (!rowFinished)
+		finishTextRow();
 
 	// DOS height formula: word_count * line_height + 2; minimum 2*line_height + 2.
 	out.totalHeight = uint16(out.lineCount) * lineHeight + 2;
