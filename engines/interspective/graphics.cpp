@@ -729,6 +729,13 @@ void Graphics::setCursorPosition(Common::Point pos) {
 	_cursorPosition.y = CLIP<int16>(pos.y, 0, 199);
 }
 
+void Graphics::syncCursorVisibility() {
+	// DOS never enables the INT 33h hardware cursor. Its pointer is a
+	// software sprite drawn by DrawCursorSprite @ 1000:ba8d, so keep the
+	// ScummVM host cursor hidden even when room restart resets no-step.
+	hideCursor();
+}
+
 void Graphics::updateScreen() {
 	_system->copyRectToScreen(reinterpret_cast<byte *>(_framebuffer->getPixels()), _framebuffer->pitch, 0, 0, 320, 200);
 
@@ -747,15 +754,20 @@ void Graphics::updateScreen() {
 }
 
 void Graphics::showCursor() {
+	if (_hostCursorShown)
+		return;
+
 	Sprite *cursor = _resources->getCursor();
 	assert(cursor->pitch == cursor->w);
 	::Graphics::CursorManager &m = ::Graphics::CursorManager::instance();
 	m.replaceCursor(reinterpret_cast<byte *>(cursor->getPixels()), cursor->w, cursor->h, cursor->_hotPoint.x, cursor->_hotPoint.y, 0);
 	m.showMouse(true);
+	_hostCursorShown = true;
 }
 
 void Graphics::hideCursor() {
 	::Graphics::CursorManager::instance().showMouse(false);
+	_hostCursorShown = false;
 }
 
 void Graphics::paintRect(const Common::Rect &r, byte colour) {

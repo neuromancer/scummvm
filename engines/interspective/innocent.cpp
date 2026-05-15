@@ -182,11 +182,12 @@ Common::Error Engine::run() {
 
 	_resources->loadActors();
 	_logic->initCode();
-	_graphics->showCursor();
+	_graphics->hideCursor();
 	while(!shouldQuit()) {
 		_logic->callAnimations();
 		_graphics->paint();
 		_logic->tick();
+		_graphics->syncCursorVisibility();
 //		_graphics->paintAnimations();
 		_graphics->updateScreen();
 		_debugger->onFrame();
