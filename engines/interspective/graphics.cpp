@@ -376,18 +376,19 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const
 	int left = pos.x, top = pos.y;
 	debugC(1, kDebugLevelGraphics, "painting speech bubble \"%s\" at %d:%d", string, left, top);
 
-	uint16 lines;
-	Common::Rect textSize = textMetrics(string, &lines);
-	const int textWidth = textSize.width();
-	const int widthExtra = MAX<int>(4, textWidth > 39 ? textWidth - 39 : 4);
+	Common::String normalized;
+	for (const byte *p = string; p && *p; ++p)
+		normalized += char(*p == '\n' ? '\r' : *p);
+	Logic::FormattedBubble metrics = Log.formatBubbleText(reinterpret_cast<const byte *>(normalized.c_str()));
+	const uint16 rows = MAX<uint16>(1, metrics.rowCount);
+	const uint16 widthExtra = metrics.maxLineWidth;
 
 	Sprite * const *bubbles = _resources->bubbles();
 
 	uint8 bubble_indices[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8 };
 
 	uint8 wadj = 0;
-	const int height = (lines >= 3) ? (lines * kLineHeight + 16) : 60;
-	const int anchorWidth = widthExtra + 0x45;
+	const int height = (rows >= 3) ? (rows * kLineHeight + 16) : 60;
 
 	enum DosBubbleVariant {
 		kDosRenderSpeechBubble,
@@ -401,10 +402,16 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const
 		variant = (top < 0x35) ? kDosRenderSpeechBubbleTopLeft : kDosRenderSpeechBubble;
 	} else if (mode == kSpeechBubbleType2) {
 		variant = (top < 0x35) ? kDosRenderSpeechBubbleTopRight : kDosRenderSpeechBubbleBottomRight;
-	} else if (left < 0xa0) {
-		variant = (top + 4 > 0x34) ? kDosRenderSpeechBubbleBottomRight : kDosRenderSpeechBubbleTopRight;
 	} else {
-		variant = (top + 4 > 0x34) ? kDosRenderSpeechBubble : kDosRenderSpeechBubbleTopLeft;
+		// DOS DispatchSpeechBubbleByCorner @ 1000:9a9f adjusts the actor
+		// anchor before tail-orientation dispatch.
+		top += 4;
+		if (left < 0xa0) {
+			left += 0x12;
+			variant = (top < 0x35) ? kDosRenderSpeechBubbleTopRight : kDosRenderSpeechBubbleBottomRight;
+		} else {
+			variant = (top < 0x35) ? kDosRenderSpeechBubbleTopLeft : kDosRenderSpeechBubble;
+		}
 	}
 
 	switch (variant) {
@@ -416,10 +423,10 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const
 			top -= height;
 		if (left >= 320)
 			left = 320;
-		if (anchorWidth > left)
+		if (int(widthExtra + 0x45) > left)
 			left = 0;
 		else
-			left -= anchorWidth;
+			left -= widthExtra + 0x45;
 		bubble_indices[kBubbleBottomRight] = kBubbleBottomRightPoint;
 		break;
 	case kDosRenderSpeechBubbleTopLeft:
@@ -429,10 +436,10 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const
 			top = 0;
 		if (left >= 320)
 			left = 320;
-		if (anchorWidth > left)
+		if (int(MAX<uint16>(widthExtra, 4) + 0x45) > left)
 			left = 0;
 		else
-			left -= anchorWidth;
+			left -= MAX<uint16>(widthExtra, 4) + 0x45;
 		bubble_indices[kBubbleTopRight] = kBubbleTopRightPoint;
 		break;
 	case kDosRenderSpeechBubbleBottomRight:
@@ -457,15 +464,11 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const
 	debugC(2, kDebugLevelGraphics, "painting speech bubble \"%s\" at (adjusted) %d:%d", string, left, top);
 
 	uint8 vertical_tiles = 1;
-	const uint16 bubbleHeight = MAX<uint16>(60, lines * kLineHeight + 16);
+	const uint16 bubbleHeight = MAX<uint16>(60, rows * kLineHeight + 16);
 	if (bubbleHeight > 60)
 		vertical_tiles += (bubbleHeight - 60 + 5) / 6;
 
-	uint8 horizontal_tiles = 1;
-	if (widthExtra > 4)
-		horizontal_tiles = widthExtra / 4;
-	if (horizontal_tiles == 0)
-		horizontal_tiles = 1;
+	const uint16 horizontal_tiles = 1 + widthExtra / 4;
 
 	bubble->create(65 + wadj + 4 * horizontal_tiles, 54 + 6 * vertical_tiles);
 
@@ -495,30 +498,62 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const
 	};
 
 	int shift = 0;
-	if (lines == 1)
+	if (rows == 1)
 		shift = kSpeechOneLineShift;
-	if (lines == 2)
+	if (rows == 2)
 		shift = kSpeechTwoLinesShift;
 
-	Common::Array<Common::String> bubbleLines;
-	Common::String line;
-	for (const byte *p = string; *p; ++p) {
-		if (*p == '\n' || *p == '\r') {
-			bubbleLines.push_back(line);
-			line.clear();
-		} else {
-			line += char(*p);
-		}
-	}
-	bubbleLines.push_back(line);
+	const uint16 roundedWidthExtra = widthExtra & ~uint16(3);
+	uint16 currentLeft = kSpeechLeftIndent + kSpeechFirstLineExtraIndent;
+	uint16 currentTop = kSpeechVMargin + shift;
+	uint16 remainingRows = rows;
+	byte currentColour = colour;
+	const byte *p = reinterpret_cast<const byte *>(metrics.text.c_str());
 
-	for (uint i = 0; i < bubbleLines.size(); ++i) {
-		const uint8 extraIndent = (i == 0 || i + 1 == bubbleLines.size()) ? kSpeechFirstLineExtraIndent : 0;
-		paintText(kSpeechLeftIndent + extraIndent,
-		          kSpeechVMargin + shift + i * kLineHeight,
-		          colour,
-		          reinterpret_cast<const byte *>(bubbleLines[i].c_str()),
-		          bubble);
+	bool stopText = false;
+	while (p && *p && !stopText) {
+		const byte ch = *p++;
+		switch (ch) {
+		case kStringCenter: {
+			const byte lineWidth = *p++;
+			// DOS RenderSpeechBubbleText @ 1000:91c9 consumes the next
+			// byte as a precomputed line width and centers within the
+			// bubble frame, not within the screen.
+			const uint16 centered = uint16(roundedWidthExtra + 0x41 - lineWidth);
+			currentLeft = centered >> 1;
+			break;
+		}
+		case kStringAdvance:
+			currentLeft += *p++;
+			break;
+		case '\n':
+		case '\r':
+			if (remainingRows != 0)
+				--remainingRows;
+			if (remainingRows == 0) {
+				stopText = true;
+				break;
+			}
+			currentLeft = kSpeechLeftIndent;
+			if (remainingRows == 1)
+				currentLeft += kSpeechFirstLineExtraIndent;
+			currentTop += kLineHeight;
+			break;
+		case kStringDefaultColour:
+			currentColour = colour;
+			break;
+		case kStringSetColour:
+			currentColour = *p++;
+			break;
+		case kStringMenuOption:
+			while (*p)
+				currentLeft += paintChar(currentLeft, currentTop, currentColour, *p++, bubble);
+			++p;
+			p += 2;
+			break;
+		default:
+			currentLeft += paintChar(currentLeft, currentTop, currentColour, ch, bubble);
+		}
 	}
 
 	if (bubble->w >= 320)
@@ -910,12 +945,19 @@ static byte *copySpeechText(const Common::String &page) {
 }
 
 static uint16 speechTicksForText(const Common::String &text) {
-	return MAX<uint16>(30, 3 * uint16(text.size()));
+	// DOS speech slots use the low byte of FormatBubbleText's height
+	// return as the countdown (AllocSpeechSlot @ 1000:9b1f,
+	// AllocSpeechSlot_NoFormatting @ 1000:9c7e).
+	Common::String normalized;
+	for (uint i = 0; i < text.size(); ++i)
+		normalized += char(text[i] == '\n' ? '\r' : text[i]);
+	Logic::FormattedBubble fb = Log.formatBubbleText(reinterpret_cast<const byte *>(normalized.c_str()));
+	return uint8(fb.totalHeight & 0xff);
 }
 
 void Graphics::sayAt(const byte *text, uint16 length, uint16 frames,
                      uint16 x, uint16 y, byte color, uint16 maxLines,
-                     SpeechBubbleMode bubbleMode) {
+                     SpeechBubbleMode bubbleMode, bool forceBubble) {
 	// Callers pass `length = strlen(text)` (no NUL counted). paintText
 	// scans with `while ((ch = *string++))` and needs a NUL terminator,
 	// so over-allocate by 1 and write a sentinel. Without this, paintText
@@ -931,7 +973,7 @@ void Graphics::sayAt(const byte *text, uint16 length, uint16 frames,
 		e.x = x;
 		e.y = y;
 		e.color = color;
-		e.bubble = maxLines != 0 || x != 0 || y != 0;
+		e.bubble = forceBubble || maxLines != 0 || x != 0 || y != 0;
 		e.bubbleMode = bubbleMode;
 
 		if (_speech || i != 0) {

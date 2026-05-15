@@ -96,7 +96,8 @@ public:
 	};
 	void sayAt(const byte *text, uint16 length, uint16 frames,
 	           uint16 x, uint16 y, byte color, uint16 maxLines = 0,
-	           SpeechBubbleMode bubbleMode = kSpeechBubbleType1);
+	           SpeechBubbleMode bubbleMode = kSpeechBubbleType1,
+	           bool forceBubble = false);
 	bool isSaying() const { return _speech != 0 || !_speechQueue.empty(); }
 	void runWhenSaid(const CodePointer &p);
 

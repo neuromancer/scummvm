@@ -915,7 +915,13 @@ CodePointer Puppeteer::turnAnimator(Direction d) {
 }
 
 static uint16 speechTicksForText(const Common::String &text) {
-	return MAX<uint16>(30, 3 * uint16(text.size()));
+	// DOS AllocSpeechSlot @ 1000:9b1f stores the low byte of
+	// FormatBubbleText's height return as the slot countdown.
+	Common::String normalized;
+	for (uint i = 0; i < text.size(); ++i)
+		normalized += char(text[i] == '\n' ? '\r' : text[i]);
+	Logic::FormattedBubble fb = Log.formatBubbleText(reinterpret_cast<const byte *>(normalized.c_str()));
+	return uint8(fb.totalHeight & 0xff);
 }
 
 static Common::Array<Common::String> paginateSpeechText(const Common::String &text, uint16 maxLines) {
@@ -952,16 +958,8 @@ static Common::Array<Common::String> paginateSpeechText(const Common::String &te
 
 Actor::Speech::Speech(Actor *parent, const Common::String &text, uint16 maxLines)
 		: _pages(paginateSpeechText(text, maxLines)), _pageIndex(0), _actor(parent),
-		  _anchor(parent->getSpeechPosition()), _color(parent->dosField(0x70) ? parent->dosField(0x70) : 235),
+		  _anchor(parent->getSpeechPosition()), _color(parent->dosField(0x70)),
 		  _image(0) {
-	// DOS paces dialog by sample (audio) playback length — typically
-	// a few seconds. Without samples, the bubble must stay up long
-	// enough to read it. Approximate sample duration from text length:
-	//   ~3 ticks per character + 30-tick floor (reading speed roughly
-	//   100 chars / 3 sec at our 25Hz = 8 chars/sec). Scales naturally
-	//   from short interjections to long monologue. Previously this was
-	//   hardcoded to 20 ticks (~0.8s) which made the intro feel rushed
-	//   compared to DOS. [iter-33]
 	debugC(1, kDebugLevelActor, "adding speech \"%s\" (%u ticks) for %s at %d:%d",
 		text.c_str(), (uint)speechTicksForText(_pages[0]), parent->_debugInfo, _anchor.x, _anchor.y);
 	startPage(0);
@@ -969,7 +967,7 @@ Actor::Speech::Speech(Actor *parent, const Common::String &text, uint16 maxLines
 
 Actor::Speech::Speech(Actor *parent, const Common::String &text, Common::Point overridePos, uint16 maxLines)
 		: _pages(paginateSpeechText(text, maxLines)), _pageIndex(0), _actor(parent),
-		  _anchor(overridePos), _color(parent->dosField(0x70) ? parent->dosField(0x70) : 235),
+		  _anchor(overridePos), _color(parent->dosField(0x70)),
 		  _image(0) {
 	debugC(1, kDebugLevelActor, "adding speech \"%s\" (%u ticks) for %s at OVERRIDE %d:%d",
 		text.c_str(), (uint)speechTicksForText(_pages[0]), parent->_debugInfo, overridePos.x, overridePos.y);
@@ -1006,10 +1004,12 @@ void Actor::Speech::tick() {
 
 Common::Point Actor::getSpeechPosition() const {
 	Common::Point speechPosition(_position);
-	if (_mainSprite.get()) {
-		speechPosition.y -= _mainSprite.get()->h - _mainSprite.get()->_hotPoint.y;
-		speechPosition.x -= _mainSprite.get()->_hotPoint.x;
+	if (mainSpriteId() != 0xffff) {
+		const SpriteInfo info = _resources->getSpriteInfo(mainSpriteId());
+		speechPosition.x -= info.hotLeft;
+		speechPosition.y += info.hotTop;
 	}
+	speechPosition.y -= dosField(0x18);
 	return speechPosition;
 }
 

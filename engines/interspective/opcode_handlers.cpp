@@ -127,6 +127,20 @@ static void popDosPascalByteAt(byte *ptr) {
 	}
 }
 
+static void applyFormattedTextLimit9bcc(uint16 limit, uint16 &height, uint16 &rows);
+
+static uint16 speechDisplayTicksLikeDos(const byte *text, uint16 maxLines) {
+	Common::String normalized;
+	for (const byte *p = text; p && *p; ++p)
+		normalized += char(*p == '\n' ? '\r' : *p);
+	Logic::FormattedBubble fb = Log.formatBubbleText(reinterpret_cast<const byte *>(normalized.c_str()));
+	uint16 height = fb.totalHeight;
+	uint16 rows = fb.rowCount;
+	if (maxLines != 0)
+		applyFormattedTextLimit9bcc(maxLines, height, rows);
+	return uint8(height & 0xff);
+}
+
 // Speech subsystem helper: route text to the appropriate sink.
 // In map mode, DOS displays subtitles (no actor bubble). Otherwise
 // queue a per-actor bubble via Actor::say. C++'s per-actor _speech
@@ -146,8 +160,8 @@ static void speakOrSubtitle(Actor *speaker, const Common::String &text, uint16 m
 		const uint16 length = uint16(text.size());
 		if (length > 0)
 			Graf.sayAt(reinterpret_cast<const byte *>(text.c_str()),
-				length, MAX<uint16>(30, 3 * length),
-				0xa4, 0x14, 0xeb, 0, Graphics::kSpeechBubbleType2);
+				length, speechDisplayTicksLikeDos(reinterpret_cast<const byte *>(text.c_str()), 0),
+				0xa4, 0x14, 0xeb, 0, Graphics::kSpeechBubbleType2, true);
 		return;
 	}
 	if (!speaker)
@@ -183,12 +197,12 @@ static bool sayNarratorOrSubtitle(const byte *text, uint16 x, uint16 y, byte col
 	const uint16 length = (uint16)strlen(reinterpret_cast<const char *>(text));
 	if (length == 0)
 		return false;
-	const uint16 ticks = MAX<uint16>(30, 3 * length);
+	const uint16 ticks = speechDisplayTicksLikeDos(text, maxLines);
 	if (Log.inMapMode() && Graf.isSaying()) {
 		Graf.runWhenSaid(current);
 		return true;
 	}
-	Graf.sayAt(text, length, ticks, x, y, color, maxLines, bubbleMode);
+	Graf.sayAt(text, length, ticks, x, y, color, maxLines, bubbleMode, true);
 	return false;
 }
 
