@@ -26,6 +26,8 @@
 #ifndef INTERSPECTIVE_ANIMATION_H
 #define INTERSPECTIVE_ANIMATION_H
 
+#include "common/array.h"
+#include "common/hashmap.h"
 #include "common/list.h"
 #include "common/rect.h"
 #include "common/ptr.h"
@@ -83,6 +85,14 @@ protected:
 	uint16 shift();
 	int8 shiftByte();
 	int8 embeddedByte() const;
+	uint8 animationDosField(uint8 off) const;
+	uint16 animationDosFieldWord(uint8 off) const;
+	void setAnimationDosField(uint8 off, uint8 v);
+	void setAnimationDosFieldWord(uint8 off, uint16 v);
+	void setPositionFromFrameLikeDos(uint8 frame);
+	void copyIntervalToTicksLikeDos();
+	void clearAnimationMoveSlotsLikeDos();
+	bool queueAnimationMoveSlotLikeDos(uint16 arg1, uint16 arg2, uint16 arg3, uint8 mode);
 
 	void setMainSprite(uint16 sprite);
 	void clearMainSprite();
@@ -117,6 +127,15 @@ protected:
 	/** offset of the animation from the start of its codeblock */
 	uint16 _baseOffset;
 	CodePointer _frameTrigger;
+	Common::HashMap<uint8, uint8> _animationDosFields;
+	struct AnimationMoveSlot {
+		AnimationMoveSlot() : a(0), b(0), c(0), mode(0) {}
+		AnimationMoveSlot(uint16 _a, uint16 _b, uint16 _c, uint8 _mode)
+			: a(_a), b(_b), c(_c), mode(_mode) {}
+		uint16 a, b, c;
+		uint8 mode;
+	};
+	Common::Array<AnimationMoveSlot> _animationMoveSlots;
 
 	bool _debugInvalid;
 

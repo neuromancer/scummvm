@@ -158,6 +158,12 @@ void Actor::hide() {
 	_framequeue.clear();
 }
 
+void Actor::unregisterLikeDos() {
+	_base = 0;
+	_baseOffset = 0;
+	_offset = 0;
+}
+
 static void syncActorDosFields(Common::Serializer &s, Common::HashMap<uint8, uint8> &fields) {
 	uint16 count = fields.size();
 	s.syncAsUint16LE(count);
@@ -358,6 +364,52 @@ void Actor::callMeWithMode(const CodePointer &code, uint16 mode) {
 	_callBacks.push(ScriptCallback(code, mode, true));
 }
 
+bool Actor::takeRoomScriptWait(RoomScriptWaitSnapshot &snapshot) {
+	snapshot = RoomScriptWaitSnapshot();
+	Common::Queue<ScriptCallback> kept;
+	uint16 position = 0;
+	bool found = false;
+
+	while (!_callBacks.empty()) {
+		ScriptCallback callback = _callBacks.pop();
+		if (!found && callback.hasRunMode) {
+			snapshot.callback = callback.callback;
+			snapshot.runMode = callback.runMode;
+			snapshot.position = position;
+			snapshot.valid = true;
+			found = true;
+			continue;
+		}
+
+		kept.push(callback);
+		if (!found)
+			++position;
+	}
+
+	_callBacks = kept;
+	return found;
+}
+
+void Actor::restoreRoomScriptWait(const RoomScriptWaitSnapshot &snapshot) {
+	if (!snapshot.valid)
+		return;
+
+	Common::Queue<ScriptCallback> rebuilt;
+	uint16 position = 0;
+	bool inserted = false;
+	while (!_callBacks.empty()) {
+		if (!inserted && position == snapshot.position) {
+			rebuilt.push(ScriptCallback(snapshot.callback, snapshot.runMode, true));
+			inserted = true;
+		}
+		rebuilt.push(_callBacks.pop());
+		++position;
+	}
+	if (!inserted)
+		rebuilt.push(ScriptCallback(snapshot.callback, snapshot.runMode, true));
+	_callBacks = rebuilt;
+}
+
 void Actor::tellMe(const CodePointer &code, uint16 timeout) {
 	_ticksLeft = timeout;
 	setDosFieldWord(0x0a, timeout);
@@ -507,6 +559,9 @@ void Actor::moveTo(uint16 frame) {
 	// on the next nextFrame() pop (Pass2-16 game.log: 44064 garbage
 	// value from sentinel.index() reads).
 	const Frame targetFrame = Log.room()->getFrame(frame);
+	// LookupActorAndStartPath stores whether the destination is left of
+	// or equal to the current actor x before running FindActorPath.
+	setDosField(0x66, int16(targetFrame.position().x) <= int16(_position.x) ? 1 : 0);
 	if (targetFrame.position().x == 999) {
 		debugC(3, kDebugLevelActor, "moveTo(%u): warp (target frame invalid in current room)", (uint)frame);
 		_framequeue.clear();
@@ -612,6 +667,8 @@ bool Actor::nextFrame() {
 //	setFrame(_framequeue.front().index());
 	setAnimation(_puppeteer.moveAnimator(direction));
 	_frame = next.index();
+	if (Log.protagonist() == this)
+		Log.setPostMoveTargetFrameMirror(uint8(_frame));
 	_framequeue.pop();
 	setDosFieldWord(0x6b, uint16(MIN<uint>(_framequeue.size(), 0xffff)));
 	if (_framequeue.empty())
@@ -758,7 +815,7 @@ void Actor::readHeader(const byte *code) {
 	setActorCallback(READ_LE_UINT16(code + 0x5d), READ_LE_UINT16(code + 0x5f));
 	static const uint8 sparseFields[] = {
 		0x0e, 0x0f, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16,
-		0x17, 0x18, 0x63, 0x65, 0x68, 0x6b, 0x6c, 0x6d, 0x6e, 0x70
+		0x17, 0x18, 0x63, 0x65, 0x66, 0x68, 0x6b, 0x6c, 0x6d, 0x6e, 0x70
 	};
 	for (uint i = 0; i < ARRAYSIZE(sparseFields); ++i)
 		setDosField(sparseFields[i], code[sparseFields[i]]);
@@ -1046,12 +1103,13 @@ OPCODE(0x00) {
 OPCODE(0x01) {
 	// DOS Op_02 UnregisterAndEnd (CS:0x68e3): UnregisterActor + clear
 	// field0/1 + sets g_actor_script_ended = 1. C++ slot 0x01 per the
-	// off-by-1 mapping. UnregisterActor removes the actor from DOS's
-	// active table, so the C++ equivalent must stop the current script and
-	// prevent animate() from immediately selecting a new puppeteer script.
-	debugC(1, kDebugLevelActor, "actor opcode 0x01: UnregisterAndEnd (hide + terminate) [DOS Op_02]");
+	// off-by-1 mapping. UnregisterActor only clears the script PC and the
+	// actor-table id slot; it does not reset sprite/timer/path fields.
+	debugC(1, kDebugLevelActor, "actor opcode 0x01: UnregisterAndEnd (clear script PC) [DOS Op_02]");
 
-	hide();
+	_base = 0;
+	_baseOffset = 0;
+	_offset = 0;
 	return kOk;
 }
 
@@ -1192,12 +1250,13 @@ OPCODE(0x15) {
 	//
 	// Step-toward semantics (1000:6c79..0x6cba):
 	//   delta = target - current (signed byte arithmetic):
-	//     delta == 0 OR current==0x63 OR target==0x63 → snap.
-	//     |delta| >= 6  → INC current with wrap (1↔8). Large delta →
-	//                     short rotation goes via wrap.
-	//     3 ≤  delta ≤ 5 → INC current.
-	//    -5 ≤  delta ≤ -3 → DEC current (with wrap 1→8).
-	//     |delta| ≤ 2     → keep current (deadband for stability).
+	//     delta == 0 OR current==0x63 OR target==0x63 -> snap.
+	//     delta <= -6 -> INC current with wrap (short route via 8->1).
+	//    -5..-3       -> write center (0x63).
+	//    -2..-1       -> DEC current with wrap.
+	//     1..2        -> INC current with wrap.
+	//     3..5        -> write center (0x63).
+	//     delta >= 6  -> DEC current with wrap (short route via 1->8).
 	if (Log.cursorMode() != 0x80) {
 		setDosField(0x68, 0);
 		debugC(3, kDebugLevelAnimation,
@@ -1210,7 +1269,9 @@ OPCODE(0x15) {
 	// build the actor's bounding rect from field+0x4/+0x6, current sprite
 	// hot offsets, and actor width/height bytes (+0x17/+0x18); then test
 	// cursor against rect bounds.
-	const Common::Point cursor = Log.engine()->graphics()->cursorPosition();
+	const Common::Point screenCursor = Log.engine()->graphics()->cursorPosition();
+	const int16 cursorX = int16(screenCursor.x + Log.cameraX());
+	const int16 cursorY = int16(screenCursor.y + Log.cameraY());
 	int8 spriteHotLeft = 0;
 	int8 spriteHotTop = 0;
 	if (mainSpriteId() != 0xffff) {
@@ -1234,23 +1295,21 @@ OPCODE(0x15) {
 	const int16 topY   = adjustedY - int16(height);
 	const int16 botY   = adjustedY;
 
-	const int16 cx = int16(cursor.x);
-	const int16 cy = int16(cursor.y);
 	uint8 target;
-	if (cy < topY) {
+	if (cursorY < topY) {
 		// Cursor above actor's rect.
-		if (cx < leftX)        target = 8;  // NW
-		else if (cx < rightX)  target = 1;  // N
+		if (cursorX < leftX)        target = 8;  // NW
+		else if (cursorX < rightX)  target = 1;  // N
 		else                   target = 2;  // NE
-	} else if (cy > botY) {
+	} else if (cursorY > botY) {
 		// Cursor below actor's rect.
-		if (cx < leftX)        target = 6;  // SW
-		else if (cx < rightX)  target = 5;  // S
+		if (cursorX < leftX)        target = 6;  // SW
+		else if (cursorX < rightX)  target = 5;  // S
 		else                   target = 4;  // SE
 	} else {
 		// Cursor in vertical band.
-		if (cx < leftX)        target = 7;  // W
-		else if (cx < rightX)  target = 0x63; // center
+		if (cursorX < leftX)        target = 7;  // W
+		else if (cursorX < rightX)  target = 0x63; // center
 		else                   target = 3;  // E
 	}
 
@@ -1262,25 +1321,30 @@ OPCODE(0x15) {
 			target, current);
 		return kOk;
 	}
-	// Step-toward with wrap and deadband. Reproduces DOS 1000:6c79..0x6cba.
-	const int8 delta = int8(target) - int8(current);
-	uint8 next = current;
-	if (delta <= -6 || delta >= 6) {
-		// Large delta: rotate via INC-with-wrap (matches DOS LAB_1000_6cb1).
-		next = current + 1;
-		if (next > 8) next = 1;
-	} else if (delta >= 3 && delta <= 5) {
-		next = current + 1;
-		if (next > 8) next = 1;
-	} else if (delta >= -5 && delta <= -3) {
-		next = (current == 1) ? 8 : current - 1;
+	// Reproduces DOS 8-bit signed branches at 1000:6c79..0x6cba.
+	const int8 delta = int8(uint8(target - current));
+	uint8 next = 0x63;
+	if (delta < 0) {
+		if (delta <= -6) {
+			const uint8 n = uint8(current + 1);
+			next = int8(n) <= 8 ? n : 1;
+		} else if (delta >= -2) {
+			const uint8 n = uint8(current - 1);
+			next = int8(n) >= 1 ? n : 8;
+		}
+	} else {
+		if (delta >= 6) {
+			const uint8 n = uint8(current - 1);
+			next = int8(n) >= 1 ? n : 8;
+		} else if (delta <= 2) {
+			const uint8 n = uint8(current + 1);
+			next = int8(n) <= 8 ? n : 1;
+		}
 	}
-	// |delta| <= 2: deadband — next stays = current.
-	if (next != current)
-		setDosField(0x68, next);
+	setDosField(0x68, next);
 	debugC(3, kDebugLevelAnimation,
 		"actor opcode 0x15: PickAnimationSet rect=(%d..%d, %d..%d) cursor=(%d,%d) target=%u current=%u → %u (delta=%d)",
-		leftX, rightX, topY, botY, cx, cy, target, current, next, int(delta));
+		leftX, rightX, topY, botY, cursorX, cursorY, target, current, next, int(delta));
 	return kOk;
 }
 

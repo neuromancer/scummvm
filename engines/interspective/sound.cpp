@@ -25,14 +25,28 @@
 
 #include "common/system.h"
 #include "common/debug.h"
+#include "common/file.h"
+#include "common/str.h"
 #include "audio/mixer.h"
 
 #include "interspective/sound.h"
 #include "interspective/debug.h"
 #include "interspective/innocent.h"
+#include "interspective/logic.h"
 #include "interspective/util.h"
 
 namespace Interspective {
+
+static uint32 openFileSize(const Common::Path &path) {
+	Common::File file;
+	if (!file.open(path))
+		return 0;
+	return uint32(file.size());
+}
+
+static uint32 alignedEvenSize(uint32 size) {
+	return (size + 1) & ~uint32(1);
+}
 
 Sound::Sound(Engine *engine) :
 	_engine(engine),
@@ -44,6 +58,8 @@ Sound::Sound(Engine *engine) :
 	_state6708(0),
 	_state670a(0),
 	_state670c(0),
+	_maxSfxId(0),
+	_sfxMetadataLoaded(false),
 	_active(true) {
 }
 
@@ -66,21 +82,124 @@ bool Sound::isSfxPlaying() const {
 	       g_system->getMixer()->isSoundHandleActive(_secondaryHandle);
 }
 
+void Sound::loadSfxMetadata() const {
+	if (_sfxMetadataLoaded)
+		return;
+	_sfxMetadataLoaded = true;
+	_maxSfxId = 0;
+	_sfxBanks.clear();
+
+	Common::File index;
+	if (!index.open(Common::Path("iuc_sdfx.dat")))
+		return;
+
+	const uint32 entries = uint32(index.size() / 4);
+	if (entries == 0 || entries > 0xffff)
+		return;
+
+	Common::Array<uint32> offsets;
+	offsets.reserve(entries);
+	for (uint32 i = 0; i < entries; ++i)
+		offsets.push_back(index.readUint32LE());
+
+	_maxSfxId = uint16(entries);
+
+	uint16 low = 0;
+	uint32 bankIndex = 0;
+	uint32 maxOffset = 0;
+	for (uint32 i = 1; i < entries; ++i) {
+		if (offsets[i] == 0) {
+			SfxBankInfo bank;
+			bank.low = low;
+			bank.high = uint16(i);
+			Common::String name = Common::String::format("iuc_s%02u.dat", bankIndex + 1);
+			bank.size = openFileSize(Common::Path(name));
+			if (bank.size <= maxOffset)
+				bank.size = openFileSize(Common::Path("iuc_sr.dat"));
+			_sfxBanks.push_back(bank);
+			low = uint16(i);
+			maxOffset = 0;
+			++bankIndex;
+		} else if (offsets[i] > maxOffset) {
+			maxOffset = offsets[i];
+		}
+	}
+
+	SfxBankInfo bank;
+	bank.low = low;
+	bank.high = uint16(entries);
+	Common::String name = Common::String::format("iuc_s%02u.dat", bankIndex + 1);
+	bank.size = openFileSize(Common::Path(name));
+	if (bank.size <= maxOffset)
+		bank.size = openFileSize(Common::Path("iuc_sr.dat"));
+	_sfxBanks.push_back(bank);
+}
+
+uint16 Sound::maxSfxId() const {
+	loadSfxMetadata();
+	return _maxSfxId;
+}
+
+bool Sound::validateSfxId(uint16 id) const {
+	if (id <= maxSfxId())
+		return true;
+	Log.setPendingError(0x3f);
+	return false;
+}
+
+const Sound::SfxBankInfo *Sound::sfxBankForId(uint16 id) const {
+	loadSfxMetadata();
+	for (uint i = 0; i < _sfxBanks.size(); ++i) {
+		const SfxBankInfo &bank = _sfxBanks[i];
+		if (id > bank.low && id <= bank.high)
+			return &bank;
+	}
+	return nullptr;
+}
+
+bool Sound::resolveSfxSlot(uint16 id, uint32 baseBytes, uint16 &low, uint16 &high, uint32 &size) const {
+	if (!validateSfxId(id))
+		return false;
+
+	const SfxBankInfo *bank = sfxBankForId(id);
+	if (!bank)
+		return false;
+
+	const uint8 mode = _engine ? _engine->dosSfxEnabled() : 0;
+	if (mode == 2) {
+		if (baseBytes + bank->size > 0x40000) {
+			Log.setPendingError(0x40);
+			return false;
+		}
+	} else if (mode == 4) {
+		if (baseBytes + bank->size >= 0x320) {
+			Log.setPendingError(0x40);
+			return false;
+		}
+	} else {
+		return false;
+	}
+
+	low = bank->low;
+	high = bank->high;
+	size = bank->size;
+	return true;
+}
+
 // DOS Op_load_sfx @ 1000:56d9 — full state-transition port.
 //
 // Disassembly trace:
 //   if (g_sfx_enabled == 0) RET;
 //   AX = ResolveOpcodeArg0;             ; AX = sfx id requested
 //   if (AX == [0x66fe]) RET;             ; same as last played → short-circuit
-//   uVar3 = 0; bVar5 = false;
-//   uVar6 = PlaySfxSound();              ; actual loader
-//   iVar4 = uVar6 >> 16;
-//   if (!bVar5) {
-//     if (uVar6 & 0x10000) iVar4++;
-//     [0x670a] = uVar3;                  ; = 0
-//     [0x670c] = iVar4;                  ; slot hi
-//     [0x6702] = uVar6 low;              ; slot lo
-//     [0x6704] = BX;                     ; slot mid
+//   CX = 0; DX = 0;
+//   PlaySfxSound();                      ; AX/BX=bank id bounds, CX/DX=size
+//   if (carry clear) {
+//     if (DX & 1) { DX++; ADC CX,0; }     ; align loaded primary byte size
+//     [0x670a] = CX;
+//     [0x670c] = DX;
+//     [0x6702] = AX;
+//     [0x6704] = BX;
 //     pbVar2 = ResolveOpcodeArg0;        ; (re-resolve)
 //     [0x66fe] = arg0;                   ; cache last-played id
 //     [0x6700] = 0;                      ; clear secondary
@@ -100,16 +219,22 @@ void Sound::playSfx(uint16 id) {
 		debugC(2, kDebugLevelSound, "Sound::playSfx(%u) — short-circuit (== last_played)", id);
 		return;
 	}
+	uint16 low = 0;
+	uint16 high = 0;
+	uint32 size = 0;
+	if (!resolveSfxSlot(id, 0, low, high, size))
+		return;
 	// Stop any prior primary playback before starting the new sample
 	// (matches DOS slot-replacement model — only one primary slot).
 	if (g_system && g_system->getMixer())
 		g_system->getMixer()->stopHandle(_primaryHandle);
 
 	// Update state record per DOS 1000:56d9:
-	_state670a = 0;
-	_state670c = 0;     // would be slot hi from PlaySfxSound; stub returns 0
-	_state6702 = 0;     // would be slot lo
-	_state6704 = 0;     // would be slot mid
+	const uint32 alignedSize = alignedEvenSize(size);
+	_state670a = uint16(alignedSize >> 16);
+	_state670c = uint16(alignedSize);
+	_state6702 = low;
+	_state6704 = high;
 	_state66fe = id;    // cache new last-played id
 	_state6700 = 0;     // clear secondary
 
@@ -117,7 +242,9 @@ void Sound::playSfx(uint16 id) {
 	// and play through Audio::Mixer. Pending iuc_s*.dat sample-format
 	// reverse-engineering (header layout: 1-byte flag + 2-byte length +
 	// 2 unidentified bytes + raw 8-bit unsigned PCM).
-	debugC(1, kDebugLevelSound, "Sound::playSfx(%u) — id stored, sample loader pending", id);
+	debugC(1, kDebugLevelSound,
+		"Sound::playSfx(%u) — range [%u..%u] size=%u, sample loader pending",
+		id, _state6702, _state6704, size);
 }
 
 // DOS Op_f1_handler @ 1000:5725:
@@ -125,9 +252,10 @@ void Sound::playSfx(uint16 id) {
 //   Op_load_sfx();                       ; primary play (Op_f0 inline)
 //   AX = ResolveOpcodeArg1;              ; secondary id
 //   if (AX == [0x6700]) RET;              ; same as last secondary → short-circuit
-//   uVar3 = PlaySfxSound();
-//   if (!bVar4) {
-//     [0x6706] = uVar3 lo;
+//   CX = [0x670a]; DX = [0x670c];
+//   PlaySfxSound();                      ; AX/BX=secondary bank id bounds
+//   if (carry clear) {
+//     [0x6706] = AX;
 //     [0x6708] = BX;
 //     [0x6700] = arg1;                    ; cache secondary id
 //   }
@@ -146,16 +274,22 @@ void Sound::playSecondarySfx(uint16 secondaryId) {
 			"Sound::playSfxPair secondary %u — short-circuit", secondaryId);
 		return;
 	}
+	uint16 low = 0;
+	uint16 high = 0;
+	uint32 size = 0;
+	const uint32 primarySize = (uint32(_state670a) << 16) | _state670c;
+	if (!resolveSfxSlot(secondaryId, primarySize, low, high, size))
+		return;
 	if (g_system && g_system->getMixer())
 		g_system->getMixer()->stopHandle(_secondaryHandle);
 
-	_state6706 = 0;
-	_state6708 = 0;
+	_state6706 = low;
+	_state6708 = high;
 	_state6700 = secondaryId;
 
 	debugC(1, kDebugLevelSound,
-		"Sound::playSecondarySfx(%u) — secondary stored, sample loader pending",
-		secondaryId);
+		"Sound::playSecondarySfx(%u) — range [%u..%u] size=%u, sample loader pending",
+		secondaryId, _state6706, _state6708, size);
 }
 
 // DOS Op_f2_handler @ 1000:575a:
@@ -182,28 +316,30 @@ void Sound::rangeCheck(uint16 id) {
 		return;
 	if (!_active)
 		return;
-	if (!isSfxPlaying())
-		return;
 	if (id == 0) {
 		stopAll();
 		return;
 	}
+	if (_state66fe == 0)
+		return;
 	// Range check matching DOS `arg in [0x6702, 0x6704]` / `arg in
-	// [0x6706, 0x6708]` (with [0x6700] != 0). The state vars hold
+	// [0x6706, 0x6708]` (with [0x6700] != 0). DOS uses strict lower
+	// bounds and inclusive upper bounds: `arg > low && arg <= high`.
+	// The state vars hold
 	// slot-ID bounds; if the requested id falls outside both ranges,
 	// short-circuit per DOS.
-	const bool inPrimaryRange = (id >= _state6702 && id <= _state6704);
+	const bool inPrimaryRange = (id > _state6702 && id <= _state6704);
 	const bool inSecondaryRange = (_state6700 != 0 &&
-	                               id >= _state6706 && id <= _state6708);
+	                               id > _state6706 && id <= _state6708);
 	if (!inPrimaryRange && !inSecondaryRange) {
 		debugC(2, kDebugLevelSound,
 			"Sound::rangeCheck(%u) — out of range [%u..%u] / [%u..%u]; no replay",
 			id, _state6702, _state6704, _state6706, _state6708);
 		return;
 	}
-	// Replay: DOS stops current playback then re-issues. Mixer
-	// stopHandle + (when sample loader is wired) playStream.
-	if (g_system && g_system->getMixer()) {
+	// Replay: DOS stops current playback only when [0x67b7] is nonzero,
+	// then issues the driver play request.
+	if (isSfxPlaying() && g_system && g_system->getMixer()) {
 		g_system->getMixer()->stopHandle(_primaryHandle);
 		// TODO: resume primary sample at offset 0 once loader is wired.
 	}

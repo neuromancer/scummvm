@@ -40,6 +40,12 @@ ENAME(Animation::Status_, Animation::kOk, "ok");
 ENAME(Animation::Status_, Animation::kRemove, "remove");
 ENAME(Animation::Status_, Animation::kFrameDone, "frame done");
 
+static uint16 animationCodeSegmentTag(const byte *base) {
+	if (base && Log.blockProgram() && Log.blockProgram()->contains(base))
+		return uint16(0x4000 + (Log.currentBlock() & 0x3fff));
+	return 0x1cb5;
+}
+
 class Animation::Sprite {
 public:
 	Sprite(Interspective::Sprite *s) : _sprite(s), _isRelative(true) {}
@@ -118,6 +124,7 @@ Animation::Status Animation::tick() {
 		return kOk;
 	}
 
+	clearAnimationMoveSlotsLikeDos();
 	clearSprites();
 
 	Status status = kOk;
@@ -201,6 +208,7 @@ void Animation::runOnNextFrame(const CodePointer &cp) {
 
 void Animation::setMainSprite(uint16 sprite) {
 	_mainSpriteId = sprite;
+	setAnimationDosFieldWord(0x08, sprite);
 	// 0xffff is the DOS "no sprite" sentinel (initial value of
 	// actor.field+0x8). Loading it would index past the end of the
 	// spritemap and ASan-trip in SpriteInfo's spritemap += index *
@@ -214,6 +222,7 @@ void Animation::setMainSprite(uint16 sprite) {
 
 void Animation::clearMainSprite() {
 	_mainSpriteId = 0xffff;
+	setAnimationDosFieldWord(0x08, 0xffff);
 	_mainSprite.reset();
 }
 
@@ -256,6 +265,99 @@ int8 Animation::embeddedByte() const {
 	return reinterpret_cast<int8 *>((_base + _offset))[-1];
 }
 
+uint8 Animation::animationDosField(uint8 off) const {
+	Common::HashMap<uint8, uint8>::const_iterator it = _animationDosFields.find(off);
+	return it == _animationDosFields.end() ? 0 : it->_value;
+}
+
+uint16 Animation::animationDosFieldWord(uint8 off) const {
+	return uint16(animationDosField(off)) | (uint16(animationDosField(uint8(off + 1))) << 8);
+}
+
+void Animation::setAnimationDosField(uint8 off, uint8 v) {
+	if (v == 0)
+		_animationDosFields.erase(off);
+	else
+		_animationDosFields[off] = v;
+}
+
+void Animation::setAnimationDosFieldWord(uint8 off, uint16 v) {
+	setAnimationDosField(off, uint8(v & 0xff));
+	setAnimationDosField(uint8(off + 1), uint8(v >> 8));
+}
+
+static bool animationZoneContainsPoint(uint16 left, uint16 top, uint16 right, uint16 bottom, const Common::Point &p) {
+	return p.x >= int16(left) && p.x <= int16(right) &&
+		p.y >= int16(top) && p.y <= int16(bottom);
+}
+
+void Animation::setPositionFromFrameLikeDos(uint8 frame) {
+	setAnimationDosField(0x61, frame);
+	if (!Log.room())
+		return;
+
+	const Actor::Frame f = Log.room()->getFrame(frame);
+	_position = f.position();
+	setAnimationDosFieldWord(0x04, uint16(_position.x));
+	setAnimationDosFieldWord(0x06, uint16(_position.y));
+
+	uint8 bl = 0;
+	const Common::Array<Logic::CollisionZone> &collisionZones = Log.collisionZones();
+	for (uint i = 0; i < collisionZones.size(); ++i) {
+		const Logic::CollisionZone &z = collisionZones[i];
+		if (!animationZoneContainsPoint(z.a, z.b, z.c, z.d, _position))
+			continue;
+		bl = uint8(uint16(z.slot) & 0xff);
+		break;
+	}
+
+	uint8 bh = 0;
+	const Common::Array<Logic::ZoneB> &zonesB = Log.zonesB();
+	for (uint i = 0; i < zonesB.size(); ++i) {
+		const Logic::ZoneB &z = zonesB[i];
+		if (!animationZoneContainsPoint(z.a, z.b, z.c, z.d, _position))
+			continue;
+		bh = uint8(z.var & 0xff);
+		break;
+	}
+
+	setAnimationDosField(0x12, bl);
+	setAnimationDosField(0x13, bh);
+	_zIndex = int8(bl);
+}
+
+void Animation::copyIntervalToTicksLikeDos() {
+	const uint16 ticks = uint8(_interval);
+	_ticksLeft = ticks;
+	_explicitFrameDelay = true;
+	setAnimationDosFieldWord(0x0a, ticks);
+}
+
+void Animation::clearAnimationMoveSlotsLikeDos() {
+	_animationMoveSlots.clear();
+	for (uint i = 0; i < 8; ++i) {
+		const uint8 off = uint8(0x19 + i * 8);
+		setAnimationDosFieldWord(off, 0xffff);
+		setAnimationDosFieldWord(uint8(off + 2), 0);
+		setAnimationDosFieldWord(uint8(off + 4), 0);
+		setAnimationDosFieldWord(uint8(off + 6), 0);
+	}
+}
+
+bool Animation::queueAnimationMoveSlotLikeDos(uint16 arg1, uint16 arg2, uint16 arg3, uint8 mode) {
+	if (_animationMoveSlots.size() >= 8)
+		return false;
+
+	const uint slot = _animationMoveSlots.size();
+	_animationMoveSlots.push_back(AnimationMoveSlot(arg3, arg1, arg2, mode));
+	const uint8 off = uint8(0x19 + slot * 8);
+	setAnimationDosFieldWord(off, arg3);
+	setAnimationDosFieldWord(uint8(off + 2), arg1);
+	setAnimationDosFieldWord(uint8(off + 4), arg2);
+	setAnimationDosFieldWord(uint8(off + 6), mode);
+	return true;
+}
+
 Animation::Status Animation::op(byte opcode) {
 	return (this->*_handlers[opcode])();
 }
@@ -263,18 +365,27 @@ Animation::Status Animation::op(byte opcode) {
 #define OPCODE(n) template<> Animation::Status Animation::opcodeHandler<n>()
 
 OPCODE(0x00) {
-	debugC(3, kDebugLevelAnimation, "anim opcode 0x00: remove animation");
-	handleTrigger();
+	// DOS ActorOp_01_ScriptEnd @ 1000:68d3 clears the script PC words
+	// and sets g_actor_script_ended. It does not unregister the entry or
+	// clear render state, so the base fallback must stop dispatch without
+	// removing the Animation from Logic::_animations.
+	debugC(3, kDebugLevelAnimation, "anim opcode 0x00: ScriptEnd (clear PC, no remove) [DOS Op_01]");
 
-	return kRemove;
+	_base = 0;
+	_baseOffset = 0;
+	_offset = 0;
+	return kOk;
 }
 
 OPCODE(0x01) {
-	debugC(3, kDebugLevelAnimation, "anim opcode 0x01: unregister and end");
-	clearSprites();
-	clearMainSprite();
+	// DOS ActorOp_02_UnregisterAndEnd @ 1000:68e3 calls
+	// UnregisterActor, which clears the script PC and active-table id but
+	// leaves sprite/render fields intact. kRemove models the active-table
+	// removal; do not clear `_mainSprite`/`_sprites` here.
+	debugC(3, kDebugLevelAnimation, "anim opcode 0x01: UnregisterAndEnd (clear PC, remove active entry) [DOS Op_02]");
 	_base = 0;
-	_offset = _baseOffset = 0;
+	_baseOffset = 0;
+	_offset = 0;
 
 	return kRemove;
 }
@@ -374,22 +485,34 @@ OPCODE(0x0a) {
 }
 
 OPCODE(0x0d) {
-	_counter = uint8(embeddedByte());
-	_loopStart = _offset;
+	const byte v = uint8(embeddedByte());
+	setAnimationDosField(0x11, v);
+	setAnimationDosFieldWord(0x0e, _offset);
 
-	debugC(3, kDebugLevelAnimation, "anim opcode 0x0d: %u times do", _counter);
+	debugC(3, kDebugLevelAnimation, "anim opcode 0x0d: SetTimerAndSkip = %u, resume 0x%04x [DOS Op_0e]",
+		v, _offset);
 
 	return kOk;
 }
 
 OPCODE(0x0e) {
-	if (_counter)
-		_counter--;
-
-	if (_counter)
-		_offset = _loopStart;
-
-	debugC(3, kDebugLevelAnimation, "anim opcode 0x0e: done (%u times left)", _counter);
+	const uint8 cur = animationDosField(0x11);
+	if (cur != 0) {
+		const uint8 next = uint8(cur - 1);
+		setAnimationDosField(0x11, next);
+		if (next != 0) {
+			const uint16 resume = animationDosFieldWord(0x0e);
+			_offset = resume;
+			debugC(3, kDebugLevelAnimation,
+				"anim opcode 0x0e: DecrementTimer %u → %u, loop 0x%04x [DOS Op_0f]",
+				cur, next, resume);
+		} else {
+			debugC(3, kDebugLevelAnimation,
+				"anim opcode 0x0e: DecrementTimer %u → 0, fall through [DOS Op_0f]", cur);
+		}
+	} else {
+		debugC(3, kDebugLevelAnimation, "anim opcode 0x0e: DecrementTimer already zero [DOS Op_0f]");
+	}
 
 	return kOk;
 }
@@ -461,6 +584,7 @@ OPCODE(0x19) {
 	clearMainSprite();
 	_ticksLeft = flags;
 	_explicitFrameDelay = true;
+	setAnimationDosFieldWord(0x0a, flags);
 
 	return kFrameDone;
 }
@@ -473,6 +597,8 @@ OPCODE(0x1a) {
 
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x1a: SetField12ClearFlag16 = %d [DOS Op_1b]", v);
 
+	setAnimationDosField(0x12, v);
+	setAnimationDosField(0x16, 0);
 	_zIndex = int8(v);
 
 	return kOk;
@@ -482,11 +608,14 @@ OPCODE(0x1b) {
 	// DOS Op_1c QueueMoveSlotMode0 @ 1000:6b5d: 3 shifts (a, b, c).
 	//   Locates first free actor move-queue slot and writes (a, b, c, 0);
 	//   on overflow sets pending error 0x0c.
-	// Non-actor Animations have no walk queue. The old fallback created
-	// an absolute sprite from these operands, which has no DOS backing.
-	(void)shift(); (void)shift(); (void)shift();
+	const uint16 arg1 = shift();
+	const uint16 arg2 = shift();
+	const uint16 arg3 = shift();
+	const bool ok = queueAnimationMoveSlotLikeDos(arg1, arg2, arg3, 0);
+	if (!ok)
+		Log.setPendingError(0x0c);
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x1b: QueueMoveSlotMode0 "
-		"[actor walk queue has no non-actor analog — NO-OP]");
+		"(a=%u,b=%u,c=%u) %s", arg1, arg2, arg3, ok ? "ok" : "overflow -> pending 0x0c");
 
 	return kOk;
 }
@@ -508,10 +637,9 @@ OPCODE(0x1b) {
 // renderer-internal state that doesn't drive observable behavior).
 //
 // C++ port: each fallback either has a meaningful non-actor semantic
-// (tied to Animation::_position / _mainSprite / _ticksLeft) OR is a
-// documented NO-OP because the DOS write-target has no C++ analog on
-// non-actor Animations. Byte consumption matches DOS exactly per the
-// disassembly references.
+// (tied to Animation::_position / _mainSprite / _ticksLeft) or mirrors
+// the DOS record write through sparse Animation fields. Byte consumption
+// matches DOS exactly per the disassembly references.
 // ============================================================================
 
 OPCODE(0x09) {
@@ -543,16 +671,19 @@ OPCODE(0x0b) {
 	//   AX = ES:[BP+DI+0x2];   ES:[SI+0x8] = AX;        ; actor.field+0x8 = sprite ID
 	//   actor.field+0xa = zero-extended actor.field+0x10; end script.
 	//   ADD BP, 0x4;                                     ; total length 4
-	// = "set face direction + sprite ID, engage walk script". For non-
-	// actor Animations: actor.field+0x61 (current frame) and
-	// LookupActorAndStartPath have no analog. The sprite-ID write
-	// (field+0x8) maps to setMainSprite for non-actors.
-	(void)embeddedByte();
+	// Base Animation records are not registered in DOS's actor table, so
+	// model LookupActorAndStartPath's not-found branch: write field+0x61
+	// to the existing target-frame byte (+0x62) and call SetActorPosition
+	// again. The inline word remains the field+0x8 sprite/target write.
+	const byte face = uint8(embeddedByte());
 	uint16 spriteId = shift();
+	setPositionFromFrameLikeDos(face);
+	setPositionFromFrameLikeDos(animationDosField(0x62));
+	setAnimationDosFieldWord(0x08, spriteId);
 	setMainSprite(spriteId);
+	copyIntervalToTicksLikeDos();
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x0b: FaceAndWalkWithFrame → setMainSprite(%u) "
-		"[walk-pathfinding is actor-only; non-actor Animation has no walk script]",
-		spriteId);
+		"[base Animation models LookupActorAndStartPath not-found branch]", spriteId);
 	return kFrameDone;
 }
 
@@ -562,11 +693,14 @@ OPCODE(0x0c) {
 	//   CALL SetActorPosition + LookupActorAndStartPath;
 	//   actor.field+0xa = zero-extended actor.field+0x10; end script.
 	//   ADD BP, 0x2.
-	// = "set face direction + engage walk". For non-actor Animations
-	// no walk path exists; the byte is consumed (NO-OP).
-	(void)embeddedByte();
+	// As in 0x0b, base Animation records have no actor-table slot, so the
+	// fallback follows LookupActorAndStartPath's not-found branch.
+	const byte face = uint8(embeddedByte());
+	setPositionFromFrameLikeDos(face);
+	setPositionFromFrameLikeDos(animationDosField(0x62));
+	copyIntervalToTicksLikeDos();
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x0c: FaceAndWalk "
-		"[actor-only walk pathfinder; NO-OP for non-actor Animation]");
+		"[base Animation models LookupActorAndStartPath not-found branch]");
 	return kFrameDone;
 }
 
@@ -591,13 +725,91 @@ OPCODE(0x15) {
 	// DOS Op_16 PickAnimationSet @ 1000:6c3e: 2-byte opcode (0 extras).
 	//   if (cursor_mode != 0x80): actor.field+0x68 = 0;
 	//   else: cycle field+0x68 toward target pose from cursor.
-	// Pure actor-state mutation (writes field+0x68). Non-actor
-	// Animations have no anim-set field. NO-OP — the DOS write target
-	// for non-actor entries would be whatever byte is at offset 0x68
-	// of the non-actor record, which is renderer-internal state with
-	// no C++ analog.
-	debugC(3, kDebugLevelAnimation, "anim opcode 0x15: PickAnimationSet "
-		"[actor.field+0x68 has no non-actor analog — NO-OP]");
+	if (Log.cursorMode() != 0x80) {
+		setAnimationDosField(0x68, 0);
+		debugC(3, kDebugLevelAnimation,
+			"anim opcode 0x15: PickAnimationSet cursor_mode=%u != 0x80 -> field+0x68 = 0",
+			Log.cursorMode());
+		return kOk;
+	}
+
+	const Common::Point screenCursor = Log.engine()->graphics()->cursorPosition();
+	const int16 cursorX = int16(screenCursor.x + Log.cameraX());
+	const int16 cursorY = int16(screenCursor.y + Log.cameraY());
+	int8 spriteHotLeft = 0;
+	int8 spriteHotTop = 0;
+	if (mainSpriteId() != 0xffff) {
+		const SpriteInfo info = _resources->getSpriteInfo(mainSpriteId());
+		spriteHotLeft = info.hotLeft;
+		spriteHotTop = info.hotTop;
+	}
+
+	const int16 adjustedX = int16(_position.x) - spriteHotLeft;
+	const int16 adjustedY = int16(_position.y) + spriteHotTop;
+	const uint8 width = animationDosField(0x17);
+	const uint8 height = animationDosField(0x18);
+	const int16 leftX = adjustedX;
+	const int16 rightX = adjustedX + int16(width);
+	const int16 topY = adjustedY - int16(height);
+	const int16 botY = adjustedY;
+
+	uint8 target;
+	if (cursorY < topY) {
+		if (cursorX < leftX)
+			target = 8;
+		else if (cursorX < rightX)
+			target = 1;
+		else
+			target = 2;
+	} else if (cursorY > botY) {
+		if (cursorX < leftX)
+			target = 6;
+		else if (cursorX < rightX)
+			target = 5;
+		else
+			target = 4;
+	} else {
+		if (cursorX < leftX)
+			target = 7;
+		else if (cursorX < rightX)
+			target = 0x63;
+		else
+			target = 3;
+	}
+
+	const uint8 current = animationDosField(0x68);
+	if (current == 0x63 || target == 0x63 || target == current) {
+		setAnimationDosField(0x68, target);
+		debugC(3, kDebugLevelAnimation,
+			"anim opcode 0x15: PickAnimationSet snap target=%u current=%u",
+			target, current);
+		return kOk;
+	}
+
+	const int8 delta = int8(uint8(target - current));
+	uint8 next = 0x63;
+	if (delta < 0) {
+		if (delta <= -6) {
+			const uint8 n = uint8(current + 1);
+			next = int8(n) <= 8 ? n : 1;
+		} else if (delta >= -2) {
+			const uint8 n = uint8(current - 1);
+			next = int8(n) >= 1 ? n : 8;
+		}
+	} else {
+		if (delta >= 6) {
+			const uint8 n = uint8(current - 1);
+			next = int8(n) >= 1 ? n : 8;
+		} else if (delta <= 2) {
+			const uint8 n = uint8(current + 1);
+			next = int8(n) <= 8 ? n : 1;
+		}
+	}
+
+	setAnimationDosField(0x68, next);
+	debugC(3, kDebugLevelAnimation,
+		"anim opcode 0x15: PickAnimationSet rect=(%d..%d,%d..%d) cursor=(%d,%d) target=%u current=%u -> %u (delta=%d)",
+		leftX, rightX, topY, botY, cursorX, cursorY, target, current, next, int(delta));
 	return kOk;
 }
 
@@ -606,20 +818,16 @@ OPCODE(0x16) {
 	//   AL = ES:[SI+0x68];  CMP AL, embedded;
 	//   if equal: BP = ES:[BP+DI+0x2] (jump);
 	//   else ADD BP, 4 (advance).
-	// For non-actor: field+0x68 doesn't exist (effectively 0). If the
-	// embedded byte is 0, the jump fires; otherwise fall through.
-	// This matches DOS reading-from-zero behavior for non-actor
-	// records (assuming the byte at offset 0x68 of non-actor entries
-	// is zero-initialized, which is typical).
 	const byte val = embeddedByte();
 	const uint16 jumpTarget = shift();
-	if (val == 0) {
+	const uint8 current = animationDosField(0x68);
+	if (current == val) {
 		_offset = jumpTarget;
-		debugC(3, kDebugLevelAnimation, "anim opcode 0x16: BranchIfAnimSetEquals val=0 → jump 0x%04x",
-			jumpTarget);
+		debugC(3, kDebugLevelAnimation, "anim opcode 0x16: BranchIfAnimSetEquals current=%u val=%u -> jump 0x%04x",
+			current, val, jumpTarget);
 	} else {
 		debugC(3, kDebugLevelAnimation,
-			"anim opcode 0x16: BranchIfAnimSetEquals val=%d (non-actor field=0 implicit, no jump)", val);
+			"anim opcode 0x16: BranchIfAnimSetEquals current=%u val=%u -> no jump", current, val);
 	}
 	return kOk;
 }
@@ -628,16 +836,17 @@ OPCODE(0x17) {
 	// DOS Op_18 BranchIfMoodEquals @ 1000:6b29:
 	//   if (ES:[SI+0x63] == embedded): BP = ES:[BP+DI+0x2] (jump);
 	//   else ADD BP, 4.
-	// Same shape as 0x16 with field+0x63 (mood). Non-actor: implicit 0.
 	const byte val = embeddedByte();
 	const uint16 jumpTarget = shift();
-	if (val == 0) {
+	const uint8 mood = animationDosField(0x63);
+	if (mood == val) {
 		_offset = jumpTarget;
-		debugC(3, kDebugLevelAnimation, "anim opcode 0x17: BranchIfMoodEquals val=0 → jump 0x%04x",
-			jumpTarget);
+		setAnimationDosFieldWord(0x02, jumpTarget);
+		debugC(3, kDebugLevelAnimation, "anim opcode 0x17: BranchIfMoodEquals mood=%u val=%u -> jump 0x%04x",
+			mood, val, jumpTarget);
 	} else {
 		debugC(3, kDebugLevelAnimation,
-			"anim opcode 0x17: BranchIfMoodEquals val=%d (non-actor mood=0 implicit, no jump)", val);
+			"anim opcode 0x17: BranchIfMoodEquals mood=%u val=%u -> no jump", mood, val);
 	}
 	return kOk;
 }
@@ -645,10 +854,9 @@ OPCODE(0x17) {
 OPCODE(0x18) {
 	// DOS Op_19 SetField6d @ 1000:6b43: 1 shift.
 	//   AX = ES:[BP+DI+0x2];  ES:[SI+0x6d] = AX (actually written as a word).
-	// Pure actor-state write (field+0x6d). NO-OP for non-actor.
-	(void)shift();
-	debugC(3, kDebugLevelAnimation, "anim opcode 0x18: SetField6d "
-		"[actor.field+0x6d has no non-actor analog — NO-OP]");
+	const uint16 val = shift();
+	setAnimationDosFieldWord(0x6d, val);
+	debugC(3, kDebugLevelAnimation, "anim opcode 0x18: SetField6d = 0x%04x", val);
 	return kOk;
 }
 
@@ -657,33 +865,38 @@ OPCODE(0x1c) {
 	//   Locates first free slot in actor.field+0x19's 8-entry move
 	//   queue (32 bytes total: 8 entries × 4 ints), writes (a, b, c, 1).
 	//   On overflow: pending error 0xc.
-	// Pure actor walk-queue mutation. Non-actor Animations have no
-	// walk queue. NO-OP.
-	(void)shift(); (void)shift(); (void)shift();
+	const uint16 arg1 = shift();
+	const uint16 arg2 = shift();
+	const uint16 arg3 = shift();
+	const bool ok = queueAnimationMoveSlotLikeDos(arg1, arg2, arg3, 1);
+	if (!ok)
+		Log.setPendingError(0x0c);
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x1c: QueueMoveSlotMode1 "
-		"[actor walk queue has no non-actor analog — NO-OP]");
+		"(a=%u,b=%u,c=%u) %s", arg1, arg2, arg3, ok ? "ok" : "overflow -> pending 0x0c");
 	return kOk;
 }
 
 OPCODE(0x1d) {
 	// DOS Op_1e ClearFlag14 @ 1000:6bcd: ES:[SI+0x14] = 0.
-	// Per-actor flag byte. NO-OP for non-actor.
+	setAnimationDosField(0x14, 0);
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x1d: ClearFlag14 "
-		"[actor flag byte — NO-OP for non-actor]");
+		"[field+0x14 = 0]");
 	return kOk;
 }
 
 OPCODE(0x1e) {
 	// DOS Op_1f ClearFlag15 @ 1000:6bd5: ES:[SI+0x15] = 0.
+	setAnimationDosField(0x15, 0);
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x1e: ClearFlag15 "
-		"[actor flag byte — NO-OP for non-actor]");
+		"[field+0x15 = 0]");
 	return kOk;
 }
 
 OPCODE(0x1f) {
 	// DOS Op_20 SetFlag15 @ 1000:6bdd: ES:[SI+0x15] = 1.
+	setAnimationDosField(0x15, 1);
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x1f: SetFlag15 "
-		"[actor flag byte — NO-OP for non-actor]");
+		"[field+0x15 = 1]");
 	return kOk;
 }
 
@@ -692,12 +905,12 @@ OPCODE(0x20) {
 	//   ES:[SI+0x5f] = BP+DI+0x2 (callback offset = next opcode addr);
 	//   ES:[SI+0x5d] = ES (callback segment);
 	//   ADD BP, 0xc (skip past 12-byte opcode = opcode + 1 pad + 10 inline body).
-	// Captures script's PC into actor's callback-PC fields. Non-actor
-	// has no callback fields. We skip the inline body via 5 shifts to
-	// keep dispatcher PC aligned.
+	const uint16 callbackPC = _baseOffset + _offset;
+	setAnimationDosFieldWord(0x5f, callbackPC);
+	setAnimationDosFieldWord(0x5d, animationCodeSegmentTag(_base));
 	(void)shift(); (void)shift(); (void)shift(); (void)shift(); (void)shift();
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x20: SetCallbackPointer "
-		"[12-byte opcode body skipped; actor callback fields have no non-actor analog]");
+		"cbSeg=0x%04x cbOff=0x%04x", animationDosFieldWord(0x5d), callbackPC);
 	return kOk;
 }
 
@@ -706,36 +919,40 @@ OPCODE(0x21) {
 	//   if (offset != 0): callback_off = DI + offset (script-relative);
 	//   else callback_off = 0 (clear);
 	//   callback_seg = ES.
-	// Same actor-callback fields as 0x20. NO-OP for non-actor.
-	(void)shift();
+	const int16 off = int16(shift());
+	uint16 cbOff = 0;
+	if (off != 0)
+		cbOff = uint16(int32(_baseOffset) + int32(off));
+	setAnimationDosFieldWord(0x5f, cbOff);
+	setAnimationDosFieldWord(0x5d, animationCodeSegmentTag(_base));
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x21: SetCallbackRelative "
-		"[actor callback — NO-OP for non-actor]");
+		"off=%d cbSeg=0x%04x cbOff=0x%04x", off, animationDosFieldWord(0x5d), cbOff);
 	return kOk;
 }
 
 OPCODE(0x22) {
 	// DOS Op_23 ClearCallback @ 1000:6c0a: ES:[SI+0x5d] = 0xffff.
-	// Same actor-callback field. NO-OP for non-actor.
+	setAnimationDosFieldWord(0x5d, 0xffff);
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x22: ClearCallback "
-		"[actor callback — NO-OP for non-actor]");
+		"[field+0x5d = 0xffff]");
 	return kOk;
 }
 
 OPCODE(0x23) {
 	// DOS Op_24 SetMood @ 1000:6c13: ES:[SI+0x63] = embedded byte.
-	// Pure actor-state. NO-OP for non-actor.
-	(void)embeddedByte();
+	const byte mood = uint8(embeddedByte());
+	setAnimationDosField(0x63, mood);
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x23: SetMood "
-		"[actor mood — NO-OP for non-actor]");
+		"[field+0x63 = %u]", mood);
 	return kOk;
 }
 
 OPCODE(0x24) {
 	// DOS Op_25 SetField65 @ 1000:6c1e: ES:[SI+0x65] = embedded byte.
-	// Pure actor-state. NO-OP for non-actor.
-	(void)embeddedByte();
+	const byte v = uint8(embeddedByte());
+	setAnimationDosField(0x65, v);
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x24: SetField65 "
-		"[actor field+0x65 — NO-OP for non-actor]");
+		"[field+0x65 = %u]", v);
 	return kOk;
 }
 

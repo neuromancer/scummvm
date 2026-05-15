@@ -82,6 +82,8 @@ public:
 	};
 	void willFadein(FadeFlags f = kFullFade);
 	bool fadeOut(FadeFlags f = kFullFade);
+	bool inFade() const { return _inFade; }
+	void setInFade(bool v) { _inFade = v; }
 
 	void say(const byte *text, uint16, uint16 frames = 50);
 	// DOS Op_47/0x48: narrator bubble with explicit position + color.
@@ -178,6 +180,7 @@ private:
 	Common::List<CodePointer> _afterRepaintHooks;
 
 	bool _willFadein;
+	bool _inFade;
 	FadeFlags _fadeFlags;
 	byte _interfacePalette[0x300];
 	byte _tintedPalette[256];

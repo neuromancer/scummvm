@@ -26,6 +26,7 @@
 #ifndef INTERSPECTIVE_SOUND_H
 #define INTERSPECTIVE_SOUND_H
 
+#include "common/array.h"
 #include "common/scummsys.h"
 #include "audio/mixer.h"
 
@@ -121,6 +122,18 @@ public:
 	void stopAll();
 
 private:
+	struct SfxBankInfo {
+		uint16 low;
+		uint16 high;
+		uint32 size;
+	};
+
+	void loadSfxMetadata() const;
+	uint16 maxSfxId() const;
+	bool validateSfxId(uint16 id) const;
+	const SfxBankInfo *sfxBankForId(uint16 id) const;
+	bool resolveSfxSlot(uint16 id, uint32 baseBytes, uint16 &low, uint16 &high, uint32 &size) const;
+
 	Engine *_engine;
 	Audio::SoundHandle _primaryHandle;
 	Audio::SoundHandle _secondaryHandle;
@@ -133,6 +146,9 @@ private:
 	uint16 _state6708;   // secondary slot hi
 	uint16 _state670a;   // (unidentified)
 	uint16 _state670c;   // (unidentified)
+	mutable Common::Array<SfxBankInfo> _sfxBanks;
+	mutable uint16 _maxSfxId;
+	mutable bool _sfxMetadataLoaded;
 	bool _active;
 };
 

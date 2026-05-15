@@ -81,9 +81,12 @@ static void moveActorToTargetFrameLikeDos(Logic *logic, Actor *actor, uint16 fra
 	if (actor == logic->protagonist()) {
 		logic->clearPostMoveCallback();
 		actor->stopSpeaking();
+		logic->setPostMoveTargetFrameMirror(uint8(frame));
 		if (actor->room() == logic->currentRoom() && actor->frameId() != 0)
 			actor->setRawTargetFrame(uint8(frame));
 		actor->moveTo(frame);
+		if (actor->dosField(0x6f) != 0)
+			logic->setPostMoveTargetFrameMirror(uint8(actor->frameId()));
 		return;
 	}
 	if (actor->room() != logic->currentRoom()) {
@@ -235,34 +238,33 @@ static Actor::Frame makeEmptyActorFrame(uint16 index) {
 	return Actor::Frame(Common::Point(999, 999), nexts, index);
 }
 
+static void syncActorFrameRecord(Common::Serializer &s, Actor::Frame &frame, uint16 index) {
+	Common::Point pos = frame.position();
+	int16 x = pos.x;
+	int16 y = pos.y;
+	Common::Array<byte> nexts = frame.nexts();
+	nexts.resize(8);
+	s.syncAsSint16LE(x);
+	s.syncAsSint16LE(y);
+	for (uint j = 0; j < nexts.size(); ++j)
+		s.syncAsByte(nexts[j]);
+	if (s.isLoading())
+		frame = makeActorFrame(index, Common::Point(x, y), nexts);
+}
+
 static void syncActorFrameArray(Common::Serializer &s, Common::Array<Actor::Frame> &frames) {
 	uint16 count = frames.size();
 	s.syncAsUint16LE(count);
 	if (s.isLoading()) {
 		frames.clear();
 		for (uint16 i = 0; i < count; ++i) {
-			int16 x = 999;
-			int16 y = 999;
-			Common::Array<byte> nexts;
-			nexts.resize(8);
-			s.syncAsSint16LE(x);
-			s.syncAsSint16LE(y);
-			for (uint j = 0; j < nexts.size(); ++j)
-				s.syncAsByte(nexts[j]);
-			frames.push_back(makeActorFrame(uint16(i + 1), Common::Point(x, y), nexts));
+			Actor::Frame frame;
+			syncActorFrameRecord(s, frame, uint16(i + 1));
+			frames.push_back(frame);
 		}
 	} else {
-		for (uint16 i = 0; i < count; ++i) {
-			Common::Point pos = frames[i].position();
-			int16 x = pos.x;
-			int16 y = pos.y;
-			Common::Array<byte> nexts = frames[i].nexts();
-			nexts.resize(8);
-			s.syncAsSint16LE(x);
-			s.syncAsSint16LE(y);
-			for (uint j = 0; j < nexts.size(); ++j)
-				s.syncAsByte(nexts[j]);
-		}
+		for (uint16 i = 0; i < count; ++i)
+			syncActorFrameRecord(s, frames[i], uint16(i + 1));
 	}
 }
 
@@ -276,6 +278,8 @@ Logic::~Logic() {
 void Logic::setEngine(Engine *e) {
 	_engine = e;
 	_resources = e->resources();
+	_protagonist = nullptr;
+	_protagonistId = 0;
 	_currentRoom = 0xffff;
 	_currentBlock = 0xffff;
 	_nextRoom = 0;
@@ -284,6 +288,8 @@ void Logic::setEngine(Engine *e) {
 	setCursorMode(_defaultCursorMode);
 	_actorFrameTable.clear();
 	_actorFrameCount = 0;
+	_walkSpeedFlag = 0;
+	_postMoveTargetFrameMirror = 0;
 }
 
 
@@ -353,6 +359,7 @@ void Logic::clearRoomTransientAnimations() {
 }
 
 void Logic::setProtagonist(uint16 actor) {
+	_protagonistId = actor;
 	_protagonist = getActor(actor);
 }
 
@@ -383,7 +390,9 @@ void Logic::actorFramesAdd(Common::Point p, const Common::Array<byte> &nexts) {
 }
 
 Actor::Frame Logic::actorFrame(uint16 index) const {
-	if (index == 0 || index > _actorFrameTable.size())
+	if (index == 0)
+		return _actorFrameZero;
+	if (index > _actorFrameTable.size())
 		return Actor::Frame();
 	return _actorFrameTable[index - 1];
 }
@@ -393,8 +402,10 @@ void Logic::actorFrameInvalidate(uint16 index) {
 		setPendingError(0x30);
 		return;
 	}
-	if (index == 0)
+	if (index == 0) {
+		_actorFrameZero.invalidate();
 		return;
+	}
 
 	const uint16 tableIndex = uint16(index - 1);
 	while (tableIndex >= _actorFrameTable.size())
@@ -407,8 +418,10 @@ void Logic::actorFrameSetPosition(uint16 index, int16 x, int16 y) {
 		setPendingError(0x30);
 		return;
 	}
-	if (index == 0)
+	if (index == 0) {
+		_actorFrameZero.setPosition(Common::Point(x, y));
 		return;
+	}
 
 	const uint16 tableIndex = uint16(index - 1);
 	while (tableIndex >= _actorFrameTable.size())
@@ -775,23 +788,22 @@ CodePointer Logic::restoreSceneFrame() {
 //   if (post_callback_ptr == 0)         return;        // none armed
 //   if (protag.field+0x61 == [0x6609]) → CALL [BP];   // fire
 //   clear post_callback_ptr;                           // one-shot
-// (DOS clears regardless of whether the frame matched, but only if it
-// passed the first three guards. We use the simpler "fire when actor
-// stops moving" model — the C++ walk completes when the protagonist's
-// _framequeue empties, at which point Actor::isMoving() returns false.
-// This collapses the per-tick frame-arrival check into a single
-// edge: the tick where the queue just emptied. Functional outcome
-// matches DOS for the only documented callback consumers, Op_91-0x93.)
+// DOS clears regardless of whether the frame matched, but only if it
+// passed the first three guards.
 void Logic::runPostMoveCallbackIfReady() {
 	if (_postMoveCallback.kind == PostMoveCallback::kNone)
 		return;
 	if (!_protagonist)
 		return;
-	if (_protagonist->isMoving())
-		return; // wait for walk to complete
+	if (_protagonist->dosField(0x6f) != 0)
+		return;
+	if (_protagonist->dosField(0x65) == 0)
+		return;
 
 	PostMoveCallback cb = _postMoveCallback;
 	_postMoveCallback = PostMoveCallback(); // one-shot clear before dispatch
+	if (uint8(_protagonist->frameId()) != _postMoveTargetFrameMirror)
+		return;
 
 	debugC(2, kDebugLevelScript,
 		"post-move callback firing: kind=%d cellId=%u arg0=%u arg1=%u",
@@ -1122,11 +1134,10 @@ bool Logic::sendActorToCurrentEntity(Actor *walker) {
 //   InitActorState();              // jump script to actor's main code
 //
 // C++ port: positional state goes through Actor::placeIn (DOS-aligned
-// non-script-resetting placement). The walk_speed_flag has no C++
-// analog (per-tick step rate is animation-driven in C++); the slowSpeed
-// param is passed through for future hookup.
+// non-script-resetting placement). The walk_speed_flag byte is mirrored
+// on Logic; animation rate remains driven by the actor script fields.
 bool Logic::walkActorAnim(uint16 actorId, int16 destX, int16 destY, bool slowSpeed) {
-	(void)slowSpeed;  // C++ animation tick rate is per-Animation, not per-walk.
+	setWalkSpeedFlag(slowSpeed ? 1 : 0);
 	Actor *ac = getActor(actorId);
 	if (!ac) {
 		setPendingError(0x17);
@@ -1711,7 +1722,7 @@ void Logic::runQueued() {
 
 		if (current->canceled) {
 			toRemove.push(current);
-		} else if (current->delay == 0 && current->queuedTick == frameTicks()) {
+		} else if (current->queuedTick == frameTicks()) {
 			debugC(3, kDebugLevelScript, "deferred fresh %s until next tick", +current->code);
 		} else if (current->delay) {
 			debugC(3, kDebugLevelScript, "delayed %s, delay now %d", +current->code,
@@ -1761,7 +1772,7 @@ void Logic::setRoomLoop(const CodePointer &code) {
 void Logic::synchronize(Common::Serializer &s) {
 	uint16 currentRoom = uint16(_currentRoom);
 	uint16 currentPlace = _currentPlace;
-	uint16 protagonistId = _protagonist ? _protagonist->id() : 0;
+	uint16 protagonistId = _protagonistId;
 	uint16 currentBlock = _currentBlock;
 
 	s.syncAsUint16LE(currentRoom);
@@ -1779,8 +1790,7 @@ void Logic::synchronize(Common::Serializer &s) {
 		_currentPlace = currentPlace;
 		if (currentRoom != 0 && currentRoom != 0xffff)
 			changeRoom(currentRoom);
-		if (protagonistId != 0)
-			setProtagonist(protagonistId);
+		setProtagonist(protagonistId);
 	}
 
 	uint32 frameCounter = _frameCounter;
@@ -1788,6 +1798,7 @@ void Logic::synchronize(Common::Serializer &s) {
 	uint8 inMapMode = _inMapMode ? 1 : 0;
 	uint8 mapScreenInitialized = _mapScreenInitialized ? 1 : 0;
 	uint8 roomActive = _roomActive ? 1 : 0;
+	uint8 logicDirty = _logicDirty ? 1 : 0;
 	uint8 stepPending = _stepPending ? 1 : 0;
 	uint8 noStep = _noStep ? 1 : 0;
 	uint16 defaultCursorMode = _defaultCursorMode;
@@ -1803,6 +1814,7 @@ void Logic::synchronize(Common::Serializer &s) {
 	uint16 currentEntityId = _currentEntityId;
 	uint16 drawCommandCount = _drawCommandCount;
 	uint16 actorFrameCount = _actorFrameCount;
+	uint8 walkSpeedFlag = _walkSpeedFlag;
 	int16 cameraX = _cameraX;
 	int16 cameraY = _cameraY;
 	uint16 cameraTargetX = _cameraTargetX;
@@ -1830,6 +1842,7 @@ void Logic::synchronize(Common::Serializer &s) {
 	s.syncAsByte(inMapMode);
 	s.syncAsByte(mapScreenInitialized);
 	s.syncAsByte(roomActive);
+	s.syncAsByte(logicDirty);
 	s.syncAsByte(stepPending);
 	s.syncAsByte(noStep);
 	s.syncAsUint16LE(defaultCursorMode);
@@ -1845,6 +1858,7 @@ void Logic::synchronize(Common::Serializer &s) {
 	s.syncAsUint16LE(currentEntityId);
 	s.syncAsUint16LE(drawCommandCount);
 	s.syncAsUint16LE(actorFrameCount);
+	s.syncAsByte(walkSpeedFlag);
 	s.syncAsSint16LE(cameraX);
 	s.syncAsSint16LE(cameraY);
 	s.syncAsUint16LE(cameraTargetX);
@@ -1874,7 +1888,8 @@ void Logic::synchronize(Common::Serializer &s) {
 		_inMapMode = inMapMode != 0;
 		_mapScreenInitialized = mapScreenInitialized != 0;
 		_roomActive = roomActive != 0;
-	_stepPending = stepPending != 0;
+		_logicDirty = logicDirty != 0;
+		_stepPending = stepPending != 0;
 	_noStep = noStep != 0;
 	_defaultCursorMode = defaultCursorMode;
 	_cursorMode = cursorMode;
@@ -1889,6 +1904,7 @@ void Logic::synchronize(Common::Serializer &s) {
 		_currentEntityId = currentEntityId;
 		_drawCommandCount = drawCommandCount;
 		_actorFrameCount = actorFrameCount;
+		_walkSpeedFlag = walkSpeedFlag;
 		_cameraX = cameraX;
 		_cameraY = cameraY;
 		_cameraTargetX = cameraTargetX;
@@ -1923,6 +1939,7 @@ void Logic::synchronize(Common::Serializer &s) {
 	syncHashMapUint32Uint8(s, _cellBits);
 	syncHashMapUint16Uint8(s, _actorFlag70);
 	syncHashMapUint16Bool(s, _scoreEventClaimed);
+	syncActorFrameRecord(s, _actorFrameZero, 0);
 	syncActorFrameArray(s, _actorFrameTable);
 	if (s.isLoading() && _actorFrameCount > _actorFrameTable.size())
 		_actorFrameCount = uint16(_actorFrameTable.size());

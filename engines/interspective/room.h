@@ -59,8 +59,8 @@ public:
 	Actor::Frame getFrame(uint16 index) const;
 
 	// Runtime frame-table mutation (DOS Op_e0/Op_e1). These opcodes index
-	// the same 1-based frame ids used by SetActorPosition; arg0 == 0 writes
-	// DOS's unused frame-0 slot, which the C++ actor model treats as invalid.
+	// the same frame ids used by SetActorPosition; arg0 == 0 writes DOS's
+	// unused frame-0 backing slot.
 	void invalidateFrame(uint16 index);
 	void setFramePosition(uint16 index, int16 x, int16 y);
 

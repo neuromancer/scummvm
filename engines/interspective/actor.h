@@ -238,11 +238,22 @@ public:
 	void setAnimation(const CodePointer &anim);
 	void setAnimation(uint16);
 
+	void unregisterLikeDos();
 	void hide();
 	void callMe(const CodePointer &cp);
 	void callMeWithMode(const CodePointer &cp, uint16 mode);
 	void tellMe(const CodePointer &cp, uint16 timeout);
 	void tellMeWithMode(const CodePointer &cp, uint16 timeout, uint16 mode);
+
+	struct RoomScriptWaitSnapshot {
+		RoomScriptWaitSnapshot() : runMode(0), position(0), valid(false) {}
+		CodePointer callback;
+		uint16 runMode;
+		uint16 position;
+		bool valid;
+	};
+	bool takeRoomScriptWait(RoomScriptWaitSnapshot &snapshot);
+	void restoreRoomScriptWait(const RoomScriptWaitSnapshot &snapshot);
 
 	bool isSpeaking() const;
 	const Common::String &speechText() const { return _speech.text(); }

@@ -166,8 +166,10 @@ public:
 	void setBeat(uint16 beat) { _tune->setBeat(beat); }
 	void silence();
 	void stopMusic();
-	void setMaxVolume();
+	void requestStopCurrent();
+	void setMaxVolume(uint8 dosMusicMode);
 	bool isPlaying() const;
+	bool hasCurrentTune() const { return _currentTuneWord != 0; }
 	bool isActive() const { return _active; }
 	void setActive(bool active) { _active = active; }
 
@@ -181,6 +183,9 @@ private:
 	MusicScript *_script;
 	MusicType _musicType;
 	bool _active;
+	uint16 _currentTuneWord;
+	uint8 _driverCommandByte;
+	uint8 _driverModeFlag;
 
 	uint32 _time, _lastTick, _tick;
 };

@@ -40,7 +40,8 @@ namespace Common {
 
 namespace Interspective {
 
-MusicParser::MusicParser() : MidiParser(), _tune(0), _script(0), _musicType(MT_INVALID), _active(true), _time(0), _lastTick(0), _tick(0) {
+MusicParser::MusicParser() : MidiParser(), _tune(0), _script(0), _musicType(MT_INVALID), _active(true),
+	_currentTuneWord(0), _driverCommandByte(0), _driverModeFlag(0), _time(0), _lastTick(0), _tick(0) {
 	const uint32 devTypes = MDT_MIDI | MDT_ADLIB | MDT_PREFER_GM;
 	MidiDriver::DeviceHandle dev = MidiDriver::detectDevice(devTypes);
 	_musicType = MidiDriver::getMusicType(dev);
@@ -141,6 +142,7 @@ bool MusicParser::loadMusic(const byte *data, uint32 size) {
 	_time = 0;
 
 	uint16 tuneIdx = _script->getTune();
+	_currentTuneWord = tuneIdx;
 	warning("Interspective music: loadMusic tune index = %u", tuneIdx);
 	_tune = new Tune(tuneIdx);
 
@@ -155,6 +157,11 @@ bool MusicParser::loadMusic(const byte *data, uint32 size) {
 }
 
 void MusicParser::tick() {
+	if (_driverCommandByte == 1) {
+		stopMusic();
+		return;
+	}
+
 	_time += _timerRate;
 	if (_lastTick && _time < _lastTick + _psecPerTick)
 		return;
@@ -209,14 +216,22 @@ bool MusicParser::isPlaying() const {
 }
 
 void MusicParser::stopMusic() {
+	_currentTuneWord = 0;
+	_driverCommandByte = 0;
 	silence();
 	unloadMusic();
 	if (_tune)
 		_tune->stop();
 }
 
-void MusicParser::setMaxVolume() {
+void MusicParser::requestStopCurrent() {
+	_driverCommandByte = 1;
+}
+
+void MusicParser::setMaxVolume(uint8 dosMusicMode) {
 	debugC(2, kDebugLevelMusic, "setting music channel volume to maximum");
+	_driverCommandByte = 0xff;
+	_driverModeFlag = (dosMusicMode == 4) ? 0 : 0x3f;
 	if (!_driver)
 		return;
 	for (int channel = 2; channel < 10; ++channel)

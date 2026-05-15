@@ -58,6 +58,7 @@ void Graphics::setEngine(Engine *engine) {
 	_framebuffer = Common::SharedPtr<Surface>(new Surface);
 	_framebuffer.get()->create(320, 200);
 	_willFadein = false;
+	_inFade = false;
 
 	_speech = 0;
 	_speechFramesLeft = 0;
@@ -160,6 +161,7 @@ void Graphics::loadGraphicPalette(uint16 id) {
 
 void Graphics::willFadein(FadeFlags f) {
 	_willFadein = true;
+	_inFade = true;
 	_fadeFlags = f;
 	if (f & kPartialFade)
 		clearPalette(160, 96);
@@ -699,9 +701,11 @@ void Graphics::updateScreen() {
 		debugC(3, kDebugLevelGraphics, "performing partial fade in");
 		_willFadein = false;
 		fadeIn(_interfacePalette + 160*3, 160, 96);
+		_inFade = false;
 	} else if (_willFadein && !(_fadeFlags & kPartialFade)) {
 		fadeIn();
 		_willFadein = false;
+		_inFade = false;
 	}
 
 	_system->updateScreen();

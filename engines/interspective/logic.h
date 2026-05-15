@@ -62,6 +62,7 @@ public:
 		  _inMapMode(false),
 		  _mapScreenInitialized(false),
 		  _roomActive(true),
+		  _logicDirty(false),
 		  _stepPending(false),
 		  _noStep(false),
 			  _menuStashA(0),
@@ -82,7 +83,9 @@ public:
 		  _currentEntityId(0),
 		  _drawCommandCount(0),
 		  _actorFrameCount(0),
+		  _walkSpeedFlag(0),
 		  _dialogCursor0(0), _dialogCursor1(0), _dialogClickGate(0),
+		  _postMoveTargetFrameMirror(0),
 		  _opcodeMode(0),
 		  _escBreakProc(0),
 		  _escBreakSrcPC(0),
@@ -98,6 +101,8 @@ public:
 		  _cameraTargetX(0xffff), _cameraTargetY(0xffff),
 		  _scrollChanged(false),
 		  _inputEnabled(true) {
+		_protagonist = nullptr;
+		_protagonistId = 0;
 		for (int i = 0; i < 7; ++i) _graphicSlots[i] = 0;
 		_castTable.resize(kCastTableCap);
 	}
@@ -126,12 +131,19 @@ public:
 	// to block room interactions; restore opcodes set it again.
 	bool roomActive() const { return _roomActive; }
 	void setRoomActive(bool v) { _roomActive = v; }
+	bool logicDirty() const { return _logicDirty; }
+	void setLogicDirty(bool v = true) { _logicDirty = v; }
 	bool stepPending() const { return _stepPending; }
 	void setStepPending(bool v) { _stepPending = v; }
 	// DOS g_flag_no_step (DS:0x6747). Set by Op_95 to lock player input during
 	// cutscenes. Op_96 clears both _noStep and _stepPending.
 	bool noStep() const { return _noStep; }
 	void setNoStep(bool v) { _noStep = v; }
+	// DOS g_walk_speed_flag (DS:0x674d). Several opcode pairs set this
+	// byte before resolving code/table pointers: 0 = main/resource bank,
+	// 1 = block bank.
+	uint8 walkSpeedFlag() const { return _walkSpeedFlag; }
+	void setWalkSpeedFlag(uint8 v) { _walkSpeedFlag = v; }
 
 	// Per-room geometry tables, mirrors of the DOS g_zone / g_collision_zone /
 	// g_zone_b / g_walkbox arrays. Populated by Op_d9 / Op_dd, cleared by
@@ -633,9 +645,8 @@ public:
 	// In C++ the in-engine continuations are enumerated explicitly —
 	// only a small set of code paths register post-move callbacks —
 	// so the saved register state collapses to (kind + named args).
-	// The "fire condition" maps cleanly to Actor::isMoving() going
-	// false: when the protagonist's _framequeue empties, the walk
-	// just completed.
+	// The fire guards still mirror DOS fields +0x6f/+0x65 and the
+	// frame byte mirror at DS:0x6609.
 	struct PostMoveCallback {
 		enum Kind {
 			kNone = 0,
@@ -678,17 +689,14 @@ public:
 	void setPostMoveCallback(const PostMoveCallback &cb) { _postMoveCallback = cb; }
 	bool hasPostMoveCallback() const { return _postMoveCallback.kind != PostMoveCallback::kNone; }
 	void clearPostMoveCallback() { _postMoveCallback = PostMoveCallback(); }
+	uint8 postMoveTargetFrameMirror() const { return _postMoveTargetFrameMirror; }
+	void setPostMoveTargetFrameMirror(uint8 frame) { _postMoveTargetFrameMirror = frame; }
 	void runPostMoveCallbackIfReady();
 
 	// Cutscene-PC state backup (DOS Op_97 @ 1000:4a5d / Op_98 @ 1000:4b40).
 	// Single-slot save/restore of the protagonist's walk callback fields,
-	// the post-move callback record, and the protag's active speech.
-	// DOS captures more (g_speech_slots[6] pool snapshot @ [0x5f08..],
-	// g_room_script_slots[19] entry @ [0x5eeb/0x5eed/0x5eef]) — those
-	// subsystems aren't modeled in the C++ port, so the snapshot is a
-	// state subset. All save/restore actions match DOS for the modeled
-	// state; un-modeled DOS slots have no C++ analog to either save or
-	// restore from.
+	// the post-move callback record, active speech, and the one room-script
+	// wait slot whose owner is the protagonist and whose type word is zero.
 	struct CutsceneBackup {
 		bool active;
 		// Protagonist DOS fields cleared by Op_97, restored by Op_98:
@@ -698,10 +706,8 @@ public:
 		uint16 actorField69;
 		uint8 actorField62;
 		uint8 actorField67;
-		// [0x6609]: protag's target frame for post-move-callback frame
-		// match. C++ post-move dispatcher uses isMoving() instead, so
-		// this byte is captured for state-mirror fidelity but doesn't
-		// drive C++ dispatch.
+		// [0x6609]: protag's target/current-frame mirror used by
+		// RunPostMoveCallback's frame match.
 		uint8 targetFrameMirror;
 		// [0x65ab..]: post-move callback register record.
 		PostMoveCallback savedCallback;
@@ -711,6 +717,10 @@ public:
 		// frames-left/total are derived state.
 		Common::String speechText;
 		bool hadSpeech;
+		// DOS [0x5eeb/0x5eed/0x5eef]: one g_room_script_slots entry
+		// with owner == main character and type word 0. In C++ this is
+		// the mode-preserving Actor callback queued by Op_99/Op_9a.
+		Actor::RoomScriptWaitSnapshot roomScriptWait;
 		CutsceneBackup() : active(false), actorField69(0), actorField62(0),
 			actorField67(0), targetFrameMirror(0), hadSpeech(false) {}
 	};
@@ -841,6 +851,7 @@ public:
 	// set actor# of the protagonist
 	void setProtagonist(uint16);
 	Actor *protagonist() const;
+	uint16 protagonistId() const { return _protagonistId; }
 
 	void changeRoom(uint16);
 
@@ -946,6 +957,7 @@ private:
 	Resources *_resources;
 	Common::SharedPtr<Interpreter> _toplevelInterpreter, _blockInterpreter;
 	Actor *_protagonist;
+	uint16 _protagonistId; // DOS CS:0x010f
 	uint32 _nextRoom;
 	uint32 _currentRoom;
 	uint16 _currentBlock;
@@ -976,6 +988,7 @@ private:
 	bool _inMapMode;        // DS:0x676e — true while world map is shown
 	bool _mapScreenInitialized; // DOS CS:[0x52a3] — Op_cc first-entry guard
 	bool _roomActive;       // DS:0x6740 — gates room/entity interaction
+	bool _logicDirty;       // DS:0x673c — set by logic-mutating draw/cursor opcodes
 	uint16 _currentPlace;   // DOS CS:[0x111] — savegame "place" id, set by Op_c9
 	bool _stepPending;      // DS:0x6748 — set by hotspot click, cleared on action
 	bool _noStep;           // DS:0x6747 — true while control is locked (Op_95/Op_96)
@@ -983,7 +996,8 @@ private:
 	Common::Array<CollisionZone> _collisionZones; // mirrors g_collision_zone[24], cleared by Op_dc
 	Common::Array<ZoneB> _zonesB;          // mirrors g_zone_b[30], cleared by Op_de
 	Common::Array<Zone> _walkboxes;        // mirrors g_walkbox[*], cleared by Op_e2
-	Common::Array<Actor::Frame> _actorFrameTable; // DOS frame backing table; active count is separate
+	Actor::Frame _actorFrameZero; // DOS backing record at DS:0x0791, before Op_df appends start
+	Common::Array<Actor::Frame> _actorFrameTable; // DOS frame backing table from frame id 1; active count is separate
 	uint16 _actorFrameCount;
 	Common::HashMap<uint16, uint16> _objectRoom; // sparse object-id → room map
 	Common::HashMap<uint16, int16> _objectPosX;
@@ -1012,12 +1026,14 @@ private:
 	uint16 _drawCommandCount; // DS:0x661b
 	Common::Array<OverlayEntry> _overlayQueue;
 	uint16 _graphicSlots[7]; // DS:0x676f..0x677b
+	uint8 _walkSpeedFlag; // DS:0x674d
 	int16 _cameraX, _cameraY;
 	uint16 _cameraTargetX, _cameraTargetY;
 	bool _scrollChanged; // DS:0x662f, set by UpdateScrollPosition
 	bool _inputEnabled;
 	Common::Array<AnimListEntry> _animList;
 	uint16 _dialogCursor0, _dialogCursor1, _dialogClickGate;  // DOS DS:0x6662, 0x6664, 0x6660
+	uint8 _postMoveTargetFrameMirror; // DOS DS:0x6609
 	PostMoveCallback _postMoveCallback; // DOS DS:0x65ab register-state slot
 	CutsceneBackup _cutsceneBackup;     // DOS Op_97/Op_98 backup slot
 	Common::Array<CastEntry> _castTable; // DOS DS:0x1977 cast registry (18 slots)
