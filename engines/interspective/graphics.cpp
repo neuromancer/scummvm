@@ -556,19 +556,15 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const
 		}
 	}
 
-	if (bubble->w >= 320)
+	// DOS RenderSpeechBubble* clamps only the coordinate each orientation
+	// explicitly adjusts. It does not move the final frame back onscreen on
+	// right/bottom overflow; the draw path clips instead. Keep only the
+	// negative-origin guard needed by this Surface blitter.
+	if (left < 0)
 		left = 0;
-	else if (left < 0)
-		left = 0;
-	else if (left + bubble->w >= 320)
-		left = 320 - bubble->w;
 
-	if (bubble->h >= 200)
+	if (top < 0)
 		top = 0;
-	else if (top < 0)
-		top = 0;
-	else if (top + bubble->h >= 200)
-		top = 200 - bubble->h;
 
 	Common::Rect rect(left, top, left + bubble->w, top + bubble->h);
 	return rect;
