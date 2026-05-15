@@ -117,6 +117,11 @@ void Actor::setAnimation(uint16 offset) {
 	_interval = 1;
 	_counter = _ticksLeft = 0;
 	_nextDirection = kDirNone;
+	// DOS SetActorAnimation @ 1000:6336 clears fields +0x64, +0x65,
+	// and +0x6f. Leaving +0x65 set makes CheckActorAnimReady report
+	// ready while a queued walk still has +0x6b frames left.
+	setDosField(0x64, 0);
+	setDosField(0x65, 0);
 	setDosField(0x6f, 0);
 }
 
@@ -131,6 +136,11 @@ void Actor::setAnimation(const CodePointer &anim) {
 	_interval = 1;
 	_counter = _ticksLeft = 0;
 	_nextDirection = kDirNone;
+	// DOS SetActorAnimation @ 1000:6336 clears fields +0x64, +0x65,
+	// and +0x6f. Leaving +0x65 set makes CheckActorAnimReady report
+	// ready while a queued walk still has +0x6b frames left.
+	setDosField(0x64, 0);
+	setDosField(0x65, 0);
 	setDosField(0x6f, 0);
 }
 
@@ -441,12 +451,10 @@ void Actor::sayAtPos(const Common::String &text, Common::Point pos, uint16 maxLi
 Actor::Speech::~Speech() { while (!_cb.empty()) Log.runLater(_cb.pop()); }
 
 bool Actor::isMoving() const {
-	// Mirrors DOS actor.field+0x65 ("walk-step counter / moving flag"):
-	//   non-zero while a step is in flight or queued.
-	// In C++ the walk path is staged via _framequeue; while it has
-	// entries, more steps remain. After the queue empties the actor is
-	// at the path's last frame and considered "still".
-	return !_framequeue.empty();
+	// DOS CheckActorScripting @ 1000:6499 treats movement/scripting wait
+	// as active while field+0x6f or word field+0x6b is non-zero.
+	// _framequeue is the C++ mirror of the same queued walk path.
+	return dosField(0x6f) != 0 || dosFieldWord(0x6b) != 0 || !_framequeue.empty();
 }
 
 void Actor::callMeWhenStill(const CodePointer &cp) {
@@ -690,7 +698,7 @@ void Actor::animate() {
 	unless (_puppeteer.valid())
 		return;
 
-	unless (_attentionNeeded || _confused/* || _timedOut*/)
+	unless (_attentionNeeded || _confused || !_framequeue.empty()/* || _timedOut*/)
 		return;
 
 	// Don't switch to the next walk frame while the current animator is still
