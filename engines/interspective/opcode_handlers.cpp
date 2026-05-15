@@ -1857,7 +1857,8 @@ OPCODE(0x9e) {
 
 OPCODE(0xab) {
 	// DOS Op_ab_handler @ 1000:4e3e: protagonist CheckActorIdle gate,
-	// then ResolveOpcodeArg0 and QueueExitTransition.
+	// then ResolveOpcodeArg0 and QueueExitTransition. The queue helper
+	// sets g_break_inner, but InterpretBytecode does not stop on that flag.
 	debugC(2, kDebugLevelScript, "opcode 0xab: queue protag exit transition to frame %s", +a[0]);
 	if (Log.inMapMode())
 		return kThxBye;
@@ -1874,7 +1875,7 @@ OPCODE(0xab) {
 	}
 
 	queueExitTransitionLikeDos(ac, uint16(a[0]));
-	return kReturn;
+	return kThxBye;
 }
 
 OPCODE(0xad) {
@@ -1884,7 +1885,7 @@ OPCODE(0xad) {
 	//
 	// MoveActorToTargetExit (1000:70da) dispatches by actor type:
 	//   - Protagonist: QueueExitTransition (cancel speech + walk +
-	//     g_break_inner=1).
+	//     g_break_inner=1, but no interpreter break).
 	//   - Non-protag IN g_actor_table[20] (active in current room):
 	//     setup walk via FindActorPath (pathfinder).
 	//   - Non-protag NOT in active table (offscreen):
@@ -1906,16 +1907,16 @@ OPCODE(0xad) {
 	}
 
 	const uint16 targetFrame = uint16(a[1]);
-	if (moveActorToTargetExitLikeDos(ac, targetFrame))
-		return kReturn;
+	moveActorToTargetExitLikeDos(ac, targetFrame);
 	return kThxBye;
 }
 
 OPCODE(0xb9) {
 	// DOS Op_b9_WalkActorWaitWithBreak @ 1000:5026: block/slow actor animation,
 	// map-mode no-op, validate actor id, retry current opcode while
-	// CheckActorAnimReady says the actor is still active, set
-	// g_break_inner if arg0 is the protagonist, otherwise InitActorState(arg1).
+	// CheckActorAnimReady says the actor is still active, set g_break_inner
+	// if arg0 is the protagonist, then InitActorState(arg1). InterpretBytecode
+	// does not stop on g_break_inner; it continues after the ready path.
 	Log.setWalkSpeedFlag(1);
 	if (Log.inMapMode())
 		return kThxBye;
@@ -1932,9 +1933,8 @@ OPCODE(0xb9) {
 
 	CodePointer anim(static_cast<CodePointer &>(a[1]).offset(), Log.blockInterpreter());
 	debugC(2, kDebugLevelScript, "opcode 0xb9: set actor %s block animation to %s", +a[0], +anim);
-	const bool breaksInner = ac == Log.protagonist();
 	initActorStateLikeDos(ac, anim);
-	return breaksInner ? kReturn : kThxBye;
+	return kThxBye;
 }
 
 OPCODE(0xbc) {
@@ -1956,7 +1956,8 @@ OPCODE(0xbc) {
 
 OPCODE(0xbd) {
 	// DOS Op_bd_handler @ 1000:50ea: slow protagonist animation, same
-	// current-opcode retry gate as Op_b9.
+	// current-opcode retry gate as Op_b9. The ready path sets
+	// g_break_inner but returns normally; InterpretBytecode keeps running.
 	Log.setWalkSpeedFlag(0);
 	if (Log.inMapMode())
 		return kThxBye;
@@ -1974,12 +1975,13 @@ OPCODE(0xbd) {
 	}
 
 	initActorStateLikeDos(ac, p);
-	return kReturn;
+	return kThxBye;
 }
 
 OPCODE(0xbe) {
 	// DOS Op_be_handler @ 1000:50e3: fast protagonist animation, same
-	// current-opcode retry gate as Op_b9.
+	// current-opcode retry gate as Op_b9. The ready path sets
+	// g_break_inner but returns normally; InterpretBytecode keeps running.
 	Log.setWalkSpeedFlag(1);
 	if (Log.inMapMode())
 		return kThxBye;
@@ -1997,7 +1999,7 @@ OPCODE(0xbe) {
 	}
 
 	initActorStateLikeDos(ac, p);
-	return kReturn;
+	return kThxBye;
 }
 
 OPCODE(0xc2) {
@@ -2401,9 +2403,11 @@ OPCODE(0xf9) {
 
 OPCODE(0xfc) {
 	// DOS Op_fc_handler @ 1000:5996:
-	//   arg0 != 0 -> ShutdownAndExit.
-	//   arg0 == 0 and not map mode -> RunModalLoop, where the menu can
-	//   continue, restart, or exit. In map mode the handler returns.
+	//   Resolve arg0; arg0 != 0 -> ShutdownAndExit.
+	//   arg0 == 0 -> tail-jump to HandleSpecialKey's menu branch
+	//   (1000:b82d), which only opens RunModalLoop outside map mode.
+	//   Menu choice 2 exits, choice 1 requests restart, otherwise it
+	//   returns normally.
 	const uint16 quitMode = uint16(a[0]);
 	if (quitMode != 0) {
 		debugC(2, kDebugLevelScript, "opcode 0xfc: quit unconditionally");
@@ -2496,7 +2500,7 @@ OPCODE(0x14) {
 OPCODE(0x15) {
 	// DOS Op_15_IfCellBitSet @ 1000:3968.
 	//   ResolveOpcodeArg1 → bit_idx; if > 7 → SetError15ArgOutOfRange (halt)
-	//   ResolveOpcodeArg0 → id; if > CS:[0x47] block exit/cell count → error 0x14
+	//   ResolveOpcodeArg0 → id; if signed id > CS:[0x47] block exit/cell count → error 0x14
 	//   RCR AL by (bit_idx + 1) through carry; skip if carry is clear.
 	// Net for the common path (id < max, bit ∈ [0,7]): tests
 	// cellByte[id] bit `bit_idx` (LSB-indexed). Body runs if bit SET.
@@ -2507,7 +2511,7 @@ OPCODE(0x15) {
 	}
 	const uint16 id = uint16(a[0]);
 	const uint16 exitCount = _logic->blockProgram() ? _logic->blockProgram()->exitsCount() : 0;
-	if (id > exitCount) {
+	if (int16(id) > int16(exitCount)) {
 		Log.setPendingError(0x14);
 		return kThxBye;
 	}
@@ -2520,10 +2524,11 @@ OPCODE(0x15) {
 OPCODE(0x16) {
 	// DOS Op_16 @ 1000:3991 sets CX=1 then tail-jumps into the same
 	// cell-byte tester used by Op_15. The common tail increments CX
-	// before `RCR AL,CL`, so this tests bit 1 of cellByte[arg0].
+	// before `RCR AL,CL`, so this tests bit 1 of cellByte[arg0], after
+	// the same signed id bound check against the active block count.
 	const uint16 id = uint16(a[0]);
 	const uint16 exitCount = _logic->blockProgram() ? _logic->blockProgram()->exitsCount() : 0;
-	if (id > exitCount) {
+	if (int16(id) > int16(exitCount)) {
 		Log.setPendingError(0x14);
 		return kThxBye;
 	}
@@ -4466,7 +4471,7 @@ OPCODE(0x97) {
 	//        [0x5eed] = slot[0]; [0x5eef] = slot[2];
 	//        slot[0] = 0; [0x5eeb] = index; break;
 	//     }
-	//   g_break_inner = 1.
+	//   g_break_inner = 1. InterpretBytecode does not stop on this flag.
 	//
 	// C++: capture the matching modeled state on Logic::_cutsceneBackup.
 	// Speech-slot pool (DOS [0x4e63..]) is replaced by per-actor
@@ -4512,10 +4517,7 @@ OPCODE(0x97) {
 		"opcode 0x97: BackupCutscenePCState — fields(69=0x%04x 62=0x%02x 67=0x%02x) callback=%d speech='%s' roomWait=%d",
 		b.actorField69, b.actorField62, b.actorField67,
 		int(b.savedCallback.kind), b.speechText.c_str(), b.roomScriptWait.valid ? 1 : 0);
-	// DOS `g_break_inner = 1` exits the inner dispatch loop. C++
-	// equivalent: return kReturn so the caller's dispatch resumes
-	// from its own pending state.
-	return kReturn;
+	return kThxBye;
 }
 OPCODE(0x98) {
 	// DOS Op_98_RestoreCutscenePCState @ 1000:4b40: reverse of Op_97.
@@ -4531,7 +4533,7 @@ OPCODE(0x98) {
 	//     g_room_script_slots[index].word2 = [0x5eef];
 	//     g_room_script_slots[index].word4 = main_char;
 	//     g_room_script_slots[index].word6 = 0;
-	//   g_break_inner = 1.
+	//   g_break_inner = 1. InterpretBytecode does not stop on this flag.
 	Actor *protag = Log.protagonist();
 	if (!protag) {
 		Log.setPendingError(0x17);
@@ -4561,9 +4563,7 @@ OPCODE(0x98) {
 		b.actorField69, b.actorField62, b.actorField67,
 		int(b.savedCallback.kind), b.speechText.c_str(), b.roomScriptWait.valid ? 1 : 0);
 	b.active = false;
-	// DOS sets g_break_inner = 1 — exit inner dispatch. C++ matches
-	// by returning kReturn (paired with Op_97's kReturn).
-	return kReturn;
+	return kThxBye;
 }
 
 // 0x9f..0xaa: actor placement / animation readiness family. The placement
@@ -4869,6 +4869,7 @@ OPCODE(0xaa) {
 OPCODE(0xac) {
 	// DOS Op_ac_handler @ 1000:4e5c: Op_ab plus callback word arg1
 	// written to protagonist actor field+0x69 after QueueExitTransition.
+	// The ready path returns normally; only the idle retry path yields.
 	debugC(2, kDebugLevelScript, "opcode 0xac: queue protag exit transition to frame %s callback %s",
 		+a[0], +a[1]);
 	if (Log.inMapMode())
@@ -4885,7 +4886,7 @@ OPCODE(0xac) {
 	}
 	queueExitTransitionLikeDos(ac, uint16(a[0]));
 	setActorCallbackWord(ac, uint16(a[1]));
-	return kReturn;
+	return kThxBye;
 }
 
 // 0xae..0xb8: walk variants. These share the modeled DOS actor idle
@@ -4912,10 +4913,10 @@ OPCODE(0xae) {
 	debugC(2, kDebugLevelScript, "opcode 0xae: actor %s walk to frame %s + callback %s",
 		+a[0], +a[1], +a[2]);
 	const uint16 targetFrame = uint16(a[1]);
-	const bool breaksInner = moveActorToTargetExitLikeDos(ac, targetFrame);
+	moveActorToTargetExitLikeDos(ac, targetFrame);
 	const uint16 cb = uint16(a[2]);
 	setActorCallbackWord(ac, cb);
-	return breaksInner ? kReturn : kThxBye;
+	return kThxBye;
 }
 OPCODE(0xaf) {
 	// DOS Op_af_WaitActorIdle @ 1000:4f7c:
@@ -4936,8 +4937,7 @@ OPCODE(0xaf) {
 		return kReturn;
 	}
 	debugC(2, kDebugLevelScript, "opcode 0xaf: protagonist walk to current entity");
-	if (sendActorToCurrentEntityLikeDos(ac))
-		return kReturn;
+	sendActorToCurrentEntityLikeDos(ac);
 	return kThxBye;
 }
 OPCODE(0xb0) {
@@ -4955,11 +4955,11 @@ OPCODE(0xb0) {
 			return kThxBye;
 		return kReturn;
 	}
-	const bool breaksInner = sendActorToCurrentEntityLikeDos(ac);
+	sendActorToCurrentEntityLikeDos(ac);
 	const uint16 cb = uint16(a[0]);
 	setActorCallbackWord(ac, cb);
 	debugC(2, kDebugLevelScript, "opcode 0xb0: protagonist walk current entity + cb=%u", cb);
-	return breaksInner ? kReturn : kThxBye;
+	return kThxBye;
 }
 OPCODE(0xb1) {
 	// DOS Op_b1_WaitActorIdle3 @ 1000:4eee:
@@ -4980,8 +4980,7 @@ OPCODE(0xb1) {
 		return kReturn;
 	}
 	debugC(2, kDebugLevelScript, "opcode 0xb1: protagonist walk to exit %s", +a[0]);
-	if (sendActorToEntityByTypeLikeDos(protag, uint16(a[0]), 1))
-		return kReturn;
+	sendActorToEntityByTypeLikeDos(protag, uint16(a[0]), 1);
 	return kThxBye;
 }
 OPCODE(0xb2) {
@@ -4999,8 +4998,7 @@ OPCODE(0xb2) {
 		return kReturn;
 	}
 	debugC(2, kDebugLevelScript, "opcode 0xb2: protagonist walk to object %s", +a[0]);
-	if (sendActorToEntityByTypeLikeDos(protag, uint16(a[0]), 2))
-		return kReturn;
+	sendActorToEntityByTypeLikeDos(protag, uint16(a[0]), 2);
 	return kThxBye;
 }
 OPCODE(0xb3) {
@@ -5018,8 +5016,7 @@ OPCODE(0xb3) {
 		return kReturn;
 	}
 	debugC(2, kDebugLevelScript, "opcode 0xb3: protagonist walk to actor %s", +a[0]);
-	if (sendActorToEntityByTypeLikeDos(protag, uint16(a[0]), 3))
-		return kReturn;
+	sendActorToEntityByTypeLikeDos(protag, uint16(a[0]), 3);
 	return kThxBye;
 }
 OPCODE(0xb4) {
@@ -5038,8 +5035,7 @@ OPCODE(0xb4) {
 			return kThxBye;
 		return kReturn;
 	}
-	if (sendActorToCurrentEntityLikeDos(ac))
-		return kReturn;
+	sendActorToCurrentEntityLikeDos(ac);
 	return kThxBye;
 }
 OPCODE(0xb5) {
@@ -5063,8 +5059,7 @@ OPCODE(0xb5) {
 		return kReturn;
 	}
 	debugC(2, kDebugLevelScript, "opcode 0xb5: actor %s walk to exit %s", +a[0], +a[1]);
-	if (sendActorToEntityByTypeLikeDos(actor, uint16(a[1]), 1))
-		return kReturn;
+	sendActorToEntityByTypeLikeDos(actor, uint16(a[1]), 1);
 	return kThxBye;
 }
 OPCODE(0xb6) {
@@ -5082,8 +5077,7 @@ OPCODE(0xb6) {
 		return kReturn;
 	}
 	debugC(2, kDebugLevelScript, "opcode 0xb6: actor %s walk to object %s", +a[0], +a[1]);
-	if (sendActorToEntityByTypeLikeDos(actor, uint16(a[1]), 2))
-		return kReturn;
+	sendActorToEntityByTypeLikeDos(actor, uint16(a[1]), 2);
 	return kThxBye;
 }
 OPCODE(0xb7) {
@@ -5101,8 +5095,7 @@ OPCODE(0xb7) {
 		return kReturn;
 	}
 	debugC(2, kDebugLevelScript, "opcode 0xb7: actor %s walk to actor %s", +a[0], +a[1]);
-	if (sendActorToEntityByTypeLikeDos(actor, uint16(a[1]), 3))
-		return kReturn;
+	sendActorToEntityByTypeLikeDos(actor, uint16(a[1]), 3);
 	return kThxBye;
 }
 OPCODE(0xb8) {
@@ -5111,10 +5104,11 @@ OPCODE(0xb8) {
 	//   if (in_map_mode) RET;
 	//   arg0 = actor_id;
 	//   if (id > g_anim_count_max) pending error 0x17;
-	//   if (id == g_main_character_id) g_break_inner = 1;
+	//   if (id == g_main_character_id) g_break_inner = 1;  // state flag only
 	//   CheckActorAnimReady(id);
 	//   if (NOT ready) RegisterSampleSlot...; RET;
 	//   arg1 = anim selector; InitActorState(id) — re-run actor's main code.
+	// InterpretBytecode does not stop on g_break_inner after the ready path.
 	Log.setWalkSpeedFlag(0);
 	if (Log.inMapMode())
 		return kThxBye;
@@ -5131,9 +5125,8 @@ OPCODE(0xb8) {
 	}
 	CodePointer anim(static_cast<CodePointer &>(a[1]).offset(), Log.mainInterpreter());
 	debugC(2, kDebugLevelScript, "opcode 0xb8: actor %s main animation %s", +a[0], +anim);
-	const bool breaksInner = ac == Log.protagonist();
 	initActorStateLikeDos(ac, anim);
-	return breaksInner ? kReturn : kThxBye;
+	return kThxBye;
 }
 OPCODE(0xba) {
 	// DOS Op_ba_WalkActorAnimFast @ 1000:4fe5:
@@ -5148,7 +5141,7 @@ OPCODE(0xba) {
 	//   ES:[SI + 0x4] = arg2;  ES:[SI + 0x6] = arg3;  ES:[SI + 0x61] = 0;
 	//   if (in_map_mode) RET;
 	//   arg0 = id (re-resolved);  CheckActorAnimReady(id);
-	//   if (id == g_main_character_id) g_break_inner = 1;
+	//   if (id == g_main_character_id) g_break_inner = 1;  // state flag only
 	//   if (NOT ready) RegisterSampleSlot...; RET;
 	//   arg1 = anim;  InitActorState(id).
 	Log.setWalkSpeedFlag(0);
@@ -5179,9 +5172,8 @@ OPCODE(0xba) {
 	CodePointer anim(static_cast<CodePointer &>(a[1]).offset(), Log.mainInterpreter());
 	debugC(2, kDebugLevelScript, "opcode 0xba: actor %s raw-position (%d,%d) main animation %s",
 		+a[0], destX, destY, +anim);
-	const bool breaksInner = ac == Log.protagonist();
 	initActorStateLikeDos(ac, anim);
-	return breaksInner ? kReturn : kThxBye;
+	return kThxBye;
 }
 OPCODE(0xbb) {
 	// DOS Op_bb_WalkActorAnimSlow @ 1000:4fde: identical to 0xba but
@@ -5214,16 +5206,15 @@ OPCODE(0xbb) {
 	CodePointer anim(static_cast<CodePointer &>(a[1]).offset(), Log.blockInterpreter());
 	debugC(2, kDebugLevelScript, "opcode 0xbb: actor %s raw-position (%d,%d) block animation %s",
 		+a[0], destX, destY, +anim);
-	const bool breaksInner = ac == Log.protagonist();
 	initActorStateLikeDos(ac, anim);
-	return breaksInner ? kReturn : kThxBye;
+	return kThxBye;
 }
 
 OPCODE(0xbf) {
 	// DOS Op_bf_WaitProtagonistAnimBreak @ 1000:50a1:
 	//   g_walk_speed_flag = 0;
 	//   if (in_map_mode) RET;
-	//   g_break_inner = 1;
+	//   g_break_inner = 1;  // state flag only
 	//   CheckActorAnimReady(<implicit = main_char>);
 	//   if (NOT ready) RegisterSampleSlot...; RET;
 	//   arg1, arg2 = screen x/y;
@@ -5261,7 +5252,7 @@ OPCODE(0xbf) {
 	debugC(2, kDebugLevelScript, "opcode 0xbf: protagonist raw-position (%d,%d) main animation %s",
 		destX, destY, +anim);
 	initActorStateLikeDos(protag, anim);
-	return kReturn;
+	return kThxBye;
 }
 
 // 0xc0..0xc5: cast/actor pos.
@@ -5297,7 +5288,7 @@ OPCODE(0xc0) {
 	debugC(2, kDebugLevelScript, "opcode 0xc0: protagonist raw-position (%d,%d) block animation %s",
 		destX, destY, +anim);
 	initActorStateLikeDos(protag, anim);
-	return kReturn;
+	return kThxBye;
 }
 OPCODE(0xc1) {
 	// DOS Op_c1_UnregisterActor @ 1000:5131:
@@ -5722,19 +5713,24 @@ OPCODE(0xf5) {
 }
 
 OPCODE(0xfa) {
-	// Save game (DOS Op_fa_handler @ 1000:58ed). The original stores the
-	// protagonist/current-place pair, opens the save-slot/name dialogs, then
-	// writes the selected save. Route the modal request through ScummVM's
-	// frontend save dialog backed by the engine save stream.
+	// DOS Op_fa_handler @ 1000:58ed. Zero args. Stores the
+	// protagonist/current-place pair in the save-state staging words,
+	// opens the save-slot/name dialogs, formats the progress percent
+	// into the saved data image, writes the selected save, then sets
+	// g_flag_misc_1 and g_flag_change_room before returning normally.
+	// ScummVM's frontend save dialog supplies the slot/name modal and
+	// Engine::saveGameStream stores the same modeled runtime state.
 	debugC(1, kDebugLevelScript, "opcode 0xfa: save game requested");
 	_engine->saveGameDialog();
 	return kThxBye;
 }
 OPCODE(0xfb) {
-	// Load game (DOS Op_fb_handler @ 1000:593c). The original opens the
-	// save-slot picker, loads the selected DOS save, then marks room redraw /
-	// room change state and breaks the current script loop. Route the request
-	// through the frontend dialog backed by the engine save stream.
+	// DOS Op_fb_handler @ 1000:593c. Zero args. The slot picker cancel path
+	// only redraws and returns. The successful load path restores the
+	// staged protagonist/current-place words, sets g_flag_misc_1 and
+	// g_flag_change_room, restores the non-map room backup, then sets
+	// g_break_loop. ScummVM loadGameDialog/loadGameStream performs the
+	// modal load; kReturn mirrors the successful g_break_loop path.
 	debugC(1, kDebugLevelScript, "opcode 0xfb: load game requested (ScummVM hotkey to load)");
 	if (_engine->loadGameDialog())
 		return kReturn;  // DOS sets g_break_loop after a successful load.
@@ -5742,8 +5738,9 @@ OPCODE(0xfb) {
 }
 
 OPCODE(0xfd) {
-	// DOS Op_fd_handler @ 1000:4087 stores arg0 into DAT_1000_885e, which
-	// FormatBubbleText_Inner reads as the text-height multiplier.
+	// DOS Op_fd_handler @ 1000:4087 resolves one arg and stores AX into
+	// DAT_1000_885e, which FormatBubbleText_Inner reads as the text-height
+	// multiplier.
 	const uint16 lineHeight = uint16(a[0]);
 	Log.setBubbleLineHeight(lineHeight);
 	debugC(2, kDebugLevelScript, "opcode 0xfd: bubble line height = %u", lineHeight);

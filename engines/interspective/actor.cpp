@@ -833,7 +833,13 @@ void Actor::callBacks() {
 		_callBacks.clear();
 		while (!callbacks.empty()) {
 			ScriptCallback callback = callbacks.pop();
-			const bool ready = callback.hasRunMode ? animReadyLikeDos() : !isFine();
+			// DOS CheckActorScripting @ 1000:6499 is the wait predicate
+			// used by speech opcodes before RegisterSampleSlot_Common:
+			// carry set only when actor.field+0x6f == 0 and word +0x6b == 0.
+			// Do not use isFine() here; script PC can be clear while a
+			// queued walk is still in flight.
+			const bool ready = callback.hasRunMode ? animReadyLikeDos() :
+				(dosField(0x6f) == 0 && dosFieldWord(0x6b) == 0);
 			if (!ready) {
 				pending.push(callback);
 				continue;
@@ -1752,17 +1758,18 @@ OPCODE(0x0f) {
 // CRITICAL: C++ OPCODE(N) handles memory byte (-N-1 as int8), which the DOS
 // dispatcher labels as Op_(N+1). For example:
 //   memory byte 0xff → C++ OPCODE(0x00) → DOS Op_01 (ScriptEnd)
-//   memory byte 0xed → C++ OPCODE(0x12) → DOS Op_13 (NoOp)
+//   memory byte 0xed → C++ OPCODE(0x12) → DOS Op_13 (JumpIfByteVar)
 //   memory byte 0xdc → C++ OPCODE(0x23) → DOS Op_24 (SetMood)
 // The original ScummVM port and iter-10 audit notation labeled handlers by
 // the C++ slot number while quoting DOS Op_N semantics — so they were
 // systemically mismatched by 1. Iter-12 corrected the mapping after the
-// trace at file offset 0x0262 showed OPCODE(0x12) over-consuming 2 bytes
-// for an opcode that DOS specifies as 0-arg (NoOp).
+// trace at file offset 0x0262 showed OPCODE(0x12) was still using the
+// old misidentified semantics before the raw disassembly was checked.
 //
 // Each handler below is named per its TRUE DOS opcode (= C++ slot + 1).
 // Byte consumption MUST match DOS exactly — script PC alignment depends on
-// it. Semantics may simplify to safe stubs where DOS state isn't modeled.
+// it. Every DOS-visible side effect is modeled directly or through the
+// sparse actor-field mirrors used by the C++ renderer/scheduler.
 // ============================================================================
 
 OPCODE(0x10) {
