@@ -102,7 +102,7 @@ public:
 	void clearSpeech();
 	void runWhenSaid(const CodePointer &p);
 
-	uint16 ask(uint16 left, uint16 top, byte width, byte height, byte *string);
+	uint16 ask(uint16 left, uint16 top, byte width, byte height, byte *string, uint16 *selectedIndex = 0);
 	Common::Rect paintText(uint16 left, uint16 top, byte colour, const byte *string) {
 		return paintText(left, top, colour, string, _framebuffer.get());
 	}
@@ -145,6 +145,9 @@ public:
 	/** Go fullscreen. This will hide the interface. */
 	void goFullscreen();
 	void setFullscreen(bool enabled);
+	uint16 screenHeight() const;
+	uint16 backdropWidth() const;
+	uint16 backdropHeight() const;
 	void clearFramebuffer(byte colour = 0);
 	void clearPaletteRange(int start, int count, bool fade = true);
 

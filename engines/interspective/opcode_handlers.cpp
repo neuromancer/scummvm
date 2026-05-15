@@ -143,10 +143,7 @@ static uint16 speechDisplayTicksLikeDos(const byte *text, uint16 maxLines) {
 
 // Speech subsystem helper: route text to the appropriate sink.
 // In map mode, DOS displays subtitles (no actor bubble). Otherwise
-// queue a per-actor bubble via Actor::say. C++'s per-actor _speech
-// slot is the equivalent of DOS's 6-slot g_speech_slots pool —
-// modern hosts have no RAM constraint, so the 6-slot cap is a
-// non-issue.
+// allocate from Logic's DOS-style six-slot speech pool.
 //
 // `maxLines` is the BX value carried into AllocSpeechSlot @ 1000:9b1f.
 // Zero means "no forced page height"; non-zero values page the formatted
@@ -202,7 +199,10 @@ static bool sayNarratorOrSubtitle(const byte *text, uint16 x, uint16 y, byte col
 		Graf.runWhenSaid(current);
 		return true;
 	}
-	Graf.sayAt(text, length, ticks, x, y, color, maxLines, bubbleMode, true);
+	if (Log.inMapMode())
+		Graf.sayAt(text, length, ticks, x, y, color, maxLines, bubbleMode, true);
+	else
+		Log.allocNarratorSpeech(text, length, x, y, color, maxLines, uint8(bubbleMode));
 	return false;
 }
 
@@ -220,6 +220,10 @@ static bool waitForSampleStandIn(Actor *actor, const CodePointer &next) {
 	}
 	if (actor && actor->isSpeaking()) {
 		actor->callMeWhenSilent(next);
+		return true;
+	}
+	if (Log.anySpeechSlotActive()) {
+		Log.queueSpeechSlotCallbackForAnyActive(next);
 		return true;
 	}
 	return false;
@@ -491,7 +495,7 @@ static void clearVideoAndPushToScreenLikeDos(Graphics *graphics) {
 }
 
 static bool showFormattedModalTextAndWait(const Logic::FormattedBubble &fb,
-		const CodePointer &next) {
+		uint16 frames, const CodePointer &next) {
 	if (fb.text.empty())
 		return false;
 	// The DOS formatted buffer now includes bubble-row centering records
@@ -513,19 +517,21 @@ static bool showFormattedModalTextAndWait(const Logic::FormattedBubble &fb,
 	}
 	const byte *out = reinterpret_cast<const byte *>(visible.c_str());
 	const uint16 length = uint16(visible.size());
-	Graf.say(out, length, MAX<uint16>(1, fb.totalHeight));
+	Graf.say(out, length, MAX<uint16>(1, frames));
 	Graf.runWhenSaid(next);
 	return true;
 }
 
 static void finishVerbModalLoopState(Logic::ModalState &ms) {
-	// Natural countdown completion in RunVerbMenuModalLoop leaves the menu
-	// choice countdown at zero and clears the palette override before the
-	// script resumes. The C++ visible text wait above is the modal stand-in.
+	// RunVerbMenuModalLoop final cleanup clears the menu/button state and
+	// palette override, then sets g_flag_logic_dirty/g_flag_change_room/
+	// g_flag_refresh_iface before the script resumes. C++ models the repaint
+	// side effect with Logic::_logicDirty.
 	ms.menuChoiceCount = 0;
 	ms.paletteMode = 0;
 	ms.textContinuationPtr = 0;
 	ms.menuDone = false;
+	Log.setLogicDirty();
 }
 
 static void applyFormattedTextLimit9bcc(uint16 limit, uint16 &height, uint16 &rows) {
@@ -796,16 +802,15 @@ OPCODE(0x11) {
 OPCODE(0x17) {
 	// DOS Op_17_IfExitMissing @ 1000:3996. Reads `exit_record[0]`
 	// (the room field — kOffsetRoom = 0 in C++ Exit) at SI =
-	// GetExitOffset(arg0); skips if it equals 0. Run if room != 0.
-	// C++ Program::getExit accepts the same 1-based id and returns null
-	// instead of walking past the loaded table; valid exits test room==0.
+	// GetExitOffset(arg0); skips if it equals 0. GetExitOffset only
+	// errors on id 0; it does not check against the loaded exit count.
 	debugC(1, kDebugLevelScript, "opcode 0x17: if exit %s exists", +a[0]);
-	if (uint16(a[0]) == 0) {
+	uint16 room = 0;
+	if (!_logic->blockProgram() || !_logic->blockProgram()->getExitRoomWordLikeDos(uint16(a[0]), room)) {
 		Log.setPendingError(0x14);
 		return kThxBye;
 	}
-	Exit *exit = _logic->blockProgram()->getExit(a[0]);
-	if (exit == nullptr || exit->room() == 0)
+	if (room == 0)
 		return kFail;
 	return kThxBye;
 }
@@ -829,14 +834,14 @@ OPCODE(0x19) {
 OPCODE(0x1a) {
 	// DOS Op_1a_IfExitPresent @ 1000:39d0. Inverse of 0x17: skips
 	// when `exit_record[0] != 0` (exit room is set → exit "present").
-	// Body runs when exit room == 0 (or slot null).
+	// Body runs when exit room == 0.
 	debugC(1, kDebugLevelScript, "opcode 0x1a: if exit %s missing", +a[0]);
-	if (uint16(a[0]) == 0) {
+	uint16 room = 0;
+	if (!_logic->blockProgram() || !_logic->blockProgram()->getExitRoomWordLikeDos(uint16(a[0]), room)) {
 		Log.setPendingError(0x14);
 		return kThxBye;
 	}
-	Exit *exit = _logic->blockProgram()->getExit(a[0]);
-	if (exit != nullptr && exit->room() != 0)
+	if (room != 0)
 		return kFail;
 	return kThxBye;
 }
@@ -1124,45 +1129,44 @@ OPCODE(0x54) {
 	//   CALL RunModalLoop @ 0x7ea2          ; modal!
 	//   MOV AX, [0x66a2]                     ; selected item index
 	//   CMP AX, 0xffff
-	//   JZ skip                              ; cancelled → don't write
-	//   ; AX is valid index → look up g_menu_item_indices[AX]:
+	//   JZ skip                              ; cancelled -> keep next PC
+	//   ; AX is valid index -> look up g_menu_item_indices[AX]:
 	//   PUSH ds; POP DS; MOV SI, 0x4f1b
 	//   ADD AX, AX; ADD SI, AX               ; SI = &indices[AX]
-	//   MOV AX, [SI]                         ; AX = indices[AX]
-	//   MOV [0x6710], AX                     ; write to result-slot (Op_5x reads via Op_55-style)
+	//   MOV AX, [SI]                         ; AX = target code offset
+	//   MOV [0x6710], AX                     ; g_codeptr_di_save = target
 	//   skip: RET.
 	//
 	// = "show modal menu with option text (arg4) at (arg0, arg1) with
-	// width/height hints (arg2/arg3); if user picks an item, write the looked-up index
-	// to the global result slot."
+	// width/height hints (arg2/arg3); if user picks an item, branch by
+	// writing the looked-up code offset to g_codeptr_di_save."
 	//
 	// C++ port: uses Graphics::ask which already implements a modal
 	// bubble-frame text picker (matches DOS RunModalLoop semantics for
-	// our purposes — polls events, hit-tests options, returns choice).
+	// our purposes: polls events, hit-tests options, returns choice).
 	// The result of Graphics::ask is `_optionValues[selected]` which
-	// IS already the "looked-up index" — Graphics::ask integrates the
+	// IS already the "looked-up index"; Graphics::ask integrates the
 	// indices lookup into its option-rendering path, so we don't need
 	// to re-apply the g_menu_item_indices mapping.
 	debugC(1, kDebugLevelScript,
 		"opcode 0x54: RunMenuSelectAndBranch text='%s' at (%s,%s) size %sx%s",
 		+a[4], +a[0], +a[1], +a[2], +a[3]);
 
+	uint16 selectedIndex = 0xffff;
 	const uint16 result = _graphics->ask(a[0], a[1],
 		uint8(uint16(a[2]) & 0xff), uint8(uint16(a[3]) & 0xff),
-		static_cast<byte *>(a[4]));
+		static_cast<byte *>(a[4]), &selectedIndex);
 	Logic::ModalState &ms = Log.modalState();
 	if (result == 0xffff) {
-		// User cancelled (clicked outside menu). DOS: AX = 0xffff,
-		// skip the result-write. C++ matches.
+		// User cancelled. DOS leaves g_menu_selected_item at 0xffff and
+		// keeps the next interpreter PC unchanged.
 		ms.selectedItemIdx = 0xffff;
 		debugC(2, kDebugLevelScript, "opcode 0x54: modal cancelled");
 		return kThxBye;
 	}
-	// Valid selection. Persist the result and branch to the option's
-	// CodePointer (DOS does `[0x6710] = indices[AX]`, then later
-	// opcodes branch via the result; C++ Graphics::ask returns the
-	// CodePointer offset directly — we branch via CodePointer ctor).
-	ms.selectedItemIdx = result;
+	// Valid selection. Preserve DOS g_menu_selected_item in ModalState;
+	// Graphics::ask returns the already-looked-up code offset.
+	ms.selectedItemIdx = selectedIndex;
 	return CodePointer(result, this);
 }
 
@@ -3157,7 +3161,7 @@ OPCODE(0x4e) {
 	debugC(1, kDebugLevelScript, "opcode 0x4e: DrawTextRectWithChoices text='%s' lines=%u h=%u",
 		text ? reinterpret_cast<const char *>(text) : "(null)",
 		fb.lineCount, fb.totalHeight);
-	const bool wait = showFormattedModalTextAndWait(fb, next);
+	const bool wait = showFormattedModalTextAndWait(fb, fb.totalHeight, next);
 	finishVerbModalLoopState(ms);
 	if (fb.truncated)
 		Log.setPendingError(0x11);
@@ -3190,7 +3194,7 @@ OPCODE(0x4f) {
 	seedFormattedModalState(ms, fb, menuValue, rows, 3, 0);
 	debugC(1, kDebugLevelScript, "opcode 0x4f: DrawTextRectWithChoicesAlt text='%s' arg0=%s",
 		text ? reinterpret_cast<const char *>(text) : "(null)", +a[0]);
-	const bool wait = showFormattedModalTextAndWait(fb, next);
+	const bool wait = showFormattedModalTextAndWait(fb, menuValue, next);
 	finishVerbModalLoopState(ms);
 	if (fb.truncated)
 		Log.setPendingError(0x11);
@@ -3214,7 +3218,7 @@ OPCODE(0x50) {
 	seedFormattedModalState(ms, fb, fb.totalHeight, fb.rowCount, 1, 1);
 	debugC(1, kDebugLevelScript, "opcode 0x50: OpenVerbMenuModal text='%s'",
 		text ? reinterpret_cast<const char *>(text) : "(null)");
-	const bool wait = showFormattedModalTextAndWait(fb, next);
+	const bool wait = showFormattedModalTextAndWait(fb, fb.totalHeight, next);
 	finishVerbModalLoopState(ms);
 	if (fb.truncated)
 		Log.setPendingError(0x11);
@@ -3242,7 +3246,7 @@ OPCODE(0x51) {
 	seedFormattedModalState(ms, fb, menuValue, rows, 1, 1);
 	debugC(1, kDebugLevelScript, "opcode 0x51: OpenVerbMenuModalAlt text='%s' arg0=%s",
 		text ? reinterpret_cast<const char *>(text) : "(null)", +a[0]);
-	const bool wait = showFormattedModalTextAndWait(fb, next);
+	const bool wait = showFormattedModalTextAndWait(fb, menuValue, next);
 	finishVerbModalLoopState(ms);
 	if (fb.truncated)
 		Log.setPendingError(0x11);
@@ -3276,7 +3280,7 @@ OPCODE(0x52) {
 	ms.menuDone = false;
 	debugC(1, kDebugLevelScript, "opcode 0x52: DrawFixedTextBubble text='%s' h=%u",
 		text ? reinterpret_cast<const char *>(text) : "(null)", fb.totalHeight);
-	const bool wait = showFormattedModalTextAndWait(fb, next);
+	const bool wait = showFormattedModalTextAndWait(fb, fb.totalHeight, next);
 	finishVerbModalLoopState(ms);
 	if (fb.truncated)
 		Log.setPendingError(0x11);
@@ -3332,7 +3336,7 @@ OPCODE(0x53) {
 	ms.selectedItemIdx = 0xffff;
 	ms.textContinuationPtr = 0;
 	ms.menuDone = false;
-	const bool wait = showFormattedModalTextAndWait(fb, next);
+	const bool wait = showFormattedModalTextAndWait(fb, fb.totalHeight, next);
 	finishVerbModalLoopState(ms);
 	if (fb.truncated)
 		Log.setPendingError(0x11);
@@ -4086,13 +4090,92 @@ OPCODE(0x82) {
 	Log.setObjectPosition(b0, xa, ya);
 	return kThxBye;
 }
-static bool objectHotspotRegistered(Logic *logic, uint16 id, bool isDragTarget) {
+static bool hotspotZoneContainsLikeDos(int16 x, int16 y) {
+	const Common::Array<Logic::Zone> &zones = Log.zones();
+	for (uint i = 0; i < zones.size(); ++i) {
+		const Logic::Zone &z = zones[i];
+		if (int16(z.a) <= x && x <= int16(z.c) &&
+				int16(z.b) <= y && y <= int16(z.d))
+			return true;
+	}
+	return false;
+}
+
+static SpriteInfo objectPrimarySpriteInfo(uint16 id) {
+	const uint16 sprite = uint16(Log.objectField(id, 6)) | (uint16(Log.objectField(id, 7)) << 8);
+	if (sprite == 0xffff)
+		return SpriteInfo();
+	return Log.engine()->resources()->getSpriteInfo(sprite);
+}
+
+static void pauseAndLockCursorLikeDos() {
+	// DOS PauseAndLockCursor @ 1000:34c2 sets g_flag_paused,
+	// g_flag_misc_1, g_flag_logic_dirty, and clamps the software cursor
+	// bounds to the full playfield. C++ has no separate one-frame paused
+	// flag, so preserve the dirty/repaint side effect.
+	Log.setLogicDirty();
+}
+
+static bool handleHotspotInteractionLikeDos(uint16 id, Common::Point point) {
+	// Mirrors the observable state changes of HandleHotspotInteraction
+	// @ 1000:3353 for the object/drag opcodes. The original first checks
+	// the hit-region list, then the active Op_d9 zone list, and only then
+	// queues walk/post-move placement.
 	if (id == 0)
 		return false;
-	if (isDragTarget)
+
+	const bool registeredExit = Log.isObjectExitRegistered(id) && Log.getObjectRoom(id) == 0xffff;
+	if (registeredExit) {
+		if (!Log.registerObjectExit(id, false))
+			return false;
+		Log.setObjectPosition(id, int16(point.x - 0x80), int16(point.y - 0xa0));
+		Log.setObjectRoom(id, 0xffff);
+		Log.clampObjectExitToScreenLikeDos(id);
+		Log.setCursorMode(1);
+		Log.setDragTarget(0);
+		Log.setLogicDirty();
+		Log.setHitTarget(id);
 		return true;
-	return logic->isObjectExitRegistered(id) ||
-		(logic->hasObjectRoom(id) && logic->getObjectRoom(id) != 0xffff);
+	}
+
+	const int16 worldX = int16(point.x + Log.cameraX());
+	const int16 worldY = int16(point.y + Log.cameraY());
+	if (!hotspotZoneContainsLikeDos(worldX, worldY))
+		return false;
+
+	if (Log.drawCommandCount() > 0x18 || Log.objectField(id, 0x0d) == 1) {
+		Log.setHitTarget(id);
+		return false;
+	}
+
+	Actor *protag = Log.protagonist();
+	if (!protag || !Log.room())
+		return false;
+
+	const uint16 frame = Log.room()->nearestFrameTo(worldX, worldY);
+	if (frame == 0) {
+		Log.setPendingError(0x31);
+		return false;
+	}
+
+	const Actor::Frame target = Log.room()->getFrame(frame);
+	const SpriteInfo info = objectPrimarySpriteInfo(id);
+	const int16 targetX = int16(target.position().x);
+	const int16 targetY = int16(target.position().y);
+	const int16 zoneCheckY = int16(targetY + 5 + int16(info.hotTop));
+	if (!hotspotZoneContainsLikeDos(targetX, zoneCheckY))
+		return false;
+
+	queueExitTransitionLikeDos(protag, frame);
+	if (protag->dosFieldWord(0x69) == 0)
+		protag->setDosField(0x67, 5);
+
+	const int16 placeX = int16(targetX - int16(info.width) / 2);
+	const int16 placeY = int16(targetY + 5);
+	Log.setPostMoveCallback(Logic::PostMoveCallback::kPlaceObjectAfterHotspotMove,
+		id, uint16(placeX), uint16(placeY));
+	Log.setHitTarget(id);
+	return true;
 }
 
 OPCODE(0x83) {
@@ -4196,15 +4279,16 @@ OPCODE(0x86) {
 	return kThxBye;
 }
 	OPCODE(0x87) {
-		// DOS Op_87 @ 1000:47a4: HandleHotspotInteraction(g_drag_target).
-		// Success follows the drag-target branch of Op_88 and calls
-		// PauseAndLockCursor; failure raises 0x25.
+		// DOS Op_87 @ 1000:47a4:
+		//   DI = g_drag_target; RetEmpty; HandleHotspotInteraction;
+		//   if AX != 0 PauseAndLockCursor else pending-error 0x25.
 		const uint16 id = Log.dragTarget();
-		if (!objectHotspotRegistered(_logic, id, true)) {
+		const Common::Point cursor = _graphics->cursorPosition();
+		if (!handleHotspotInteractionLikeDos(id, cursor)) {
 			Log.setPendingError(0x25);
 			return kThxBye;
 		}
-		Log.setHitTarget(id);
+		pauseAndLockCursorLikeDos();
 		debugC(2, kDebugLevelScript, "opcode 0x87: drag-target hotspot interaction object %u", id);
 		return kThxBye;
 	}
@@ -4219,14 +4303,9 @@ OPCODE(0x88) {
 	//     result = HandleHotspotInteraction();
 	//     if (result != 0): g_flag_misc_1 = 1; return;
 	//   pending error 0x25.
-	// HandleHotspotInteraction (1000:3353): looks up the object's
-	// click handler (FindHotspotByPoint / FindHotspotByCursor),
-	// invokes its bytecode, returns 0 on no-handler / failure.
-	//
-		// C++ port: use explicit dynamic-exit membership plus non-sentinel
-		// object room as the HandleHotspotInteraction success proxy. We
-		// model the in-engine click-handler dispatch as "set hit target";
-		// actual EventManager clicks still run through normal handlers.
+	// HandleHotspotInteraction @ 1000:3353 checks the dynamic object-exit
+	// list and the active Op_d9 zone table, then may queue the protagonist
+	// walk + PlaceObjectInRoom post-move callback.
 	const uint16 id = uint16(a[0]);
 	const bool isDragTarget = (id == Log.dragTarget());
 		if (!isDragTarget) {
@@ -4235,15 +4314,16 @@ OPCODE(0x88) {
 				return kThxBye;
 			}
 	}
-		// Approximate "HandleHotspotInteraction returned non-zero" through
-		// the modeled dynamic-object-exit / placed-object state.
-		const bool registered = objectHotspotRegistered(_logic, id, isDragTarget);
-	if (!registered) {
+	const Common::Point cursor = _graphics->cursorPosition();
+	if (!handleHotspotInteractionLikeDos(id, cursor)) {
 		Log.setPendingError(0x25);
 		debugC(2, kDebugLevelScript, "opcode 0x88: hotspot interaction object %u → not registered (pending 0x25)", id);
 		return kThxBye;
 	}
-	Log.setHitTarget(id);
+	if (isDragTarget)
+		pauseAndLockCursorLikeDos();
+	else
+		Log.setLogicDirty();
 	debugC(2, kDebugLevelScript, "opcode 0x88: hotspot interaction object %u (drag=%u) → hit", id, Log.dragTarget());
 	return kThxBye;
 }
@@ -4263,9 +4343,8 @@ OPCODE(0x89) {
 	return kThxBye;
 }
 OPCODE(0x8a) {
-	// DOS Op_8a_handler @ 1000:47e6: 3-arg variant of Op_88. Same
-	// HandleHotspotInteraction dispatch; arg1/arg2 are passed through
-	// to the click handler context (cursor coords).
+	// DOS Op_8a_handler @ 1000:47e6: resolves arg1 into CX and arg2
+	// into DX, then shares Op_88's arg0/HandleHotspotInteraction tail.
 	const uint16 id = uint16(a[0]);
 	const bool isDragTarget = (id == Log.dragTarget());
 		if (!isDragTarget) {
@@ -4274,13 +4353,16 @@ OPCODE(0x8a) {
 				return kThxBye;
 			}
 		}
-		const bool registered = objectHotspotRegistered(_logic, id, isDragTarget);
-	if (!registered) {
+	Common::Point point = Common::Point(int16(uint16(a[1])), int16(uint16(a[2])));
+	if (!handleHotspotInteractionLikeDos(id, point)) {
 		Log.setPendingError(0x25);
 		debugC(2, kDebugLevelScript, "opcode 0x8a: hotspot interaction object %u (3-arg) → not registered (pending 0x25)", id);
 		return kThxBye;
 	}
-	Log.setHitTarget(id);
+	if (isDragTarget)
+		pauseAndLockCursorLikeDos();
+	else
+		Log.setLogicDirty();
 	debugC(2, kDebugLevelScript, "opcode 0x8a: hotspot interaction object %u (3-arg) → hit", id);
 	return kThxBye;
 }
@@ -4509,11 +4591,8 @@ OPCODE(0x97) {
 	//   g_break_inner = 1. InterpretBytecode does not stop on this flag.
 	//
 	// C++: capture the matching modeled state on Logic::_cutsceneBackup.
-	// Speech-slot pool (DOS [0x4e63..]) is replaced by per-actor
-	// Actor::_speech in the C++ port; the protag's slot is captured
-	// directly via Actor::speechText() / stopSpeaking(). The matching
-	// room-script-slot entry is the protag's mode-preserving Actor wait
-	// callback registered by Op_99/Op_9a.
+	// Speech is now kept in Logic's six-slot pool; backup marks the live
+	// protag slot owner 0xffff, as DOS does before RecycleStaleSpeechSlots.
 	Actor *protag = Log.protagonist();
 	if (!protag) {
 		Log.setPendingError(0x17);
@@ -4542,10 +4621,7 @@ OPCODE(0x97) {
 	b.savedCallback = Log.postMoveCallback();
 	Log.clearPostMoveCallback();
 	// Capture protag speech (DOS speech-slot pool entry) and clear.
-	b.hadSpeech = protag->isSpeaking();
-	b.speechText = b.hadSpeech ? protag->speechText() : Common::String();
-	if (b.hadSpeech)
-		protag->stopSpeaking();
+	b.hadSpeech = Log.backupSpeechSlotForOwner(protag->id(), b.speechText);
 	b.roomScriptWait = Actor::RoomScriptWaitSnapshot();
 	protag->takeRoomScriptWait(b.roomScriptWait);
 	debugC(2, kDebugLevelScript,
@@ -4587,10 +4663,9 @@ OPCODE(0x98) {
 		protag->moveTo(b.actorField62);
 	// Restore post-move callback record.
 	Log.setPostMoveCallback(b.savedCallback);
-	// Restore speech (find first free slot in DOS; here the protag's
-	// _speech is single-slot and was cleared by Op_97).
+	// Restore speech by allocating the first free DOS-style slot.
 	if (b.hadSpeech)
-		protag->say(b.speechText);
+		Log.restoreActorSpeechSlot(protag, b.speechText);
 	if (b.roomScriptWait.valid)
 		protag->restoreRoomScriptWait(b.roomScriptWait);
 	debugC(2, kDebugLevelScript,

@@ -206,9 +206,28 @@ void Graphics::willFadein(FadeFlags f) {
 }
 
 void Graphics::paintBackdrop() {
-	// TODO cropping
 	debugC(3, kDebugLevelGraphics, "painting backdrop");
-	_framebuffer->blit(_backdrop.get());
+	if (!_backdrop.get())
+		return;
+
+	const int viewHeight = screenHeight();
+	_framebuffer->fillRect(Common::Rect(0, 0, 320, viewHeight), 0);
+
+	const Logic *logic = _engine ? _engine->logic() : 0;
+	const int srcX = logic ? logic->cameraX() : 0;
+	const int srcY = logic ? logic->cameraY() : 0;
+	if (srcX < 0 || srcY < 0 || srcX >= _backdrop->w || srcY >= _backdrop->h)
+		return;
+
+	const int copyWidth = MIN<int>(320, _backdrop->w - srcX);
+	const int copyHeight = MIN<int>(viewHeight, _backdrop->h - srcY);
+	const byte *src = reinterpret_cast<const byte *>(_backdrop->getBasePtr(srcX, srcY));
+	byte *dst = reinterpret_cast<byte *>(_framebuffer->getBasePtr(0, 0));
+	for (int y = 0; y < copyHeight; ++y) {
+		memcpy(dst, src, copyWidth);
+		dst += _framebuffer->pitch;
+		src += _backdrop->pitch;
+	}
 }
 
 void Graphics::paintSpeech() {
@@ -269,11 +288,7 @@ void Graphics::paintSpeech() {
 		}
 	}
 
-	Common::List<Animation *> animations = _engine->logic()->animations();
-	for (Common::List<Animation *>::iterator it = animations.begin(); it != animations.end(); ++it) {
-		if ((*it)->isActor())
-			static_cast<Actor *>(*it)->paintSpeech(this);
-	}
+	_engine->logic()->paintSpeechSlots(this);
 }
 
 void Graphics::paintAnimations() {
@@ -325,7 +340,10 @@ static int _mOption = 0;
 static Common::Rect _optionRects[10];
 static uint16 _optionValues[10];
 
-uint16 Graphics::ask(uint16 left, uint16 top, byte width, byte height, byte *string) {
+uint16 Graphics::ask(uint16 left, uint16 top, byte width, byte height, byte *string, uint16 *selectedIndex) {
+	if (selectedIndex)
+		*selectedIndex = 0xffff;
+
 	width += 2;
 	height += 2;
 	enum {
@@ -386,6 +404,13 @@ uint16 Graphics::ask(uint16 left, uint16 top, byte width, byte height, byte *str
 		Common::Event event;
 		while (_engine->eventMan()->pollEvent(event)) {
 			switch(event.type) {
+			case Common::EVENT_KEYDOWN:
+				if (event.kbd.keycode == Common::KEYCODE_ESCAPE)
+					return 0xffff;
+				break;
+			case Common::EVENT_RBUTTONDOWN:
+			case Common::EVENT_RBUTTONUP:
+				return 0xffff;
 			case Common::EVENT_LBUTTONUP:
 				if (_mOption == 0)
 					return 0xffff;
@@ -394,8 +419,11 @@ uint16 Graphics::ask(uint16 left, uint16 top, byte width, byte height, byte *str
 						Common::Point p = event.mouse;
 						p.x -= left;
 						p.y -= top;
-						if (_optionRects[i].contains(p))
+						if (_optionRects[i].contains(p)) {
+							if (selectedIndex)
+								*selectedIndex = uint16(i);
 							return _optionValues[i];
+						}
 					}
 			default:
 				break;
@@ -894,6 +922,18 @@ void Graphics::goFullscreen() {
 
 void Graphics::setFullscreen(bool enabled) {
 	_fullscreen = enabled;
+}
+
+uint16 Graphics::screenHeight() const {
+	return _fullscreen ? 200 : 152;
+}
+
+uint16 Graphics::backdropWidth() const {
+	return _backdrop.get() ? uint16(_backdrop->w) : 320;
+}
+
+uint16 Graphics::backdropHeight() const {
+	return _backdrop.get() ? uint16(_backdrop->h) : screenHeight();
 }
 
 void Graphics::clearFramebuffer(byte colour) {

@@ -167,6 +167,19 @@ Exit *Program::getExit(uint16 index) const {
 	return _exits[index - 1];
 }
 
+bool Program::getExitRoomWordLikeDos(uint16 index, uint16 &room) const {
+	if (index == 0)
+		return false;
+
+	const uint16 exits = READ_LE_UINT16(_footer + kExits);
+	const uint16 off = uint16(exits + uint16(index - 1) * Exit::Size);
+	if (off > kDosResourceSegmentSize - 2)
+		return false;
+
+	room = READ_LE_UINT16(_code + off);
+	return true;
+}
+
 Common::List<Exit *> Program::exitsForRoom(uint16 room) const {
 	Common::List<Exit *> room_exits;
 	for (int i = 0; i < _exitsCount; i++)

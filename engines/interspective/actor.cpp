@@ -470,19 +470,28 @@ void Actor::tellMeWithMode(const CodePointer &code, uint16 timeout, uint16 mode)
 }
 
 bool Actor::isSpeaking() const {
-	return _speech.active();
+	return Log.speechSlotActiveForOwner(_id);
+}
+
+const Common::String &Actor::speechText() const {
+	return Log.speechTextForOwner(_id);
+}
+
+void Actor::stopSpeaking() {
+	Log.clearSpeechForOwner(_id);
+	_speech = Speech();
 }
 
 void Actor::callMeWhenSilent(const CodePointer &cp) {
-	_speech.callWhenDone(cp);
+	Log.queueSpeechSlotCallbackForOwner(_id, cp);
 }
 
 void Actor::say(const Common::String &text, uint16 maxLines) {
-	_speech = Speech(this, text, maxLines);
+	Log.allocActorSpeech(this, text, maxLines);
 }
 
 void Actor::sayAtPos(const Common::String &text, Common::Point pos, uint16 maxLines) {
-	_speech = Speech(this, text, pos, maxLines);
+	Log.allocActorSpeechAt(this, text, pos, maxLines);
 }
 
 Actor::Speech::~Speech() {
@@ -837,7 +846,6 @@ void Actor::animate() {
 }
 
 Animation::Status Actor::tick() {
-	_speech.tick();
 	animate();
 	callBacks();
 
@@ -1163,11 +1171,8 @@ void Actor::paint(Graphics *g) {
 	}
 }
 
-void Actor::paintSpeech(Graphics *g) {
-	if (_room != Log.currentRoom())
-		return;
-
-	_speech.paint(g);
+void Actor::paintSpeech(Graphics *) {
+	// Actor speech is rendered from Logic's six DOS speech slots.
 }
 
 void Actor::Speech::paint(Graphics *g) {

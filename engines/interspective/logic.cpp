@@ -69,6 +69,10 @@ static int16 stepCameraToward(int16 current, int16 target, int16 speed) {
 	return current + step;
 }
 
+static int16 cameraMaxOrigin(uint16 backdropSize, uint16 viewportSize) {
+	return backdropSize > viewportSize ? int16(backdropSize - viewportSize) : 0;
+}
+
 static void setActorCallbackWordLikeDos(Actor *actor, uint16 callback) {
 	if (actor)
 		actor->setDosFieldWord(0x69, callback);
@@ -437,11 +441,10 @@ void Logic::actorFrameSetPosition(uint16 index, int16 x, int16 y) {
 void Logic::updateScrollPosition() {
 	const int16 oldX = _cameraX;
 	const int16 oldY = _cameraY;
+	const int16 speedX = _slowCpu ? 4 : 8;
+	const int16 speedY = _slowCpu ? 1 : 2;
 
 	if (!_inputEnabled) {
-		const int16 speedX = _slowCpu ? 4 : 8;
-		const int16 speedY = _slowCpu ? 1 : 2;
-
 		if (_cameraTargetX != 0xffff) {
 			const int16 targetX = int16(_cameraTargetX);
 			if (targetX == _cameraX)
@@ -456,6 +459,90 @@ void Logic::updateScrollPosition() {
 				_cameraTargetY = 0xffff;
 			else
 				_cameraY = stepCameraToward(_cameraY, targetY, speedY);
+		}
+	} else {
+		// DOS UpdateScrollPosition @ 1000:74a5 follows the protagonist while
+		// g_input_enabled is set. The scroll deltas at DS:0x662b/0x662d are
+		// persistent and are clamped against the loaded backdrop dimensions.
+		Actor *protag = _protagonist;
+		Graphics *graphics = _engine ? _engine->graphics() : 0;
+		if (protag && graphics) {
+			int16 actorScreenX = int16(protag->position().x - _cameraX);
+			int16 actorScreenY = int16(protag->position().y - _cameraY);
+			const uint16 screenHeight = graphics->screenHeight();
+			const int16 screenHalf = int16(screenHeight >> 1);
+			const int16 screenMaxY = int16(screenHeight - 1);
+
+			if (_scrollDx != 0) {
+				actorScreenX = int16(actorScreenX - _scrollDx);
+				if (_scrollDx >= 0) {
+					if (actorScreenX <= 0xa0)
+						_scrollDx = 0;
+				} else if (actorScreenX >= 0xa0) {
+					_scrollDx = 0;
+				}
+			}
+
+			if (_scrollDy != 0) {
+				actorScreenY = int16(actorScreenY - _scrollDy);
+				if (_scrollDy >= 0) {
+					if (actorScreenY <= screenHalf)
+						_scrollDy = 0;
+				} else if (actorScreenY >= screenHalf) {
+					// Assembly clears DS:0x662b here, not DS:0x662d.
+					_scrollDx = 0;
+				}
+			}
+
+			int16 dxCandidate = int16(speedX * 2);
+			const uint8 actorWidth = protag->dosField(0x17);
+			if (actorScreenX <= int16(actorWidth)) {
+				_scrollDx = int16(-dxCandidate);
+			} else if (actorScreenX >= int16(0x13f - actorWidth)) {
+				_scrollDx = dxCandidate;
+			} else {
+				dxCandidate = speedX;
+				if (actorScreenX <= 0x3c)
+					_scrollDx = int16(-dxCandidate);
+				else if (actorScreenX >= 0x103)
+					_scrollDx = dxCandidate;
+			}
+
+			int16 dyCandidate = int16(speedY * 2);
+			const uint8 actorHeight = protag->dosField(0x18);
+			if (actorScreenY <= int16(actorHeight)) {
+				_scrollDy = int16(-dyCandidate);
+			} else if (actorScreenY >= screenMaxY) {
+				_scrollDy = dyCandidate;
+			} else {
+				dyCandidate = speedY;
+				if (actorScreenY <= 0x0a)
+					_scrollDy = int16(-dyCandidate);
+				else if (actorScreenY >= 0x96)
+					_scrollDy = dyCandidate;
+			}
+
+			const int16 maxX = cameraMaxOrigin(graphics->backdropWidth(), 320);
+			int16 newX = int16(_cameraX + _scrollDx);
+			if (newX < 0) {
+				newX = 0;
+				_scrollDx = 0;
+			} else if (newX + 320 >= int16(graphics->backdropWidth())) {
+				newX = maxX;
+				_scrollDx = 0;
+			}
+			_cameraX = newX;
+
+			const int16 maxY = cameraMaxOrigin(graphics->backdropHeight(), screenHeight);
+			int16 newY = int16(_cameraY + _scrollDy);
+			if (newY < 0) {
+				newY = 0;
+				_scrollDy = 0;
+			} else if (newY + int16(screenHeight) >= int16(graphics->backdropHeight())) {
+				newY = maxY;
+				_scrollDy = 0;
+			}
+			_cameraY = newY;
 		}
 	}
 
@@ -509,6 +596,8 @@ void Logic::doChangeRoom() {
 	_cameraY = 0;
 	_cameraTargetX = 0xffff;
 	_cameraTargetY = 0xffff;
+	_scrollDx = 0;
+	_scrollDy = 0;
 	_scrollChanged = false;
 	_dialogCursor0 = _dialogCursor1 = _dialogClickGate = 0;
 	_noStep = false;
@@ -523,8 +612,8 @@ void Logic::doChangeRoom() {
 	_motionText.clear();
 	_motionTextTicks = 0;
 	// DOS restart-room calls RecycleStaleSpeechSlots @ 1000:996c, which
-	// clears ownerless/narrator slots (owner 0xffff). In C++ those slots
-	// are Graphics-owned speech entries.
+	// clears slots whose owner was marked 0xffff by cutscene backup.
+	recycleStaleSpeechSlotsLikeDos();
 	if (_engine && _engine->graphics())
 		_engine->graphics()->clearSpeech();
 
@@ -861,6 +950,20 @@ void Logic::runPostMoveCallbackIfReady() {
 			if (room != _currentRoom)
 				changeRoom(room);
 		}
+		break;
+	case PostMoveCallback::kPlaceObjectAfterHotspotMove:
+		// DOS @ 0xc408: place the dragged object after the protagonist
+		// reaches the hotspot approach frame, clear drag state, and dirty
+		// the object pass. The original also fills a small five-entry
+		// transient draw table; the persistent object record effects are
+		// the room/position/cursor updates below.
+		setObjectRoom(cb.cellId, uint16(_currentRoom));
+		setObjectPosition(cb.cellId, int16(cb.arg0), int16(cb.arg1));
+		setObjectField(cb.cellId, 0x0e, uint8(cb.arg1 & 0xff));
+		setObjectField(cb.cellId, 0x0f, uint8(cb.arg1 >> 8));
+		setDragTarget(0);
+		setCursorMode(1);
+		setLogicDirty();
 		break;
 	case PostMoveCallback::kNone:
 	default:
@@ -1946,6 +2049,8 @@ void Logic::synchronize(Common::Serializer &s) {
 	int16 cameraY = _cameraY;
 	uint16 cameraTargetX = _cameraTargetX;
 	uint16 cameraTargetY = _cameraTargetY;
+	int16 scrollDx = _scrollDx;
+	int16 scrollDy = _scrollDy;
 	uint8 scrollChanged = _scrollChanged ? 1 : 0;
 	uint8 inputEnabled = _inputEnabled ? 1 : 0;
 	uint16 dialogCursor0 = _dialogCursor0;
@@ -1990,6 +2095,8 @@ void Logic::synchronize(Common::Serializer &s) {
 	s.syncAsSint16LE(cameraY);
 	s.syncAsUint16LE(cameraTargetX);
 	s.syncAsUint16LE(cameraTargetY);
+	s.syncAsSint16LE(scrollDx);
+	s.syncAsSint16LE(scrollDy);
 	s.syncAsByte(scrollChanged);
 	s.syncAsByte(inputEnabled);
 	s.syncAsUint16LE(dialogCursor0);
@@ -2036,6 +2143,8 @@ void Logic::synchronize(Common::Serializer &s) {
 		_cameraY = cameraY;
 		_cameraTargetX = cameraTargetX;
 		_cameraTargetY = cameraTargetY;
+		_scrollDx = scrollDx;
+		_scrollDy = scrollDy;
 		_scrollChanged = scrollChanged != 0;
 		_inputEnabled = inputEnabled != 0;
 		_dialogCursor0 = dialogCursor0;
@@ -2121,18 +2230,313 @@ bool Logic::handleEscDuringScript() {
 	return true;
 }
 
+static void logicApplyFormattedTextLimit9bcc(uint16 limit, uint16 &height, uint16 &rows) {
+	if (int16(rows) > int16(limit)) {
+		const uint8 divisor = uint8(limit & 0xff);
+		if (divisor != 0) {
+			const uint16 pages = uint16(rows / divisor + 1);
+			height = uint16(height / pages + 2);
+		}
+	}
+	rows = limit;
+}
+
+static uint16 logicSpeechTicksForText(const Common::String &text, uint16 maxLines) {
+	Common::String normalized;
+	for (uint i = 0; i < text.size(); ++i)
+		normalized += char(text[i] == '\n' ? '\r' : text[i]);
+	Logic::FormattedBubble fb = Log.formatBubbleText(reinterpret_cast<const byte *>(normalized.c_str()));
+	uint16 height = fb.totalHeight;
+	uint16 rows = fb.rowCount;
+	if (maxLines != 0)
+		logicApplyFormattedTextLimit9bcc(maxLines, height, rows);
+	return uint8(height & 0xff);
+}
+
+static Common::Array<Common::String> logicPaginateSpeechText(const Common::String &text, uint16 maxLines) {
+	Common::Array<Common::String> pages;
+	if (maxLines == 0) {
+		pages.push_back(text);
+		return pages;
+	}
+
+	Common::String page;
+	uint16 completedLines = 0;
+	for (uint i = 0; i < text.size(); ++i) {
+		const char ch = text[i];
+		if (ch == '\n' || ch == '\r') {
+			if (completedLines + 1 >= maxLines) {
+				pages.push_back(page);
+				page.clear();
+				completedLines = 0;
+			} else {
+				page += '\n';
+				++completedLines;
+			}
+			continue;
+		}
+		page += ch;
+	}
+
+	if (!page.empty())
+		pages.push_back(page);
+	if (pages.empty())
+		pages.push_back(text);
+	return pages;
+}
+
+Logic::SpeechSlot *Logic::findFreeSpeechSlot() {
+	for (uint i = 0; i < _speechSlots.size(); ++i) {
+		if (_speechSlots[i].framesLeft == 0)
+			return &_speechSlots[i];
+	}
+	return nullptr;
+}
+
+const Logic::SpeechSlot *Logic::findSpeechSlotForOwner(uint16 owner) const {
+	for (uint i = 0; i < _speechSlots.size(); ++i) {
+		const SpeechSlot &slot = _speechSlots[i];
+		if (slot.framesLeft != 0 && slot.owner == owner)
+			return &slot;
+	}
+	return nullptr;
+}
+
+Logic::SpeechSlot *Logic::findSpeechSlotForOwner(uint16 owner) {
+	for (uint i = 0; i < _speechSlots.size(); ++i) {
+		SpeechSlot &slot = _speechSlots[i];
+		if (slot.framesLeft != 0 && slot.owner == owner)
+			return &slot;
+	}
+	return nullptr;
+}
+
+void Logic::clearSpeechSlot(SpeechSlot &slot) {
+	while (!slot.callbacks.empty())
+		slot.callbacks.pop();
+	slot = SpeechSlot();
+}
+
+void Logic::startSpeechSlotPage(SpeechSlot &slot, uint page) {
+	if (page >= slot.pages.size()) {
+		clearSpeechSlot(slot);
+		return;
+	}
+
+	slot.pageIndex = page;
+	slot.text = slot.pages[page];
+	slot.framesTotal = uint8(logicSpeechTicksForText(slot.text, slot.maxLines) & 0xff);
+	slot.framesLeft = slot.framesTotal;
+	slot.active = 1;
+}
+
+bool Logic::initSpeechSlot(SpeechSlot &slot, const Common::String &text, uint16 maxLines) {
+	slot.maxLines = maxLines;
+	slot.pages = logicPaginateSpeechText(text, maxLines);
+	if (slot.pages.empty())
+		return false;
+	startSpeechSlotPage(slot, 0);
+	return slot.framesLeft != 0;
+}
+
+bool Logic::allocActorSpeech(Actor *actor, const Common::String &text, uint16 maxLines) {
+	if (!actor)
+		return false;
+	return allocActorSpeechAt(actor, text, actor->getSpeechPosition(), maxLines);
+}
+
+bool Logic::allocActorSpeechAt(Actor *actor, const Common::String &text, Common::Point pos, uint16 maxLines) {
+	if (!actor)
+		return false;
+
+	SpeechSlot *slot = findFreeSpeechSlot();
+	if (!slot) {
+		setPendingError(0x1d);
+		return false;
+	}
+
+	clearSpeechSlot(*slot);
+	slot->type = 0;
+	slot->owner = actor->id();
+	slot->refX = uint16(pos.x);
+	slot->refY = uint16(pos.y);
+	slot->color = actor->dosField(0x70);
+	debugC(1, kDebugLevelActor, "alloc speech slot owner=%u at %d:%d maxLines=%u text=\"%s\"",
+		slot->owner, pos.x, pos.y, maxLines, text.c_str());
+	if (!initSpeechSlot(*slot, text, maxLines))
+		clearSpeechSlot(*slot);
+	return slot->framesLeft != 0;
+}
+
+bool Logic::allocNarratorSpeech(const byte *text, uint16 length, uint16 x, uint16 y,
+                                byte color, uint16 maxLines, uint8 type) {
+	if (!text || length == 0)
+		return false;
+
+	SpeechSlot *slot = findFreeSpeechSlot();
+	if (!slot) {
+		setPendingError(0x1d);
+		return false;
+	}
+
+	clearSpeechSlot(*slot);
+	slot->type = type;
+	slot->owner = uint16(_currentRoom);
+	slot->refX = x;
+	slot->refY = y;
+	slot->color = color;
+	Common::String copied(reinterpret_cast<const char *>(text), length);
+	debugC(1, kDebugLevelGraphics, "alloc narrator speech slot type=%u ownerRoom=%u at %u:%u color=%u maxLines=%u text=\"%s\"",
+		type, uint16(_currentRoom), x, y, color, maxLines, copied.c_str());
+	if (!initSpeechSlot(*slot, copied, maxLines))
+		clearSpeechSlot(*slot);
+	return slot->framesLeft != 0;
+}
+
+bool Logic::speechSlotActiveForOwner(uint16 owner) const {
+	return findSpeechSlotForOwner(owner) != nullptr;
+}
+
+bool Logic::anySpeechSlotActive() const {
+	for (uint i = 0; i < _speechSlots.size(); ++i)
+		if (_speechSlots[i].framesLeft != 0 && _speechSlots[i].owner != 0xffff)
+			return true;
+	return false;
+}
+
+const Common::String &Logic::speechTextForOwner(uint16 owner) const {
+	static const Common::String empty;
+	const SpeechSlot *slot = findSpeechSlotForOwner(owner);
+	return slot ? slot->text : empty;
+}
+
+void Logic::clearSpeechForOwner(uint16 owner) {
+	if (SpeechSlot *slot = findSpeechSlotForOwner(owner))
+		clearSpeechSlot(*slot);
+}
+
+void Logic::queueSpeechSlotCallbackForOwner(uint16 owner, const CodePointer &cp) {
+	if (SpeechSlot *slot = findSpeechSlotForOwner(owner)) {
+		slot->callbacks.push(SpeechSlotCallback(cp, opcodeMode(), true));
+		return;
+	}
+	runLaterWithMode(cp, opcodeMode());
+}
+
+void Logic::queueSpeechSlotCallbackForAnyActive(const CodePointer &cp) {
+	for (uint i = 0; i < _speechSlots.size(); ++i) {
+		SpeechSlot &slot = _speechSlots[i];
+		if (slot.framesLeft != 0 && slot.owner != 0xffff) {
+			slot.callbacks.push(SpeechSlotCallback(cp, opcodeMode(), true));
+			return;
+		}
+	}
+	runLaterWithMode(cp, opcodeMode());
+}
+
+bool Logic::backupSpeechSlotForOwner(uint16 owner, Common::String &text) {
+	SpeechSlot *slot = findSpeechSlotForOwner(owner);
+	if (!slot)
+		return false;
+	text = slot->text;
+	// DOS Op_97 copies the main-character slot to a backup area and marks
+	// the live slot owner as 0xffff. RecycleStaleSpeechSlots later reclaims it.
+	slot->owner = 0xffff;
+	return true;
+}
+
+bool Logic::restoreActorSpeechSlot(Actor *actor, const Common::String &text) {
+	return allocActorSpeech(actor, text, 0);
+}
+
+void Logic::recycleStaleSpeechSlotsLikeDos() {
+	for (uint i = 0; i < _speechSlots.size(); ++i) {
+		SpeechSlot &slot = _speechSlots[i];
+		if (slot.owner == 0xffff) {
+			slot.owner = 0;
+			slot.framesLeft = 0;
+			slot.active = 0;
+			while (!slot.callbacks.empty())
+				slot.callbacks.pop();
+		}
+	}
+}
+
+void Logic::finishSpeechSlot(SpeechSlot &slot) {
+	if (slot.pageIndex + 1 < slot.pages.size()) {
+		startSpeechSlotPage(slot, slot.pageIndex + 1);
+		return;
+	}
+
+	Common::Queue<SpeechSlotCallback> callbacks = slot.callbacks;
+	clearSpeechSlot(slot);
+	while (!callbacks.empty()) {
+		SpeechSlotCallback cb = callbacks.pop();
+		if (cb.hasMode)
+			runLaterWithMode(cb.callback, cb.mode);
+		else
+			runLater(cb.callback);
+	}
+	setLogicDirty();
+}
+
+void Logic::paintSpeechSlots(Graphics *g) {
+	if (!g || escBreakPending())
+		return;
+
+	for (uint i = 0; i < _speechSlots.size(); ++i) {
+		SpeechSlot &slot = _speechSlots[i];
+		if (slot.framesLeft == 0 || slot.active == 0)
+			continue;
+
+		const uint16 owner = slot.owner;
+		const int16 left = int16(slot.refX) - cameraX();
+		const int16 top = int16(slot.refY) - cameraY();
+		bool shouldDraw = false;
+		Graphics::SpeechBubbleMode mode = Graphics::kSpeechBubbleAuto;
+
+		if (slot.type == Graphics::kSpeechBubbleType1 || slot.type == Graphics::kSpeechBubbleType2) {
+			if (owner == uint16(_currentRoom)) {
+				shouldDraw = true;
+				mode = slot.type == Graphics::kSpeechBubbleType2
+					? Graphics::kSpeechBubbleType2 : Graphics::kSpeechBubbleType1;
+			}
+		} else {
+			if (owner == 0xffff)
+				continue;
+			if (owner == _protagonistId && scrollChanged())
+				continue;
+			Actor *actor = getActor(owner);
+			if (actor && actor->room() == uint16(_currentRoom)) {
+				shouldDraw = true;
+				mode = Graphics::kSpeechBubbleAuto;
+			}
+		}
+
+		if (shouldDraw) {
+			Sprite bubble;
+			bubble._hotPoint = Common::Point(0, 0);
+			Common::Rect rect = g->paintSpeechInBubble(Common::Point(left, top), slot.color,
+				reinterpret_cast<const byte *>(slot.text.c_str()), &bubble, mode);
+			g->paint(&bubble, Common::Point(rect.left, rect.top),
+				Graphics::kPaintSemiTransparent | Graphics::kPaintPositionIsTop);
+		}
+
+		if (slot.framesLeft != 0)
+			--slot.framesLeft;
+		if (slot.framesLeft == 0)
+			finishSpeechSlot(slot);
+	}
+}
+
 void Logic::resetSpeechSlotsLikeDos() {
-	// DOS ResetSpeechSlots @ 1000:9951 only zeros each slot's
-	// frames-left byte. In the C++ split model, narrator/map speech lives
-	// in Graphics and actor-owned bubbles live on Actor::Speech. Drop
-	// their callbacks as well: the ESC target script replaces the old wait
-	// path just like DOS HandleEscDuringScript does.
+	// DOS ResetSpeechSlots @ 1000:9951 only zeros each slot's frames-left
+	// byte. C++ also drops callbacks owned by those slots because the ESC
+	// target script replaces the old wait path.
+	for (uint i = 0; i < _speechSlots.size(); ++i)
+		clearSpeechSlot(_speechSlots[i]);
 	if (_engine && _engine->graphics())
 		_engine->graphics()->clearSpeech();
-
-	foreach(Animation *, _animations)
-		if ((*it)->isActor())
-			static_cast<Actor *>(*it)->stopSpeaking();
 }
 
 void Logic::resetQueuedRunMode(uint16 mode) {

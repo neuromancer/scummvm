@@ -278,8 +278,8 @@ public:
 	void dropRoomScriptWaitMode(uint16 mode);
 
 	bool isSpeaking() const;
-	const Common::String &speechText() const { return _speech.text(); }
-	void stopSpeaking() { _speech = Speech(); }
+	const Common::String &speechText() const;
+	void stopSpeaking();
 	void setAttentionNeededLikeDos(bool v) { setDosField(0x65, v ? 1 : 0); _attentionNeeded = v; }
 	void callMeWhenSilent(const CodePointer &cp);
 	void say(const Common::String &text, uint16 maxLines = 0);

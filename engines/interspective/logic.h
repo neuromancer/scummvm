@@ -51,6 +51,7 @@ class Actor;
 class Animation;
 class Debugger;
 class Engine;
+class Graphics;
 class Music;
 class Resources;
 
@@ -100,12 +101,14 @@ public:
 		  _slowCpu(false),
 		  _cameraX(0), _cameraY(0),
 		  _cameraTargetX(0xffff), _cameraTargetY(0xffff),
+		  _scrollDx(0), _scrollDy(0),
 		  _scrollChanged(false),
 		  _inputEnabled(true) {
 		_protagonist = nullptr;
 		_protagonistId = 0;
 		for (int i = 0; i < 7; ++i) _graphicSlots[i] = 0;
 		_castTable.resize(kCastTableCap);
+		_speechSlots.resize(kSpeechSlotCount);
 	}
 	~Logic();
 
@@ -341,9 +344,10 @@ public:
 				return true;
 		return false;
 	}
-	bool registerObjectExit(uint16 id) {
+	bool registerObjectExit(uint16 id, bool setErrorOnOverflow = true) {
 		if (_objectExitList.size() >= 20) {
-			setPendingError(0x21);
+			if (setErrorOnOverflow)
+				setPendingError(0x21);
 			return false;
 		}
 		_objectExitList.push_back(id);
@@ -681,6 +685,11 @@ public:
 			//   protag.room=currentRoom=cellId, then SetActorPosition.
 			// Used by Op_29/Op_2a after walking to the current entity.
 			kPlaceProtagonistAfterMove = 3,
+			// DOS callback @ 0xc408 (`PlaceObjectInRoom`), armed by
+			// HandleHotspotInteraction @ 0x3353 after QueueExitTransition.
+			// C++ stores object id in cellId, adjusted X in arg0, and
+			// target-bottom Y in arg1.
+			kPlaceObjectAfterHotspotMove = 4,
 		};
 		Kind kind;
 		uint16 cellId;       // DOS AX = currentEntityId at register time
@@ -904,6 +913,24 @@ public:
 	void tickMotionText();
 	void paintMotionText();
 
+	// DOS speech slots (DS:0x4e63, 6 entries * 17 bytes). Both actor
+	// bubbles and explicit-position narrator bubbles share this fixed pool.
+	enum { kSpeechSlotCount = 6 };
+	bool allocActorSpeech(Actor *actor, const Common::String &text, uint16 maxLines = 0);
+	bool allocActorSpeechAt(Actor *actor, const Common::String &text, Common::Point pos, uint16 maxLines = 0);
+	bool allocNarratorSpeech(const byte *text, uint16 length, uint16 x, uint16 y,
+	                         byte color, uint16 maxLines, uint8 type);
+	bool speechSlotActiveForOwner(uint16 owner) const;
+	bool anySpeechSlotActive() const;
+	const Common::String &speechTextForOwner(uint16 owner) const;
+	void clearSpeechForOwner(uint16 owner);
+	void queueSpeechSlotCallbackForOwner(uint16 owner, const CodePointer &cp);
+	void queueSpeechSlotCallbackForAnyActive(const CodePointer &cp);
+	bool backupSpeechSlotForOwner(uint16 owner, Common::String &text);
+	bool restoreActorSpeechSlot(Actor *actor, const Common::String &text);
+	void recycleStaleSpeechSlotsLikeDos();
+	void paintSpeechSlots(Graphics *g);
+
 	bool canSkipCutscene() const { return !_skipPoint.isEmpty(); }
 	void setSkipPoint(const CodePointer &);
 	void requestSkipCutscene();
@@ -966,6 +993,39 @@ private:
 		else
 			_cellBits[key] = value;
 	}
+	struct SpeechSlotCallback {
+		SpeechSlotCallback() : mode(0), hasMode(false) {}
+		SpeechSlotCallback(const CodePointer &p, uint16 m, bool h)
+			: callback(p), mode(m), hasMode(h) {}
+		CodePointer callback;
+		uint16 mode;
+		bool hasMode;
+	};
+	struct SpeechSlot {
+		SpeechSlot()
+			: framesLeft(0), framesTotal(0), active(0), type(0), owner(0),
+			  refX(0), refY(0), color(0xeb), maxLines(0), pageIndex(0) {}
+		uint8 framesLeft;
+		uint8 framesTotal;
+		uint8 active;
+		uint8 type;
+		uint16 owner;
+		uint16 refX;
+		uint16 refY;
+		uint8 color;
+		uint16 maxLines;
+		Common::String text;
+		Common::Array<Common::String> pages;
+		uint pageIndex;
+		Common::Queue<SpeechSlotCallback> callbacks;
+	};
+	SpeechSlot *findFreeSpeechSlot();
+	const SpeechSlot *findSpeechSlotForOwner(uint16 owner) const;
+	SpeechSlot *findSpeechSlotForOwner(uint16 owner);
+	void clearSpeechSlot(SpeechSlot &slot);
+	void startSpeechSlotPage(SpeechSlot &slot, uint page);
+	bool initSpeechSlot(SpeechSlot &slot, const Common::String &text, uint16 maxLines);
+	void finishSpeechSlot(SpeechSlot &slot);
 
 
 	Engine *_engine;
@@ -1045,6 +1105,7 @@ private:
 	uint8 _walkSpeedFlag; // DS:0x674d
 	int16 _cameraX, _cameraY;
 	uint16 _cameraTargetX, _cameraTargetY;
+	int16 _scrollDx, _scrollDy; // DS:0x662b/0x662d, persistent UpdateScrollPosition deltas
 	bool _scrollChanged; // DS:0x662f, set by UpdateScrollPosition
 	bool _inputEnabled;
 	Common::Array<AnimListEntry> _animList;
@@ -1053,6 +1114,7 @@ private:
 	PostMoveCallback _postMoveCallback; // DOS DS:0x65ab register-state slot
 	CutsceneBackup _cutsceneBackup;     // DOS Op_97/Op_98 backup slot
 	Common::Array<CastEntry> _castTable; // DOS DS:0x1977 cast registry (18 slots)
+	Common::Array<SpeechSlot> _speechSlots; // DOS DS:0x4e63, 6 entries
 	ModalState _modalState;              // DOS DS:0x66ae..0x66c6 modal regs + 0x6741 stash
 	Common::Array<uint16> _menuItemIndices; // DOS DS:0x4f1b — Op_54 lookup for selected idx
 	uint16 _opcodeMode;       // DS:0x670e
