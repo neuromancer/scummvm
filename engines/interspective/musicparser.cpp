@@ -31,6 +31,7 @@
 #include "audio/mididrv.h"
 #include "audio/mixer.h"
 
+#include "interspective/innocent.h"
 #include "interspective/resources.h"
 #include "interspective/util.h"
 
@@ -39,6 +40,19 @@ namespace Common {
 }
 
 namespace Interspective {
+
+static uint16 midiTuneIndexForScriptTune(uint16 tuneIdx) {
+	MainDat *main = Res.mainDat();
+	if (!main || Engine::instance().dosMusicEnabled() != 1)
+		return tuneIdx;
+
+	const uint16 count = main->tunesCount();
+	const uint16 rolandBase = count / 2;
+	if (rolandBase == 0 || tuneIdx == 0 || tuneIdx > rolandBase || tuneIdx + rolandBase > count)
+		return tuneIdx;
+
+	return tuneIdx + rolandBase;
+}
 
 MusicParser::MusicParser() : MidiParser(), _tune(0), _script(0), _musicType(MT_INVALID), _active(true),
 	_currentTuneWord(0), _driverCommandByte(0), _driverModeFlag(0), _time(0), _lastTick(0), _tick(0) {
@@ -143,8 +157,9 @@ bool MusicParser::loadMusic(const byte *data, uint32 size) {
 
 	uint16 tuneIdx = _script->getTune();
 	_currentTuneWord = tuneIdx;
-	warning("Interspective music: loadMusic tune index = %u", tuneIdx);
-	_tune = new Tune(tuneIdx);
+	const uint16 midiTuneIdx = midiTuneIndexForScriptTune(tuneIdx);
+	warning("Interspective music: loadMusic tune index = %u (data tune %u)", tuneIdx, midiTuneIdx);
+	_tune = new Tune(midiTuneIdx);
 
 	_numTracks = 1;
 	_ppqn = 120;

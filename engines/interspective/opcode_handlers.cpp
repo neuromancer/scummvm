@@ -5729,20 +5729,28 @@ OPCODE(0xf3) {
 OPCODE(0xf5) {
 	// DOS Op_f5 (CS:0x5812): nargs=0 per opcodes_nargs.data. Calls
 	// RegisterSampleSlot_Bare6 (BX=7: CheckMusicPlaying) when music is
-	// enabled, else AX=1 + RegisterSampleSlot_Bare5 (BX=5: countdown).
-	// It is NOT a beat-set.
+	// enabled. CheckMusicPlaying @ 1000:5c78 returns carry clear while the
+	// driver current-tune word is nonzero and carry set once it is zero; the
+	// saved script resumes only on that carry-set path. Disabled music uses
+	// AX=1 + RegisterSampleSlot_Bare5 (BX=5: one-tick countdown). It is NOT
+	// a beat-set.
 	// Original C++ called Music.setBeat(uint16(a[0])) — reading a[0]
 	// (which doesn't exist with 0 nargs) as a beat number, then setting
 	// the music to a garbage beat. Could index past the beat array
 	// (Tune::setBeat is now bound-checked iter-12, so it'd just no-op,
 	// but cleaner to not invoke at all). iter-21 fix.
 	debugC(2, kDebugLevelScript, "opcode 0xf5: wait for music stop");
-	if (sampleSlotWouldError())
-		return kThxBye;
-	if (_engine->dosMusicEnabled() != 0)
+	if (_engine->dosMusicEnabled() != 0) {
+		if (!Music.isPlaying())
+			return kThxBye;
+		if (sampleSlotWouldError())
+			return kThxBye;
 		_logic->runLaterWithCurrentMode(current);
-	else
+	} else {
+		if (sampleSlotWouldError())
+			return kThxBye;
 		_logic->runLaterWithCurrentMode(next, 1);
+	}
 	return kReturn;
 }
 
