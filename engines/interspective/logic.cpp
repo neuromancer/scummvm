@@ -486,9 +486,10 @@ void Logic::doChangeRoom() {
 
 	// DOS ApplyChangeRoomTransition sets g_flag_restart_room; MainGameLoop's
 	// restart-room path then resets the cast table, actor render table, zone
-	// counts, overlay count, anim-list count, no-step/step flags, and the
-	// post-move callback before running the new room script. Mirror the
-	// modeled pieces here for every room change, not only block changes.
+	// counts, overlay count, anim-list count, no-step/step flags, ESC
+	// breakpoint flag, and the post-move callback before running the new
+	// room script. Mirror the modeled pieces here for every room change,
+	// not only block changes.
 	clearRoomTransientAnimations();
 	castTableClearAll();
 	_overlayQueue.clear();
@@ -512,6 +513,7 @@ void Logic::doChangeRoom() {
 	_hitTarget = 0;
 	_inMapMode = false;
 	_inputEnabled = true;
+	clearEscBreakPoint();
 	if (_engine && _engine->graphics())
 		_engine->graphics()->setFullscreen(false);
 	_motionText.clear();
