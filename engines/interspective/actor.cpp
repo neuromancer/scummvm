@@ -96,12 +96,12 @@ bool Actor::idleReadyLikeDos() const {
 void Actor::setAnimation(uint16 offset) {
 	// Invariant when _base is non-null: _base + _offset reads the current
 	// opcode, _base - _baseOffset points to file offset 0 of the same code
-	// segment. So switching to a new offset within that segment is just
-	// rebasing the pointer. BUT if _base is null (Op_01 ScriptEnd / hide()
-	// cleared it), the subtract underflows the null pointer → UB → crash.
-	// Restore from the main interpreter (the only code source actor scripts
-	// use, per Puppeteer::moveAnimator/turnAnimator) so the new animator
-	// starts cleanly instead of inheriting a poisoned base.
+	// segment, and _offset is DOS BP relative to field +2 / DI. So switching
+	// to a new animation offset within the same segment rebases DI and clears
+	// BP, matching InitActorState @ 1000:6336.
+	// If _base is null (Op_01 ScriptEnd / hide() cleared it), restore from
+	// the main interpreter so the new animator starts cleanly instead of
+	// inheriting a poisoned base.
 	byte *base = _base;
 	uint16 baseOff = _baseOffset;
 	if (!base) {
@@ -112,6 +112,8 @@ void Actor::setAnimation(uint16 offset) {
 	_baseOffset = offset;
 	_offset = 0;
 	resetActorStateFieldsLikeDos();
+	setDosFieldWord(kOffsetSegment, actorCodeSegmentTag(_base));
+	setDosFieldWord(kOffsetOffset, _baseOffset);
 }
 
 void Actor::setAnimation(const CodePointer &anim) {
@@ -120,6 +122,8 @@ void Actor::setAnimation(const CodePointer &anim) {
 	_baseOffset = anim.offset();
 	_offset = 0;
 	resetActorStateFieldsLikeDos();
+	setDosFieldWord(kOffsetSegment, actorCodeSegmentTag(_base));
+	setDosFieldWord(kOffsetOffset, _baseOffset);
 }
 
 void Actor::resetActorStateFieldsLikeDos() {
@@ -154,6 +158,8 @@ void Actor::setActorCodeOffset(uint16 offset) {
 	_base = segmentBase + offset;
 	_baseOffset = offset;
 	_offset = 0;
+	setDosFieldWord(kOffsetOffset, _baseOffset);
+	setDosFieldWord(kOffsetCode, 0);
 	_debugInvalid = false;
 }
 
@@ -174,6 +180,9 @@ void Actor::unregisterLikeDos() {
 	_base = 0;
 	_baseOffset = 0;
 	_offset = 0;
+	setDosFieldWord(kOffsetSegment, 0);
+	setDosFieldWord(kOffsetOffset, 0);
+	setDosFieldWord(kOffsetCode, 0);
 }
 
 static void syncActorDosFields(Common::Serializer &s, Common::HashMap<uint8, uint8> &fields) {
@@ -426,6 +435,26 @@ void Actor::restoreRoomScriptWait(const RoomScriptWaitSnapshot &snapshot) {
 	if (!inserted)
 		rebuilt.push(ScriptCallback(snapshot.callback, snapshot.runMode, true));
 	_callBacks = rebuilt;
+}
+
+bool Actor::hasRoomScriptWaitMode(uint16 mode) const {
+	Common::Queue<ScriptCallback> callbacks = _callBacks;
+	while (!callbacks.empty()) {
+		const ScriptCallback callback = callbacks.pop();
+		if (callback.hasRunMode && callback.runMode == mode)
+			return true;
+	}
+	return false;
+}
+
+void Actor::dropRoomScriptWaitMode(uint16 mode) {
+	Common::Queue<ScriptCallback> kept;
+	while (!_callBacks.empty()) {
+		const ScriptCallback callback = _callBacks.pop();
+		if (!callback.hasRunMode || callback.runMode != mode)
+			kept.push(callback);
+	}
+	_callBacks = kept;
 }
 
 void Actor::tellMe(const CodePointer &code, uint16 timeout) {
@@ -834,6 +863,13 @@ Animation::Status Actor::tick() {
 				s = Animation::tick();
 				if (_debug)
 					gDebugLevel -= 3;
+				if (_base)
+					setDosFieldWord(kOffsetCode, _offset);
+				else {
+					setDosFieldWord(kOffsetSegment, 0);
+					setDosFieldWord(kOffsetOffset, 0);
+					setDosFieldWord(kOffsetCode, 0);
+				}
 				decrementTicksLeftLikeDos();
 			}
 			updateZoneAtPointLikeDos();
@@ -850,21 +886,22 @@ void Actor::toggleDebug() {
 }
 
 void Actor::readHeader(const byte *code) {
-//	uint16 segment = READ_LE_UINT16(code + kOffsetCode);
-/*	if (segment == 0)
-		_base = Log.mainInterpreter()->rawCode(0);
-	else if (segment == 1)
-		_base = Log.blockInterpreter()->rawCode(0);
-	else error("segment %x", segment);*/
+	const byte * const headerBase = _base;
 	_interval = code[kOffsetInterval];
 	_ticksLeft = READ_LE_UINT16(code + kOffsetTicksLeft);
 	_zIndex = int8(code[kOffsetZIndex]);
 	_position = Common::Point(READ_LE_UINT16(code + kOffsetLeft), READ_LE_UINT16(code + kOffsetTop));
-	uint16 baseOff = READ_LE_UINT16(code + kOffsetCode);
-	_offset = READ_LE_UINT16(code + kOffsetOffset);
-	if (_offset || baseOff) {
-		_base += baseOff;
-		_baseOffset = baseOff;
+	const uint16 segment = READ_LE_UINT16(code + kOffsetSegment);
+	const uint16 codeOffset = READ_LE_UINT16(code + kOffsetOffset);
+	_offset = READ_LE_UINT16(code + kOffsetCode);
+	if (codeOffset || segment) {
+		byte *segmentBase = const_cast<byte *>(headerBase);
+		if (segment == 0 && Log.mainInterpreter())
+			segmentBase = Log.mainInterpreter()->rawCode(0);
+		else if (segment == 1 && Log.blockInterpreter())
+			segmentBase = Log.blockInterpreter()->rawCode(0);
+		_base = segmentBase + codeOffset;
+		_baseOffset = codeOffset;
 	} else {
 		_base = 0;
 		_baseOffset = _offset = 0;
@@ -875,7 +912,8 @@ void Actor::readHeader(const byte *code) {
 	_room = READ_LE_UINT16(code + kOffsetRoom);
 	setActorCallback(READ_LE_UINT16(code + 0x5d), READ_LE_UINT16(code + 0x5f));
 	static const uint8 sparseFields[] = {
-		0x0e, 0x0f, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16,
+		0x00, 0x01, 0x02, 0x03, 0x0c, 0x0d, 0x0e, 0x0f,
+		0x11, 0x12, 0x13, 0x14, 0x15, 0x16,
 		0x17, 0x18, 0x63, 0x64, 0x65, 0x66, 0x68, 0x6b, 0x6c, 0x6d, 0x6e, 0x70
 	};
 	for (uint i = 0; i < ARRAYSIZE(sparseFields); ++i)
@@ -883,7 +921,7 @@ void Actor::readHeader(const byte *code) {
 	_confused = dosField(0x64) != 0;
 	_attentionNeeded = dosField(0x65) != 0;
 
-	debugC(3, kDebugLevelFiles, "loading %s: interv %d ticks %u z%d pos%d:%d code %d offset %d sprite %d room %d", _debugInfo, _interval, _ticksLeft, _zIndex, _position.x, _position.y, baseOff, _offset, sprite, _room);
+	debugC(3, kDebugLevelFiles, "loading %s: interv %d ticks %u z%d pos%d:%d segment %d code %d pc %d sprite %d room %d", _debugInfo, _interval, _ticksLeft, _zIndex, _position.x, _position.y, segment, codeOffset, _offset, sprite, _room);
 
 	if (sprite != 0xffff)
 		setMainSprite(sprite);
@@ -1211,9 +1249,7 @@ OPCODE(0x00) {
 	// does not write field+0x0a, so the shared interval fallback would add
 	// a non-DOS countdown after the script PC is cleared.
 	debugC(2, kDebugLevelActor, "actor opcode 0x00: ScriptEnd (clear PC, no remove) [DOS Op_01]");
-	_offset = 0;
-	_baseOffset = 0;
-	_base = 0;
+	unregisterLikeDos();
 	return kOk;
 }
 
@@ -1223,10 +1259,7 @@ OPCODE(0x01) {
 	// off-by-1 mapping. UnregisterActor only clears the script PC and the
 	// actor-table id slot; it does not reset sprite/timer/path fields.
 	debugC(1, kDebugLevelActor, "actor opcode 0x01: UnregisterAndEnd (clear script PC) [DOS Op_02]");
-
-	_base = 0;
-	_baseOffset = 0;
-	_offset = 0;
+	unregisterLikeDos();
 	return kOk;
 }
 

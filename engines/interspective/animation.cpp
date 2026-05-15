@@ -135,7 +135,7 @@ Animation::Status Animation::tick() {
 	bool ranScript = false;
 	while (status == kOk && _base) {
 		int8 opcode = -*(_base + _offset);
-		if (opcode < 0 || opcode >= 0x27) {
+		if (opcode <= 0 || opcode >= 0x27) {
 			// Dump 16 bytes around the bad PC so the misalignment can be
 			// traced back to whichever upstream handler over/under-consumed.
 			// _baseOffset is the script's start in the source file;

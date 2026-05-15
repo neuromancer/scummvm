@@ -869,6 +869,8 @@ public:
 
 	void tick();
 	void callAnimations();
+	void runRoomLoop();
+	void runPostAnimationScripts();
 
 	void addAnimation(Animation *anim);
 	void removeAnimation(Animation *anim);
@@ -951,6 +953,7 @@ private:
 	void doChangeRoom();
 	void clearRoomTransientAnimations();
 	void updateScrollPosition();
+	bool hasQueuedRunMode(uint16 mode) const;
 	void resetQueuedRunMode(uint16 mode);
 	void cancelDeferredScriptsForInterpreter(Interpreter *interpreter);
 	bool redirectDeferredMode(uint16 mode, const CodePointer &target);

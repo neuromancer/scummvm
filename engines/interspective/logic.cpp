@@ -312,13 +312,12 @@ void Logic::tick() {
 	if (handleEscDuringScript())
 		return;
 
-	// Fire any armed post-move callback if the protagonist's walk just
-	// completed. Run this before the room loop / queued ops so those see
-	// the updated drag/cell/cursor state from the callback's effects —
-	// matches DOS where RunPostMoveCallback fires inside the actor's
-	// per-tick step routine, before script dispatch resumes.
-	runPostMoveCallbackIfReady();
+	runQueued();
+	if (handleEscDuringScript())
+		return;
+}
 
+void Logic::runRoomLoop() {
 	if (_roomLoop.get()) {
 //		gDebugLevel--; // room loops aren't that interesting
 		debugC(3, kDebugLevelScript | kDebugLevelFlow, ">>>running room loop code");
@@ -328,8 +327,13 @@ void Logic::tick() {
 			return;
 //		gDebugLevel++;
 	}
+}
 
-	runQueued();
+void Logic::runPostAnimationScripts() {
+	// DOS MainGameLoop runs the post-move callback after actor movement
+	// updates, then runs the room-loop script later in the frame.
+	runPostMoveCallbackIfReady();
+	runRoomLoop();
 	if (handleEscDuringScript())
 		return;
 	tickMotionText();
@@ -1802,6 +1806,12 @@ void Logic::runQueued() {
 			debugC(3, kDebugLevelScript, "delayed %s, delay now %d", +current->code,
 					current->delay);
 			current->delay--;
+		} else if (current->deferredMode != 0 && hasQueuedRunMode(current->deferredMode)) {
+			// DOS RunDeferredScripts first services the per-mode room-script
+			// slot via RunScriptByMode. The deferred entry itself does not
+			// run while that slot is still armed.
+			debugC(3, kDebugLevelScript, "deferred %s waits for mode 0x%02x room-script slot",
+					+current->code, current->deferredMode);
 		} else {
 			Interpreter *target = current->code.interpreter();
 			if (target != liveTopLevel && target != liveBlock) {
@@ -1822,13 +1832,56 @@ void Logic::runQueued() {
 			_runningQueued = 0;
 			_runningQueuedMode = 0;
 			debugC(2, kDebugLevelFlow | kDebugLevelScript, "<<<finished %s", +current->code);
-			toRemove.push(current);
+			const bool completedDeferredRoomSlot =
+				current->deferredMode == 0 && current->hasRunMode && current->runMode >= 0x0b;
+			if (completedDeferredRoomSlot)
+				current->canceled = true;
+			if (completedDeferredRoomSlot && !hasQueuedRunMode(current->runMode)) {
+				for (Common::List<DelayedRun>::iterator deferred = _queued.begin();
+						deferred != _queued.end(); ++deferred) {
+					if (!deferred->canceled && deferred->deferredMode == current->runMode) {
+						debugC(3, kDebugLevelScript,
+								"clearing deferred mode 0x%02x after room-script slot completed",
+								current->runMode);
+						deferred->canceled = true;
+					}
+				}
+			}
+			if (current->deferredMode != 0 && hasQueuedRunMode(current->deferredMode)) {
+				debugC(3, kDebugLevelScript, "keeping deferred %s while mode 0x%02x is armed",
+						+current->code, current->deferredMode);
+			} else {
+				toRemove.push(current);
+			}
 		}
 	}
 	debugC(2, kDebugLevelFlow | kDebugLevelScript, "<<<finished queued code");
 
 	while (!toRemove.empty())
 		_queued.erase(toRemove.pop());
+
+	for (Common::List<DelayedRun>::iterator clean = _queued.begin(); clean != _queued.end();) {
+		if (clean->canceled)
+			clean = _queued.erase(clean);
+		else
+			++clean;
+	}
+}
+
+bool Logic::hasQueuedRunMode(uint16 mode) const {
+	for (Common::List<DelayedRun>::const_iterator it = _queued.begin(); it != _queued.end(); ++it)
+		if (!it->canceled && it->hasRunMode && it->runMode == mode && it->deferredMode == 0)
+			return true;
+	if (_resources && _resources->mainDat()) {
+		uint16 actorCount = _resources->mainDat()->actorsCount();
+		if (_blockProgram)
+			actorCount += _blockProgram->actorsCount();
+		for (uint16 id = 1; id <= actorCount; ++id)
+			if (Actor *actor = getActor(id))
+				if (actor->hasRoomScriptWaitMode(mode))
+					return true;
+	}
+	return false;
 }
 
 void Logic::addAnimation(Animation *anim) {
@@ -2088,6 +2141,15 @@ void Logic::resetQueuedRunMode(uint16 mode) {
 			it = _queued.erase(it);
 		else
 			++it;
+	}
+
+	if (_resources && _resources->mainDat()) {
+		uint16 actorCount = _resources->mainDat()->actorsCount();
+		if (_blockProgram)
+			actorCount += _blockProgram->actorsCount();
+		for (uint16 id = 1; id <= actorCount; ++id)
+			if (Actor *actor = getActor(id))
+				actor->dropRoomScriptWaitMode(mode);
 	}
 }
 

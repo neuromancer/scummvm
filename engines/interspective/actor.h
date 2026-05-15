@@ -184,11 +184,13 @@ public:
 
 	enum ActorOffsets {
 		kOffsetSegment = 0,
+		// DOS field +2 is DI: the code-base offset within the selected segment.
 		kOffsetOffset = 2,
 		kOffsetLeft = 4,
 		kOffsetTop = 6,
 		kOffsetMainSprite = 8,
 		kOffsetTicksLeft = 0xa,
+		// DOS field +0x0c is BP: the current PC relative to kOffsetOffset.
 		kOffsetCode = 0xc,
 		kOffsetInterval = 0x10,
 		kOffsetZIndex = 0x12,
@@ -272,6 +274,8 @@ public:
 	};
 	bool takeRoomScriptWait(RoomScriptWaitSnapshot &snapshot);
 	void restoreRoomScriptWait(const RoomScriptWaitSnapshot &snapshot);
+	bool hasRoomScriptWaitMode(uint16 mode) const;
+	void dropRoomScriptWaitMode(uint16 mode);
 
 	bool isSpeaking() const;
 	const Common::String &speechText() const { return _speech.text(); }

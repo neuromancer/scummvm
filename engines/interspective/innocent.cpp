@@ -184,15 +184,16 @@ Common::Error Engine::run() {
 	_logic->initCode();
 	_graphics->hideCursor();
 	while(!shouldQuit()) {
-		_logic->callAnimations();
-		_graphics->paint();
+		handleEvents();
 		_logic->tick();
+		_logic->callAnimations();
+		_logic->runPostAnimationScripts();
+		_graphics->paint();
 		_graphics->syncCursorVisibility();
 //		_graphics->paintAnimations();
 		_graphics->updateScreen();
 		_debugger->onFrame();
 		delay(40);
-		handleEvents();
 	}
 
 	return kNoError;
