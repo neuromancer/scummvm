@@ -450,6 +450,7 @@ public:
 	bool castTableRegister(uint16 id, int16 x, int16 y, Interpreter *interpreter);
 	void castTableSetPos(uint16 id, int16 x, int16 y);
 	void castTableClear(uint16 id);
+	void castTableDeactivateAnimation(Animation *animation);
 	void castTableClearAll();
 	const Common::Array<CastEntry> &castTable() const { return _castTable; }
 
@@ -951,6 +952,7 @@ private:
 	void clearRoomTransientAnimations();
 	void updateScrollPosition();
 	void resetQueuedRunMode(uint16 mode);
+	void cancelDeferredScriptsForInterpreter(Interpreter *interpreter);
 	bool redirectDeferredMode(uint16 mode, const CodePointer &target);
 	void runQueued();
 	uint32 cellKey(uint16 id) const { return ((_currentRoom & 0xffff) << 16) | id; }

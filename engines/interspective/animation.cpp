@@ -96,6 +96,7 @@ Animation::Animation(const CodePointer &code, Common::Point position) :
 	_zIndex(-1),
 	_mainSpriteId(0xffff),
 	_counter(0),
+	_castTableRunner(false),
 	_debugInvalid(false),
 	_opRingIdx(0) {
 	_base = code.code();
@@ -120,7 +121,10 @@ Animation::Status Animation::tick() {
 	debugC(5, kDebugLevelAnimation, "ticking animation %s (ticks left: %u)", _debugInfo, _ticksLeft);
 
 	if (_ticksLeft) {
-		_ticksLeft--;
+		if (_castTableRunner)
+			decrementAnimationTicksLeftLikeDos();
+		else
+			_ticksLeft--;
 		return kOk;
 	}
 
@@ -128,6 +132,7 @@ Animation::Status Animation::tick() {
 	clearSprites();
 
 	Status status = kOk;
+	bool ranScript = false;
 	while (status == kOk && _base) {
 		int8 opcode = -*(_base + _offset);
 		if (opcode < 0 || opcode >= 0x27) {
@@ -181,11 +186,18 @@ Animation::Status Animation::tick() {
 
 		_debugInvalid = false;
 		_explicitFrameDelay = false;
+		ranScript = true;
 		status = op(opcode - 1);
 	}
 
-	if (status == kFrameDone && !_ticksLeft && !_explicitFrameDelay)
+	if (status == kFrameDone && !_ticksLeft && !_explicitFrameDelay) {
 		_ticksLeft = uint8(_interval);
+		if (_castTableRunner)
+			setAnimationDosFieldWord(0x0a, _ticksLeft);
+	}
+
+	if (ranScript && _castTableRunner)
+		decrementAnimationTicksLeftLikeDos();
 
 	if (status == kRemove)
 		return status;
@@ -357,6 +369,14 @@ bool Animation::queueAnimationMoveSlotLikeDos(uint16 arg1, uint16 arg2, uint16 a
 	return true;
 }
 
+void Animation::decrementAnimationTicksLeftLikeDos() {
+	// DOS UpdateActorTimers @ 1000:673e decrements cast field +0x0a
+	// after the optional RunActorScript call, even when the script just
+	// wrote a fresh delay through the common tail at 1000:6953.
+	_ticksLeft = uint16(_ticksLeft - 1);
+	setAnimationDosFieldWord(0x0a, _ticksLeft);
+}
+
 void Animation::paintMoveSlotLikeDos(Graphics *g, uint16 spriteId, uint16 x, uint16 y, uint8 mode, const Common::Point &base) const {
 	if (spriteId == 0xffff)
 		return;
@@ -385,16 +405,17 @@ Animation::Status Animation::op(byte opcode) {
 #define OPCODE(n) template<> Animation::Status Animation::opcodeHandler<n>()
 
 OPCODE(0x00) {
-	// DOS ActorOp_01_ScriptEnd @ 1000:68d3 clears the script PC words
-	// and sets g_actor_script_ended. It does not unregister the entry or
-	// clear render state, so the base fallback must stop dispatch without
-	// removing the Animation from Logic::_animations.
-	debugC(3, kDebugLevelAnimation, "anim opcode 0x00: ScriptEnd (clear PC, no remove) [DOS Op_01]");
+	// DOS ActorOp_01_ScriptEnd @ 1000:68d3 clears record words +0/+2
+	// and sets g_actor_script_ended. For cast entries those words are
+	// wActive/wId, so DrawCastEntries @ 1000:6778 stops seeing the slot.
+	debugC(3, kDebugLevelAnimation, "anim opcode 0x00: ScriptEnd [DOS Op_01]");
 
+	if (_castTableRunner)
+		Log.castTableDeactivateAnimation(this);
 	_base = 0;
 	_baseOffset = 0;
 	_offset = 0;
-	return kOk;
+	return _castTableRunner ? kRemove : kOk;
 }
 
 OPCODE(0x01) {
@@ -402,7 +423,9 @@ OPCODE(0x01) {
 	// UnregisterActor, which clears the script PC and active-table id but
 	// leaves sprite/render fields intact. kRemove models the active-table
 	// removal; do not clear `_mainSprite`/`_sprites` here.
-	debugC(3, kDebugLevelAnimation, "anim opcode 0x01: UnregisterAndEnd (clear PC, remove active entry) [DOS Op_02]");
+	debugC(3, kDebugLevelAnimation, "anim opcode 0x01: UnregisterAndEnd (remove active entry) [DOS Op_02]");
+	if (_castTableRunner)
+		Log.castTableDeactivateAnimation(this);
 	_base = 0;
 	_baseOffset = 0;
 	_offset = 0;

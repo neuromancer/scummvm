@@ -67,6 +67,7 @@ public:
 	bool scriptActive() const { return _base != 0; }
 	uint16 mainSpriteId() const { return _mainSpriteId; }
 	int8 zIndex() const { return _zIndex; }
+	void setCastTableRunner(bool v) { _castTableRunner = v; }
 
 	// Used by Logic::doChangeRoom before freeing the outgoing block's
 	// code buffer. If this animation's _base lies within the [low, high)
@@ -96,6 +97,7 @@ protected:
 	bool queueAnimationMoveSlotLikeDos(uint16 arg1, uint16 arg2, uint16 arg3, uint8 mode);
 	void paintMoveSlotLikeDos(Graphics *g, uint16 sprite, uint16 x, uint16 y, uint8 mode, const Common::Point &base) const;
 	void paintAnimationMoveSlotsLikeDos(Graphics *g) const;
+	void decrementAnimationTicksLeftLikeDos();
 
 	void setMainSprite(uint16 sprite);
 	void clearMainSprite();
@@ -126,6 +128,7 @@ protected:
 	Common::SharedPtr<Interspective::Sprite> _mainSprite;
 	uint16 _mainSpriteId;
 	uint8 _counter;
+	bool _castTableRunner;
 	uint16 _loopStart;
 	/** offset of the animation from the start of its codeblock */
 	uint16 _baseOffset;

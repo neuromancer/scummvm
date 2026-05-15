@@ -2132,10 +2132,9 @@ OPCODE(0xcb) {
 	//   if (arg0 > graphic_count) pending-error 0xa;
 	//   else: type = image_directory[(arg0-1)*4].type_word;
 	//     type ∈ {1,2,3} → DecodeImage to small slot (DS:0x676f..0x6773)
-	//     type ∈ {4,5}  → DecodeFullScreenImage to slot (DS:0x6779/0x677b)
-	//     type 6        → DecodeFullScreenImage to slot (DS:0x6775)
-	//     type 7        → ditto; palette read only when [0x66c6] != 0
-	//                      (slot DS:0x6777)
+	//     type ∈ {4,5,6,7} → DecodeFullScreenImage to fullscreen slot
+	//       (DS:0x6779/0x677b/0x6775/0x6777); the optional embedded
+	//       palette read is shared by all four when [0x66c6] != 0.
 	//     other         → pending-error 0xa.
 	//   On match, store arg0 in the corresponding slot global.
 	const uint16 id = uint16(a[0]);
@@ -2146,25 +2145,26 @@ OPCODE(0xcb) {
 	}
 	const uint16 type = main->imageType(id);
 	debugC(1, kDebugLevelScript, "opcode 0xcb: load graphic %u (type=%u)", id, type);
+	bool fullscreen = false;
 	switch (type) {
 	case 1: Log.setGraphicSlot(0, id); break;
 	case 2: Log.setGraphicSlot(1, id); break;
 	case 3: Log.setGraphicSlot(2, id); break;
-	case 6: Log.setGraphicSlot(5, id); break;
-	case 7:
-		Log.setGraphicSlot(6, id);
-		if (Log.modalState().paletteMode != 0)
-			Graf.loadGraphicPalette(id);
-		break;
-	case 4: Log.setGraphicSlot(3, id); break;
-	case 5: Log.setGraphicSlot(4, id); break;
+	case 6: Log.setGraphicSlot(5, id); fullscreen = true; break;
+	case 7: Log.setGraphicSlot(6, id); fullscreen = true; break;
+	case 4: Log.setGraphicSlot(3, id); fullscreen = true; break;
+	case 5: Log.setGraphicSlot(4, id); fullscreen = true; break;
 	default:
 		Log.setPendingError(0x0a);
 		return kThxBye;
 	}
-	// Sprite pixels are still decoded on demand in C++ Resources::loadImage;
-	// Type 7 applies the graphic palette only when the DOS palette-mode byte
-	// [0x66c6] is nonzero.
+
+	// DOS decodes the selected graphic into its slot immediately. The C++
+	// slot backing is the Resources image cache used by sprite cuts.
+	_logic->resources()->loadImage(id);
+
+	if (fullscreen && Log.modalState().paletteMode != 0)
+		Graf.loadGraphicPalette(id);
 	return kThxBye;
 }
 
@@ -2225,7 +2225,7 @@ OPCODE(0xd0) {
 	debugC(1, kDebugLevelScript, "opcode 0xd0: partial fadeout");
 	if (!Graf.inFade()) {
 		if (!Graf.fadeOut(Graphics::kPartialFade)) {
-			Graf.clearPaletteRange(160, 96);
+			Graf.clearPaletteRange(160, 96, false);
 			return kReturn;
 		}
 	}

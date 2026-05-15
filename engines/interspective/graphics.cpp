@@ -59,6 +59,12 @@ void Graphics::setEngine(Engine *engine) {
 	_framebuffer.get()->create(320, 200);
 	_willFadein = false;
 	_inFade = false;
+	_fadeFlags = kFullFade;
+	_fadeStart = 0;
+	_fadeCount = 256;
+	Common::fill(_roomPalette, _roomPalette + sizeof(_roomPalette), 0);
+	Common::fill(_interfacePalette, _interfacePalette + sizeof(_interfacePalette), 0);
+	Common::fill(_tintedPalette, _tintedPalette + sizeof(_tintedPalette), 0);
 
 	_speech = 0;
 	_speechFramesLeft = 0;
@@ -123,7 +129,7 @@ void Graphics::loadInterface() {
 
 void Graphics::prepareInterfacePalette() {
 	debugC(1, kDebugLevelGraphics, "preparing interface palette");
-	_engine->_system->getPaletteManager()->setPalette(_interfacePalette + 160 * 3, 160, 96);
+	setPalette(_interfacePalette + 160 * 3, 160, 96);
 }
 
 void Graphics::paintInterface() {
@@ -189,13 +195,14 @@ void Graphics::loadGraphicPalette(uint16 id) {
 }
 
 void Graphics::willFadein(FadeFlags f) {
-	_willFadein = true;
 	_inFade = true;
 	_fadeFlags = f;
-	if (f & kPartialFade)
-		clearPalette(160, 96);
-	else
-		clearPalette();
+	if (f & kPartialFade) {
+		clearPaletteRange(160, 96);
+		storePaletteTarget(_interfacePalette + 160 * 3, 160, 96);
+	} else {
+		clearPaletteRange(0, 256);
+	}
 }
 
 void Graphics::paintBackdrop() {
@@ -778,14 +785,11 @@ void Graphics::syncCursorVisibility() {
 void Graphics::updateScreen() {
 	_system->copyRectToScreen(reinterpret_cast<byte *>(_framebuffer->getPixels()), _framebuffer->pitch, 0, 0, 320, 200);
 
-	if (_willFadein && (_fadeFlags & kPartialFade)) {
-		debugC(3, kDebugLevelGraphics, "performing partial fade in");
+	if (_willFadein) {
+		debugC(3, kDebugLevelGraphics, "performing palette fade in range %u..%u",
+			_fadeStart, _fadeStart + _fadeCount);
 		_willFadein = false;
-		fadeIn(_interfacePalette + 160*3, 160, 96);
-		_inFade = false;
-	} else if (_willFadein && !(_fadeFlags & kPartialFade)) {
-		fadeIn();
-		_willFadein = false;
+		fadeIn(0, _fadeStart, _fadeCount);
 		_inFade = false;
 	}
 
@@ -834,15 +838,33 @@ const char Graphics::_charwidths[] = {
 void Graphics::clearPalette(int offset, int count) {
 	byte pal[0x300];
 	Common::fill(pal, pal+0x300, 0);
+	storePaletteTarget(pal, offset, count);
 	_system->getPaletteManager()->setPalette(pal, offset, count);
 }
 
 void Graphics::setPalette(const byte *colours, uint start, uint num) {
-	_system->getPaletteManager()->setPalette(colours, start, num);
+	storePaletteTarget(colours, start, num);
 
-	// calculate tinted palette
+	if (!_willFadein)
+		_system->getPaletteManager()->setPalette(colours, start, num);
+
+	updateTintedPalette();
+}
+
+void Graphics::storePaletteTarget(const byte *colours, uint start, uint num) {
+	if (!colours || start >= 256)
+		return;
+
+	num = MIN<uint>(num, 256 - start);
+	memcpy(_roomPalette + start * 3, colours, num * 3);
+}
+
+void Graphics::updateTintedPalette() {
+	// DOS BuildDitherTable @ 1000:177a maps each palette entry to the
+	// nearest luma among interface/bright palette entries
+	// 0xae/0xaf, 0xbe/0xbf, 0xce/0xcf, 0xde/0xdf.
 	for (int i = 0; i < 256; ++i) {
-		const byte *colour = colours + i*3;
+		const byte *colour = _roomPalette + i * 3;
 		const byte luma = (30 * colour[0] + 60 * colour[1] + 10 * colour[2])/100;
 
 		byte curr = 174;
@@ -851,7 +873,7 @@ void Graphics::setPalette(const byte *colours, uint start, uint num) {
 
 		for (int j = 0; j < 4; j++) {
 			for (int k = 0; k < 2; k++) {
-				int16 diff = _interfacePalette[(curr + k) * 3] - luma;
+				int16 diff = _roomPalette[(curr + k) * 3] - luma;
 				if (diff < 0)
 					diff = -diff;
 				if (diff < best_diff) {
@@ -879,8 +901,13 @@ void Graphics::clearFramebuffer(byte colour) {
 		_framebuffer->fillRect(Common::Rect(0, 0, 320, 200), colour);
 }
 
-void Graphics::clearPaletteRange(int start, int count) {
+void Graphics::clearPaletteRange(int start, int count, bool fade) {
 	clearPalette(start, count);
+	if (fade) {
+		_willFadein = true;
+		_fadeStart = uint(start);
+		_fadeCount = uint(count);
+	}
 }
 
 struct Tr {
@@ -890,7 +917,7 @@ struct Tr {
 void Graphics::fadeIn(const byte *colours, uint start, uint num) {
 	byte buf[0x300];
 	if (!colours) {
-		_system->getPaletteManager()->grabPalette(buf, start, num);
+		memcpy(buf, _roomPalette + start * 3, num * 3);
 		colours = buf;
 	}
 
@@ -912,10 +939,16 @@ void Graphics::fadeIn(const byte *colours, uint start, uint num) {
 		if (Log.canSkipCutscene() && Eng.escapePressed()) {
 			Log.requestSkipCutscene();
 			_system->getPaletteManager()->setPalette(colours, start, num);
+			storePaletteTarget(colours, start, num);
+			updateTintedPalette();
 			_system->updateScreen();
 			return;
 		}
 	}
+
+	_system->getPaletteManager()->setPalette(colours, start, num);
+	storePaletteTarget(colours, start, num);
+	updateTintedPalette();
 }
 
 bool Graphics::fadeOut(FadeFlags f) {
@@ -930,22 +963,25 @@ bool Graphics::fadeOut(FadeFlags f) {
 		colours = 96;
 	}
 
-	_system->getPaletteManager()->grabPalette(current, offset, colours);
+	memcpy(current, _roomPalette + offset * 3, bytes);
 
 	for (int j = 0; j < 63; j++) {
 		for (int i = 0; i < bytes; i++)
 			current[i] -= MIN<byte>(4, current[i]);
 
 		_system->getPaletteManager()->setPalette((current), offset, colours);
+		storePaletteTarget(current, offset, colours);
 		_system->updateScreen();
 		Eng.delay(1000/25);
 
 		if (Log.canSkipCutscene() && Eng.escapePressed()) {
 			Log.requestSkipCutscene();
+			updateTintedPalette();
 			return false;
 		}
 
 	}
+	updateTintedPalette();
 	return true;
 }
 

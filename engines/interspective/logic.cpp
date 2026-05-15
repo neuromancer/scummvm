@@ -339,13 +339,13 @@ void Logic::tick() {
 void Logic::callAnimations() {
 	if (!_animations.empty())
 		debugC(4, kDebugLevelFlow | kDebugLevelAnimation, "running animations");
-	for (Common::List<Animation *>::iterator it = _animations.begin(); it != _animations.end(); ++it) {
+	for (Common::List<Animation *>::iterator it = _animations.begin(); it != _animations.end();) {
 		Animation::Status ret = (*it)->tick();
 		if (ret == Animation::kRemove) {
 			// it will be deleted by its owner block
-			Common::List<Animation *>::iterator _i = it;
-			it++;
-			_animations.erase(_i);
+			it = _animations.erase(it);
+		} else {
+			++it;
 		}
 	}
 }
@@ -582,6 +582,8 @@ void Logic::doChangeRoom() {
 		_blockInterpreter->run(_blockProgram->begin(), kCodeNewBlock);
 		debugC(2, kDebugLevelScript, "<<<finished block entry code for block %d", newBlock);
 	}
+
+	cancelDeferredScriptsForInterpreter(_blockInterpreter.get());
 
 	_room = Common::SharedPtr<Room>(new Room(this));
 	const uint16 roomHandler = _blockProgram->roomHandler(_currentRoom);
@@ -1230,6 +1232,7 @@ bool Logic::castTableRegister(uint16 id, int16 x, int16 y, Interpreter *interpre
 			// p_data[0/1/2/3/7/10/12] remain zero from the clear above.
 			if (interpreter) {
 				e.animation = new Animation(CodePointer(id, interpreter), Common::Point(x, y));
+				e.animation->setCastTableRunner(true);
 				addAnimation(e.animation);
 			}
 			return true;
@@ -1309,6 +1312,23 @@ void Logic::castTableClear(uint16 id) {
 			e.interpreter = 0;
 			e.animation = 0;
 			// Intentionally preserve x, y, raw[] — DOS leaves them.
+			return;
+		}
+	}
+}
+
+// DOS ActorOp_01/02 clear the first two words of the active record
+// (1000:68d3 and 1000:68e3). For cast-table records those are wActive
+// and w_unk_02/id; renderer bytes and position are intentionally left
+// intact, just as Op_c5 does.
+void Logic::castTableDeactivateAnimation(Animation *animation) {
+	for (uint i = 0; i < _castTable.size(); ++i) {
+		CastEntry &e = _castTable[i];
+		if (e.animation == animation) {
+			e.active = 0;
+			e.id = 0;
+			e.interpreter = 0;
+			e.animation = 0;
 			return;
 		}
 	}
@@ -2068,6 +2088,27 @@ void Logic::resetQueuedRunMode(uint16 mode) {
 			it = _queued.erase(it);
 		else
 			++it;
+	}
+}
+
+void Logic::cancelDeferredScriptsForInterpreter(Interpreter *interpreter) {
+	if (!interpreter)
+		return;
+
+	// DOS CancelDeferredScriptsForSlot @ 1000:3226 runs on the
+	// restart-room path after EnsureRoomLoaded and before RunLocationScript.
+	// It scans the 8 deferred-script entries, matches the current block
+	// segment (CS:[0x35]) against each entry's segment word, calls
+	// ResetRoomScriptSlot(mode), then clears the deferred entry.
+	for (Common::List<DelayedRun>::iterator it = _queued.begin(); it != _queued.end();) {
+		if (!it->canceled && it->deferredMode != 0 && it->code.interpreter() == interpreter) {
+			debugC(3, kDebugLevelScript, "cancel deferred for room restart %s mode 0x%02x",
+					+it->code, it->deferredMode);
+			resetQueuedRunMode(it->deferredMode);
+			it = _queued.erase(it);
+		} else {
+			++it;
+		}
 	}
 }
 

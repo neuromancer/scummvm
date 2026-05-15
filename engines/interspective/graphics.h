@@ -146,7 +146,7 @@ public:
 	void goFullscreen();
 	void setFullscreen(bool enabled);
 	void clearFramebuffer(byte colour = 0);
-	void clearPaletteRange(int start, int count);
+	void clearPaletteRange(int start, int count, bool fade = true);
 
 	// Per-glyph width (variable-width font). Mirrors DOS
 	// LookupCharSprite @ 1000:c69c — used by Logic::formatBubbleText
@@ -179,6 +179,8 @@ private:
 private:
 	void clearPalette(int start = 0, int count = 256);
 	void fadeIn(const byte *colours = 0, uint start = 0, uint num = 256);
+	void updateTintedPalette();
+	void storePaletteTarget(const byte *colours, uint start, uint num);
 
 	Common::List<Paintable *> _paintables;
 	Common::List<CodePointer> _afterRepaintHooks;
@@ -186,6 +188,9 @@ private:
 	bool _willFadein;
 	bool _inFade;
 	FadeFlags _fadeFlags;
+	uint _fadeStart;
+	uint _fadeCount;
+	byte _roomPalette[0x300];
 	byte _interfacePalette[0x300];
 	byte _tintedPalette[256];
 
