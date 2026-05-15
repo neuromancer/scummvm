@@ -515,6 +515,11 @@ void Logic::doChangeRoom() {
 		_engine->graphics()->setFullscreen(false);
 	_motionText.clear();
 	_motionTextTicks = 0;
+	// DOS restart-room calls RecycleStaleSpeechSlots @ 1000:996c, which
+	// clears ownerless/narrator slots (owner 0xffff). In C++ those slots
+	// are Graphics-owned speech entries.
+	if (_engine && _engine->graphics())
+		_engine->graphics()->clearSpeech();
 
 	uint16 newBlock = _resources->blockOfRoom(_currentRoom);
 
@@ -2017,6 +2022,20 @@ bool Logic::handleEscDuringScript() {
 	return true;
 }
 
+void Logic::resetSpeechSlotsLikeDos() {
+	// DOS ResetSpeechSlots @ 1000:9951 only zeros each slot's
+	// frames-left byte. In the C++ split model, narrator/map speech lives
+	// in Graphics and actor-owned bubbles live on Actor::Speech. Drop
+	// their callbacks as well: the ESC target script replaces the old wait
+	// path just like DOS HandleEscDuringScript does.
+	if (_engine && _engine->graphics())
+		_engine->graphics()->clearSpeech();
+
+	foreach(Animation *, _animations)
+		if ((*it)->isActor())
+			static_cast<Actor *>(*it)->stopSpeaking();
+}
+
 void Logic::resetQueuedRunMode(uint16 mode) {
 	for (Common::List<DelayedRun>::iterator it = _queued.begin(); it != _queued.end();) {
 		if (!it->canceled && it->hasRunMode && it->runMode == mode && it->deferredMode == 0)
@@ -2044,6 +2063,7 @@ void Logic::skipCutscene() {
 
 	const CodePointer target = _skipPoint;
 	const uint16 proc = _escBreakProc;
+	resetSpeechSlotsLikeDos();
 	if (proc < 0x0b)
 		resetQueuedRunMode(proc);
 	clearEscBreakPoint();

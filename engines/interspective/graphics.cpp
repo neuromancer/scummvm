@@ -1008,6 +1008,23 @@ void Graphics::sayAt(const byte *text, uint16 length, uint16 frames,
 		paintSpeech();
 }
 
+void Graphics::clearSpeech() {
+	delete[] _speech;
+	_speech = 0;
+	_speechFramesLeft = 0;
+	_speechX = 0;
+	_speechY = 0;
+	_speechColor = 235;
+	_speechBubble = false;
+	_speechBubbleMode = kSpeechBubbleType1;
+	_speechDoneCallback.reset();
+
+	while (!_speechQueue.empty()) {
+		SpeechEntry entry = _speechQueue.pop();
+		delete[] entry.text;
+	}
+}
+
 void Graphics::runWhenSaid(const CodePointer &cb) {
 	// Bind the callback to the most-recently-queued utterance (or to the
 	// current one if the queue is empty). DOS pattern is: emit speech →

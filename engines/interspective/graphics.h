@@ -99,6 +99,7 @@ public:
 	           SpeechBubbleMode bubbleMode = kSpeechBubbleType1,
 	           bool forceBubble = false);
 	bool isSaying() const { return _speech != 0 || !_speechQueue.empty(); }
+	void clearSpeech();
 	void runWhenSaid(const CodePointer &p);
 
 	uint16 ask(uint16 left, uint16 top, byte width, byte height, byte *string);

@@ -899,6 +899,7 @@ public:
 	void setSkipPoint(const CodePointer &);
 	void requestSkipCutscene();
 	bool handleEscDuringScript();
+	void resetSpeechSlotsLikeDos();
 	void skipCutscene();
 
 	// "Current place" id (DOS CS:[0x111], a savegame state identifier
