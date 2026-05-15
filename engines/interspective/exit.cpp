@@ -27,6 +27,7 @@
 
 #include "interspective/debugger.h"
 #include "interspective/graphics.h"
+#include "interspective/logic.h"
 #include "interspective/resources.h"
 
 namespace Interspective {
@@ -43,8 +44,8 @@ enum Offsets {
 	kOffsetZIndex = 0xb
 };
 
-Exit::Exit(const CodePointer &c)
-  :	_enabled(false), _sprite(), _spriteField(0xffff) {
+Exit::Exit(const CodePointer &c, uint16 id)
+  :	_sprite(), _spriteField(0xffff), _id(id), _enabled(false) {
 	debugC(4, kDebugLevelFiles, "loading exit from %s", +c);
 
 	bool nosprite;
@@ -67,7 +68,7 @@ Exit::Exit(const CodePointer &c)
 
 	if (!nosprite) // these have bottom for some reason
 		_rect.translate(0, -(_rect.height() - 1));
-	
+
 	c.field(_room, kOffsetRoom);
 	c.field(_zIndex, kOffsetZIndex);
 
@@ -75,7 +76,7 @@ Exit::Exit(const CodePointer &c)
 	c.field(offset, kOffsetClickHandler);
 	_clickHandler = CodePointer(offset, c.interpreter());
 
-	snprintf(_debugInfo, 100, "exit %s%s r%d z%d %s", nosprite ? "n" : "s" , +_rect, _room, _zIndex, +c);
+	snprintf(_debugInfo, 100, "exit %u %s%s r%d z%d %s", _id, nosprite ? "n" : "s" , +_rect, _room, _zIndex, +c);
 }
 
 void Exit::paint(Graphics *g) {
@@ -87,14 +88,28 @@ byte Exit::zIndex() const {
 	return _zIndex;
 }
 
+bool Exit::isClickable() const {
+	return _room == Logic::instance().currentRoom();
+}
+
 Common::Rect Exit::area() const {
 	return _rect;
 }
 
-void Exit::clicked() {
+bool Exit::clicked() {
 	debugC(3, kDebugLevelEvents, "%s got clicked!", +*this);
+	Logic &logic = Logic::instance();
+	logic.setGameState(1);
+	logic.setCurrentEntityId(_id);
+
+	if (!logic.cellBit(_id, 0)) {
+		debugC(3, kDebugLevelEvents, "%s click ignored: current-room cell bit 0 clear", +*this);
+		return false;
+	}
+
 	Debug.clickHandler();
 	_clickHandler.run(kCodeItem);
+	return true;
 }
 
 } // end of namespace

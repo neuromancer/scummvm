@@ -84,6 +84,7 @@ public:
 	//     }
 	//   }
 	void playSfx(uint16 id);
+	void playSecondarySfx(uint16 id);
 
 	// DOS Op_f1_handler (1000:5725):
 	//   if (sfx_enabled) {
@@ -102,9 +103,10 @@ public:
 	void rangeCheck(uint16 id);
 
 	// "Is this SFX subsystem enabled?" — gates all play paths. Mirrors
-	// DOS `g_sfx_enabled` (CS:[0xe]). C++ uses the ScummVM mixer's
-	// SFX volume as the enable proxy: volume > 0 == enabled.
+	// DOS `g_sfx_enabled` (CS:[0xe]) from the parsed DOS switch config.
 	bool isEnabled() const;
+	bool isActive() const { return _active; }
+	void setActive(bool active) { _active = active; }
 
 	// Currently-playing flag (DOS `g_sfx_active` bit / [0x67b7]).
 	bool isSfxPlaying() const;
@@ -131,6 +133,7 @@ private:
 	uint16 _state6708;   // secondary slot hi
 	uint16 _state670a;   // (unidentified)
 	uint16 _state670c;   // (unidentified)
+	bool _active;
 };
 
 } // namespace Interspective

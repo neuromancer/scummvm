@@ -100,6 +100,7 @@ Resources::~Resources() {
 
 void Resources::load() {
 	_main.get()->load();
+	Log.setMaxGameScore(_main.get()->maxGameScore());
 	_graphicsMap.get()->load();
 	_tuneMap.get()->load();
 

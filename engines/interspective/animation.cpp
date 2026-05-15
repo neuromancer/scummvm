@@ -111,7 +111,7 @@ Animation::~Animation() {
 }
 
 Animation::Status Animation::tick() {
-	debugC(5, kDebugLevelAnimation, "ticking animation %s (ticks left: %d)", _debugInfo, _ticksLeft);
+	debugC(5, kDebugLevelAnimation, "ticking animation %s (ticks left: %u)", _debugInfo, _ticksLeft);
 
 	if (_ticksLeft) {
 		_ticksLeft--;
@@ -178,7 +178,7 @@ Animation::Status Animation::tick() {
 	}
 
 	if (status == kFrameDone && !_ticksLeft && !_explicitFrameDelay)
-		_ticksLeft = _interval;
+		_ticksLeft = uint8(_interval);
 
 	if (status == kRemove)
 		return status;
@@ -270,11 +270,13 @@ OPCODE(0x00) {
 }
 
 OPCODE(0x01) {
-	debugC(3, kDebugLevelAnimation, "anim opcode 0x01: hide");
+	debugC(3, kDebugLevelAnimation, "anim opcode 0x01: unregister and end");
+	clearSprites();
+	clearMainSprite();
 	_base = 0;
 	_offset = _baseOffset = 0;
 
-	return kFrameDone;
+	return kRemove;
 }
 
 OPCODE(0x02) {
@@ -289,7 +291,7 @@ OPCODE(0x02) {
 }
 
 OPCODE(0x03) {
-	uint16 interval = shift();
+	uint8 interval = uint8(shift());
 
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x03: set interval to %d", interval);
 
@@ -300,7 +302,7 @@ OPCODE(0x03) {
 
 OPCODE(0x04) {
 	uint16 offset = shift();
-	uint16 interval = READ_LE_UINT16(_resources->getGlobalWordVariable(offset/2));
+	uint8 interval = uint8(READ_LE_UINT16(_resources->getGlobalWordVariable(offset/2)));
 
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x04: set interval to %d (from var %d)", interval, offset / 2);
 
@@ -350,11 +352,11 @@ OPCODE(0x08) {
 	int8 left = shiftByte();
 	int8 top = shiftByte();
 
-	debugC(3, kDebugLevelAnimation, "anim opcode 0x08: move by %d:%d", left, top);
+	debugC(3, kDebugLevelAnimation, "anim opcode 0x08: move by %d:%d, frame done", left, top);
 
 	_position += Common::Point(left, top);
 
-	return kOk;
+	return kFrameDone;
 }
 
 OPCODE(0x0a) {
@@ -372,10 +374,10 @@ OPCODE(0x0a) {
 }
 
 OPCODE(0x0d) {
-	_counter = embeddedByte();
+	_counter = uint8(embeddedByte());
 	_loopStart = _offset;
 
-	debugC(3, kDebugLevelAnimation, "anim opcode 0x0d: %d times do", _counter);
+	debugC(3, kDebugLevelAnimation, "anim opcode 0x0d: %u times do", _counter);
 
 	return kOk;
 }
@@ -387,7 +389,7 @@ OPCODE(0x0e) {
 	if (_counter)
 		_offset = _loopStart;
 
-	debugC(3, kDebugLevelAnimation, "anim opcode 0x0e: done (%d times left)", _counter);
+	debugC(3, kDebugLevelAnimation, "anim opcode 0x0e: done (%u times left)", _counter);
 
 	return kOk;
 }
@@ -435,47 +437,56 @@ OPCODE(0x12) {
 OPCODE(0x13) {
 	uint16 max = shift();
 	uint16 off = shift();
-	uint16 res = Eng.getRandom(max);
+	uint16 res = max ? uint16(Eng.getRandom(uint16(max - 1)) + 1) : 0;
+	const bool doJump = max != 0 && res == max;
 
-	debugC(3, kDebugLevelAnimation, "anim opcode 0x13: jump to 0x%x 1 in %d times (%s)", off, max, res == max ? "do now" : "not now");
+	debugC(3, kDebugLevelAnimation, "anim opcode 0x13: jump to 0x%x 1 in %d times (%s)", off, max, doJump ? "do now" : "not now");
 
-	if (res == max)
+	if (doJump)
 		_offset = off;
 	return kOk;
 }
 
 OPCODE(0x19) {
-	uint16 delay = shift();
+	// DOS Op_1a SetWalkFlagsAndEnd @ 1000:6a48:
+	//   actor.field+0xa = word arg; actor.field+0x8 = 0xffff;
+	//   g_actor_script_ended = 1.
+	// For a non-actor Animation, field+0xa maps to `_ticksLeft` and
+	// field+0x8 maps to the main sprite id. Mark the delay as explicit
+	// so a zero word stays zero instead of falling back to `_interval`.
+	uint16 flags = shift();
 
-	debugC(3, kDebugLevelAnimation, "anim opcode 0x19: hide for %d frames", delay);
+	debugC(3, kDebugLevelAnimation, "anim opcode 0x19: SetWalkFlagsAndEnd flags=0x%04x [DOS Op_1a]", flags);
 
 	clearMainSprite();
-	_ticksLeft = delay;
+	_ticksLeft = flags;
+	_explicitFrameDelay = true;
 
 	return kFrameDone;
 }
 
 OPCODE(0x1a) {
-	int8 index = embeddedByte();
+	// DOS Op_1b SetField12ClearFlag16 @ 1000:6b4e:
+	//   actor.field+0x12 = embedded byte; actor.field+0x16 = 0.
+	// C++ uses `_zIndex` as the render-layer analog for field+0x12.
+	byte v = embeddedByte();
 
-	debugC(3, kDebugLevelAnimation, "anim opcode 0x1a: set z index to %d", index);
+	debugC(3, kDebugLevelAnimation, "anim opcode 0x1a: SetField12ClearFlag16 = %d [DOS Op_1b]", v);
 
-	_zIndex = index;
+	_zIndex = int8(v);
 
 	return kOk;
 }
 
 OPCODE(0x1b) {
-	uint16 left = shift();
-	uint16 top = shift();
-	uint16 sprite = shift();
-
-	debugC(3, kDebugLevelAnimation, "anim opcode 0x1b: add absolute sprite %d: %d:%d", sprite, left, top);
-
-	Sprite *s = new Sprite(_resources->loadSprite(sprite));
-	s->setPosition(Common::Point(left, top));
-	s->setAbsolute();
-	_sprites.push_back(s);
+	// DOS Op_1c QueueMoveSlotMode0 @ 1000:6b5d: 3 shifts (a, b, c).
+	//   Locates first free actor move-queue slot and writes (a, b, c, 0);
+	//   on overflow sets pending error 0x0c.
+	// Non-actor Animations have no walk queue. The old fallback created
+	// an absolute sprite from these operands, which has no DOS backing.
+	(void)shift(); (void)shift(); (void)shift();
+	debugC(3, kDebugLevelAnimation, "anim opcode 0x1b: QueueMoveSlotMode0 "
+		"[actor walk queue has no non-actor analog — NO-OP]");
 
 	return kOk;
 }
@@ -507,18 +518,20 @@ OPCODE(0x09) {
 	// DOS Op_0a WalkAbsolute @ 1000:6991:
 	//   AX = ES:[BP+DI+0x2];   ES:[SI+0x4] = AX;   ; actor.field+0x4 = X
 	//   BX = ES:[BP+DI+0x4];   ES:[SI+0x6] = BX;   ; actor.field+0x6 = Y
+	//   actor.field+0xa = zero-extended actor.field+0x10; end script.
 	//   ADD BP, 0x6;            ; total opcode length 6 bytes (opcode + 1
 	//                           ;   pad + 2 X word + 2 Y word + dispatcher
 	//                           ;   pre-advance covers the first 2 bytes).
 	// Actor-side: writes the actor's screen position. Non-actor side:
 	// the equivalent semantic is `Animation::_position = (X, Y)` since
-	// Animation::paint draws the main sprite at `_position`.
+	// Animation::paint draws the main sprite at `_position`; kFrameDone
+	// supplies the same zero-extended interval delay.
 	uint16 x = shift();
 	uint16 y = shift();
 	_position = Common::Point(int16(x), int16(y));
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x09: WalkAbsolute → _position = (%d, %d)",
 		int16(x), int16(y));
-	return kOk;
+	return kFrameDone;
 }
 
 OPCODE(0x0b) {
@@ -528,6 +541,7 @@ OPCODE(0x0b) {
 	//   AL = [SI+0x62];   BX = g_render_actor_id;
 	//   CALL LookupActorAndStartPath;                   ; engages walk pathfinder
 	//   AX = ES:[BP+DI+0x2];   ES:[SI+0x8] = AX;        ; actor.field+0x8 = sprite ID
+	//   actor.field+0xa = zero-extended actor.field+0x10; end script.
 	//   ADD BP, 0x4;                                     ; total length 4
 	// = "set face direction + sprite ID, engage walk script". For non-
 	// actor Animations: actor.field+0x61 (current frame) and
@@ -539,20 +553,21 @@ OPCODE(0x0b) {
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x0b: FaceAndWalkWithFrame → setMainSprite(%u) "
 		"[walk-pathfinding is actor-only; non-actor Animation has no walk script]",
 		spriteId);
-	return kOk;
+	return kFrameDone;
 }
 
 OPCODE(0x0c) {
 	// DOS Op_0d FaceAndWalk @ 1000:6a0e: byte only.
 	//   AL = embedded;   ES:[SI+0x61] = AL;          ; current frame
 	//   CALL SetActorPosition + LookupActorAndStartPath;
+	//   actor.field+0xa = zero-extended actor.field+0x10; end script.
 	//   ADD BP, 0x2.
 	// = "set face direction + engage walk". For non-actor Animations
 	// no walk path exists; the byte is consumed (NO-OP).
 	(void)embeddedByte();
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x0c: FaceAndWalk "
 		"[actor-only walk pathfinder; NO-OP for non-actor Animation]");
-	return kOk;
+	return kFrameDone;
 }
 
 OPCODE(0x14) {

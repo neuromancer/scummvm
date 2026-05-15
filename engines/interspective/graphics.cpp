@@ -85,7 +85,6 @@ void Graphics::paint() {
 
 	paintBackdrop();
 	paintAnimations();
-	paintExits();
 	paintInterface();
 	paintSpeech();
 	_engine->logic()->paintMotionText();
@@ -227,25 +226,46 @@ void Graphics::paintSpeech() {
 
 void Graphics::paintAnimations() {
 	debugC(3, kDebugLevelGraphics, "painting animations");
+	struct RenderEntry {
+		RenderEntry() : key(0), animation(0), exitObj(0) {}
+		RenderEntry(int k, Animation *a, Exit *e) : key(k), animation(a), exitObj(e) {}
+		int key;
+		Animation *animation;
+		Exit *exitObj;
+	};
+
+	Common::Array<RenderEntry> sorted;
+	if (_engine->logic()->room()) {
+		foreach_const(Exit *, _engine->logic()->room()->exits())
+			sorted.push_back(RenderEntry((*it)->zIndex() == 0xff ? -1 : (*it)->zIndex(), 0, *it));
+	}
+
 	Common::List<Animation *> animations = _engine->logic()->animations();
-	Common::Array<Animation *> sorted;
-	for (Common::List<Animation *>::iterator it = animations.begin(); it != animations.end(); ++it)
-		sorted.push_back(*it);
+	for (Common::List<Animation *>::iterator it = animations.begin(); it != animations.end(); ++it) {
+		const uint8 layer = uint8((*it)->zIndex());
+		sorted.push_back(RenderEntry(layer == 0xff ? -1 : layer, *it, 0));
+	}
 
 	// DOS DrawAllRoomObjects renders layer 0x0b down to 0x00, then 0xff.
-	// Later draws appear on top, so sort descending by signed z index.
+	// Later draws appear on top, so sort descending by layer key. Exits are
+	// inserted before actors to match the per-layer object pass before
+	// CollectActorAnimSlots.
 	for (uint i = 1; i < sorted.size(); ++i) {
-		Animation *anim = sorted[i];
+		RenderEntry entry = sorted[i];
 		uint j = i;
-		while (j > 0 && sorted[j - 1]->zIndex() < anim->zIndex()) {
+		while (j > 0 && sorted[j - 1].key < entry.key) {
 			sorted[j] = sorted[j - 1];
 			--j;
 		}
-		sorted[j] = anim;
+		sorted[j] = entry;
 	}
 
-	for (uint i = 0; i < sorted.size(); ++i)
-		sorted[i]->paint(this);
+	for (uint i = 0; i < sorted.size(); ++i) {
+		if (sorted[i].exitObj)
+			sorted[i].exitObj->paint(this);
+		else
+			sorted[i].animation->paint(this);
+	}
 }
 
 // it's modal anyway
@@ -541,6 +561,8 @@ Common::Rect Graphics::paintText(uint16 left, uint16 top, byte colour, const byt
 		case kStringDefaultColour:
 			current_colour = colour;
 			break;
+		case 0x04:
+			break;
 		case kStringAdvance:
 			current_left += *(string++);
 			break;
@@ -572,6 +594,22 @@ Common::Rect Graphics::paintText(uint16 left, uint16 top, byte colour, const byt
 		*_lines = lines;
 
 	return Common::Rect(left, top, max_left, current_top + kLineHeight);
+}
+
+uint16 Graphics::plainTextLineWidth(const byte *string) const {
+	uint16 total = 0;
+	byte ch;
+	while ((ch = *(string++)))
+		total += getGlyphWidth(ch);
+	return total;
+}
+
+Common::Rect Graphics::paintPlainTextLine(uint16 left, uint16 top, byte colour, const byte *string) {
+	uint16 current_left = left;
+	byte ch;
+	while ((ch = *(string++)))
+		current_left += paintChar(current_left, top, colour, ch, _framebuffer.get());
+	return Common::Rect(left, top, current_left, top + kLineHeight);
 }
 
 byte Graphics::clampChar(byte ch) {
@@ -782,6 +820,7 @@ void Graphics::fadeIn(const byte *colours, uint start, uint num) {
 		Eng.delay(1000/25);
 
 		if (Log.canSkipCutscene() && Eng.escapePressed()) {
+			Log.requestSkipCutscene();
 			_system->getPaletteManager()->setPalette(colours, start, num);
 			_system->updateScreen();
 			return;
@@ -812,7 +851,7 @@ bool Graphics::fadeOut(FadeFlags f) {
 		Eng.delay(1000/25);
 
 		if (Log.canSkipCutscene() && Eng.escapePressed()) {
-			Log.skipCutscene();
+			Log.requestSkipCutscene();
 			return false;
 		}
 

@@ -35,6 +35,10 @@
 #include "interspective/animation.h"
 #include "interspective/value.h"
 
+namespace Common {
+class Serializer;
+}
+
 namespace Interspective {
 //
 
@@ -108,8 +112,8 @@ public:
 		// Runtime frame mutation — DOS Op_e0 (InvalidateFrame) writes
 		// the (999,999) sentinel that findPath skips. DOS Op_e1
 		// (SetFramePosition) overwrites the screen position. Both are
-		// scene-scoped: the room-load resets _actorFrames so changes
-		// don't persist across room transitions.
+		// applied to DOS's global frame-table backing memory; room loads
+		// reset the active count, not the backing records.
 		void setPosition(Common::Point p) { _position = p; }
 		void invalidate() { _position = Common::Point(999, 999); }
 
@@ -189,10 +193,10 @@ public:
 	uint16 frameId() const { return _frame; }
 	uint16 targetFrameId() const { return _nextFrame; }
 	Common::Point position() const { return _position; }
-	int16 ticksLeft() const { return _ticksLeft; }
+	uint16 ticksLeft() const { return _ticksLeft; }
 	uint8 interval() const { return uint8(_interval); }
 	void setRawPosition(Common::Point p) { _position = p; }
-	void setRawTicksLeft(int16 ticks) { _ticksLeft = ticks; }
+	void setRawTicksLeft(uint16 ticks) { _ticksLeft = ticks; }
 	void setRawInterval(uint8 interval) { _interval = int8(interval); }
 	void setRawFrame(uint16 frame) { _frame = frame; }
 	void setRawTargetFrame(uint16 frame) { _nextFrame = frame; }
@@ -222,6 +226,9 @@ public:
 	void placeIn(uint16 room, uint16 frame, uint16 nextFrame = 0);
 
 	bool isFine() const;
+	bool scriptActive() const { return _base != 0; }
+	bool animReadyLikeDos() const;
+	bool idleReadyLikeDos() const;
 
 	// 1-based DOS actor id (matches DAT_1cb5_666c when this actor's
 	// script is dispatching). Set by the loader at construction.
@@ -241,10 +248,8 @@ public:
 	const Common::String &speechText() const { return _speech.text(); }
 	void stopSpeaking() { _speech = Speech(); }
 	void callMeWhenSilent(const CodePointer &cp);
-	void say(const Common::String &text);
-	// DOS Op_40/0x42/0x44 target-speech variant. The caller supplies the
-	// DOS-computed speaker anchor and the shorter page height is used.
-	void sayAtPos(const Common::String &text, Common::Point pos);
+	void say(const Common::String &text, uint16 maxLines = 0);
+	void sayAtPos(const Common::String &text, Common::Point pos, uint16 maxLines = 0);
 	/// Position to anchor the speech bubble.
 	Common::Point getSpeechPosition() const;
 
@@ -254,6 +259,7 @@ public:
 	Animation::Status tick();
 	void paint(Graphics *g);
 	void paintSpeech(Graphics *g);
+	void synchronize(Common::Serializer &s);
 
 	void toggleDebug();
 
@@ -269,9 +275,12 @@ private:
 	void readHeader(const byte *code);
 
 	void animate();
+	void updateZoneAtPointLikeDos();
 	bool turnTo(Direction);
 	bool nextFrame();
 	void copyIntervalToTicks();
+	void decrementTicksLeftLikeDos();
+	void setActorCodeOffset(uint16 offset);
 
 	Common::Queue<Frame> _framequeue;
 	uint16 _frame;
@@ -336,9 +345,12 @@ public:
 	void setActorCallback(uint16 segment, uint16 offset) {
 		_actorCallbackSeg = segment;
 		_actorCallbackOff = offset;
+		setDosFieldWord(0x5d, segment);
+		setDosFieldWord(0x5f, offset);
 	}
 	void clearActorCallback() {
 		_actorCallbackSeg = 0xffff;
+		setDosFieldWord(0x5d, 0xffff);
 	}
 	uint16 actorCallbackSeg() const { return _actorCallbackSeg; }
 	uint16 actorCallbackOff() const { return _actorCallbackOff; }

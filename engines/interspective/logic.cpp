@@ -23,6 +23,8 @@
  *
  */
 
+#include "common/endian.h"
+#include "common/serializer.h"
 #include "common/util.h"
 
 #include "interspective/logic.h"
@@ -42,12 +44,17 @@ namespace Common {
 
 namespace Interspective {
 
-// Bubble formatter line-height. Mirrors DOS DAT_1000_885e (the font
-// metric that LookupCharSprite reads for vertical advance). The C++
-// engine's Graphics::kLineHeight = 12 is the same metric (loaded from
-// the same font asset). Per-glyph widths come from
-// Graphics::getGlyphWidth() which calls into the loaded font sprites
-// (DOS LookupCharSprite analog).
+static SpriteInfo objectSpriteInfo(Resources *resources, Program *blockProgram, uint16 sprite) {
+	if (!resources || !resources->mainDat())
+		return SpriteInfo();
+	if (sprite >= resources->mainDat()->spriteCount() && !blockProgram)
+		return SpriteInfo();
+	return resources->getSpriteInfo(sprite);
+}
+
+// Default bubble formatter line-height. DOS stores the live value in
+// DAT_1000_885e; Op_fd can rewrite it before FormatBubbleText_Inner
+// computes text height.
 static const uint16 kBubbleLineHeight = 12;  // matches Graphics::kLineHeight
 
 static int16 stepCameraToward(int16 current, int16 target, int16 speed) {
@@ -60,6 +67,203 @@ static int16 stepCameraToward(int16 current, int16 target, int16 speed) {
 	}
 	const int16 step = MIN<int16>(delta, speed);
 	return current + step;
+}
+
+static void setActorCallbackWordLikeDos(Actor *actor, uint16 callback) {
+	if (actor)
+		actor->setDosFieldWord(0x69, callback);
+}
+
+static void moveActorToTargetFrameLikeDos(Logic *logic, Actor *actor, uint16 frame) {
+	if (!logic || !actor)
+		return;
+	setActorCallbackWordLikeDos(actor, 0);
+	if (actor == logic->protagonist()) {
+		logic->clearPostMoveCallback();
+		actor->stopSpeaking();
+		if (actor->room() == logic->currentRoom() && actor->frameId() != 0)
+			actor->setRawTargetFrame(uint8(frame));
+		actor->moveTo(frame);
+		return;
+	}
+	if (actor->room() != logic->currentRoom()) {
+		actor->setFrame(frame);
+	} else {
+		if (actor->frameId() != 0)
+			actor->setRawTargetFrame(uint8(frame));
+		actor->moveTo(frame);
+	}
+}
+
+static void syncHashMapUint16Uint16(Common::Serializer &s, Common::HashMap<uint16, uint16> &map) {
+	uint16 count = map.size();
+	s.syncAsUint16LE(count);
+	if (s.isLoading()) {
+		map.clear();
+		for (uint16 i = 0; i < count; ++i) {
+			uint16 key = 0, value = 0;
+			s.syncAsUint16LE(key);
+			s.syncAsUint16LE(value);
+			map[key] = value;
+		}
+	} else {
+		for (Common::HashMap<uint16, uint16>::const_iterator it = map.begin(); it != map.end(); ++it) {
+			uint16 key = it->_key;
+			uint16 value = it->_value;
+			s.syncAsUint16LE(key);
+			s.syncAsUint16LE(value);
+		}
+	}
+}
+
+static void syncHashMapUint16Int16(Common::Serializer &s, Common::HashMap<uint16, int16> &map) {
+	uint16 count = map.size();
+	s.syncAsUint16LE(count);
+	if (s.isLoading()) {
+		map.clear();
+		for (uint16 i = 0; i < count; ++i) {
+			uint16 key = 0;
+			int16 value = 0;
+			s.syncAsUint16LE(key);
+			s.syncAsSint16LE(value);
+			map[key] = value;
+		}
+	} else {
+		for (Common::HashMap<uint16, int16>::const_iterator it = map.begin(); it != map.end(); ++it) {
+			uint16 key = it->_key;
+			int16 value = it->_value;
+			s.syncAsUint16LE(key);
+			s.syncAsSint16LE(value);
+		}
+	}
+}
+
+static void syncHashMapUint32Uint8(Common::Serializer &s, Common::HashMap<uint32, uint8> &map) {
+	uint16 count = map.size();
+	s.syncAsUint16LE(count);
+	if (s.isLoading()) {
+		map.clear();
+		for (uint16 i = 0; i < count; ++i) {
+			uint32 key = 0;
+			uint8 value = 0;
+			s.syncAsUint32LE(key);
+			s.syncAsByte(value);
+			map[key] = value;
+		}
+	} else {
+		for (Common::HashMap<uint32, uint8>::const_iterator it = map.begin(); it != map.end(); ++it) {
+			uint32 key = it->_key;
+			uint8 value = it->_value;
+			s.syncAsUint32LE(key);
+			s.syncAsByte(value);
+		}
+	}
+}
+
+static void syncHashMapUint16Uint8(Common::Serializer &s, Common::HashMap<uint16, uint8> &map) {
+	uint16 count = map.size();
+	s.syncAsUint16LE(count);
+	if (s.isLoading()) {
+		map.clear();
+		for (uint16 i = 0; i < count; ++i) {
+			uint16 key = 0;
+			uint8 value = 0;
+			s.syncAsUint16LE(key);
+			s.syncAsByte(value);
+			if (value != 0)
+				map[key] = value;
+		}
+	} else {
+		for (Common::HashMap<uint16, uint8>::const_iterator it = map.begin(); it != map.end(); ++it) {
+			uint16 key = it->_key;
+			uint8 value = it->_value;
+			s.syncAsUint16LE(key);
+			s.syncAsByte(value);
+		}
+	}
+}
+
+static void syncHashMapUint16Bool(Common::Serializer &s, Common::HashMap<uint16, bool> &map) {
+	uint16 count = map.size();
+	s.syncAsUint16LE(count);
+	if (s.isLoading()) {
+		map.clear();
+		for (uint16 i = 0; i < count; ++i) {
+			uint16 key = 0;
+			uint8 value = 0;
+			s.syncAsUint16LE(key);
+			s.syncAsByte(value);
+			map[key] = value != 0;
+		}
+	} else {
+		for (Common::HashMap<uint16, bool>::const_iterator it = map.begin(); it != map.end(); ++it) {
+			uint16 key = it->_key;
+			uint8 value = it->_value ? 1 : 0;
+			s.syncAsUint16LE(key);
+			s.syncAsByte(value);
+		}
+	}
+}
+
+static void syncUint16Array(Common::Serializer &s, Common::Array<uint16> &array) {
+	uint16 count = array.size();
+	s.syncAsUint16LE(count);
+	if (s.isLoading()) {
+		array.clear();
+		for (uint16 i = 0; i < count; ++i) {
+			uint16 value = 0;
+			s.syncAsUint16LE(value);
+			array.push_back(value);
+		}
+	} else {
+		for (uint16 i = 0; i < count; ++i)
+			s.syncAsUint16LE(array[i]);
+	}
+}
+
+static Actor::Frame makeActorFrame(uint16 index, Common::Point pos, const Common::Array<byte> &nexts) {
+	Common::Array<byte> storedNexts = nexts;
+	storedNexts.resize(8);
+	return Actor::Frame(pos, storedNexts, index);
+}
+
+static Actor::Frame makeEmptyActorFrame(uint16 index) {
+	Common::Array<byte> nexts;
+	nexts.resize(8);
+	for (uint i = 0; i < nexts.size(); ++i)
+		nexts[i] = 0;
+	return Actor::Frame(Common::Point(999, 999), nexts, index);
+}
+
+static void syncActorFrameArray(Common::Serializer &s, Common::Array<Actor::Frame> &frames) {
+	uint16 count = frames.size();
+	s.syncAsUint16LE(count);
+	if (s.isLoading()) {
+		frames.clear();
+		for (uint16 i = 0; i < count; ++i) {
+			int16 x = 999;
+			int16 y = 999;
+			Common::Array<byte> nexts;
+			nexts.resize(8);
+			s.syncAsSint16LE(x);
+			s.syncAsSint16LE(y);
+			for (uint j = 0; j < nexts.size(); ++j)
+				s.syncAsByte(nexts[j]);
+			frames.push_back(makeActorFrame(uint16(i + 1), Common::Point(x, y), nexts));
+		}
+	} else {
+		for (uint16 i = 0; i < count; ++i) {
+			Common::Point pos = frames[i].position();
+			int16 x = pos.x;
+			int16 y = pos.y;
+			Common::Array<byte> nexts = frames[i].nexts();
+			nexts.resize(8);
+			s.syncAsSint16LE(x);
+			s.syncAsSint16LE(y);
+			for (uint j = 0; j < nexts.size(); ++j)
+				s.syncAsByte(nexts[j]);
+		}
+	}
 }
 
 Logic::~Logic() {
@@ -76,6 +280,10 @@ void Logic::setEngine(Engine *e) {
 	_currentBlock = 0xffff;
 	_nextRoom = 0;
 	_currentPlace = 0;
+	_defaultCursorMode = 0x10;
+	setCursorMode(_defaultCursorMode);
+	_actorFrameTable.clear();
+	_actorFrameCount = 0;
 }
 
 
@@ -94,6 +302,8 @@ void Logic::tick() {
 
 	if (_nextRoom)
 		doChangeRoom();
+	if (handleEscDuringScript())
+		return;
 
 	// Fire any armed post-move callback if the protagonist's walk just
 	// completed. Run this before the room loop / queued ops so those see
@@ -107,10 +317,14 @@ void Logic::tick() {
 		debugC(3, kDebugLevelScript | kDebugLevelFlow, ">>>running room loop code");
 		_roomLoop->run(kCodeRoomLoop);
 		debugC(3, kDebugLevelScript | kDebugLevelFlow, "<<<finished room loop code");
+		if (handleEscDuringScript())
+			return;
 //		gDebugLevel++;
 	}
 
 	runQueued();
+	if (handleEscDuringScript())
+		return;
 	tickMotionText();
 	updateScrollPosition();
 }
@@ -146,6 +360,62 @@ Actor *Logic::protagonist() const {
 	return _protagonist;
 }
 
+void Logic::actorFramesClearCount() {
+	// DOS Op_e2 / room-restart only clear g_walkbox_count (DS:0x6617).
+	// The 0xfd-entry backing table remains in memory and SetActorPosition
+	// can still read records beyond the live count.
+	_actorFrameCount = 0;
+}
+
+void Logic::actorFramesAdd(Common::Point p, const Common::Array<byte> &nexts) {
+	if (_actorFrameCount >= 0xfd) {
+		setPendingError(0x30);
+		return;
+	}
+
+	const uint16 frameIndex = uint16(_actorFrameCount + 1);
+	const Actor::Frame frame = makeActorFrame(frameIndex, p, nexts);
+	if (_actorFrameCount < _actorFrameTable.size())
+		_actorFrameTable[_actorFrameCount] = frame;
+	else
+		_actorFrameTable.push_back(frame);
+	++_actorFrameCount;
+}
+
+Actor::Frame Logic::actorFrame(uint16 index) const {
+	if (index == 0 || index > _actorFrameTable.size())
+		return Actor::Frame();
+	return _actorFrameTable[index - 1];
+}
+
+void Logic::actorFrameInvalidate(uint16 index) {
+	if (index >= 0xfd) {
+		setPendingError(0x30);
+		return;
+	}
+	if (index == 0)
+		return;
+
+	const uint16 tableIndex = uint16(index - 1);
+	while (tableIndex >= _actorFrameTable.size())
+		_actorFrameTable.push_back(makeEmptyActorFrame(uint16(_actorFrameTable.size() + 1)));
+	_actorFrameTable[tableIndex].invalidate();
+}
+
+void Logic::actorFrameSetPosition(uint16 index, int16 x, int16 y) {
+	if (index >= 0xfd) {
+		setPendingError(0x30);
+		return;
+	}
+	if (index == 0)
+		return;
+
+	const uint16 tableIndex = uint16(index - 1);
+	while (tableIndex >= _actorFrameTable.size())
+		_actorFrameTable.push_back(makeEmptyActorFrame(uint16(_actorFrameTable.size() + 1)));
+	_actorFrameTable[tableIndex].setPosition(Common::Point(x, y));
+}
+
 void Logic::updateScrollPosition() {
 	const int16 oldX = _cameraX;
 	const int16 oldY = _cameraY;
@@ -175,6 +445,12 @@ void Logic::updateScrollPosition() {
 }
 
 void Logic::changeRoom(uint16 newRoom) {
+	// DOS ApplyChangeRoomTransition restores g_cursor_mode from DS:0x667a
+	// after the Op_cc fullscreen/map gate, before the restart-room pass clears
+	// the map-mode flag.
+	if (_inMapMode)
+		setCursorMode(_defaultCursorMode);
+
 	// just schedule it, we'll execute on next tick
 	_nextRoom = newRoom;
 
@@ -208,6 +484,7 @@ void Logic::doChangeRoom() {
 	_collisionZones.clear();
 	_zonesB.clear();
 	_walkboxes.clear();
+	actorFramesClearCount();
 	_animList.clear();
 	_cameraX = 0;
 	_cameraY = 0;
@@ -299,19 +576,20 @@ void Logic::doChangeRoom() {
 	// shortcut fires — matching what the skipped intro animation would
 	// have done.)
 
-	// Re-run setFrame on each actor so its position re-syncs to the new
-	// room's frame table (if the actor's current frame index is defined
-	// there). Same as the original behavior — disrupting the actor's
-	// running script via setRoom turned out to be too aggressive (it
-	// reset the script PC to the puppeteer's main-code start, which
-	// for actors already in the middle of a sequence would land the PC
-	// on data bytes mid-instruction). The "invisible character + stale
-	// position" issue is best fixed by loading the DOS places table and
-	// doing FindPlaceById on transitions; that's a follow-up iteration.
+	// DOS DrawActors @ 1000:64f4 runs after the room script. For each
+	// active actor in the current room it calls SetActorPosition only when
+	// actor.field+0x61 is nonzero, then starts target movement when
+	// field+0x62 differs. Actors with frame 0 keep their raw x/y fields.
 	foreach(Animation *, _animations)
 		if ((*it)->isActor()) {
 			Actor * const ac = static_cast<Actor *>(*it);
-			ac->setFrame(ac->frameId());
+			if (ac->room() == _currentRoom && ac->frameId() != 0) {
+				const uint16 frame = ac->frameId();
+				const uint16 target = ac->targetFrameId();
+				ac->setFrame(frame);
+				if (target != frame)
+					ac->moveTo(target);
+			}
 		}
 }
 
@@ -390,7 +668,7 @@ void Logic::paintMotionText() {
 
 bool Logic::enableObjectFlag1(uint16 id) {
 	const uint16 exitCount = _blockProgram ? _blockProgram->exitsCount() : 0;
-	if (id > exitCount) {
+	if (int16(id) > int16(exitCount)) {
 		setPendingError(0x14);
 		return false;
 	}
@@ -404,7 +682,7 @@ bool Logic::enableObjectFlag1(uint16 id) {
 
 bool Logic::disableObjectFlag1(uint16 id) {
 	const uint16 exitCount = _blockProgram ? _blockProgram->exitsCount() : 0;
-	if (id > exitCount) {
+	if (int16(id) > int16(exitCount)) {
 		setPendingError(0x14);
 		return false;
 	}
@@ -414,6 +692,15 @@ bool Logic::disableObjectFlag1(uint16 id) {
 		if (exit->isEnabled())
 			exit->setEnabled(false);
 	return true;
+}
+
+uint16 Logic::disableObjectFlag1ReturnAx(uint16 id) {
+	const uint16 exitCount = _blockProgram ? _blockProgram->exitsCount() : 0;
+	const uint16 axAfterCellRead = (int16(id) > int16(exitCount))
+		? id
+		: uint16(((id - 1) & 0xff00) | cellByte(id));
+	disableObjectFlag1(id);
+	return axAfterCellRead;
 }
 
 // DOS Op_38_SwitchToScene @ 1000:3c58 saves the caller's PC plus a
@@ -514,28 +801,15 @@ void Logic::runPostMoveCallbackIfReady() {
 	case PostMoveCallback::kDisableMoveOptionalEnable:
 		// DOS @ 0x49df: clearCellBit(cellId) + MovePersonToActor(arg0)
 		// + (arg1 != 0 → EnableObjectFlag1 = setCellBit(arg1)).
-		if (!disableObjectFlag1(cb.cellId))
-			break;
-		{
-			const uint8 pendingBefore = pendingError();
-			movePersonToActor(cb.arg0);
-			if (pendingError() != pendingBefore)
-				break;
-		}
+		disableObjectFlag1(cb.cellId);
+		movePersonToActor(cb.arg0);
 		if (cb.arg1 != 0)
 			enableObjectFlag1(cb.arg1);
 		break;
 	case PostMoveCallback::kDisableEnableUnregister:
-		// DOS @ 0x4a36: clearCellBit(cellId) + (arg1 != 0 → setCellBit(arg1))
-		// + cursor=0 + drag=0. Matches the *intent* of the buggy DOS
-		// continuation (DOS register juggling between the two CALLs is
-		// broken — AX gets corrupted by DisableObjectFlag1's cell-byte
-		// load — but the script-visible intent is the swap-and-cleanup).
-		if (!disableObjectFlag1(cb.cellId))
-			break;
-		if (cb.arg1 != 0)
-			if (!enableObjectFlag1(cb.arg1))
-				break;
+		// DOS @ 0x4a36: PUSH BX; DisableObjectFlag1(AX); POP BX;
+		// EnableObjectFlag1(AX as left by DisableObjectFlag1); Op_8e.
+		enableObjectFlag1(disableObjectFlag1ReturnAx(cb.cellId));
 		setCursorMode(0);
 		setDragTarget(0);
 		break;
@@ -597,24 +871,23 @@ void Logic::movePersonToActor(uint16 id) {
 		setPendingError(0x16);
 		return;
 	}
-		if (_cursorMode == 0x20 && _dragTarget != 0)
-			resetObjectAtActorPosition(_dragTarget);
+	if (_cursorMode == 0x20)
+		resetObjectAtActorPosition(_dragTarget);
 
-		setDragTarget(id);
+	setDragTarget(id);
 
-		// If the object is in another (non-sentinel) room, snap its position
+	// If the object is in another (non-sentinel) room, snap its position
 	// to the camera origin so the drag pickup happens "where the actor
 	// is" rather than wherever the obj was previously drawn.
-		const uint16 objRoom = getObjectRoom(id);
-		if (objRoom != _currentRoom && objRoom != 0xffff)
-			setObjectPosition(id, _cameraX, _cameraY);
+	const uint16 objRoom = getObjectRoom(id);
+	if (objRoom != _currentRoom && objRoom != 0xffff)
+		setObjectPosition(id, _cameraX, _cameraY);
 
-		// PrepareDragInteraction subset: cursor-mode + drag-target + obj
-		// "carried" room sentinel.
-		setCursorMode(0x20);
-		setObjectRoom(id, 0);
-		if (objRoom == 0xffff)
-			unregisterObjectExit(id);
+	// PrepareDragInteraction subset: cursor-mode, drag-target, carried
+	// room sentinel, and sprite metric bytes.
+	prepareDragInteraction(id);
+	if (objRoom == 0xffff)
+		unregisterObjectExit(id);
 }
 
 bool Logic::prepareDragInteraction(uint16 id) {
@@ -626,6 +899,10 @@ bool Logic::prepareDragInteraction(uint16 id) {
 	setCursorMode(0x20);
 	setDragTarget(id);
 	setObjectRoom(id, 0);
+	const uint16 sprite = uint16(objectField(id, 6)) | (uint16(objectField(id, 7)) << 8);
+	const SpriteInfo info = objectSpriteInfo(_resources, _blockProgram.get(), sprite);
+	setObjectField(id, 0x10, uint8(info.width));
+	setObjectField(id, 0x11, uint8(info.height));
 	return true;
 }
 
@@ -633,21 +910,21 @@ bool Logic::prepareDragInteraction(uint16 id) {
 //
 // Disassembly:
 //   GetObjectOffset(AX) → ES:SI;
-//   if obj.room == 0xffff: CALL 0x331f (default position seed);
+//   if obj.room == 0xffff: CALL RemoveExitFromList;
 //   CALL AddExitToList;  if JC: pending error 0x21;
-//   < sprite-relative centering math: CX = (0xb6 - sprite_h) / 2
-//                                      DX = (0x1f - sprite_???) / 2
-//                                      then add per-frame sprite offset >
+//   < sprite-relative centering math: CX = (0xb6 - sprite_width) / 2
+//                                      DX = (0x1f - sprite_height) / 2
+//                                      then add sprite hot offsets >
 //   obj.room = 0xffff;        // mark as exit-mode
 //   obj.x = CX;  obj.y = DX;
 //   < more sprite metadata save >
 //   set dirty flags.
 //
-	// C++ port: keep the DOS room sentinel and model dynamic-list membership
-	// explicitly. The exact sprite-centering math is rendering-side; use the
-	// protagonist position as the screen anchor when available.
+// C++ port: keep the DOS room sentinel, model dynamic-list membership
+// explicitly, and use the same sprite-map bytes DOS reads after
+// CalcSpriteOffsetInGraphic.
 void Logic::resetObjectAtActorPosition(uint16 id) {
-	if (id == 0 || (_resources && _resources->mainDat() && id > _resources->mainDat()->personsCount())) {
+	if (id == 0) {
 		setPendingError(0x16);
 		return;
 	}
@@ -657,10 +934,52 @@ void Logic::resetObjectAtActorPosition(uint16 id) {
 	if (!registerObjectExit(id))
 		return;
 
+	const uint16 placementSprite = uint16(objectField(id, 8)) | (uint16(objectField(id, 9)) << 8);
+	const SpriteInfo placementInfo = objectSpriteInfo(_resources, _blockProgram.get(), placementSprite);
+	uint16 cx = uint16(0x00b6 - uint16(placementInfo.width));
+	uint16 dx = uint16(0x001f - uint16(placementInfo.height));
+	cx >>= 1;
+	dx >>= 1;
+	placeObjectExitAtDosPosition(id, int16(cx), int16(dx));
+}
+
+void Logic::placeObjectExitAtDosPosition(uint16 id, int16 x, int16 y) {
 	setObjectRoom(id, 0xffff);
-	const int16 x = _protagonist ? int16(_protagonist->position().x) : getObjectPosX(id);
-	const int16 y = _protagonist ? int16(_protagonist->position().y) : getObjectPosY(id);
-	setObjectPosition(id, x, y);
+	const uint16 placementSprite = uint16(objectField(id, 8)) | (uint16(objectField(id, 9)) << 8);
+	const SpriteInfo placementInfo = objectSpriteInfo(_resources, _blockProgram.get(), placementSprite);
+	const int16 adjustedX = int16(uint16(uint16(x) + uint16(int16(placementInfo.hotLeft))));
+	const int16 adjustedY = int16(uint16(uint16(y) + uint16(int16(placementInfo.hotTop))));
+	setObjectPosition(id, adjustedX, adjustedY);
+
+	const uint16 sprite = uint16(objectField(id, 6)) | (uint16(objectField(id, 7)) << 8);
+	const SpriteInfo info = objectSpriteInfo(_resources, _blockProgram.get(), sprite);
+	setObjectField(id, 0x10, uint8(info.width));
+	setObjectField(id, 0x11, uint8(info.height));
+}
+
+void Logic::clampObjectExitToScreenLikeDos(uint16 id) {
+	if (getObjectRoom(id) != 0xffff)
+		return;
+
+	const uint16 placementSprite = uint16(objectField(id, 8)) | (uint16(objectField(id, 9)) << 8);
+	const SpriteInfo placementInfo = objectSpriteInfo(_resources, _blockProgram.get(), placementSprite);
+	const int16 hotLeft = int16(placementInfo.hotLeft);
+	const int16 hotTop = int16(placementInfo.hotTop);
+	int16 left = int16(getObjectPosX(id) - hotLeft);
+	int16 top = int16(getObjectPosY(id) - hotTop);
+
+	if (left < 0)
+		left = 0;
+	if (top < 0)
+		top = 0;
+	const int16 xOverflow = int16(left + int16(placementInfo.width) - 0x00b6);
+	if (xOverflow >= 0)
+		left = int16(left - xOverflow);
+	const int16 yOverflow = int16(top + int16(placementInfo.height) - 0x001f);
+	if (yOverflow >= 0)
+		top = int16(top - yOverflow);
+
+	setObjectPosition(id, int16(left + hotLeft), int16(top + hotTop));
 }
 
 // DOS SendActorToTarget @ 1000:7323 dispatches MoveProtagonistToEntity
@@ -722,7 +1041,7 @@ bool Logic::sendActorToTarget(Actor *walker, uint16 targetId) {
 	return false;
 }
 
-bool Logic::sendActorToCurrentEntity(Actor *walker) {
+bool Logic::sendActorToEntityByType(Actor *walker, uint16 targetId, uint16 entityType) {
 	if (!walker) {
 		walker = _protagonist;
 		if (!walker)
@@ -731,54 +1050,61 @@ bool Logic::sendActorToCurrentEntity(Actor *walker) {
 	if (!_room)
 		return false;
 
-	const uint16 id = _currentEntityId;
-	switch (_gameState) {
+	int16 targetX = 0;
+	int16 targetY = 0;
+	switch (entityType) {
 	case 1: { // exit
-		if (id == 0) {
+		Exit *exit = _blockProgram ? _blockProgram->getExit(targetId) : 0;
+		if (!exit) {
 			setPendingError(0x14);
 			return false;
 		}
-		if (!_blockProgram)
-			return false;
-		Exit *exit = _blockProgram->getExit(id);
-		if (!exit)
-			return false;
-		if (exit->room() != _currentRoom)
-			return false;
-		const uint16 frame = _room->nearestFrameTo(
-			int16(exit->position().x), int16(exit->position().y));
-		if (!frame)
-			return false;
-		walker->moveTo(frame);
-		return true;
+		targetX = int16(exit->position().x + exit->area().width() / 2);
+		targetY = int16(exit->position().y);
+		break;
 	}
 	case 2: { // object/person
-		if (id == 0) {
+		if (targetId == 0) {
 			setPendingError(0x16);
 			return false;
 		}
-		if (getObjectRoom(id) != _currentRoom)
+		if (getObjectRoom(targetId) == 0xffff)
 			return false;
-		const uint16 frame = _room->nearestFrameTo(getObjectPosX(id), getObjectPosY(id));
-		if (!frame)
-			return false;
-		walker->moveTo(frame);
-		return true;
+		targetX = int16(getObjectPosX(targetId) + int16(objectField(targetId, 0x10)) / 2);
+		targetY = int16(getObjectPosY(targetId) - 5);
+		break;
 	}
 	case 3: { // actor
-		Actor *target = getActor(id);
+		Actor *target = getActor(targetId);
 		if (!target) {
 			setPendingError(0x17);
 			return false;
 		}
-		if (target->room() != _currentRoom)
-			return false;
-		walker->moveTo(target->frameId());
-		return true;
+		targetX = int16(target->position().x);
+		targetY = int16(target->position().y);
+		break;
 	}
-	default:
+	default: {
+		if (!_engine || !_engine->graphics())
+			return false;
+		const Common::Point cursor = _engine->graphics()->cursorPosition();
+		targetX = int16(cursor.x + _cameraX);
+		targetY = int16(cursor.y + _cameraY);
+		break;
+	}
+	}
+
+	const uint16 frame = _room->nearestFrameTo(targetX, targetY);
+	if (frame == 0) {
+		setPendingError(0x31);
 		return false;
 	}
+	moveActorToTargetFrameLikeDos(this, walker, frame);
+	return walker == _protagonist;
+}
+
+bool Logic::sendActorToCurrentEntity(Actor *walker) {
+	return sendActorToEntityByType(walker, _currentEntityId, _gameState);
 }
 
 // DOS Op_ba @ 1000:4fe5 / Op_bb @ 1000:4fde:
@@ -848,12 +1174,11 @@ bool Logic::actorIdle(const Actor *actor) const {
 //       return;
 //   pending error 0x2a;
 //
-// C++ stores `active` as uint16 (0 = free; we use 1 since C++ has no
-// "code segment"). The 81-byte `raw` array is initialized per the
-// DOS spec — even though ScummVM doesn't read these fields itself,
-// matching DOS bytes ensures Op_38/Op_97 backups round-trip exactly
-// and any future renderer/script that does read them sees DOS values.
-bool Logic::castTableRegister(uint16 id, int16 x, int16 y) {
+// C++ stores `active` as uint16 (0 = free, non-zero = active) and keeps
+// the caller code segment as an Interpreter pointer so Op_c6 can perform
+// the same script-sentinel check as DOS. The 81-byte `raw` array is
+// initialized per the DOS spec.
+bool Logic::castTableRegister(uint16 id, int16 x, int16 y, Interpreter *interpreter) {
 	for (uint i = 0; i < _castTable.size(); ++i) {
 		CastEntry &e = _castTable[i];
 		if (e.active == 0) {
@@ -861,6 +1186,7 @@ bool Logic::castTableRegister(uint16 id, int16 x, int16 y) {
 			e.id = id;
 			e.x = x;
 			e.y = y;
+			e.interpreter = interpreter;
 			// Re-init the bookkeeping per DOS Op_c3. Ghidra's CastEntry
 			// layout is exact: raw[0]=bRect_w, raw[1]=bRect_h, and
 			// raw[2 + N]=p_data[N].
@@ -910,7 +1236,7 @@ void Logic::castTableSetPos(uint16 id, int16 x, int16 y) {
 	(void)x;  // DOS bug: arg1 is clobbered before the write.
 	for (uint i = 0; i < _castTable.size(); ++i) {
 		CastEntry &e = _castTable[i];
-		if (e.active != 0 && e.id == id) {
+		if (e.id == id) {
 			// DOS: wX = (0x12 - i_iterations_through_LOOP).
 			// LOOP decrements CX before checking; so for match on i=0,
 			// CX is still 0x12; for i=1, CX is 0x11; etc.
@@ -939,9 +1265,10 @@ void Logic::castTableSetPos(uint16 id, int16 x, int16 y) {
 void Logic::castTableClear(uint16 id) {
 	for (uint i = 0; i < _castTable.size(); ++i) {
 		CastEntry &e = _castTable[i];
-		if (e.active != 0 && e.id == id) {
+		if (e.id == id) {
 			e.active = 0;
 			e.id = 0;
+			e.interpreter = 0;
 			// Intentionally preserve x, y, raw[] — DOS leaves them.
 			return;
 		}
@@ -954,6 +1281,7 @@ void Logic::castTableClearAll() {
 	for (uint i = 0; i < _castTable.size(); ++i) {
 		_castTable[i].active = 0;
 		_castTable[i].id = 0;
+		_castTable[i].interpreter = 0;
 	}
 }
 
@@ -964,7 +1292,7 @@ void Logic::castTableClearAll() {
 // (DAT_1000_94b5) and per-line pixel width (iVar7). At terminator (0x00):
 //   total_height = (word_count * line_height + 2);
 //   if (total_height <= line_height + 2) total_height += line_height;
-// else if buffer overflow (1024 chars without terminator):
+// else if the 0x1f4 input countdown expires before terminator:
 //   pending_error 0x11.
 //
 // Markup byte semantics (per DOS decompile + line-by-line trace):
@@ -974,39 +1302,38 @@ void Logic::castTableClearAll() {
 //   0x0d → emit row terminator (forced newline).
 //   0x05 → inline literal until next 0x00; each char advances width;
 //          spaces inside increment word_count. Then 2 trailing bytes
-//          (DOS bookkeeping word) are absorbed into the buffer.
-//   0x09 → 1-byte param = X-offset to advance (raw spacing).
-//   0x07 → 1-byte param consumed (no text effect).
-//   0x06 → 2-byte big-endian decimal number formatter (FormatDecimalNumber);
-//          consumes 3 input bytes (marker + 2-byte value).
-//   0x0a → conditional skip-block (3-byte param: 1-byte condition + 2-byte
-//          jump-to-STX). If gameState bit at the indexed offset is FALSE,
+//          (DOS bookkeeping word) are copied into the buffer.
+//   0x09 → marker + 1-byte X-offset copied; width advances by that offset.
+//   0x07 → marker + 1-byte color parameter copied.
+//   0x06 → 2-byte global-word offset decimal formatter (FormatDecimalNumber).
+//   0x0a → conditional skip-block (2-byte global-byte offset). If the
+//          game-state byte at the indexed offset is FALSE,
 //          skip forward to STX (Start-of-TeXt) marker.
 //   0x0b → inverse of 0x0a (skip if TRUE).
-//   0x02 → fall-through (treated as a printable / emit-via-LookupCharSprite).
+//   0x02 → STX marker: consumed, not copied to the formatted buffer.
 //   else → emit via LookupCharSprite (= advance width by char's sprite width).
 //
-// C++ port: produces the cleaned text (without markup bytes) plus the
-// dimensions DOS computes. Per-glyph widths come from
-// Graphics::getGlyphWidth (the C++ analog of DOS LookupCharSprite —
-// reads the actual font sprite metrics from the loaded font asset).
-// Word/line counts and the total-height formula match DOS exactly.
+// C++ port: produces the DOS formatted text buffer, preserving the
+// rendering markup bytes that Graphics::paintText consumes, plus the
+// dimensions DOS computes. Per-glyph widths come from Graphics::getGlyphWidth
+// (the C++ analog of DOS LookupCharSprite).
 Logic::FormattedBubble Logic::formatBubbleText(const byte *src) const {
 	FormattedBubble out;
 	out.lineCount = 1;          // DOS DAT_1000_94b5 init = 1
+	out.rowCount = 1;           // DOS DX init = 1
 	out.totalHeight = 0;
 	out.maxLineWidth = 0;
 	out.truncated = false;
+	const uint16 lineHeight = bubbleLineHeight();
 	if (!src) {
-		out.totalHeight = kBubbleLineHeight * 2 + 2;  // DOS minimum
+		out.totalHeight = lineHeight * 2 + 2;  // DOS minimum
 		return out;
 	}
 
 	Graphics *g = (_engine ? _engine->graphics() : 0);
 	const byte *p = src;
 	int currentWidth = 0;
-	uint16 bytesEmitted = 0;
-	const uint16 kBufferCap = 1024;     // DOS iVar5 init = 0x400
+	uint16 remaining = 0x1f4;   // DOS AX countdown in FormatBubbleText_Inner
 
 	// Returns DOS LookupCharSprite-equivalent width. Falls back to a
 	// fixed 6 px width if Graphics isn't available (early-init path) —
@@ -1016,12 +1343,46 @@ Logic::FormattedBubble Logic::formatBubbleText(const byte *src) const {
 		return 6;
 	};
 
-	while (true) {
-		if (bytesEmitted >= kBufferCap) {
-			// DOS sets g_pendingErrorCode = 0x11 on overflow.
-			out.truncated = true;
-			break;
+	auto readLE16 = [&p]() -> uint16 {
+		const uint16 v = READ_LE_UINT16(p);
+		p += 2;
+		return v;
+	};
+
+	auto globalByte = [this](uint16 offset) -> byte {
+		if (!_resources)
+			return 0;
+		return *_resources->getGlobalByteVariable(offset);
+	};
+
+	auto globalWord = [this](uint16 offset) -> uint16 {
+		if (!_resources)
+			return 0;
+		return READ_LE_UINT16(_resources->getGlobalWordVariable(offset / 2));
+	};
+
+	auto skipMarkupBlockToStx = [&]() {
+		while (true) {
+			const byte ch = *p++;
+			if (ch == 0x00)
+				return;
+			if (ch == 0x20)
+				out.lineCount++;
+			if (ch == 0x02)
+				return;
 		}
+	};
+
+	auto tickInputCountdown = [&]() -> bool {
+		--remaining;
+		if (remaining == 0) {
+			out.truncated = true;
+			return false;
+		}
+		return true;
+	};
+
+	while (true) {
 		const byte b = *p++;
 		if (b == 0x00) {
 			// Terminator. Emit final row → return.
@@ -1032,87 +1393,288 @@ Logic::FormattedBubble Logic::formatBubbleText(const byte *src) const {
 			out.text += char(b);
 			out.lineCount++;
 			currentWidth += charPixelWidth(b);
-			++bytesEmitted;
+			if (!tickInputCountdown())
+				break;
 			continue;
 		}
 		if (b == 0x0d) {
 			// Forced newline.
-			out.text += '\n';
-			++bytesEmitted;
+			out.text += char(b);
 			if (currentWidth > out.maxLineWidth)
 				out.maxLineWidth = currentWidth;
 			currentWidth = 0;
+			++out.rowCount;
+			if (!tickInputCountdown())
+				break;
 			continue;
 		}
 		if (b == 0x05) {
-			// Literal-until-null.
+			// Menu/literal block: preserve marker, NUL, and the two-byte
+			// option value in the formatted buffer.
+			out.text += char(b);
 			while (true) {
 				const byte lit = *p++;
+				out.text += char(lit);
 				if (lit == 0x00)
 					break;
 				if (lit == 0x20)
 					out.lineCount++;
-				out.text += char(lit);
 				currentWidth += charPixelWidth(lit);
-				++bytesEmitted;
-				if (bytesEmitted >= kBufferCap) {
-					out.truncated = true;
-					return out;
-				}
 			}
-			// Absorb 2 trailing bookkeeping bytes (DOS).
-			p += 2;
+			const uint16 optionValue = readLE16();
+			out.text += char(optionValue & 0xff);
+			out.text += char(optionValue >> 8);
+			if (!tickInputCountdown())
+				break;
 			continue;
 		}
 		if (b == 0x09) {
 			// 1-byte param = X-offset spacing.
 			const byte amount = *p++;
+			out.text += char(b);
+			out.text += char(amount);
 			currentWidth += amount;
 			out.lineCount++;
+			if (!tickInputCountdown())
+				break;
 			continue;
 		}
 		if (b == 0x07) {
-			// 1-byte param consumed (no text effect).
-			(void)*p++;
+			// Color-change marker and parameter are copied verbatim.
+			const byte color = *p++;
+			out.text += char(b);
+			out.text += char(color);
+			if (!tickInputCountdown())
+				break;
 			continue;
 		}
 		if (b == 0x06) {
-			// Decimal-number formatter: 2-byte BE value.
-			const uint16 num = (uint16(p[0]) << 8) | uint16(p[1]);
-			p += 2;
+			// Decimal-number formatter: two-byte offset into the global
+			// word table (DOS DAT_1000_0099), not an immediate value.
+			const uint16 num = globalWord(readLE16());
 			Common::String numStr = Common::String::format("%u", num);
 			out.text += numStr;
 			for (uint i = 0; i < numStr.size(); ++i)
 				currentWidth += charPixelWidth(byte(numStr[i]));
-			bytesEmitted += uint16(numStr.size());
+			if (!tickInputCountdown())
+				break;
 			continue;
 		}
 		if (b == 0x0a || b == 0x0b) {
-			// Conditional-skip markup: 3-byte param. Without a wired-up
-			// game-state-bit lookup (DOS DAT_1000_009d table), we
-			// conservatively keep the block (don't skip). The 3 bytes are
-			// consumed; the SkipMarkupBlockToStx scan would advance p
-			// further. We approximate by NOT skipping and consuming only
-			// the 3-byte header.
-			(void)*p++;  (void)*p++;  (void)*p++;
+			// Conditional skip: two-byte offset into the global byte table
+			// (DOS DAT_1000_009d). The marker and offset are not copied to
+			// the formatted buffer.
+			const byte state = globalByte(readLE16());
+			const bool skip = (b == 0x0a) ? (state == 0) : (state != 0);
+			if (skip)
+				skipMarkupBlockToStx();
+			if (!tickInputCountdown())
+				break;
 			continue;
 		}
 		if (b == 0x02) {
-			// Fall-through to printable handling (DOS does the same).
+			// STX marker terminates a conditional block; DOS backs SI up so
+			// the marker is not present in the formatted buffer.
+			if (!tickInputCountdown())
+				break;
+			continue;
 		}
 		// Default: emit char + advance width via per-glyph lookup.
 		out.text += char(b);
 		currentWidth += charPixelWidth(b);
-		++bytesEmitted;
+		if (!tickInputCountdown())
+			break;
 	}
 
 	if (currentWidth > out.maxLineWidth)
 		out.maxLineWidth = currentWidth;
 
 	// DOS height formula: word_count * line_height + 2; minimum 2*line_height + 2.
-	out.totalHeight = uint16(out.lineCount) * kBubbleLineHeight + 2;
-	if (out.totalHeight <= kBubbleLineHeight + 2)
-		out.totalHeight += kBubbleLineHeight;
+	out.totalHeight = uint16(out.lineCount) * lineHeight + 2;
+	if (out.totalHeight <= lineHeight + 2)
+		out.totalHeight += lineHeight;
+	// FormatBubbleText returns CX after subtracting the bubble frame bias.
+	out.maxLineWidth = out.maxLineWidth > 0x27 ? uint16(out.maxLineWidth - 0x27) : 0;
+	return out;
+}
+
+Logic::FormattedBubble Logic::measureVerbBubbleText(const byte *src) const {
+	FormattedBubble out;
+	out.lineCount = 0;
+	out.rowCount = 0;
+	out.totalHeight = kBubbleLineHeight + 2;
+	out.maxLineWidth = 0;
+	out.truncated = false;
+	if (!src)
+		return out;
+
+	Graphics *g = (_engine ? _engine->graphics() : 0);
+	const byte *p = src;
+	int32 lineCount = 0;
+	int32 maxWidth = 0;
+	int32 currentWidth = 0;
+	Common::String line;
+
+	auto readLE16 = [&p]() -> uint16 {
+		const uint16 v = READ_LE_UINT16(p);
+		p += 2;
+		return v;
+	};
+
+	auto globalByte = [this](uint16 offset) -> byte {
+		if (!_resources)
+			return 0;
+		return *_resources->getGlobalByteVariable(offset);
+	};
+
+	auto globalWord = [this](uint16 offset) -> uint16 {
+		if (!_resources)
+			return 0;
+		return READ_LE_UINT16(_resources->getGlobalWordVariable(offset / 2));
+	};
+
+	auto charPixelWidth = [g](byte ch) -> uint16 {
+		if (g) return g->getGlyphWidth(ch);
+		return 6;
+	};
+
+	while (true) {
+		const byte b = *p++;
+		if (b == 0xff)
+			break;
+		if (b == 0x04)
+			continue;
+		if (b == 0x0a) {
+			if (globalByte(readLE16()) == 0) {
+				--lineCount;
+				currentWidth = -1;
+			}
+			continue;
+		}
+		if (b == 0x0b) {
+			if (globalByte(readLE16()) != 0) {
+				--lineCount;
+				currentWidth = -1;
+			}
+			continue;
+		}
+		if (b == 0x0e) {
+			const uint16 offset = readLE16();
+			const uint16 expected = readLE16();
+			if (globalWord(offset) != expected) {
+				--lineCount;
+				currentWidth = -1;
+			}
+			continue;
+		}
+		if (b == 0x00) {
+			++lineCount;
+			p += 2;
+			if (currentWidth >= maxWidth)
+				maxWidth = currentWidth;
+			if (currentWidth >= 0 && !line.empty()) {
+				if (!out.text.empty())
+					out.text += '\r';
+				out.text += line;
+			}
+			line.clear();
+			currentWidth = 0;
+			continue;
+		}
+		if (currentWidth == -1)
+			continue;
+		line += char(b);
+		currentWidth += charPixelWidth(b);
+	}
+
+	out.lineCount = uint16(lineCount);
+	out.maxLineWidth = uint16(maxWidth - 0x0f);
+	const uint16 visibleLines = lineCount > 0 ? uint16(lineCount) : 1;
+	out.totalHeight = uint16(visibleLines * kBubbleLineHeight + 2);
+	return out;
+}
+
+Common::String Logic::prepareTextStrippedForRender(const byte *src, bool *truncated) const {
+	if (truncated)
+		*truncated = false;
+	if (!src)
+		return Common::String();
+
+	const byte *p = src;
+	Common::String out;
+	int remaining = 100;
+
+	auto readLE16 = [&p]() -> uint16 {
+		const uint16 v = READ_LE_UINT16(p);
+		p += 2;
+		return v;
+	};
+
+	auto globalByte = [this](uint16 offset) -> byte {
+		if (!_resources)
+			return 0;
+		return *_resources->getGlobalByteVariable(offset);
+	};
+
+	auto globalWord = [this](uint16 offset) -> uint16 {
+		if (!_resources)
+			return 0;
+		return READ_LE_UINT16(_resources->getGlobalWordVariable(offset / 2));
+	};
+
+	auto skipMarkupBlockToStx = [&]() {
+		while (true) {
+			const byte ch = *p++;
+			if (ch == 0x00 || ch == 0x02)
+				return;
+		}
+	};
+
+	while (true) {
+		const byte b = *p++;
+		if (b == 0x00)
+			break;
+		if (b == 0x06) {
+			const uint16 value = globalWord(readLE16());
+			out += Common::String::format("%u", value);
+			remaining -= 5;
+			if (remaining <= 0)
+				break;
+			continue;
+		}
+		if (b == 0x07) {
+			out += char(b);
+			out += char(*p++);
+			--remaining;
+			if (remaining <= 0) {
+				if (truncated)
+					*truncated = true;
+				break;
+			}
+			continue;
+		}
+		if (b == 0x0a) {
+			if (globalByte(readLE16()) == 0)
+				skipMarkupBlockToStx();
+			continue;
+		}
+		if (b == 0x0b) {
+			if (globalByte(readLE16()) != 0)
+				skipMarkupBlockToStx();
+			continue;
+		}
+		if (b == 0x02)
+			continue;
+
+		out += char(b);
+		--remaining;
+		if (remaining <= 0) {
+			if (truncated)
+				*truncated = true;
+			break;
+		}
+	}
+
 	return out;
 }
 
@@ -1124,6 +1686,7 @@ bool Logic::cancelDeferred(const CodePointer &p) {
 				&& it->code.interpreter() == p.interpreter()) {
 			debugC(3, kDebugLevelScript, "cancel deferred %s mode 0x%02x", +p, it->deferredMode);
 			const bool selfCancel = _runningQueuedMode != 0 && it->deferredMode == _runningQueuedMode;
+			resetQueuedRunMode(it->deferredMode);
 			it->canceled = true;
 			return selfCancel;
 		}
@@ -1195,6 +1758,192 @@ void Logic::setRoomLoop(const CodePointer &code) {
 	_roomLoop = Common::SharedPtr<CodePointer>(new CodePointer(code));
 }
 
+void Logic::synchronize(Common::Serializer &s) {
+	uint16 currentRoom = uint16(_currentRoom);
+	uint16 currentPlace = _currentPlace;
+	uint16 protagonistId = _protagonist ? _protagonist->id() : 0;
+	uint16 currentBlock = _currentBlock;
+
+	s.syncAsUint16LE(currentRoom);
+	s.syncAsUint16LE(currentPlace);
+	s.syncAsUint16LE(protagonistId);
+	s.syncAsUint16LE(currentBlock);
+
+	if (s.isLoading()) {
+		_queued.clear();
+		_skipPoint.reset();
+		_roomLoop.reset();
+		_savedScene.reset();
+		_currentRoom = 0xffff;
+		_nextRoom = 0;
+		_currentPlace = currentPlace;
+		if (currentRoom != 0 && currentRoom != 0xffff)
+			changeRoom(currentRoom);
+		if (protagonistId != 0)
+			setProtagonist(protagonistId);
+	}
+
+	uint32 frameCounter = _frameCounter;
+	uint16 gameState = _gameState;
+	uint8 inMapMode = _inMapMode ? 1 : 0;
+	uint8 mapScreenInitialized = _mapScreenInitialized ? 1 : 0;
+	uint8 roomActive = _roomActive ? 1 : 0;
+	uint8 stepPending = _stepPending ? 1 : 0;
+	uint8 noStep = _noStep ? 1 : 0;
+	uint16 defaultCursorMode = _defaultCursorMode;
+	uint16 cursorMode = _cursorMode;
+	uint16 dragTarget = _dragTarget;
+	uint16 dragTargetMode40 = _dragTargetMode40;
+	uint16 hitTarget = _hitTarget;
+	uint16 switchValue = _switchValue;
+	uint16 switchTarget = _switchTarget;
+	uint16 branchState = _branchState;
+	uint8 pendingError = _pendingError;
+	uint16 gameScore = _gameScore;
+	uint16 currentEntityId = _currentEntityId;
+	uint16 drawCommandCount = _drawCommandCount;
+	uint16 actorFrameCount = _actorFrameCount;
+	int16 cameraX = _cameraX;
+	int16 cameraY = _cameraY;
+	uint16 cameraTargetX = _cameraTargetX;
+	uint16 cameraTargetY = _cameraTargetY;
+	uint8 scrollChanged = _scrollChanged ? 1 : 0;
+	uint8 inputEnabled = _inputEnabled ? 1 : 0;
+	uint16 dialogCursor0 = _dialogCursor0;
+	uint16 dialogCursor1 = _dialogCursor1;
+	uint16 dialogClickGate = _dialogClickGate;
+	uint16 opcodeMode = _opcodeMode;
+	uint16 escBreakProc = _escBreakProc;
+	uint16 escBreakSrcPC = _escBreakSrcPC;
+	uint8 escBreakPending = _escBreakPending ? 1 : 0;
+	uint16 bubbleLineHeight = _bubbleLineHeight;
+	uint8 parserBufferCapacity = _parserBufferCapacity;
+	uint8 callDepth = _callDepth;
+	uint16 motionTextTicks = _motionTextTicks;
+	uint8 slowCpu = _slowCpu ? 1 : 0;
+	uint16 menuStashA = _menuStashA;
+	uint16 menuStashB = _menuStashB;
+	uint8 menuStashConsumed = _menuStashConsumed ? 1 : 0;
+
+	s.syncAsUint32LE(frameCounter);
+	s.syncAsUint16LE(gameState);
+	s.syncAsByte(inMapMode);
+	s.syncAsByte(mapScreenInitialized);
+	s.syncAsByte(roomActive);
+	s.syncAsByte(stepPending);
+	s.syncAsByte(noStep);
+	s.syncAsUint16LE(defaultCursorMode);
+	s.syncAsUint16LE(cursorMode);
+	s.syncAsUint16LE(dragTarget);
+	s.syncAsUint16LE(dragTargetMode40);
+	s.syncAsUint16LE(hitTarget);
+	s.syncAsUint16LE(switchValue);
+	s.syncAsUint16LE(switchTarget);
+	s.syncAsUint16LE(branchState);
+	s.syncAsByte(pendingError);
+	s.syncAsUint16LE(gameScore);
+	s.syncAsUint16LE(currentEntityId);
+	s.syncAsUint16LE(drawCommandCount);
+	s.syncAsUint16LE(actorFrameCount);
+	s.syncAsSint16LE(cameraX);
+	s.syncAsSint16LE(cameraY);
+	s.syncAsUint16LE(cameraTargetX);
+	s.syncAsUint16LE(cameraTargetY);
+	s.syncAsByte(scrollChanged);
+	s.syncAsByte(inputEnabled);
+	s.syncAsUint16LE(dialogCursor0);
+	s.syncAsUint16LE(dialogCursor1);
+	s.syncAsUint16LE(dialogClickGate);
+	s.syncAsUint16LE(opcodeMode);
+	s.syncAsUint16LE(escBreakProc);
+	s.syncAsUint16LE(escBreakSrcPC);
+	s.syncAsByte(escBreakPending);
+	s.syncAsUint16LE(bubbleLineHeight);
+	s.syncString(_parserBuffer);
+	s.syncAsByte(parserBufferCapacity);
+	s.syncAsByte(callDepth);
+	s.syncAsUint16LE(motionTextTicks);
+	s.syncAsByte(slowCpu);
+	s.syncAsUint16LE(menuStashA);
+	s.syncAsUint16LE(menuStashB);
+	s.syncAsByte(menuStashConsumed);
+
+	if (s.isLoading()) {
+		_frameCounter = frameCounter;
+		_gameState = gameState;
+		_inMapMode = inMapMode != 0;
+		_mapScreenInitialized = mapScreenInitialized != 0;
+		_roomActive = roomActive != 0;
+	_stepPending = stepPending != 0;
+	_noStep = noStep != 0;
+	_defaultCursorMode = defaultCursorMode;
+	_cursorMode = cursorMode;
+		_dragTarget = dragTarget;
+		_dragTargetMode40 = dragTargetMode40;
+		_hitTarget = hitTarget;
+		_switchValue = switchValue;
+		_switchTarget = switchTarget;
+		_branchState = branchState;
+		_pendingError = pendingError;
+		_gameScore = gameScore;
+		_currentEntityId = currentEntityId;
+		_drawCommandCount = drawCommandCount;
+		_actorFrameCount = actorFrameCount;
+		_cameraX = cameraX;
+		_cameraY = cameraY;
+		_cameraTargetX = cameraTargetX;
+		_cameraTargetY = cameraTargetY;
+		_scrollChanged = scrollChanged != 0;
+		_inputEnabled = inputEnabled != 0;
+		_dialogCursor0 = dialogCursor0;
+		_dialogCursor1 = dialogCursor1;
+		_dialogClickGate = dialogClickGate;
+		_opcodeMode = opcodeMode;
+		_escBreakProc = escBreakProc;
+		_escBreakSrcPC = escBreakSrcPC;
+		_escBreakPending = escBreakPending != 0;
+		_bubbleLineHeight = bubbleLineHeight;
+		_parserBufferCapacity = parserBufferCapacity;
+		_callDepth = callDepth;
+		_motionTextTicks = motionTextTicks;
+		_slowCpu = slowCpu != 0;
+		_menuStashA = menuStashA;
+		_menuStashB = menuStashB;
+		_menuStashConsumed = menuStashConsumed != 0;
+		_runningQueued = nullptr;
+		_runningQueuedMode = 0;
+	}
+
+	syncHashMapUint16Uint16(s, _objectRoom);
+	syncHashMapUint16Int16(s, _objectPosX);
+	syncHashMapUint16Int16(s, _objectPosY);
+	syncHashMapUint32Uint8(s, _objectFields);
+	syncHashMapUint32Uint8(s, _exitFields);
+	syncUint16Array(s, _objectExitList);
+	syncHashMapUint32Uint8(s, _cellBits);
+	syncHashMapUint16Uint8(s, _actorFlag70);
+	syncHashMapUint16Bool(s, _scoreEventClaimed);
+	syncActorFrameArray(s, _actorFrameTable);
+	if (s.isLoading() && _actorFrameCount > _actorFrameTable.size())
+		_actorFrameCount = uint16(_actorFrameTable.size());
+
+	for (int i = 0; i < 7; ++i)
+		s.syncAsUint16LE(_graphicSlots[i]);
+
+	uint16 actorCount = _resources->mainDat()->actorsCount();
+	if (_blockProgram)
+		actorCount += _blockProgram->actorsCount();
+	s.syncAsUint16LE(actorCount);
+	for (uint16 id = 1; id <= actorCount; ++id) {
+		uint16 storedId = id;
+		s.syncAsUint16LE(storedId);
+		Actor *actor = getActor(storedId);
+		if (!actor)
+			error("invalid actor %u while synchronizing Interspective save", storedId);
+		actor->synchronize(s);
+	}
+}
+
 /* counting starts with 1 */
 Actor *Logic::getActor(uint16 id) const {
 	if (id == 0)
@@ -1208,6 +1957,33 @@ Actor *Logic::getActor(uint16 id) const {
 
 void Logic::setSkipPoint(const CodePointer &p) {
 	_skipPoint = p;
+	_escBreakPending = false;
+}
+
+void Logic::requestSkipCutscene() {
+	if (!_skipPoint.isEmpty())
+		_escBreakPending = true;
+}
+
+bool Logic::handleEscDuringScript() {
+	if (!_escBreakPending || _skipPoint.isEmpty())
+		return false;
+
+	// DOS HandleEscDuringScript @ 1000:2bd9 is called from the main
+	// loop after active script dispatch. Input/fade code only latches
+	// ESC, so the target script must run here, not reentrantly inside
+	// the fade opcode that observed the keypress.
+	skipCutscene();
+	return true;
+}
+
+void Logic::resetQueuedRunMode(uint16 mode) {
+	for (Common::List<DelayedRun>::iterator it = _queued.begin(); it != _queued.end();) {
+		if (!it->canceled && it->hasRunMode && it->runMode == mode && it->deferredMode == 0)
+			it = _queued.erase(it);
+		else
+			++it;
+	}
 }
 
 bool Logic::redirectDeferredMode(uint16 mode, const CodePointer &target) {
@@ -1228,6 +2004,8 @@ void Logic::skipCutscene() {
 
 	const CodePointer target = _skipPoint;
 	const uint16 proc = _escBreakProc;
+	if (proc < 0x0b)
+		resetQueuedRunMode(proc);
 	clearEscBreakPoint();
 
 	debugC(2, kDebugLevelScript, ">>>running animation skip code");

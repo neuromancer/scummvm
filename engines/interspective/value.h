@@ -75,6 +75,8 @@ public:
 		byte *b(*this);
 		return Common::String(reinterpret_cast<const char *>(b));
 	}
+	virtual byte *rawPointer() { return nullptr; }
+	virtual byte *rawBase() { return nullptr; }
 
 	Value() {}
 
@@ -149,6 +151,8 @@ public:
 	Interpreter *interpreter() const { return _interpreter; }
 	bool isEmpty() const { return _interpreter == 0; }
 	void reset() { _interpreter = 0; }
+	virtual byte *rawPointer() { return _interpreter ? code() : nullptr; }
+	virtual byte *rawBase() { return _interpreter ? base() : nullptr; }
 
 	template<typename T> T &field(T &, int) const;
 

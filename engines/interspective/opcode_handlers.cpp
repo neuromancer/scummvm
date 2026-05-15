@@ -40,30 +40,91 @@
 #include "common/events.h"
 #include "common/util.h"
 
-#include "audio/mididrv.h"
-
 namespace Interspective {
 
 static bool runDisableMoveOptionalEnable(Logic *logic, uint16 cellId, uint16 targetId, uint16 enableId) {
-	if (!logic->disableObjectFlag1(cellId))
-		return false;
-	const uint8 pendingBefore = logic->pendingError();
+	logic->disableObjectFlag1(cellId);
 	logic->movePersonToActor(targetId);
-	if (logic->pendingError() != pendingBefore)
-		return false;
 	if (enableId != 0)
-		return logic->enableObjectFlag1(enableId);
+		logic->enableObjectFlag1(enableId);
 	return true;
 }
 
 static bool runDisableEnableUnregister(Logic *logic, uint16 cellId, uint16 enableId) {
-	if (!logic->disableObjectFlag1(cellId))
-		return false;
-	if (enableId != 0 && !logic->enableObjectFlag1(enableId))
-		return false;
+	(void)enableId;
+	// DOS 0x4a36 restores BX but never moves it back to AX before
+	// EnableObjectFlag1; AX is the value left by DisableObjectFlag1.
+	logic->enableObjectFlag1(logic->disableObjectFlag1ReturnAx(cellId));
 	logic->setCursorMode(0);
 	logic->setDragTarget(0);
 	return true;
+}
+
+static bool dosCellBitTest(uint8 cellByte, uint16 rawBit) {
+	const uint8 count = uint8(((rawBit + 1) & 0x1f) % 9);
+	if (count == 0)
+		return false;
+	return ((cellByte >> (count - 1)) & 1) != 0;
+}
+
+static int8 dosCellBitIndex(uint16 rawBit) {
+	const uint8 count = uint8(((rawBit + 1) & 0x1f) % 9);
+	return count == 0 ? -1 : int8(count - 1);
+}
+
+static byte *resolveDosResourcePointer(Value &arg, const CodePointer &current, byte **baseOut = 0) {
+	byte *base = arg.rawBase();
+	byte *ptr = arg.rawPointer();
+	if (!ptr) {
+		base = current.base();
+		ptr = base ? base + uint16(arg) : nullptr;
+	} else if (!base) {
+		base = current.base();
+	}
+	if (baseOut)
+		*baseOut = base;
+	return ptr;
+}
+
+static uint16 dosResourceOffset(byte *base, byte *ptr) {
+	if (!base || !ptr || ptr < base)
+		return 0xffff;
+	return uint16(ptr - base);
+}
+
+static void clearDosPascalBufferAt(byte *base, byte *ptr) {
+	if (!ptr)
+		return;
+
+	const uint16 off = dosResourceOffset(base, ptr);
+	if (off == 0xffff || off >= 0x8000) {
+		ptr[1] = 0;
+		return;
+	}
+	memset(ptr + 1, 0, 0x8000 - off - 1);
+}
+
+static void appendDosPascalByteAt(byte *ptr, byte ch) {
+	if (!ptr)
+		return;
+
+	const int8 capacity = int8(ptr[0]);
+	const int8 length = int8(ptr[1]);
+	if (length < capacity) {
+		const byte oldLength = ptr[1]++;
+		ptr[oldLength + 2] = ch;
+	}
+}
+
+static void popDosPascalByteAt(byte *ptr) {
+	if (!ptr)
+		return;
+
+	const byte oldLength = ptr[1];
+	if (oldLength != 0) {
+		ptr[1] = oldLength - 1;
+		ptr[oldLength + 1] = 0;
+	}
 }
 
 // Speech subsystem helper: route text to the appropriate sink.
@@ -73,33 +134,37 @@ static bool runDisableEnableUnregister(Logic *logic, uint16 cellId, uint16 enabl
 // modern hosts have no RAM constraint, so the 6-slot cap is a
 // non-issue.
 //
-// If `target` is non-null, DOS still anchors the bubble at the speaker's
-// actor slot; the target id only affects the readiness/walk path. The
-// visible difference is that target speech uses the shorter two-line pages.
-static void speakOrSubtitle(Actor *speaker, const Common::String &text, Actor *target = 0, bool targetSpeech = false) {
-	if (Log.inMapMode()) {
+// `maxLines` is the BX value carried into AllocSpeechSlot @ 1000:9b1f.
+// Zero means "no forced page height"; non-zero values page the formatted
+// text through the DOS 9bcc helper.
+static void speakOrSubtitle(Actor *speaker, const Common::String &text, uint16 maxLines = 0) {
+	const bool mainSpeaker = !speaker || speaker == Log.protagonist();
+	if (Log.inMapMode() && mainSpeaker) {
 		// DOS map-mode: CheckSubtitleActive + RegisterSampleSlot_LoadDefaultsB
-		// or QueueDeferredFormattedText. Closest C++ analog: render text
-		// via Graf.say at top-of-screen, ~3 ticks/char reading speed.
+		// or QueueDeferredFormattedText. The shared map path seeds
+		// CX=0xa4, DX=0x14, AX=2, BP=0xeb before QueueDeferredFormattedText.
 		const uint16 length = uint16(text.size());
 		if (length > 0)
-			Graf.say(reinterpret_cast<const byte *>(text.c_str()),
-				length, MAX<uint16>(30, 3 * length));
+			Graf.sayAt(reinterpret_cast<const byte *>(text.c_str()),
+				length, MAX<uint16>(30, 3 * length),
+				0xa4, 0x14, 0xeb, 0, Graphics::kSpeechBubbleType2);
 		return;
 	}
 	if (!speaker)
 		return;
-	if (target || targetSpeech) {
-		Common::Point anchor = speaker->getSpeechPosition();
-		speaker->sayAtPos(text, anchor);
-	} else {
-		speaker->say(text);
-	}
+	speaker->say(text, maxLines);
 }
 
 static bool deferSpeechUntilReady(Actor *speaker, const CodePointer &current) {
-	if (Log.inMapMode() || !speaker)
+	if (!speaker)
 		return false;
+	if (Log.inMapMode() && speaker == Log.protagonist()) {
+		if (Graf.isSaying()) {
+			Graf.runWhenSaid(current);
+			return true;
+		}
+		return false;
+	}
 	if (speaker->isSpeaking()) {
 		speaker->callMeWhenSilent(current);
 		return true;
@@ -111,18 +176,20 @@ static bool deferSpeechUntilReady(Actor *speaker, const CodePointer &current) {
 	return false;
 }
 
-static void sayNarratorOrSubtitle(const byte *text, uint16 x, uint16 y, byte color, uint16 maxLines = 0,
-                                  Graphics::SpeechBubbleMode bubbleMode = Graphics::kSpeechBubbleType1) {
+static bool sayNarratorOrSubtitle(const byte *text, uint16 x, uint16 y, byte color, uint16 maxLines,
+                                  Graphics::SpeechBubbleMode bubbleMode, const CodePointer &current) {
 	if (!text)
-		return;
+		return false;
 	const uint16 length = (uint16)strlen(reinterpret_cast<const char *>(text));
 	if (length == 0)
-		return;
+		return false;
 	const uint16 ticks = MAX<uint16>(30, 3 * length);
-	if (Log.inMapMode())
-		Graf.say(text, length, ticks);
-	else
-		Graf.sayAt(text, length, ticks, x, y, color, maxLines, bubbleMode);
+	if (Log.inMapMode() && Graf.isSaying()) {
+		Graf.runWhenSaid(current);
+		return true;
+	}
+	Graf.sayAt(text, length, ticks, x, y, color, maxLines, bubbleMode);
+	return false;
 }
 
 static bool waitForSampleStandIn(Actor *actor, const CodePointer &next) {
@@ -175,12 +242,37 @@ static void initActorStateLikeDos(Actor *actor, const CodePointer &anim) {
 	resetActorStateFieldsLikeDos(actor);
 }
 
+static void initActorFromPuppeteerLikeDos(Logic *logic, Actor *actor, uint16 actorId) {
+	if (!logic || !actor || !logic->resources() || !logic->resources()->mainDat())
+		return;
+	const Puppeteer puppeteer = logic->resources()->mainDat()->getPuppeteer(actorId);
+	initActorStateLikeDos(actor, CodePointer(puppeteer.mainCodeOffset(), logic->mainInterpreter()));
+}
+
+static void writeActorRoomTransitionLikeDos(Actor *actor, uint16 room, uint8 frame, uint8 target) {
+	if (!actor)
+		return;
+	// DOS 0x77/0x78 tail writes only these fields; SetActorPosition is
+	// exclusive to the 0x79/0x7a placement tail.
+	actor->setRawFrame(frame);
+	actor->setRawTargetFrame(target);
+	actor->forceRoom(room);
+}
+
+static void placeActorInRoomWithPositionLikeDos(Actor *actor, uint16 room, uint8 frame, uint8 target) {
+	if (!actor)
+		return;
+	actor->forceRoom(room);
+	actor->setRawTargetFrame(target);
+	actor->setDosFieldWord(0x6b, 0);
+	actor->setFrame(frame);
+}
+
 static bool checkActorAnimReadyModeled(Actor *actor) {
-	// DOS CheckActorAnimReady @ 1000:6415 returns carry clear while the
-	// actor still has active animation/script state. The C++ actor model
-	// keeps that state in isFine(), which is what the neighboring wait
-	// opcodes already use for the same RegisterSampleSlot retry path.
-	return !actor || !actor->isFine();
+	// DOS CheckActorAnimReady @ 1000:6415 returns carry set when the
+	// actor is ready. Actor::animReadyLikeDos mirrors the field-level
+	// predicate, including +0x65/+0x6b/+0x69/+0x6f.
+	return !actor || actor->animReadyLikeDos();
 }
 
 static bool retryCurrentOpcode(const CodePointer &current) {
@@ -188,6 +280,26 @@ static bool retryCurrentOpcode(const CodePointer &current) {
 		return false;
 	Log.runLaterWithCurrentMode(current);
 	return true;
+}
+
+static Actor *getActorOrPending(uint16 id) {
+	if (id == 0) {
+		Log.setPendingError(0x17);
+		return 0;
+	}
+	const uint16 mainActors = Log.engine()->resources()->mainDat()->actorsCount();
+	const uint16 blockActors = Log.blockProgram() ? Log.blockProgram()->actorsCount() : 0;
+	if (id > mainActors + blockActors) {
+		Log.setPendingError(0x17);
+		return 0;
+	}
+	Actor *actor = Log.getActor(id);
+	if (!actor) {
+		Log.setPendingError(0x17);
+		return 0;
+	}
+	Log.setImplicitActor(actor);
+	return actor;
 }
 
 static void setActorReadyFields(Actor *actor, uint8 marker, uint16 callback) {
@@ -234,10 +346,10 @@ static uint8 actorDirectionToPoint(Actor *actor, int16 targetX, int16 targetY) {
 }
 
 static bool checkActorIdleReadyModeled(Actor *actor) {
-	// DOS CheckActorIdle @ 1000:645e returns carry clear while the actor's
-	// current-room script state is still active. Actor::isFine() is the C++
-	// model of that active state used by the adjacent wait opcodes.
-	return !actor || !actor->isFine();
+	// DOS CheckActorIdle @ 1000:645e returns carry set when the actor is
+	// idle/ready. This is stricter than Actor::isFine(), which is a legacy
+	// movement heuristic and does not model all DOS actor fields.
+	return !actor || actor->idleReadyLikeDos();
 }
 
 static void setActorCallbackWord(Actor *actor, uint16 callback) {
@@ -253,6 +365,8 @@ static void queueExitTransitionLikeDos(Actor *actor, uint16 frame) {
 	Log.clearPostMoveCallback();
 	actor->stopSpeaking();
 	setActorCallbackWord(actor, 0);
+	if (actor->room() == Log.currentRoom() && actor->frameId() != 0)
+		actor->setRawTargetFrame(uint8(frame));
 	actor->moveTo(frame);
 }
 
@@ -264,10 +378,13 @@ static bool moveActorToTargetExitLikeDos(Actor *actor, uint16 frame) {
 		queueExitTransitionLikeDos(actor, frame);
 		return true;
 	}
-	if (actor->room() != Log.currentRoom())
+	if (actor->room() != Log.currentRoom()) {
 		actor->setFrame(frame);
-	else
+	} else {
+		if (actor->frameId() != 0)
+			actor->setRawTargetFrame(uint8(frame));
 		actor->moveTo(frame);
+	}
 	return false;
 }
 
@@ -330,10 +447,26 @@ static bool sendActorToCurrentEntityLikeDos(Actor *actor) {
 
 static bool castEntryActive(uint16 id) {
 	const Common::Array<Logic::CastEntry> &castTable = Log.castTable();
-	for (uint i = 0; i < castTable.size(); ++i)
-		if (castTable[i].active != 0 && castTable[i].id == id)
-			return true;
+	for (uint i = 0; i < castTable.size(); ++i) {
+		const Logic::CastEntry &entry = castTable[i];
+		if (entry.active == 0 || entry.id != id)
+			continue;
+		if (READ_LE_UINT16(entry.raw + 2) == 0 && entry.interpreter) {
+			const uint16 scriptOffset = uint16(READ_LE_UINT16(entry.raw + 4) + id);
+			byte *script = entry.interpreter->rawCode(scriptOffset);
+			if (script && *script == 0xff)
+				return false;
+		}
+		return true;
+	}
 	return false;
+}
+
+static void clearVideoAndPushToScreenLikeDos(Graphics *graphics) {
+	if (!graphics)
+		return;
+	graphics->clearFramebuffer();
+	graphics->updateScreen();
 }
 
 static bool showFormattedModalTextAndWait(const Logic::FormattedBubble &fb,
@@ -353,6 +486,37 @@ static void finishVerbModalLoopState(Logic::ModalState &ms) {
 	// script resumes. The C++ visible text wait above is the modal stand-in.
 	ms.menuChoiceCount = 0;
 	ms.paletteMode = 0;
+	ms.textContinuationPtr = 0;
+	ms.menuDone = false;
+}
+
+static void applyFormattedTextLimit9bcc(uint16 limit, uint16 &height, uint16 &rows) {
+	// DOS helper @ 1000:9bcc compares DX with BX, possibly reduces AX,
+	// and always returns DX=BX. 0x4f/0x51 call it unconditionally after
+	// FormatBubbleText_FullPath; scripts pass a non-zero low byte when
+	// they expect the division path.
+	if (int16(rows) > int16(limit)) {
+		const uint8 divisor = uint8(limit & 0xff);
+		if (divisor != 0) {
+			const uint16 pages = uint16(rows / divisor + 1);
+			height = uint16(height / pages + 2);
+		}
+	}
+	rows = limit;
+}
+
+static void seedFormattedModalState(Logic::ModalState &ms,
+		const Logic::FormattedBubble &fb, uint16 menuValue, uint16 rows,
+		uint8 paletteMode, uint8 stashFlag) {
+	ms.menuChoiceCount = menuValue;
+	ms.menuMaxChoices  = menuValue;
+	ms.activeAx = fb.maxLineWidth;
+	ms.activeBx = rows;
+	ms.activeEs = 0;
+	ms.activeDi = 0x40b7;
+	ms.paletteMode = paletteMode;
+	ms.stashFlag = stashFlag;
+	ms.selectedItemIdx = 0xffff;
 	ms.textContinuationPtr = 0;
 	ms.menuDone = false;
 }
@@ -465,36 +629,14 @@ OPCODE(0x0f) {
 	return kThxBye;
 }
 
-enum {
-	kSoundAdlib =  1,
-	kSoundSB =     2,
-	kSoundRoland = 4
-};
-
 OPCODE(0x12) {
 	// DOS Op_12_IfSoundDeviceMask @ 1000:392b:
 	//   if (((g_music_enabled | g_sfx_enabled) & arg0) == 0) skip;
 	// `g_music_enabled` (1000:000d) and `g_sfx_enabled` (1000:000e) are
-	// bitmasks set at startup by ParseConfigAndCmdLine + ParseSwitchString
-	// based on detected sound hardware: bit 0 = Adlib, bit 1 = SB,
-	// bit 2 = Roland MT-32.
-	//
-	// In C++ the equivalent startup state is derived from ScummVM's
-	// selected MIDI device and the always-available digital mixer:
-	//   - music device class derived from `MidiDriver::detectDevice` →
-	//     MT_ADLIB → bit 0, MT_MT32/MT_GM → bit 2, others → bit 0 fallback.
-	//   - sfx is unconditionally SB-class (bit 1) — ScummVM always offers
-	//     digital sample mixing.
-	// Mixer volume is deliberately not part of this predicate: DOS reads
-	// configuration/device-enable bytes, not the current playback volume.
-	uint16 musicMask = kSoundAdlib;
-	MidiDriver::DeviceHandle dev =
-		MidiDriver::detectDevice(MDT_MIDI | MDT_ADLIB | MDT_PREFER_GM);
-	MusicType mt = MidiDriver::getMusicType(dev);
-	if (mt == MT_MT32 || mt == MT_GM)
-		musicMask = kSoundRoland;
-	uint16 sfxMask = kSoundSB;
-	const uint16 combined = uint16(musicMask | sfxMask);
+	// config bytes set by ParseConfigAndCmdLine + ParseSwitchString.
+	// Ghidra/raw assembly show this opcode only ORs those bytes and ANDs
+	// with arg0; it does not query the live ScummVM MIDI backend or mixer.
+	const uint16 combined = _engine->dosSoundDeviceMask();
 	const uint16 want = uint16(a[0]);
 	debugC(2, kDebugLevelScript, "opcode 0x12: if sound type %u in mask 0x%02x", want, combined);
 	if ((combined & want) == 0)
@@ -552,7 +694,9 @@ OPCODE(0xde) {
 }
 
 OPCODE(0xe2) {
-	// Clear g_walkbox_count (the same frame table populated by Op_df).
+	// Clear g_walkbox_count (DS:0x6617), not the backing table populated by
+	// Op_df. DOS SetActorPosition indexes the backing memory directly, so
+	// records beyond the current count deliberately retain stale values.
 	// DOS handler at CS:0x5582.
 	debugC(2, kDebugLevelScript, "opcode 0xe2: clear walkbox count");
 	Log.walkboxesClear();
@@ -565,7 +709,8 @@ OPCODE(0xf6) {
 	// Set music volume to maximum. DOS handler at CS:0x5824 patches the music driver
 	// state bytes directly to 0xff (volume) and 0x3f / 0 (mode-dependent flag).
 	debugC(2, kDebugLevelScript, "opcode 0xf6: max music volume");
-	Music.setMaxVolume();
+	if (Music.isActive() && _engine->dosMusicEnabled() != 0)
+		Music.setMaxVolume();
 	return kThxBye;
 }
 
@@ -573,9 +718,12 @@ OPCODE(0xf8) {
 	// Stop all music AND sfx (panic stop).
 	// DOS handler at CS:0x5889 calls the music driver's "stop" entry, clears
 	// g_current_tune_addr, then calls the sfx driver's "stop" if active.
-	// Engine doesn't have a separate sfx player — Music covers both.
 	debugC(2, kDebugLevelScript, "opcode 0xf8: stop all music/sfx");
-	Music.stopMusic();
+	if (_engine->dosMusicEnabled() != 0)
+		Music.stopMusic();
+	if (Sound *snd = _engine->sound())
+		if (snd->isEnabled() && snd->isActive())
+			snd->stopAll();
 	return kThxBye;
 }
 
@@ -780,7 +928,7 @@ OPCODE(0x37) {
 	// Underflow (Op_37 with no active call) → pending-error 6.
 	if (Log.callDepth() == 0) {
 		Log.setPendingError(0x06);
-		return kReturn;
+		return kThxBye;
 	}
 	debugC(2, kDebugLevelScript, "opcode 0x37: return");
 	return kReturn;
@@ -808,10 +956,10 @@ OPCODE(0x39) {
 
 OPCODE(0x3b) {
 	// DOS Op_3b_DeferRunBlock @ 1000:3c7f: same shape as Op_39 but
-	// for block-interpreter scripts. Slot-cap 8; pending-error 0x1e on
-	// overflow.
+	// stores the current code segment (`g_codeptr_es_save`) instead of
+	// the resource segment. Slot-cap 8; pending-error 0x1e on overflow.
 	debugC(2, kDebugLevelScript, "opcode 0x3b: execute %s later", +a[0]);
-	CodePointer p(static_cast<CodePointer &>(a[0]).offset(), _logic->blockInterpreter());
+	CodePointer p(static_cast<CodePointer &>(a[0]));
 	const bool selfCancel = _logic->cancelDeferred(p);
 	if (!_logic->queueDeferred(p)) {
 		Log.setPendingError(0x1e);
@@ -854,7 +1002,7 @@ OPCODE(0x43) {
 	// DOS Op_43_SpeakAsActor @ 1000:3e10: arg0=actor id, arg1=text.
 	debugC(2, kDebugLevelScript, "opcode 0x43: %s says %s", +a[0], +a[1]);
 
-	Actor *ac = Log.getActor(a[0]);
+	Actor *ac = getActorOrPending(uint16(a[0]));
 	if (!ac) return kThxBye;
 	if (deferSpeechUntilReady(ac, current))
 		return kReturn;
@@ -879,7 +1027,8 @@ OPCODE(0x47) {
 	const byte *text = static_cast<byte *>(a[4]);
 	debugC(1, kDebugLevelScript, "opcode 0x47: narrator at (%u,%u) color=%u lines=%u text='%s'",
 		x, y, color, maxLines, text ? reinterpret_cast<const char *>(text) : "(null)");
-	sayNarratorOrSubtitle(text, x, y, color, maxLines, Graphics::kSpeechBubbleType1);
+	if (sayNarratorOrSubtitle(text, x, y, color, maxLines, Graphics::kSpeechBubbleType1, current))
+		return kReturn;
 	return kThxBye;
 }
 
@@ -927,15 +1076,14 @@ OPCODE(0x4b) {
 
 OPCODE(0x54) {
 	// DOS Op_54_RunMenuSelectAndBranch @ 1000:4011:
-	//   CALL ReadVarBySlot_RHS;        ; AX = arg0_pointer (LHS slot)
-	//   MOV DI, AX
-	//   MOV AX, [0x6712]               ; AX = g_modal_es (saved seg)
+	//   CALL ResolveOpcodeArg4; MOV DI, AX   ; arg4 = option text
+	//   MOV AX, [0x6712]                     ; AX = current code segment
 	//   MOV ES, AX
-	//   PUSH ES; PUSH DI                ; save (es:di) for later
+	//   PUSH ES; PUSH DI                ; save (es:di) for modal text
 	//   CALL ResolveOpcodeArg0; MOV CX, AX   ; arg0 = left
 	//   CALL ResolveOpcodeArg1; MOV DX, AX   ; arg1 = top
-	//   CALL ResolveOpcodeArg3; MOV BX, AX   ; arg3 = width
-	//   CALL ResolveOpcodeArg2;              ; arg2 = text
+	//   CALL ResolveOpcodeArg3; MOV BX, AX   ; arg3 = height/rows
+	//   CALL ResolveOpcodeArg2;              ; arg2 = width/cols
 	//   POP DI; POP ES                       ; restore es:di
 	//   CALL RunModalLoop @ 0x7ea2          ; modal!
 	//   MOV AX, [0x66a2]                     ; selected item index
@@ -948,8 +1096,8 @@ OPCODE(0x54) {
 	//   MOV [0x6710], AX                     ; write to result-slot (Op_5x reads via Op_55-style)
 	//   skip: RET.
 	//
-	// = "show modal menu with text (arg2) at (arg0, arg1) with width/height
-	// hints (arg3/arg4); if user picks an item, write the looked-up index
+	// = "show modal menu with option text (arg4) at (arg0, arg1) with
+	// width/height hints (arg2/arg3); if user picks an item, write the looked-up index
 	// to the global result slot."
 	//
 	// C++ port: uses Graphics::ask which already implements a modal
@@ -961,11 +1109,11 @@ OPCODE(0x54) {
 	// to re-apply the g_menu_item_indices mapping.
 	debugC(1, kDebugLevelScript,
 		"opcode 0x54: RunMenuSelectAndBranch text='%s' at (%s,%s) size %sx%s",
-		+a[2], +a[0], +a[1], +a[3], +a[4]);
+		+a[4], +a[0], +a[1], +a[2], +a[3]);
 
 	const uint16 result = _graphics->ask(a[0], a[1],
-		uint8(uint16(a[3]) & 0xff), uint8(uint16(a[4]) & 0xff),
-		static_cast<byte *>(a[2]));
+		uint8(uint16(a[2]) & 0xff), uint8(uint16(a[3]) & 0xff),
+		static_cast<byte *>(a[4]));
 	Logic::ModalState &ms = Log.modalState();
 	if (result == 0xffff) {
 		// User cancelled (clicked outside menu). DOS: AX = 0xffff,
@@ -983,10 +1131,19 @@ OPCODE(0x54) {
 }
 
 OPCODE(0x55) {
-	// paint text
-	// args: left, top, colour, text
-	debugC(2, kDebugLevelScript, "opcode 0x55: paint '%s' with colour %s at %s:%s", +a[3], +a[2], +a[0], +a[1]);
-	_graphics->paintText(a[0], a[1], a[2], a[3]);
+	// DOS Op_55_DrawFormattedText @ 1000:404f: resolves arg3 text first,
+	// runs PrepareTextStrippedForRender @ 1000:97d3 into the temporary text
+	// buffer, then draws it at arg0/arg1 with arg2 color.
+	const byte *text = static_cast<byte *>(a[3]);
+	const byte *rawText = a[3].rawPointer() ? a[3].rawPointer() : text;
+	bool truncated = false;
+	Common::String prepared = _logic->prepareTextStrippedForRender(rawText, &truncated);
+	debugC(2, kDebugLevelScript, "opcode 0x55: paint prepared '%s' with colour %s at %s:%s",
+		prepared.c_str(), +a[2], +a[0], +a[1]);
+	_graphics->paintText(a[0], a[1], a[2],
+		reinterpret_cast<const byte *>(prepared.c_str()));
+	if (truncated)
+		Log.setPendingError(0x19);
 	return kThxBye;
 }
 
@@ -1165,6 +1322,10 @@ static uint8 actorRecordByte(Actor *actor, uint8 off) {
 		return wordRecordByte(uint16(actor->ticksLeft()), Actor::kOffsetTicksLeft, off);
 	if (off == Actor::kOffsetInterval)
 		return actor->interval();
+	if (off == 0x5d || off == 0x5e)
+		return wordRecordByte(actor->actorCallbackSeg(), 0x5d, off);
+	if (off == 0x5f || off == 0x60)
+		return wordRecordByte(actor->actorCallbackOff(), 0x5f, off);
 	if (off == Actor::kOffsetRoom || off == Actor::kOffsetRoom + 1)
 		return wordRecordByte(actor->room(), Actor::kOffsetRoom, off);
 	if (off == 0x61)
@@ -1204,11 +1365,21 @@ static void writeActorRecordByte(Actor *actor, uint8 off, uint8 value) {
 	}
 	if (off == Actor::kOffsetTicksLeft || off == Actor::kOffsetTicksLeft + 1) {
 		const uint16 ticks = wordRecordWithByte(uint16(actor->ticksLeft()), Actor::kOffsetTicksLeft, off, value);
-		actor->setRawTicksLeft(int16(ticks));
+		actor->setRawTicksLeft(ticks);
 		return;
 	}
 	if (off == Actor::kOffsetInterval) {
 		actor->setRawInterval(value);
+		return;
+	}
+	if (off == 0x5d || off == 0x5e) {
+		actor->setActorCallback(wordRecordWithByte(actor->actorCallbackSeg(), 0x5d, off, value),
+			actor->actorCallbackOff());
+		return;
+	}
+	if (off == 0x5f || off == 0x60) {
+		actor->setActorCallback(actor->actorCallbackSeg(),
+			wordRecordWithByte(actor->actorCallbackOff(), 0x5f, off, value));
 		return;
 	}
 	if (off == Actor::kOffsetRoom || off == Actor::kOffsetRoom + 1) {
@@ -1262,36 +1433,44 @@ static uint16 valueHighWordForSizedWrite(Logic *logic, Value &value) {
 	return 0;
 }
 
-OPCODE(0x60) {
-	// lookup locally
-	// takes a list (1st)
-	// a value (2nd)
-	// a field (as offset from structure start) (2rd)
-	// first word on the list is entry length in words (minus one for index)
-	// then are entries, first word being index
-	// finds entry matching index == value in the list and
-	// saves value of specified field in 4th argument
-	uint16 offset = static_cast<CodePointer &>(a[0]).offset();
+static bool dosPositiveIdExceedsMax(uint16 id, uint16 maxId) {
+	return int16(id) > int16(maxId);
+}
 
-	uint16 value;
-	byte *pos = _base + offset;
-	uint16 width = READ_LE_UINT16(pos);
+static bool dosIdIsNonPositive(uint16 id) {
+	return int16(id) <= 0;
+}
+
+OPCODE(0x60) {
+	// DOS Op_60_handler @ 1000:40c4: sets g_walk_speed_flag=1, then
+	// jumps into Op_5f's shared table lookup. The flag makes
+	// ResolveOpcodeArg0 / DS select g_seg_buffer_e (block bank), not
+	// the currently executing script bank.
+	const uint16 offset = static_cast<CodePointer &>(a[0]).offset();
+	uint16 value = 0xffff;
+	byte *pos = _logic->blockInterpreter() ? _logic->blockInterpreter()->rawCode(offset) : nullptr;
+	if (!pos) {
+		a[3] = value;
+		return kThxBye;
+	}
+	const uint16 width = READ_LE_UINT16(pos);
 	pos += 2;
-	while(true) {
-		uint16 index = READ_LE_UINT16(pos);
+	while (true) {
+		const uint16 index = READ_LE_UINT16(pos);
 		if (index == 0xffff) {
 			value = index;
 			break;
 		}
 		pos += 2;
-		if (index == a[1]) {
-			value = READ_LE_UINT16(pos + a[2]);
+		if (index == uint16(a[1])) {
+			value = READ_LE_UINT16(pos + uint16(a[2]));
 			break;
 		}
 		pos += width * 2;
 	}
 
-	debugC(2, kDebugLevelScript, "opcode 0x60: %s = %d == search list %s for %s and return field %s", +a[3], value, +a[0], +a[1], +a[2]);
+	debugC(2, kDebugLevelScript, "opcode 0x60: %s = %d == search block list %s for %s and return field %s",
+		+a[3], value, +a[0], +a[1], +a[2]);
 	a[3] = value;
 	return kThxBye;
 }
@@ -1313,11 +1492,11 @@ OPCODE(0x63) {
 	const uint16 mainActors = _logic->resources()->mainDat()->actorsCount();
 	const uint16 blockActors = _logic->blockProgram() ? _logic->blockProgram()->actorsCount() : 0;
 	const uint16 maxActor = mainActors + blockActors;
-	if (id > maxActor) {
+	if (dosPositiveIdExceedsMax(id, maxActor)) {
 		Log.setPendingError(0x13);
 		return kThxBye;
 	}
-	if (id == 0) {
+	if (dosIdIsNonPositive(id)) {
 		Log.setPendingError(0x17);
 		return kThxBye;
 	}
@@ -1368,19 +1547,21 @@ OPCODE(0x6e) {
 	}
 
 OPCODE(0x71) {
-	// swap: tmp = a[0]; a[0] = a[1]; a[1] = tmp
-	// DOS handler at CS:0x42ea — a 6-instruction shuffle through BX/CX.
+	// DOS handler at CS:0x42ea resolves arg0 into BX, arg1 into CX, then
+	// writes arg0's old value through arg1 before writing arg1's old value
+	// through arg0.
 	debugC(2, kDebugLevelScript, "opcode 0x71: swap(%s, %s)", +a[0], +a[1]);
-	uint16 tmp = a[0];
-	a[0] = a[1];
-	a[1] = tmp;
+	const uint16 old0 = uint16(a[0]);
+	const uint16 old1 = uint16(a[1]);
+	a[1] = old0;
+	a[0] = old1;
 	return kThxBye;
 }
 
 OPCODE(0x70) {
 	// assign
 	debugC(2, kDebugLevelScript, "opcode 0x70: %s = %s", +a[0], +a[1]);
-	a[0] = a[1];
+	a[0] = uint16(a[1]);
 	return kThxBye;
 }
 
@@ -1405,19 +1586,22 @@ OPCODE(0x77) {
 	// the current-opcode snapshot saved by InterpretBytecode. Args are
 	// arg0=room, arg1=frame.
 	debugC(2, kDebugLevelScript, "opcode 0x77: go to room %s frame %s", +a[0], +a[1]);
-	if (Log.inMapMode())
-		return kThxBye;
 	Actor *ac = Log.protagonist();
 	if (!ac) {
 		Log.setPendingError(0x17);
 		return kThxBye;
 	}
-	if (ac->isFine()) {
-		Log.runLaterWithCurrentMode(current);
+	if (!checkActorAnimReadyModeled(ac)) {
+		if (!retryCurrentOpcode(current))
+			return kThxBye;
 		return kReturn;
 	}
-	ac->placeIn(uint16(a[0]), uint16(a[1]));
-	_logic->changeRoom(a[0]);
+	const uint8 frame = uint8(uint16(a[1]));
+	const uint16 room = uint16(a[0]);
+	if (Log.inMapMode())
+		return kThxBye;
+	writeActorRoomTransitionLikeDos(ac, room, frame, frame);
+	_logic->changeRoom(room);
 	return kThxBye;
 }
 
@@ -1436,17 +1620,19 @@ OPCODE(0x79) {
 	//       MoveActorToTargetExit;            ; auto-walk
 	debugC(1, kDebugLevelScript, "opcode 0x79: move actor %s to room %s frame %s",
 		+a[0], +a[1], +a[2]);
-		if (Log.inMapMode())
-			return kThxBye;
-		Actor *ac = _logic->getActor(a[0]);
-		if (!ac) {
-			Log.setPendingError(0x17);
-			return kThxBye;
-		}
-		ac->placeIn(uint16(a[1]), uint8(a[2]));  // sets _room, _frame, _nextFrame, _position
-		// Clear walk-target field (actor.field+0x6b/0x6c, word):
-		ac->setDosField(0x6b, 0);
-		ac->setDosField(0x6c, 0);
+	const uint16 id = uint16(a[0]);
+	const uint16 room = uint16(a[1]);
+	const uint8 frame = uint8(uint16(a[2]));
+	if (Log.inMapMode())
+		return kThxBye;
+	Actor *ac = _logic->getActor(id);
+	if (!ac) {
+		Log.setPendingError(0x17);
+		return kThxBye;
+	}
+	ac->hide();
+	placeActorInRoomWithPositionLikeDos(ac, room, frame, frame);
+	initActorFromPuppeteerLikeDos(_logic, ac, id);
 	return kThxBye;
 }
 
@@ -1474,10 +1660,10 @@ OPCODE(0x3a) {
 
 OPCODE(0x3c) {
 	// DOS Op_3c_CancelDeferredBlock @ 1000:3cc1: same shape as Op_3a
-	// but for block-interpreter scripts.
+	// but matches against the current script segment (`g_codeptr_es_save`).
 	debugC(2, kDebugLevelScript, "opcode 0x3c: cancel deferred (block) %s", +a[0]);
 	const bool selfCancel = _logic->cancelDeferred(
-		CodePointer(static_cast<CodePointer &>(a[0]).offset(), _logic->blockInterpreter()));
+		static_cast<CodePointer &>(a[0]));
 	return selfCancel ? kReturn : kThxBye;
 }
 
@@ -1515,16 +1701,16 @@ OPCODE(0x7b) {
 	//   if (arg0 > active block exit count) pending-error 0x14;
 	//   else if cell bit 0 not set: set cellByte[arg0] |= 1.
 	const uint16 id = uint16(a[0]);
-		const uint16 exitCount = _logic->blockProgram() ? _logic->blockProgram()->exitsCount() : 0;
-		if (id > exitCount) {
-			Log.setPendingError(0x14);
-			return kThxBye;
-		}
+	const uint16 exitCount = _logic->blockProgram() ? _logic->blockProgram()->exitsCount() : 0;
+	if (dosPositiveIdExceedsMax(id, exitCount)) {
+		Log.setPendingError(0x14);
+		return kThxBye;
+	}
 	debugC(2, kDebugLevelScript, "opcode 0x7b: set cell bit 0 on entity %s", +a[0]);
 	Log.setCellBit(id, 0);
-		if (Exit *exit = _logic->blockProgram() ? _logic->blockProgram()->getExit(id) : 0)
-			if (!exit->isEnabled())
-				exit->setEnabled(true);
+	if (Exit *exit = _logic->blockProgram() ? _logic->blockProgram()->getExit(id) : 0)
+		if (!exit->isEnabled())
+			exit->setEnabled(true);
 	return kThxBye;
 }
 
@@ -1533,16 +1719,16 @@ OPCODE(0x7c) {
 	//   if (arg0 > active block exit count) pending-error 0x14;
 	//   else if cell bit 0 set: clear cellByte[arg0] ^= 1.
 	const uint16 id = uint16(a[0]);
-		const uint16 exitCount = _logic->blockProgram() ? _logic->blockProgram()->exitsCount() : 0;
-		if (id > exitCount) {
-			Log.setPendingError(0x14);
-			return kThxBye;
-		}
+	const uint16 exitCount = _logic->blockProgram() ? _logic->blockProgram()->exitsCount() : 0;
+	if (dosPositiveIdExceedsMax(id, exitCount)) {
+		Log.setPendingError(0x14);
+		return kThxBye;
+	}
 	debugC(2, kDebugLevelScript, "opcode 0x7c: clear cell bit 0 on entity %s", +a[0]);
 	Log.clearCellBit(id, 0);
-		if (Exit *exit = _logic->blockProgram() ? _logic->blockProgram()->getExit(id) : 0)
-			if (exit->isEnabled())
-				exit->setEnabled(false);
+	if (Exit *exit = _logic->blockProgram() ? _logic->blockProgram()->getExit(id) : 0)
+		if (exit->isEnabled())
+			exit->setEnabled(false);
 	return kThxBye;
 }
 
@@ -1654,10 +1840,12 @@ OPCODE(0x9e) {
 	// the protagonist puppeteer record and InitActorState restarts that
 	// actor's main-code animation.
 	debugC(2, kDebugLevelScript, "opcode 0x9e: warp protagonist to frame %s", +a[0]);
-	if (Actor *ac = Log.protagonist())
-		ac->setRoom(ac->room(), uint8(a[0]));
-	else
+	if (Actor *ac = Log.protagonist()) {
+		ac->placeIn(ac->room(), uint8(a[0]));
+		initActorFromPuppeteerLikeDos(_logic, ac, ac->id());
+	} else {
 		Log.setPendingError(0x17);
+	}
 	return kThxBye;
 }
 
@@ -1680,7 +1868,7 @@ OPCODE(0xab) {
 	}
 
 	queueExitTransitionLikeDos(ac, uint16(a[0]));
-	return kReturn;
+	return kThxBye;
 }
 
 OPCODE(0xad) {
@@ -1712,16 +1900,15 @@ OPCODE(0xad) {
 	}
 
 	const uint16 targetFrame = uint16(a[1]);
-	const bool brokeInner = moveActorToTargetExitLikeDos(ac, targetFrame);
-	return brokeInner ? kReturn : kThxBye;
+	moveActorToTargetExitLikeDos(ac, targetFrame);
+	return kThxBye;
 }
 
 OPCODE(0xb9) {
-	// DOS Op_b9_WalkActorWaitWithBreak @ 1000:5026: fast actor animation,
+	// DOS Op_b9_WalkActorWaitWithBreak @ 1000:5026: block/slow actor animation,
 	// map-mode no-op, validate actor id, retry current opcode while
 	// CheckActorAnimReady says the actor is still active, otherwise
 	// InitActorState(arg1).
-	debugC(2, kDebugLevelScript, "opcode 0xb9: set actor %s block animation to %s", +a[0], +a[1]);
 	if (Log.inMapMode())
 		return kThxBye;
 	Actor *ac = Log.getActor(a[0]);
@@ -1736,8 +1923,9 @@ OPCODE(0xb9) {
 	}
 
 	CodePointer anim(static_cast<CodePointer &>(a[1]).offset(), Log.blockInterpreter());
+	debugC(2, kDebugLevelScript, "opcode 0xb9: set actor %s block animation to %s", +a[0], +anim);
 	initActorStateLikeDos(ac, anim);
-	return (Log.protagonist() && ac == Log.protagonist()) ? kReturn : kThxBye;
+	return kThxBye;
 }
 
 OPCODE(0xbc) {
@@ -1745,7 +1933,6 @@ OPCODE(0xbc) {
 	// actor id, validate against GetActorOffset-style bounds, then
 	// UnregisterActor. Rendering stops because the id is removed from
 	// g_actor_table; Actor::hide clears the C++ paintable sprite equivalent.
-	debugC(2, kDebugLevelScript, "opcode 0xbc: hide actor %s", +a[0]);
 	if (Log.inMapMode())
 		return kThxBye;
 	Actor *ac = _logic->getActor(a[0]);
@@ -1753,6 +1940,7 @@ OPCODE(0xbc) {
 		Log.setPendingError(0x17);
 		return kThxBye;
 	}
+	debugC(2, kDebugLevelScript, "opcode 0xbc: hide actor %s", +a[0]);
 	ac->hide();
 	return kThxBye;
 }
@@ -1760,10 +1948,10 @@ OPCODE(0xbc) {
 OPCODE(0xbd) {
 	// DOS Op_bd_handler @ 1000:50ea: slow protagonist animation, same
 	// current-opcode retry gate as Op_b9.
-	CodePointer p(static_cast<CodePointer &>(a[0]).offset(), Log.mainInterpreter());
-	debugC(2, kDebugLevelScript, "opcode 0xbd: set protagonist animation to %s", +p);
 	if (Log.inMapMode())
 		return kThxBye;
+	CodePointer p(static_cast<CodePointer &>(a[0]).offset(), Log.mainInterpreter());
+	debugC(2, kDebugLevelScript, "opcode 0xbd: set protagonist animation to %s", +p);
 	Actor *ac = Log.protagonist();
 	if (!ac) {
 		Log.setPendingError(0x17);
@@ -1776,16 +1964,16 @@ OPCODE(0xbd) {
 	}
 
 	initActorStateLikeDos(ac, p);
-	return kReturn;
+	return kThxBye;
 }
 
 OPCODE(0xbe) {
 	// DOS Op_be_handler @ 1000:50e3: fast protagonist animation, same
 	// current-opcode retry gate as Op_b9.
-	CodePointer p(static_cast<CodePointer &>(a[0]).offset(), Log.blockInterpreter());
-	debugC(2, kDebugLevelScript, "opcode 0xbe: set protagonist block animation to %s", +p);
 	if (Log.inMapMode())
 		return kThxBye;
+	CodePointer p(static_cast<CodePointer &>(a[0]).offset(), Log.blockInterpreter());
+	debugC(2, kDebugLevelScript, "opcode 0xbe: set protagonist block animation to %s", +p);
 	Actor *ac = Log.protagonist();
 	if (!ac) {
 		Log.setPendingError(0x17);
@@ -1798,7 +1986,7 @@ OPCODE(0xbe) {
 	}
 
 	initActorStateLikeDos(ac, p);
-	return kReturn;
+	return kThxBye;
 }
 
 OPCODE(0xc2) {
@@ -1807,11 +1995,11 @@ OPCODE(0xc2) {
 	// offset), current ES (script segment), and locked cursor x/y as
 	// initial position. C++ mirrors this in Logic::_castTable; the cast
 	// renderer state bytes are initialized by castTableRegister.
-	const uint16 id = uint16(a[0]);
 	const Common::Point p = _graphics->cursorPosition();
+	const uint16 id = uint16(a[0]);
 	debugC(2, kDebugLevelScript, "opcode 0xc2: RegisterCastEntry id=%u at cursor (%d,%d)",
 		id, p.x, p.y);
-	Log.castTableRegister(id, int16(p.x), int16(p.y));
+	Log.castTableRegister(id, int16(p.x), int16(p.y), current.interpreter());
 	return kThxBye;
 }
 
@@ -1819,8 +2007,7 @@ OPCODE(0xc6) {
 	// DOS Op_c6_handler @ 1000:51f2: Resolve arg0 then register sample
 	// slot type 8. DispatchRoomAnimation maps type 8 to FindCastByActorId,
 	// resuming when no active cast entry for arg0 remains or its cast
-	// script has reached the 0xff sentinel. C++ models the observable
-	// active-entry condition.
+	// script has reached the 0xff sentinel.
 	const uint16 id = uint16(a[0]);
 	debugC(2, kDebugLevelScript, "opcode 0xc6: wait on cast entry %u", id);
 	if (castEntryActive(id)) {
@@ -1832,12 +2019,18 @@ OPCODE(0xc6) {
 }
 
 OPCODE(0xc7) {
-	// play movie
-	debugC(2, kDebugLevelScript, "opcode 0xc7: play movie %s with slowness %s", +a[0], +a[1]);
-	Movie *m = Movie::fromFile(reinterpret_cast<char *>((byte *)(a[0])));
-	m->setFrameDelay(a[1]);
+	// DOS Op_c7_handler @ 1000:51f2 plays the video synchronously. ESC
+	// only exits PlayVideoAnimationLoop; it does not dispatch the
+	// Op_3d skip target from inside the movie player.
+	const uint16 frameDelay = uint16(a[1]);
+	byte *movieName = static_cast<byte *>(a[0]);
+	debugC(2, kDebugLevelScript, "opcode 0xc7: play movie %s with slowness %u",
+		movieName ? reinterpret_cast<char *>(movieName) : "(null)", frameDelay);
+	Movie *m = Movie::fromFile(reinterpret_cast<char *>(movieName));
+	m->setFrameDelay(frameDelay);
 	m->play();
 	delete m;
+	clearVideoAndPushToScreenLikeDos(_graphics);
 	return kThxBye;
 }
 
@@ -1849,6 +2042,7 @@ OPCODE(0xc8) {
 	// Difference from Op_c9 (clarified iter-30): Op_c8 immediately loads
 	// a backdrop image. Op_c9 sets the savegame "current place" id and
 	// only triggers a reload when in map mode.
+	clearVideoAndPushToScreenLikeDos(_graphics);
 	debugC(2, kDebugLevelScript, "opcode 0xc8: set backdrop(%s)", +a[0]);
 	_graphics->setBackdrop(a[0]);
 	return kThxBye;
@@ -1868,8 +2062,10 @@ OPCODE(0xc9) {
 	debugC(2, kDebugLevelScript, "opcode 0xc9: set current place to %s", +a[0]);
 	const uint16 place = uint16(a[0]);
 	_logic->setCurrentPlace(place);
-	if (Log.inMapMode())
+	if (Log.inMapMode()) {
+		clearVideoAndPushToScreenLikeDos(_graphics);
 		_graphics->setBackdrop(place);
+	}
 	return kThxBye;
 }
 
@@ -1912,18 +2108,20 @@ OPCODE(0xcb) {
 	return kThxBye;
 }
 
-OPCODE(0xcc) {
-	// DOS Op_cc_handler @ 1000:527b:
-	//   g_in_map_mode = 1;
-	//   if (CS:[0x52a3] != 0) Op_35_Jump(arg0);
-	//   CS:[0x52a3] = 1; g_full_redraw_pending = 0;
-	//   SetBackdropDimensions(0xc8); SetCursorMode(2).
+	OPCODE(0xcc) {
+		// DOS Op_cc_handler @ 1000:527b:
+		//   g_in_map_mode = 1;
+		//   if (CS:[0x52a3] != 0) Op_35_Jump(arg0);
+		//   CS:[0x52a3] = 1; g_full_redraw_pending = 0;
+		//   SetBackdropDimensions(0xc8); SetCursorMode(2). The following
+		//   ApplyChangeRoomTransition restores the default cursor from
+		//   DS:0x667a while g_in_map_mode is still set.
 	debugC(1, kDebugLevelScript, "opcode 0xcc: enter map/fullscreen gate");
 	Log.setInMapMode(true);
-	Graf.setFullscreen(true);
 	if (Log.mapScreenInitialized())
 		return static_cast<CodePointer &>(a[0]);
 	Log.setMapScreenInitialized(true);
+	Graf.setFullscreen(true);
 	Log.setCursorMode(2);
 	Log.setStepPending(false);
 	return kThxBye;
@@ -1936,7 +2134,6 @@ OPCODE(0xce) {
 	//   3. g_flag_misc_1 = 1 (dirty flag)
 	//   4. Calls Op_95_handler (lock control = setNoStep(true))
 	debugC(2, kDebugLevelScript, "opcode 0xce: start cutscene");
-	Graf.hideCursor();
 	Graf.setFullscreen(true);
 	Log.setRoomActive(false);
 	Log.setNoStep(true);
@@ -1945,21 +2142,29 @@ OPCODE(0xce) {
 
 OPCODE(0xcf) {
 	// DOS Op_cf_handler @ 1000:52ca: full fade-to-black if not already in
-	// fade, then ClearScreenBuffer, g_in_fade=1, g_room_active=0.
+	// fade, then ClearScreenBuffer, g_in_fade=1, g_room_active=0. If ESC
+	// is seen while g_esc_during_script is armed, the fade loop sets
+	// g_break_loop and the interpreter yields after the side effects below.
 	debugC(1, kDebugLevelScript, "opcode 0xcf: fadeout");
-	_graphics->fadeOut();
+	const bool completed = _graphics->fadeOut();
 	_graphics->clearFramebuffer();
 	_graphics->setFullscreen(true);
 	Log.setRoomActive(false);
-	return kThxBye;
+	return completed ? kThxBye : kReturn;
 }
 
 OPCODE(0xd0) {
 	// DOS Op_d0_handler @ 1000:531e: fade palette entries 0xa0..0xff
-	// only. It is synchronous and returns immediately after the palette
-	// loop, even on ESC.
+	// only. If ESC is seen while an Op_3d break point is armed, it sets
+	// g_break_loop, zeroes the interface palette range, updates the
+	// palette, and returns. Mirror g_break_loop with kReturn so
+	// HandleEscDuringScript runs before the script continues into any
+	// following movie/cutscene opcodes.
 	debugC(1, kDebugLevelScript, "opcode 0xd0: partial fadeout");
-	Graf.fadeOut(Graphics::kPartialFade);
+	if (!Graf.fadeOut(Graphics::kPartialFade)) {
+		Graf.clearPaletteRange(160, 96);
+		return kReturn;
+	}
 	return kThxBye;
 }
 
@@ -1980,9 +2185,9 @@ OPCODE(0xd6) {
 	//   g_input_enabled = 0;
 	//   ResolveOpcodeArg0();
 	//   ApplyChangeRoomTransition();
-	debugC(1, kDebugLevelScript, "opcode 0xd6: change room(%s)", +a[0]);
-	uint16 room = a[0];
 	Log.setInputEnabled(false);
+	const uint16 room = uint16(a[0]);
+	debugC(1, kDebugLevelScript, "opcode 0xd6: change room(%u)", room);
 	_logic->changeRoom(room);
 	return kThxBye;
 }
@@ -2004,8 +2209,8 @@ OPCODE(0xdb) {
 	Logic::CollisionZone z = {
 		uint16(a[0]), uint16(a[1]), uint16(a[2]), uint16(a[3]), int16(slot - 1)
 	};
-	debugC(1, kDebugLevelScript, "opcode 0xdb: add collision zone %s:%s-%s:%s slot=%d",
-		+a[0], +a[1], +a[2], +a[3], z.slot);
+	debugC(1, kDebugLevelScript, "opcode 0xdb: add collision zone %u:%u-%u:%u slot=%d",
+		z.a, z.b, z.c, z.d, z.slot);
 	Log.collisionZonesAdd(z);
 	return kThxBye;
 }
@@ -2017,6 +2222,8 @@ OPCODE(0xdf) {
 		Log.setPendingError(0x30);
 		return kThxBye;
 	}
+	const int16 left = a[0].signd();
+	const int16 top = a[1].signd();
 	Common::Array<byte> nexts;
 	nexts.resize(8);
 	for (int i = 0; i < 4; i++) {
@@ -2024,8 +2231,6 @@ OPCODE(0xdf) {
 		nexts[2*i] = val & 0xff;
 		nexts[2*i+1] = val >> 8;
 	}
-	const int16 left = a[0].signd();
-	const int16 top = a[1].signd();
 	debugC(2, kDebugLevelScript, "opcode 0xdf: add actor frame %d %d %d %d %d %d %d %d %d %d", left, top, nexts[0], nexts[1], nexts[2], nexts[3], nexts[4], nexts[5], nexts[6], nexts[7]);
 	if (Log.room())
 		Log.room()->addActorFrame(Common::Point(left, top), nexts);
@@ -2051,17 +2256,22 @@ OPCODE(0xe6) {
 OPCODE(0xed) {
 	// Set timer deadline: a[0] = frame_tick_counter + a[1]
 	// DOS handler at CS:0x568c. Pairs with Op_10 which fires when reached.
-	uint16 deadline = Log.frameTicks() + uint16(a[1]);
-	debugC(2, kDebugLevelScript, "opcode 0xed: set deadline %s = tick(%u) + %s", +a[0], Log.frameTicks(), +a[1]);
+	const uint16 now = Log.frameTicks();
+	const uint16 delay = uint16(a[1]);
+	const uint16 deadline = uint16(now + delay);
 	a[0] = deadline;
+	debugC(2, kDebugLevelScript, "opcode 0xed: set deadline = tick(%u) + %u -> %u",
+		now, delay, deadline);
 	return kThxBye;
 }
 
 OPCODE(0xef) {
-	// random
-	uint16 value = _engine->getRandom(a[0]);
-	debugC(2, kDebugLevelScript, "opcode 0xef: %s = %d == random(%s)", +a[1], value, +a[0]);
+	// DOS GetRandomBitsBelow returns a value in the inclusive 1..arg0
+	// range. The engine RNG helper is 0..max inclusive, so shift it.
+	const uint16 max = uint16(a[0]);
+	const uint16 value = max ? uint16(_engine->getRandom(uint16(max - 1)) + 1) : 0;
 	a[1] = value;
+	debugC(2, kDebugLevelScript, "opcode 0xef: random1(%u) -> %u", max, value);
 	return kThxBye;
 }
 
@@ -2075,9 +2285,15 @@ OPCODE(0xf0) {
 	//   }
 	// Routes through Sound::playSfx which handles the short-circuit
 	// and slot-cache state transitions per DOS.
-	if (Sound *snd = _engine->sound())
-		snd->playSfx(uint16(a[0]));
-	debugC(1, kDebugLevelScript, "opcode 0xf0: load_sfx id=%s", +a[0]);
+	if (Sound *snd = _engine->sound()) {
+		if (!snd->isEnabled()) {
+			debugC(1, kDebugLevelScript, "opcode 0xf0: load_sfx skipped (sfx disabled)");
+			return kThxBye;
+		}
+		const uint16 id = uint16(a[0]);
+		snd->playSfx(id);
+		debugC(1, kDebugLevelScript, "opcode 0xf0: load_sfx id=%u", id);
+	}
 	return kThxBye;
 }
 
@@ -2085,6 +2301,15 @@ OPCODE(0xf4) {
 	// DOS Op_f4_handler @ 1000:5782 waits through
 	// RegisterSampleSlot_LoadDefaultsE (BX=7, CheckMusicPlaying) while a
 	// tune is active. Only the carry-set "not playing" path starts arg0.
+	if (!Music.isActive() || _engine->dosMusicEnabled() == 0) {
+		if (Log.opcodeMode() > 10) {
+			if (sampleSlotWouldError())
+				return kThxBye;
+			_logic->runLaterWithCurrentMode(next, 1);
+			return kReturn;
+		}
+		return kThxBye;
+	}
 	if (Music.isPlaying()) {
 		if (sampleSlotWouldError())
 			return kThxBye;
@@ -2110,7 +2335,8 @@ OPCODE(0xf4) {
 OPCODE(0xf7) {
 	// stop music
 	debugC(2, kDebugLevelScript, "opcode 0xf7: stop music");
-	Music.stopMusic();
+	if (Music.isActive() && _engine->dosMusicEnabled() != 0 && Music.isPlaying())
+		Music.stopMusic();
 	return kThxBye;
 }
 
@@ -2120,25 +2346,44 @@ OPCODE(0xf9) {
 	//   arg0 = which: 1=music, 2=sfx
 	// On music-disable: stop the current tune (silence + clear current_tune_addr).
 	// On music-disable: also stops any active sfx (cascade in DOS).
-	// On sfx-disable: clears g_sfx_active. We don't have a separate sfx mixer
-	// channel yet, so treat sfx-disable as a no-op beyond logging.
+	// On sfx-disable: clears g_sfx_active.
 	const uint8 state = uint8(uint16(a[1]));
-	const bool isMusic = (uint16(a[0]) == 1);
+	const uint16 which = uint16(a[0]);
+	const bool isMusic = (which == 1);
 	debugC(1, kDebugLevelScript, "opcode 0xf9: set %s to %u", isMusic ? "music" : "sfx", state);
-	if (isMusic && state == 0)
-		Music.stopMusic();
+	if (isMusic) {
+		Music.setActive(state != 0);
+		if (state == 0) {
+			if (_engine->dosMusicEnabled() != 0)
+				Music.stopMusic();
+			if (Sound *snd = _engine->sound())
+				if (snd->isEnabled() && snd->isActive())
+					snd->stopAll();
+		}
+	} else if (which == 2) {
+		if (Sound *snd = _engine->sound())
+			snd->setActive(state != 0);
+	}
 	return kThxBye;
 }
 
 OPCODE(0xfc) {
-	// Quit. DOS handler at CS:0x5996:
-	//   if (a[0] != 0): unconditional shutdown
-	//   else:           show "Continue/Restart/Exit" modal — pick decides outcome
-	// We don't have the modal yet, so for the menu case we just quit too —
-	// matches the user's evident intent and lets ScummVM's regular confirmation
-	// dialog (if enabled) front the call.
-	debugC(2, kDebugLevelScript, "opcode 0xfc: quit%s", a[0] == 0 ? " (TODO: show menu first)" : " unconditionally");
-	_engine->quitGame();
+	// DOS Op_fc_handler @ 1000:5996:
+	//   arg0 != 0 -> ShutdownAndExit.
+	//   arg0 == 0 and not map mode -> RunModalLoop, where the menu can
+	//   continue, restart, or exit. In map mode the handler returns.
+	const uint16 quitMode = uint16(a[0]);
+	if (quitMode != 0) {
+		debugC(2, kDebugLevelScript, "opcode 0xfc: quit unconditionally");
+		_engine->quitGame();
+		return kThxBye;
+	}
+	if (Log.inMapMode()) {
+		debugC(2, kDebugLevelScript, "opcode 0xfc: menu request ignored in map mode");
+		return kThxBye;
+	}
+	debugC(2, kDebugLevelScript, "opcode 0xfc: open main menu");
+	_engine->openMainMenuDialog();
 	return kThxBye;
 }
 
@@ -2219,29 +2464,24 @@ OPCODE(0x14) {
 OPCODE(0x15) {
 	// DOS Op_15_IfCellBitSet @ 1000:3968.
 	//   ResolveOpcodeArg1 → bit_idx; if > 7 → SetError15ArgOutOfRange (halt)
-	//   ResolveOpcodeArg0 → id; if > g_object_count_max → SetError14NoExit (halt)
-	//   build 9-bit value: ((id < max) << 8) | cellByte[id]
-	//   ROR by (bit_idx + 1) mod 9; skip if result bit 8 == 0
+	//   ResolveOpcodeArg0 → id; if > CS:[0x47] block exit/cell count → error 0x14
+	//   RCR AL by (bit_idx + 1) through carry; skip if carry is clear.
 	// Net for the common path (id < max, bit ∈ [0,7]): tests
 	// cellByte[id] bit `bit_idx` (LSB-indexed). Body runs if bit SET.
-	//
-	// Bound checks:
-	//   bit_idx > 7: SetError15ArgOutOfRange.
-	//   id > max: SetError14NoExit.
 	const uint16 rawBit = uint16(a[1]);
-	if (rawBit > 7) {
+	if (int16(rawBit) > 7) {
 		Log.setPendingError(0x15);
 		return kThxBye;
 	}
 	const uint16 id = uint16(a[0]);
-	if (id > _logic->resources()->mainDat()->personsCount()) {
+	const uint16 exitCount = _logic->blockProgram() ? _logic->blockProgram()->exitsCount() : 0;
+	if (id > exitCount) {
 		Log.setPendingError(0x14);
 		return kThxBye;
 	}
-	const uint8 bit = uint8(rawBit);
-	const bool set = Log.cellBit(id, bit);
+	const bool set = dosCellBitTest(Log.cellByte(id), rawBit);
 	debugC(2, kDebugLevelScript, "opcode 0x15: if cell bit %u of entity %s set (=%s)",
-		bit, +a[0], set ? "yes" : "no");
+		uint8(rawBit), +a[0], set ? "yes" : "no");
 	return set ? kThxBye : kFail;
 }
 
@@ -2250,7 +2490,8 @@ OPCODE(0x16) {
 	// cell-byte tester used by Op_15. The common tail increments CX
 	// before `RCR AL,CL`, so this tests bit 1 of cellByte[arg0].
 	const uint16 id = uint16(a[0]);
-	if (id > _logic->resources()->mainDat()->personsCount()) {
+	const uint16 exitCount = _logic->blockProgram() ? _logic->blockProgram()->exitsCount() : 0;
+	if (id > exitCount) {
 		Log.setPendingError(0x14);
 		return kThxBye;
 	}
@@ -2408,14 +2649,8 @@ OPCODE(0x26) {
 	debugC(2, kDebugLevelScript, "opcode 0x26: step+cursor==4, protag idle=%d", int(idle));
 	if (!idle) return kThxBye;
 	// Tail-jump to Op_41: speak as main, no target.
-	if (protag->isSpeaking()) {
-		protag->callMeWhenSilent(current);
+	if (deferSpeechUntilReady(protag, current))
 		return kReturn;
-	}
-	if (protag->isMoving()) {
-		protag->callMeWhenStill(current);
-		return kReturn;
-	}
 	speakOrSubtitle(protag, a[0]);
 	return kThxBye;
 }
@@ -2427,8 +2662,17 @@ OPCODE(0x27) {
 	// nargs=1 — when the gate fires, dispatches into Op_3f with the same
 	// arg list (which Op_3f's ResolveOpcodeArg0 will consume).
 	debugC(2, kDebugLevelScript, "opcode 0x27: if step && cursor==4, speak as main");
-	if (Log.stepPending() && Log.cursorMode() == 4)
-		speakOrSubtitle(Log.protagonist(), a[0]);
+	if (Log.stepPending() && Log.cursorMode() == 4) {
+		Actor *protag = Log.protagonist();
+		if (!Log.inMapMode() && Log.hitTarget() == 0 && Log.sendActorToCurrentEntity(protag)
+				&& protag && protag->isMoving()) {
+			protag->callMeWhenStill(current);
+			return kReturn;
+		}
+		if (deferSpeechUntilReady(protag, current))
+			return kReturn;
+		speakOrSubtitle(protag, a[0]);
+	}
 	return kThxBye;
 }
 
@@ -2446,41 +2690,60 @@ OPCODE(0x28) {
 
 	// Side effect 1: CycleAllAnimationsByMask @ 1000:c8a1 advances 5
 	// cursor-overlay animation slots based on arg0 bits (1, 2, 0x10,
-	// 4, 8). DOS slots live at CS:[0xa9..0xb1], populated at runtime
-	// when entering cursor mode 0x80. C++ doesn't yet preload these
-	// 5 slots; the on-screen verb bubble itself isn't rendered. The
-	// closest equivalent in C++: when an animation matching one of
-	// the 5 overlay sprites is registered via the regular animation
-	// pipeline, it cycles automatically each tick — Op_28's
-	// per-bit-gated cycle is a DOS performance optimization (only
-	// advance the visible icons) that's a no-op in the C++
-	// always-tick model.
+	// 4, 8), in slot order CS:[0xa9], [0xab], [0xaf], [0xad], [0xb1].
+	// Each selected slot advances its frame index and redraws the old frame
+	// at the slot's x/y via DrawSprite @ 1000:a748.
 	const uint16 mask = uint16(a[0]);
-	debugC(2, kDebugLevelScript, "opcode 0x28: cycle cursor-overlay anims (mask=0x%02x; per-tick auto-cycle in C++)", mask);
+	debugC(2, kDebugLevelScript, "opcode 0x28: cycle cursor-overlay anims mask=0x%02x", mask);
+	const uint16 animationBits[] = { 0x01, 0x02, 0x10, 0x04, 0x08 };
+	for (uint i = 0; i < ARRAYSIZE(animationBits); ++i) {
+		if ((mask & animationBits[i]) == 0)
+			continue;
+		uint16 spriteId = 0;
+		uint16 x = 0;
+		uint16 y = 0;
+		if (_logic->resources()->mainDat()->cycleCursorOverlayAnimation(animationBits[i], spriteId, x, y)) {
+			Sprite *sprite = _logic->resources()->loadSprite(spriteId);
+			_graphics->paint(sprite, Common::Point(x, y), Graphics::kPaintPositionIsTop);
+			delete sprite;
+		}
+	}
 
-	// Side effect 2: DrawCenteredOverlayText @ 1000:c581 renders text
-	// at y=0xb4 (180), color 0xeb (foreground), 0xae (shadow), 9px
-	// line height, centered within a 56-pixel-wide bubble.
-	// DOS centering math: x = (0x38 - textWidth) / 2 + 4. The
-	// bubble itself sits at the top-left of a verb overlay (the
-	// 5 icons cycled by side-effect 1). C++ uses paintText at the
-	// computed (x, 180) with color 0xeb (foreground); the DOS
-	// shadow color 0xae would require a second paintText call
-	// offset by 1 pixel, which the existing engine font path
-	// doesn't yet expose without a font-spec change.
 	const byte *text = static_cast<byte *>(a[1]);
 	if (text) {
-		const Common::Rect metrics = _graphics->textMetrics(text);
-		const uint16 textWidth = metrics.width();
-		// DOS bubble interior width = 0x38 = 56 pixels. Center text
-		// within that span; clamp to 0 if text is wider.
-		const int16 bubbleInner = 0x38;
-		const int16 sx = (bubbleInner - int16(textWidth)) / 2 + 4;
-		const uint16 x = sx > 0 ? uint16(sx) : 0;
-		// Shadow first (color 0xae), offset by +1,+1 to match DOS
-		// outline rendering.
-		_graphics->paintText(x + 1, 0xb5, 0xae, text);
-		_graphics->paintText(x, 0xb4, 0xeb, text);
+		// DrawCenteredOverlayText @ 1000:c581 calls c5fa once per line:
+		// copy up to 100 raw bytes until CR/NUL, measure that copied line,
+		// error 0x2c when width > 0x38, then draw shadow and foreground.
+		const byte *p = text;
+		uint16 y = 0xb4;
+		bool done = false;
+		while (!done) {
+			byte line[101];
+			uint16 len = 0;
+			byte terminator = 0;
+			while (len < 100) {
+				const byte ch = *p++;
+				if (ch == 0 || ch == '\r') {
+					terminator = ch;
+					break;
+				}
+				line[len++] = ch;
+			}
+			if (len == 100)
+				terminator = 0;
+			line[len] = 0;
+
+			const uint16 textWidth = _graphics->plainTextLineWidth(line);
+			if (textWidth > 0x38) {
+				Log.setPendingError(0x2c);
+				return kThxBye;
+			}
+			const uint16 x = uint16(((0x38 - textWidth) >> 1) + 4);
+			_graphics->paintPlainTextLine(x + 1, y + 1, 0xae, line);
+			_graphics->paintPlainTextLine(x, y, 0xeb, line);
+			y += 9;
+			done = terminator == 0;
+		}
 	}
 	return kThxBye;
 }
@@ -2673,44 +2936,47 @@ OPCODE(0x3f) {
 	return kThxBye;
 }
 OPCODE(0x40) {
-	// DOS Op_40_SpeakAtTarget @ 1000:3da2: arg0=target id, arg1=text.
-	// Target id affects the pre-walk/readiness path; DOS speech-slot
-	// allocation still derives the bubble origin from the speaker actor.
+	// DOS Op_40_SpeakAtTarget @ 1000:3da2: arg0=maxLines, arg1=text.
+	// The pre-walk path still uses the current entity globals through
+	// SendActorToTarget @ 1000:7323; arg0 is carried in BX to the speech
+	// pagination helper, not used as an actor/object id.
 	Actor *protag = Log.protagonist();
-	Actor *target = Log.getActor(a[0]);
-	debugC(1, kDebugLevelScript, "opcode 0x40: main says %s @ target %s%s",
-		+a[1], +a[0], target ? "" : " (unresolved)");
-	if (!Log.inMapMode() && Log.hitTarget() == 0 && Log.sendActorToTarget(protag, uint16(a[0]))
+	const uint16 maxLines = uint16(a[0]);
+	debugC(1, kDebugLevelScript, "opcode 0x40: main says %s maxLines=%u",
+		+a[1], maxLines);
+	if (!Log.inMapMode() && Log.hitTarget() == 0 && Log.sendActorToCurrentEntity(protag)
 			&& protag && protag->isMoving()) {
 		protag->callMeWhenStill(current);
 		return kReturn;
 	}
 	if (deferSpeechUntilReady(protag, current))
 		return kReturn;
-	speakOrSubtitle(protag, a[1], target, true);
+	speakOrSubtitle(protag, a[1], maxLines);
 	return kThxBye;
 }
 OPCODE(0x42) {
-	// DOS Op_42_SpeakAsMainAtTarget @ 1000:3e04: arg0=target id, arg1=text.
+	// DOS Op_42_SpeakAsMainAtTarget @ 1000:3e04: arg0=maxLines, arg1=text.
 	Actor *protag = Log.protagonist();
-	Actor *target = Log.getActor(a[0]);
-	debugC(1, kDebugLevelScript, "opcode 0x42: main says %s @ target %s%s",
-		+a[1], +a[0], target ? "" : " (unresolved)");
+	const uint16 maxLines = uint16(a[0]);
+	debugC(1, kDebugLevelScript, "opcode 0x42: main says %s maxLines=%u",
+		+a[1], maxLines);
 	if (deferSpeechUntilReady(protag, current))
 		return kReturn;
-	speakOrSubtitle(protag, a[1], target, true);
+	speakOrSubtitle(protag, a[1], maxLines);
 	return kThxBye;
 }
 OPCODE(0x44) {
 	// DOS Op_44_SpeakAsActorAtTarget @ 1000:3e4f: arg0=actor id,
-	// arg1=target id, arg2=text.
-	Actor *ac = Log.getActor(a[0]);
-	Actor *target = Log.getActor(a[1]);
-	debugC(1, kDebugLevelScript, "opcode 0x44: actor %s says %s @ target %s%s",
-		+a[0], +a[2], +a[1], target ? "" : " (unresolved)");
+	// arg1=maxLines, arg2=text.
+	Actor *ac = getActorOrPending(uint16(a[0]));
+	const uint16 maxLines = uint16(a[1]);
+	debugC(1, kDebugLevelScript, "opcode 0x44: actor %s says %s maxLines=%u",
+		+a[0], +a[2], maxLines);
+	if (!ac)
+		return kThxBye;
 	if (deferSpeechUntilReady(ac, current))
 		return kReturn;
-	speakOrSubtitle(ac, a[2], target, true);
+	speakOrSubtitle(ac, a[2], maxLines);
 	return kThxBye;
 }
 OPCODE(0x45) {
@@ -2725,21 +2991,22 @@ OPCODE(0x45) {
 	const byte color = uint8(uint16(a[2]) & 0xff);
 	debugC(1, kDebugLevelScript, "opcode 0x45: narrator at (%u,%u) color=%u text='%s'",
 		x, y, color, text ? reinterpret_cast<const char *>(text) : "(null)");
-	sayNarratorOrSubtitle(text, x, y, color, 0, Graphics::kSpeechBubbleType1);
+	if (sayNarratorOrSubtitle(text, x, y, color, 0, Graphics::kSpeechBubbleType1, current))
+		return kReturn;
 	return kThxBye;
 }
 OPCODE(0x46) {
 	// DOS Op_46_SpeakWithDelayAlt @ 1000:3e5e: identical body to 0x45
-	// but writes to a different g_unknown_669a-equivalent slot. The
-	// stash differs (an alternate hint slot) but the visible
-	// behaviour is identical from the script's perspective.
+	// except it seeds AX=2 for the alternate bubble mode before the
+	// shared explicit-position narrator path stores the color hint.
 	const byte *text = static_cast<byte *>(a[3]);
 	const uint16 x = uint16(a[0]);
 	const uint16 y = uint16(a[1]);
 	const byte color = uint8(uint16(a[2]) & 0xff);
 	debugC(1, kDebugLevelScript, "opcode 0x46: narrator (alt) at (%u,%u) color=%u text='%s'",
 		x, y, color, text ? reinterpret_cast<const char *>(text) : "(null)");
-	sayNarratorOrSubtitle(text, x, y, color, 0, Graphics::kSpeechBubbleType2);
+	if (sayNarratorOrSubtitle(text, x, y, color, 0, Graphics::kSpeechBubbleType2, current))
+		return kReturn;
 	return kThxBye;
 }
 
@@ -2762,7 +3029,8 @@ OPCODE(0x48) {
 	const byte *text = static_cast<byte *>(a[4]);
 	debugC(1, kDebugLevelScript, "opcode 0x48: narrator at (%u,%u) color=%u lines=%u text='%s'",
 		x, y, color, maxLines, text ? reinterpret_cast<const char *>(text) : "(null)");
-	sayNarratorOrSubtitle(text, x, y, color, maxLines, Graphics::kSpeechBubbleType2);
+	if (sayNarratorOrSubtitle(text, x, y, color, maxLines, Graphics::kSpeechBubbleType2, current))
+		return kReturn;
 	return kThxBye;
 }
 OPCODE(0x49) {
@@ -2771,11 +3039,9 @@ OPCODE(0x49) {
 	const uint16 id = uint16(a[0]);
 	const uint8 v = uint8(uint16(a[1]));
 	debugC(2, kDebugLevelScript, "opcode 0x49: actor %s flag70 = %u", +a[0], v);
-	Actor *ac = Log.getActor(id);
-	if (!ac) {
-		Log.setPendingError(0x17);
+	Actor *ac = getActorOrPending(id);
+	if (!ac)
 		return kThxBye;
-	}
 	ac->setDosField(0x70, v);
 	Log.setActorFlag70(id, v);
 	return kThxBye;
@@ -2800,31 +3066,22 @@ OPCODE(0x4e) {
 	//   CALL ResolveOpcodeArg0;     ; AX = text ptr
 	//   MOV DI, AX                   ; DI = text source for formatter
 	//   CALL FormatBubbleText_FullPath; AX = total_height (low),
-	//                                   ; DX = ?, CX = max_line_width,
-	//                                   ; BX = choice_count
+	//                                   ; DX = row count,
+	//                                   ; CX = width minus frame bias
 	//   MOV [0x66c2], AX             ; menu_choice_count = formatter result
 	//   MOV [0x66c4], AX             ; menu_max_choices  = same
-	//   MOV AX, CX                   ; AX = max_line_width (left? rect-width)
-	//   MOV BX, DX                   ; BX = total_height (top? rect-height)
+	//   MOV AX, CX                   ; AX = adjusted text width
+	//   MOV BX, DX                   ; BX = row count
 	//   PUSH ds; POP ES              ; ES = data segment
 	//   MOV DI, 0x40b7               ; DI = formatted-buffer base
 	//   MOV [0x66c6], 3              ; palette mode = 3 (text-rect+choices)
 	//   MOV [0x6741], 0              ; clear stash flag
 	//   JMP SetRectAndApply           ; → 0x3f86 → JMP RunVerbMenuModalLoop.
 	const byte *text = static_cast<byte *>(a[0]);
-	Logic::FormattedBubble fb = _logic->formatBubbleText(text);
+	const byte *formatText = a[0].rawPointer() ? a[0].rawPointer() : text;
+	Logic::FormattedBubble fb = _logic->formatBubbleText(formatText);
 	Logic::ModalState &ms = Log.modalState();
-	ms.menuChoiceCount = fb.totalHeight;   // DOS writes formatter AX
-	ms.menuMaxChoices  = fb.totalHeight;
-	ms.activeAx = fb.maxLineWidth;
-	ms.activeBx = fb.totalHeight;
-	ms.activeEs = 0;                        // C++ has no segment
-	ms.activeDi = 0x40b7;                   // formatted-buffer base sentinel
-	ms.paletteMode = 3;
-	ms.stashFlag = 0;
-	ms.selectedItemIdx = 0xffff;
-	ms.textContinuationPtr = 0;
-	ms.menuDone = false;
+	seedFormattedModalState(ms, fb, fb.totalHeight, fb.rowCount, 3, 0);
 	debugC(1, kDebugLevelScript, "opcode 0x4e: DrawTextRectWithChoices text='%s' lines=%u h=%u",
 		text ? reinterpret_cast<const char *>(text) : "(null)",
 		fb.lineCount, fb.totalHeight);
@@ -2843,27 +3100,22 @@ OPCODE(0x4f) {
 	//   CALL ResolveOpcodeArg0;      ; AX = arg0 (extra param)
 	//   MOV BX, AX
 	//   POP DX; POP AX
-	//   CALL NoOpStub9bcc            ; (returns AX unchanged in our model)
+	//   CALL 9bcc                    ; limit returned height/rows
 	//   MOV [0x66c2], AX; MOV [0x66c4], AX
 	//   JMP into Op_4e's tail at 0x3f2c (= MOV AX, CX; ... fall through
 	//                                    to SetRectAndApply with mode=3,
 	//                                    stash=0).
 	// = "DrawTextRectWithChoices but using arg1 as text, with arg0 as
-	// some extra positioning hint. Final state matches Op_4e."
+	// the row/page limit for the formatter helper. Final state matches
+	// Op_4e after the adjusted AX/DX pair."
 	const byte *text = static_cast<byte *>(a[1]);
-	Logic::FormattedBubble fb = _logic->formatBubbleText(text);
+	const byte *formatText = a[1].rawPointer() ? a[1].rawPointer() : text;
+	Logic::FormattedBubble fb = _logic->formatBubbleText(formatText);
 	Logic::ModalState &ms = Log.modalState();
-	ms.menuChoiceCount = fb.totalHeight;
-	ms.menuMaxChoices  = fb.totalHeight;
-	ms.activeAx = fb.maxLineWidth;
-	ms.activeBx = fb.totalHeight;
-	ms.activeEs = 0;
-	ms.activeDi = 0x40b7;
-	ms.paletteMode = 3;
-	ms.stashFlag = 0;
-	ms.selectedItemIdx = 0xffff;
-	ms.textContinuationPtr = 0;
-	ms.menuDone = false;
+	uint16 menuValue = fb.totalHeight;
+	uint16 rows = fb.rowCount;
+	applyFormattedTextLimit9bcc(uint16(a[0]), menuValue, rows);
+	seedFormattedModalState(ms, fb, menuValue, rows, 3, 0);
 	debugC(1, kDebugLevelScript, "opcode 0x4f: DrawTextRectWithChoicesAlt text='%s' arg0=%s",
 		text ? reinterpret_cast<const char *>(text) : "(null)", +a[0]);
 	const bool wait = showFormattedModalTextAndWait(fb, next);
@@ -2884,19 +3136,10 @@ OPCODE(0x50) {
 	//   MOV [0x6741], 1            ; SET stash flag
 	//   ; falls through to SetRectAndApply.
 	const byte *text = static_cast<byte *>(a[0]);
-	Logic::FormattedBubble fb = _logic->formatBubbleText(text);
+	const byte *formatText = a[0].rawPointer() ? a[0].rawPointer() : text;
+	Logic::FormattedBubble fb = _logic->formatBubbleText(formatText);
 	Logic::ModalState &ms = Log.modalState();
-	ms.menuChoiceCount = fb.totalHeight;
-	ms.menuMaxChoices  = fb.totalHeight;
-	ms.activeAx = fb.maxLineWidth;
-	ms.activeBx = fb.totalHeight;
-	ms.activeEs = 0;
-	ms.activeDi = 0x40b7;
-	ms.paletteMode = 1;
-	ms.stashFlag = 1;
-	ms.selectedItemIdx = 0xffff;
-	ms.textContinuationPtr = 0;
-	ms.menuDone = false;
+	seedFormattedModalState(ms, fb, fb.totalHeight, fb.rowCount, 1, 1);
 	debugC(1, kDebugLevelScript, "opcode 0x50: OpenVerbMenuModal text='%s'",
 		text ? reinterpret_cast<const char *>(text) : "(null)");
 	const bool wait = showFormattedModalTextAndWait(fb, next);
@@ -2914,23 +3157,17 @@ OPCODE(0x51) {
 	//   CALL ResolveOpcodeArg0;     ; arg0 = positioning hint
 	//   MOV BX, AX
 	//   POP DX; POP AX
-	//   CALL NoOpStub9bcc
+	//   CALL 9bcc                   ; limit returned height/rows
 	//   MOV [0x66c2], AX; MOV [0x66c4], AX
 	//   JMP 0x3f6f (Op_50's tail: palette=1, stash=1).
 	const byte *text = static_cast<byte *>(a[1]);
-	Logic::FormattedBubble fb = _logic->formatBubbleText(text);
+	const byte *formatText = a[1].rawPointer() ? a[1].rawPointer() : text;
+	Logic::FormattedBubble fb = _logic->formatBubbleText(formatText);
 	Logic::ModalState &ms = Log.modalState();
-	ms.menuChoiceCount = fb.totalHeight;
-	ms.menuMaxChoices  = fb.totalHeight;
-	ms.activeAx = fb.maxLineWidth;
-	ms.activeBx = fb.totalHeight;
-	ms.activeEs = 0;
-	ms.activeDi = 0x40b7;
-	ms.paletteMode = 1;
-	ms.stashFlag = 1;
-	ms.selectedItemIdx = 0xffff;
-	ms.textContinuationPtr = 0;
-	ms.menuDone = false;
+	uint16 menuValue = fb.totalHeight;
+	uint16 rows = fb.rowCount;
+	applyFormattedTextLimit9bcc(uint16(a[0]), menuValue, rows);
+	seedFormattedModalState(ms, fb, menuValue, rows, 1, 1);
 	debugC(1, kDebugLevelScript, "opcode 0x51: OpenVerbMenuModalAlt text='%s' arg0=%s",
 		text ? reinterpret_cast<const char *>(text) : "(null)", +a[0]);
 	const bool wait = showFormattedModalTextAndWait(fb, next);
@@ -2951,12 +3188,13 @@ OPCODE(0x52) {
 	//   MOV [0x6741], 0;             ; clear stash
 	//   JMP SetRectAndApply.
 	const byte *text = static_cast<byte *>(a[0]);
-	Logic::FormattedBubble fb = _logic->formatBubbleText(text);
+	const byte *measureText = a[0].rawPointer() ? a[0].rawPointer() : text;
+	Logic::FormattedBubble fb = _logic->measureVerbBubbleText(measureText);
 	Logic::ModalState &ms = Log.modalState();
 	ms.menuChoiceCount = 0;       // DOS sets [0x66c2] = 0 explicitly
 	// menuMaxChoices is left as previously-set (DOS doesn't write [0x66c4] here)
 	ms.activeAx = fb.maxLineWidth;
-	ms.activeBx = fb.totalHeight;
+	ms.activeBx = fb.lineCount;
 	ms.activeEs = 0;
 	ms.activeDi = 0x40b7;
 	ms.paletteMode = 2;
@@ -2993,7 +3231,8 @@ OPCODE(0x53) {
 	//     MOV [0x66c6], 2; MOV [0x66c2], 0; MOV [0x6741], 0
 	//     JMP SetRectAndApply
 	const byte *text = static_cast<byte *>(a[0]);
-	Logic::FormattedBubble fb = _logic->formatBubbleText(text);
+	const byte *measureText = a[0].rawPointer() ? a[0].rawPointer() : text;
+	Logic::FormattedBubble fb = _logic->measureVerbBubbleText(measureText);
 	Logic::ModalState &ms = Log.modalState();
 	if (ms.stashFlag != 0) {
 		// Stash the active modal slot into the saved slot.
@@ -3015,7 +3254,7 @@ OPCODE(0x53) {
 			text ? reinterpret_cast<const char *>(text) : "(null)");
 	}
 	ms.activeAx = fb.maxLineWidth;
-	ms.activeBx = fb.totalHeight;
+	ms.activeBx = fb.lineCount;
 	ms.activeEs = 0;
 	ms.activeDi = 0x40b7;
 	ms.selectedItemIdx = 0xffff;
@@ -3087,11 +3326,13 @@ OPCODE(0x5d) {
 	uint16 percent = 0;
 	uint16 tenths = 0;
 	if (score != 0 && maxScore != 0) {
-		const uint32 sc100 = uint32(score) * 100;
+		// DOS `MUL 100` produces DX:AX, then the routine clears DX before
+		// `DIV max`, so only the low 16 bits of score*100 participate.
+		const uint16 sc100 = uint16(score * 100);
 		percent = uint16(sc100 / maxScore);
-		const uint32 rem = sc100 % maxScore;
+		const uint16 rem = sc100 % maxScore;
 		if (rem != 0)
-			tenths = uint16((rem * 10) / maxScore);
+			tenths = uint16(uint16(rem * 10) / maxScore);
 	}
 	a[0] = percent;
 	a[1] = tenths;
@@ -3114,15 +3355,14 @@ OPCODE(0x5f) {
 	//   loop entries; if entry[0] matches arg1, BX = entry[2+arg2];
 	//   else BX = 0xffff.
 	//   WriteVarBySlot3_LHS(BX) → arg3.
-	// Sister of Op_60 (same algorithm, different memory bank). The
-	// C++ CodePointer abstraction wraps the bank — both Op_5f and
-	// Op_60 use the same arg0-resolution which already targets the
-	// correct memory area for the calling context.
-	uint16 offset = static_cast<CodePointer &>(a[0]).offset();
-	byte *base = static_cast<CodePointer &>(a[0]).base();
+	// Sister of Op_60 (same algorithm, different memory bank). DOS sets
+	// g_walk_speed_flag=0 here, so arg0 is resolved against the resource
+	// bank regardless of which script bank is currently executing.
+	const uint16 offset = static_cast<CodePointer &>(a[0]).offset();
+	byte *base = _logic->mainInterpreter() ? _logic->mainInterpreter()->rawCode(offset) : nullptr;
 	uint16 value = 0xffff;
 	if (base) {
-		byte *pos = base + offset;
+		byte *pos = base;
 		const uint16 width = READ_LE_UINT16(pos);
 		pos += 2;
 		while (true) {
@@ -3169,11 +3409,11 @@ OPCODE(0x61) {
 	// sparse storage (zero-default).
 	const uint16 id = uint16(a[0]);
 	const uint16 exitCount = _logic->blockProgram() ? _logic->blockProgram()->exitsCount() : 0;
-	if (id > exitCount) {
+	if (dosPositiveIdExceedsMax(id, exitCount)) {
 		Log.setPendingError(0x13);
 		return kThxBye;
 	}
-	if (id == 0) {
+	if (dosIdIsNonPositive(id)) {
 		Log.setPendingError(0x14);
 		return kThxBye;
 	}
@@ -3200,11 +3440,12 @@ OPCODE(0x62) {
 	// GetObjectOffset and g_persons_count bound. Read object[id]'s
 	// sized field at offset (arg1.lo) into arg2 LHS.
 	const uint16 id = uint16(a[0]);
-	if (id > _logic->resources()->mainDat()->personsCount()) {
+	const uint16 objectCount = _logic->resources()->mainDat()->personsCount();
+	if (dosPositiveIdExceedsMax(id, objectCount)) {
 		Log.setPendingError(0x13);
 		return kThxBye;
 	}
-	if (id == 0) {
+	if (dosIdIsNonPositive(id)) {
 		Log.setPendingError(0x16);
 		return kThxBye;
 	}
@@ -3259,15 +3500,20 @@ OPCODE(0x62) {
 // allocation. Both values are non-zero → scripts checking "is bound"
 // see the resource as bound; scripts comparing against 0x1cb5
 // specifically (Op_64) get a literal DOS-segment-value match.
-static void doTableLookupAssign(Logic *logic, ValueVector &a, uint16 segValue,
+static void doTableLookupAssign(Logic *logic, ValueVector &a, Interpreter *bank,
+                                uint16 segValue,
                                 const char *opname, uint8 dbgOpcode) {
-	uint16 offset = static_cast<CodePointer &>(a[0]).offset();
-	byte *base = static_cast<CodePointer &>(a[0]).base();
+	const uint16 ignoredArg3 = uint16(a[3]);
+	(void)ignoredArg3;
+	const uint16 searchKey = uint16(a[1]);
+	const uint16 fieldOffset = uint16(a[2]);
+	const uint16 offset = static_cast<CodePointer &>(a[0]).offset();
+	byte *base = bank ? bank->rawCode(offset) : nullptr;
 	if (!base) {
 		logic->setPendingError(0x1a);
 		return;
 	}
-	byte *pos = base + offset;
+	byte *pos = base;
 	const uint16 width = READ_LE_UINT16(pos);
 	if (width == 0) {
 		logic->setPendingError(0x1a);
@@ -3279,8 +3525,8 @@ static void doTableLookupAssign(Logic *logic, ValueVector &a, uint16 segValue,
 		const uint16 index = READ_LE_UINT16(pos);
 		if (index == 0xffff) break;
 		pos += 2;
-		if (index == uint16(a[1])) {
-			WRITE_LE_UINT16(pos + uint16(a[2]), segValue);
+		if (index == searchKey) {
+			WRITE_LE_UINT16(pos + fieldOffset, segValue);
 			matched = true;
 			break;
 		}
@@ -3299,7 +3545,8 @@ OPCODE(0x64) {
 	// Scripts later read this field as "is this resource bound to
 	// the main bank?" — non-zero answer = bound; specific 0x1cb5 =
 	// "main bank" tag matches DOS literally.
-	doTableLookupAssign(_logic, a, /* segValue = */ 0x1cb5,
+	doTableLookupAssign(_logic, a, _logic->mainInterpreter(),
+		/* segValue = */ 0x1cb5,
 		"TableLookupAssignMain", 0x64);
 	return kThxBye;
 }
@@ -3312,13 +3559,14 @@ OPCODE(0x65) {
 	// value differs but scripts checking "is this resource bound
 	// AND in the current block" see the same yes/no.
 	const uint16 blockSeg = blockSegmentTag(_logic);
-	doTableLookupAssign(_logic, a, /* segValue = */ blockSeg,
+	doTableLookupAssign(_logic, a, _logic->blockInterpreter(),
+		/* segValue = */ blockSeg,
 		"TableLookupAssignBlock", 0x65);
 	return kThxBye;
 	}
 	OPCODE(0x66) {
 		// DOS Op_66_WriteExitFieldSized @ 1000:41ee:
-		//   if arg0 > g_exit_count → pending-error 0x13;
+		//   signed if arg0 > g_exit_count -> pending-error 0x13;
 		//   else GetExitOffset(arg0); WriteSizedFieldAtSi:
 		//     arg1 = (size << 8) | offset; arg2 = value.
 		//     size==1 byte; size==2 word; size==4 dword.
@@ -3327,20 +3575,20 @@ OPCODE(0x65) {
 		// Modeled room/position/z-index bytes update the Exit object;
 		// unmodeled bytes fall through to Logic._exitFields sparse storage.
 	const uint16 id = uint16(a[0]);
-	const uint16 fieldEnc = uint16(a[1]);
-	const uint16 value = uint16(a[2]);
-	const uint16 highValue = valueHighWordForSizedWrite(_logic, a[2]);
-	const uint8 off = uint8(fieldEnc & 0xff);
-	const uint8 sz = uint8(fieldEnc >> 8);
 	const uint16 exitCount = _logic->blockProgram() ? _logic->blockProgram()->exitsCount() : 0;
-	if (id > exitCount) {
+	if (dosPositiveIdExceedsMax(id, exitCount)) {
 		Log.setPendingError(0x13);
 		return kThxBye;
 	}
-	if (id == 0) {
+	if (dosIdIsNonPositive(id)) {
 		Log.setPendingError(0x14);
 		return kThxBye;
 	}
+	const uint16 value = uint16(a[2]);
+	const uint16 highValue = valueHighWordForSizedWrite(_logic, a[2]);
+	const uint16 fieldEnc = uint16(a[1]);
+	const uint8 off = uint8(fieldEnc & 0xff);
+	const uint8 sz = uint8(fieldEnc >> 8);
 	if (sz != 1 && sz != 2 && sz != 4) {
 		Log.setPendingError(0x02);
 		return kThxBye;
@@ -3357,23 +3605,24 @@ OPCODE(0x65) {
 }
 OPCODE(0x67) {
 	// DOS Op_67_WriteObjectFieldSized @ 1000:41fe: same shape as 0x66
-	// but via GetObjectOffset and g_persons_count bound. Object record
-	// fields (per data-file layout): 0 = room (word), 2 = x (word),
+	// but via signed g_persons_count bound and GetObjectOffset. Object
+	// record fields (per data-file layout): 0 = room (word), 2 = x (word),
 	// 4 = y (word). C++ stores these in Logic._objectRoom/Pos*.
 	const uint16 id = uint16(a[0]);
-	const uint16 fieldEnc = uint16(a[1]);
-	const uint16 value = uint16(a[2]);
-	const uint16 highValue = valueHighWordForSizedWrite(_logic, a[2]);
-	const uint8 off = uint8(fieldEnc & 0xff);
-	const uint8 sz = uint8(fieldEnc >> 8);
-	if (id > _logic->resources()->mainDat()->personsCount()) {
+	const uint16 objectCount = _logic->resources()->mainDat()->personsCount();
+	if (dosPositiveIdExceedsMax(id, objectCount)) {
 		Log.setPendingError(0x13);
 		return kThxBye;
 	}
-	if (id == 0) {
+	if (dosIdIsNonPositive(id)) {
 		Log.setPendingError(0x16);
 		return kThxBye;
 	}
+	const uint16 value = uint16(a[2]);
+	const uint16 highValue = valueHighWordForSizedWrite(_logic, a[2]);
+	const uint16 fieldEnc = uint16(a[1]);
+	const uint8 off = uint8(fieldEnc & 0xff);
+	const uint8 sz = uint8(fieldEnc >> 8);
 	if (sz != 1 && sz != 2 && sz != 4) {
 		Log.setPendingError(0x02);
 		return kThxBye;
@@ -3385,29 +3634,29 @@ OPCODE(0x67) {
 }
 OPCODE(0x68) {
 	// DOS Op_68_WriteActorFieldSized @ 1000:4211:
-	//   if arg0 > g_anim_count_max → pending-error 0x13;
+	//   signed if arg0 > g_anim_count_max -> pending-error 0x13;
 	//   GetActorOffset(arg0); resolve arg2 (value), arg1 (field+size);
 		//   if size==1: actor[off] = (byte)value;
 		//   if size==2: actor[off..off+1] = value;
 		//   if size==4: actor[off..off+3] = value (high word from BX/code segment);
 		//   else pending-error 2.
 	const uint16 id = uint16(a[0]);
-	const uint16 fieldEnc = uint16(a[1]);
-	const uint16 value = uint16(a[2]);
-	const uint16 highValue = valueHighWordForSizedWrite(_logic, a[2]);
-	const uint8 off = uint8(fieldEnc & 0xff);
-	const uint8 sz = uint8(fieldEnc >> 8);
 	const uint16 mainActors = _logic->resources()->mainDat()->actorsCount();
 	const uint16 blockActors = _logic->blockProgram() ? _logic->blockProgram()->actorsCount() : 0;
 	const uint16 maxActor = mainActors + blockActors;
-	if (id > maxActor) {
+	if (dosPositiveIdExceedsMax(id, maxActor)) {
 		Log.setPendingError(0x13);
 		return kThxBye;
 	}
-	if (id == 0) {
+	if (dosIdIsNonPositive(id)) {
 		Log.setPendingError(0x17);
 		return kThxBye;
 	}
+	const uint16 value = uint16(a[2]);
+	const uint16 highValue = valueHighWordForSizedWrite(_logic, a[2]);
+	const uint16 fieldEnc = uint16(a[1]);
+	const uint8 off = uint8(fieldEnc & 0xff);
+	const uint8 sz = uint8(fieldEnc >> 8);
 	if (sz != 1 && sz != 2 && sz != 4) {
 		Log.setPendingError(0x02);
 		return kThxBye;
@@ -3424,12 +3673,13 @@ OPCODE(0x68) {
 }
 OPCODE(0x69) {
 	// DOS Op_69_SetCellBitDefault (CS:0x425c): 1 arg. Sets BIT 1 (the "default
-	// bit") on cellByte[a[0]]. The original ScummVM port misclassified this as
+	// bit") on cellByte[a[0]] after the shared signed max-id check.
+	// The original ScummVM port misclassified this as
 	// 4-arg clamp(), which read 3 garbage Value slots past the end of the
 	// dispatched arg vector.
 	const uint16 id = uint16(a[0]);
 	const uint16 exitCount = _logic->blockProgram() ? _logic->blockProgram()->exitsCount() : 0;
-	if (id > exitCount) {
+	if (dosPositiveIdExceedsMax(id, exitCount)) {
 		Log.setPendingError(0x14);
 		return kThxBye;
 	}
@@ -3439,42 +3689,47 @@ OPCODE(0x69) {
 	return kThxBye;
 }
 OPCODE(0x6a) {
-		// DOS Op_6a_SetCellBit @ 1000:4261: 2 args.
-		//   if (arg1 > 7) pending-error 0x15;
-		//   if (arg0 > g_exit_count) pending-error 0x14;
-	//   sets bit `arg1+1` of the 9-bit value (id<8 | cell_byte) =
-	//   cell_byte bit `arg1` (LSB-indexed). HashMap bounds-safe in C++.
+	// DOS Op_6a_SetCellBit @ 1000:4261: 2 args.
+	//   signed if (arg1 > 7) pending-error 0x15;
+	//   signed if (arg0 > g_exit_count) pending-error 0x14;
+	//   set the bit selected by x86 RCL count `(arg1 + 1) & 0x1f`.
 	const uint16 raw = uint16(a[1]);
-	if (raw > 7) {
+	if (int16(raw) > 7) {
 		Log.setPendingError(0x15);
 		return kThxBye;
 	}
 	const uint16 id = uint16(a[0]);
 	const uint16 exitCount = _logic->blockProgram() ? _logic->blockProgram()->exitsCount() : 0;
-	if (id > exitCount) {
+	if (dosPositiveIdExceedsMax(id, exitCount)) {
 		Log.setPendingError(0x14);
 		return kThxBye;
 	}
-	debugC(2, kDebugLevelScript, "opcode 0x6a: set cell bit %u on entity %s", raw, +a[0]);
-	Log.setCellBit(id, uint8(raw));
+	const int8 bit = dosCellBitIndex(raw);
+	debugC(2, kDebugLevelScript, "opcode 0x6a: set cell bit raw=%u resolved=%d on entity %s",
+		raw, bit, +a[0]);
+	if (bit >= 0)
+		Log.setCellBit(id, uint8(bit));
 	return kThxBye;
 }
 OPCODE(0x6b) {
 	// DOS Op_6b_ClearCellBit @ 1000:4281: 2 args. Same bound checks
 	// as 0x6a, then clears bit `arg1` of cellByte[arg0].
 	const uint16 raw = uint16(a[1]);
-	if (raw > 7) {
+	if (int16(raw) > 7) {
 		Log.setPendingError(0x15);
 		return kThxBye;
 	}
 	const uint16 id = uint16(a[0]);
 	const uint16 exitCount = _logic->blockProgram() ? _logic->blockProgram()->exitsCount() : 0;
-	if (id > exitCount) {
+	if (dosPositiveIdExceedsMax(id, exitCount)) {
 		Log.setPendingError(0x14);
 		return kThxBye;
 	}
-	debugC(2, kDebugLevelScript, "opcode 0x6b: clear cell bit %u on entity %s", raw, +a[0]);
-	Log.clearCellBit(id, uint8(raw));
+	const int8 bit = dosCellBitIndex(raw);
+	debugC(2, kDebugLevelScript, "opcode 0x6b: clear cell bit raw=%u resolved=%d on entity %s",
+		raw, bit, +a[0]);
+	if (bit >= 0)
+		Log.clearCellBit(id, uint8(bit));
 	return kThxBye;
 }
 
@@ -3508,19 +3763,23 @@ OPCODE(0x78) {
 	// arg2=target frame.
 	debugC(2, kDebugLevelScript, "opcode 0x78: go to room %s frame curr=%s target=%s",
 		+a[0], +a[1], +a[2]);
-	if (Log.inMapMode())
-		return kThxBye;
 	Actor *protag = Log.protagonist();
 	if (!protag) {
 		Log.setPendingError(0x17);
 		return kThxBye;
 	}
-	if (protag->isFine()) {
-		Log.runLaterWithCurrentMode(current);
+	if (!checkActorAnimReadyModeled(protag)) {
+		if (!retryCurrentOpcode(current))
+			return kThxBye;
 		return kReturn;
 	}
-	protag->placeIn(uint16(a[0]), uint16(a[1]), uint16(a[2]));
-	_logic->changeRoom(uint16(a[0]));
+	const uint8 frame = uint8(uint16(a[1]));
+	const uint8 target = uint8(uint16(a[2]));
+	const uint16 room = uint16(a[0]);
+	if (Log.inMapMode())
+		return kThxBye;
+	writeActorRoomTransitionLikeDos(protag, room, frame, target);
+	_logic->changeRoom(room);
 	return kThxBye;
 }
 OPCODE(0x7a) {
@@ -3534,46 +3793,49 @@ OPCODE(0x7a) {
 	// from frame[a[2]]), FindPlaceById, InitActorState. If the new room
 	// matches g_current_location and target!=current, MoveActorToTargetExit.
 	// Previous C++ was a logging stub mislabelled as "deactivate object".
-		debugC(1, kDebugLevelScript, "opcode 0x7a: place actor %s in room %s frame %s target %s",
-			+a[0], +a[1], +a[2], +a[3]);
-		if (Log.inMapMode())
-			return kThxBye;
-		Actor *ac = _logic->getActor(a[0]);
-		if (!ac) {
-			Log.setPendingError(0x17);
-			return kThxBye;
-		}
-		ac->placeIn(uint16(a[1]), uint8(a[2]), uint8(a[3]));
-		ac->setDosField(0x6b, 0);
-		ac->setDosField(0x6c, 0);
-		if (uint16(a[1]) == Log.currentRoom() && uint8(a[3]) != uint8(a[2]))
-			ac->moveTo(uint8(a[3]));
+	debugC(1, kDebugLevelScript, "opcode 0x7a: place actor %s in room %s frame %s target %s",
+		+a[0], +a[1], +a[2], +a[3]);
+	const uint16 id = uint16(a[0]);
+	const uint16 room = uint16(a[1]);
+	const uint8 frame = uint8(uint16(a[2]));
+	const uint8 target = uint8(uint16(a[3]));
+	if (Log.inMapMode())
+		return kThxBye;
+	Actor *ac = _logic->getActor(id);
+	if (!ac) {
+		Log.setPendingError(0x17);
 		return kThxBye;
 	}
-	OPCODE(0x7d) {
+	ac->hide();
+	placeActorInRoomWithPositionLikeDos(ac, room, frame, target);
+	initActorFromPuppeteerLikeDos(_logic, ac, id);
+	if (room == Log.currentRoom() && target != frame) {
+		moveActorToTargetExitLikeDos(ac, target);
+		return kThxBye;
+	}
+	return kThxBye;
+}
+OPCODE(0x7d) {
 	// DOS Op_7d_MoveObjectFlag1 @ 1000:4493:
 	//   ResolveOpcodeArg0; DisableObjectFlag1 (clear arg0's bit 0);
-		//   ResolveOpcodeArg1; if arg1 > active block exit count → error 0x14;
+	//   ResolveOpcodeArg1; if arg1 > active block exit count → error 0x14;
 	//     else EnableObjectFlag1 (set arg1's bit 0).
-		const uint16 src = uint16(a[0]);
-		const uint16 dst = uint16(a[1]);
-		const uint16 exitCount = _logic->blockProgram() ? _logic->blockProgram()->exitsCount() : 0;
-		if (dst > exitCount) {
-			Log.setPendingError(0x14);
-			return kThxBye;
-		}
-		debugC(2, kDebugLevelScript, "opcode 0x7d: move cell bit 0: %u → %u", src, dst);
-		Log.clearCellBit(src, 0);
-		if (Exit *exit = _logic->blockProgram() ? _logic->blockProgram()->getExit(src) : 0)
-			if (exit->isEnabled())
-				exit->setEnabled(false);
-		Log.setCellBit(dst, 0);
-		if (Exit *exit = _logic->blockProgram() ? _logic->blockProgram()->getExit(dst) : 0)
-			if (!exit->isEnabled())
-				exit->setEnabled(true);
+	const uint16 src = uint16(a[0]);
+	const uint16 dst = uint16(a[1]);
+	debugC(2, kDebugLevelScript, "opcode 0x7d: move cell bit 0: %u → %u", src, dst);
+	if (!_logic->disableObjectFlag1(src))
+		return kThxBye;
+	const uint16 exitCount = _logic->blockProgram() ? _logic->blockProgram()->exitsCount() : 0;
+	if (dosPositiveIdExceedsMax(dst, exitCount)) {
+		Log.setPendingError(0x14);
 		return kThxBye;
 	}
-	OPCODE(0x7e) {
+	if (!_logic->enableObjectFlag1(dst))
+		return kThxBye;
+	return kThxBye;
+}
+
+OPCODE(0x7e) {
 	// DOS Op_7e_QueueOverlay @ 1000:44a8:
 	//   arg0 = entity type (1=exit, 2=object, 3=actor);
 	//   arg1 = entity id;
@@ -3588,45 +3850,46 @@ OPCODE(0x7a) {
 	const uint16 type = uint16(a[0]);
 	const uint16 id = uint16(a[1]);
 	uint16 sprite = 0;
-		int16 x = 0, y = 0;
-		switch (type) {
-		case 1: { // exit
-			const uint16 exitCount = _logic->blockProgram() ? _logic->blockProgram()->exitsCount() : 0;
-			if (id == 0 || id > exitCount) {
-				Log.setPendingError(0x14);
-				return kThxBye;
-			}
-			Exit *exit = _logic->blockProgram() ? _logic->blockProgram()->getExit(id) : 0;
-			if (!exit) {
-				Log.setPendingError(0x14);
-				return kThxBye;
-			}
+	int16 x = 0, y = 0;
+	switch (type) {
+	case 1: { // exit
+		if (dosIdIsNonPositive(id)) {
+			Log.setPendingError(0x14);
+			return kThxBye;
+		}
+		Exit *exit = _logic->blockProgram() ? _logic->blockProgram()->getExit(id) : 0;
+		if (exit) {
 			sprite = exitRecordSizedLowWord(_logic, exit, id, 6, 2);
 			x = int16(exitRecordSizedLowWord(_logic, exit, id, 2, 2));
 			y = int16(exitRecordSizedLowWord(_logic, exit, id, 4, 2));
-			break;
+		} else {
+			sprite = uint16(_logic->exitField(id, 6)) | (uint16(_logic->exitField(id, 7)) << 8);
+			x = int16(uint16(_logic->exitField(id, 2)) | (uint16(_logic->exitField(id, 3)) << 8));
+			y = int16(uint16(_logic->exitField(id, 4)) | (uint16(_logic->exitField(id, 5)) << 8));
 		}
-		case 2: { // object
-			if (id == 0 || id > _logic->resources()->mainDat()->personsCount()) {
-				Log.setPendingError(0x16);
-				return kThxBye;
-			}
-			sprite = objectRecordSizedLowWord(_logic, id, 6, 2);
-			x = int16(objectRecordSizedLowWord(_logic, id, 2, 2));
-			y = int16(objectRecordSizedLowWord(_logic, id, 4, 2));
-			break;
+		break;
+	}
+	case 2: { // object
+		if (dosIdIsNonPositive(id)) {
+			Log.setPendingError(0x16);
+			return kThxBye;
 		}
-		case 3: { // actor
-			if (Actor *ac = Log.getActor(id)) {
-				sprite = actorRecordSizedLowWord(ac, Actor::kOffsetMainSprite, 2);
-				x = int16(actorRecordSizedLowWord(ac, Actor::kOffsetLeft, 2));
-				y = int16(actorRecordSizedLowWord(ac, Actor::kOffsetTop, 2));
-			} else {
-				Log.setPendingError(0x17);
-				return kThxBye;
-			}
-			break;
+		sprite = objectRecordSizedLowWord(_logic, id, 6, 2);
+		x = int16(objectRecordSizedLowWord(_logic, id, 2, 2));
+		y = int16(objectRecordSizedLowWord(_logic, id, 4, 2));
+		break;
+	}
+	case 3: { // actor
+		if (Actor *ac = Log.getActor(id)) {
+			sprite = actorRecordSizedLowWord(ac, Actor::kOffsetMainSprite, 2);
+			x = int16(actorRecordSizedLowWord(ac, Actor::kOffsetLeft, 2));
+			y = int16(actorRecordSizedLowWord(ac, Actor::kOffsetTop, 2));
+		} else {
+			Log.setPendingError(0x17);
+			return kThxBye;
 		}
+		break;
+	}
 	default:
 		Log.setPendingError(0x34);
 		return kThxBye;
@@ -3637,6 +3900,9 @@ OPCODE(0x7a) {
 		Log.setPendingError(0x35);
 		return kThxBye;
 	}
+	Sprite *overlay = _logic->resources()->loadSprite(sprite);
+	_graphics->paint(overlay, Common::Point(x, y));
+	delete overlay;
 	return kThxBye;
 }
 OPCODE(0x7f) {
@@ -3644,23 +3910,23 @@ OPCODE(0x7f) {
 	// Object[a[0]].position = -1, Object[a[0]].field4 = 0. Marks logic dirty.
 	// Used both to place an object in a scene AND to add it to the player's
 	// inventory (room == kInventoryRoom). Op_18 / Op_1b / Op_21 read this.
-		const uint16 id = uint16(a[0]);
-		const uint16 room = uint16(a[1]);
-		if (id == 0 || id > _logic->resources()->mainDat()->personsCount()) {
-			Log.setPendingError(0x16);
-			return kThxBye;
-		}
-		debugC(1, kDebugLevelScript, "opcode 0x7f: place object %s in room %s", +a[0], +a[1]);
-		if (id == Log.dragTarget()) {
-			Log.setCursorMode(0);
-			Log.setDragTarget(0);
-		}
-		if (Log.getObjectRoom(id) == 0xffff)
-			Log.unregisterObjectExit(id);
-		Log.setObjectRoom(id, room);
-		Log.setObjectPosition(id, -1, 0);
+	const uint16 id = uint16(a[0]);
+	if (id == 0 || id > _logic->resources()->mainDat()->personsCount()) {
+		Log.setPendingError(0x16);
 		return kThxBye;
 	}
+	debugC(1, kDebugLevelScript, "opcode 0x7f: place object %s in room %s", +a[0], +a[1]);
+	if (id == Log.dragTarget()) {
+		Log.setCursorMode(0);
+		Log.setDragTarget(0);
+	}
+	if (Log.getObjectRoom(id) == 0xffff)
+		Log.unregisterObjectExit(id);
+	const uint16 room = uint16(a[1]);
+	Log.setObjectRoom(id, room);
+	Log.setObjectPosition(id, -1, 0);
+	return kThxBye;
+}
 
 // 0x80..0x94: Object placement / hotspot manipulation. iter-20 audit per
 // opcodes_nargs.data discovered SEVEN OOB-read bugs in this range — the
@@ -3672,35 +3938,40 @@ OPCODE(0x80) {
 	//   if (arg0 > g_persons_count) pending-error 0x16;
 	//   else GetObjectOffset(arg0); object[+0] = arg1 (room),
 	//        object[+2] = arg2 (x), object[+4] = arg3 (y);
-		//        if room == 0xffff: AddExitToList; if carry set, pending-error 0x21;
-		//        on successful room==0xffff: ClampSpriteOnScreen + g_flag_logic_dirty = 1;
+	//        if room == 0xffff: AddExitToList; if carry set, pending-error 0x21;
+	//        on successful room==0xffff: ClampSpriteOnScreen + g_flag_logic_dirty = 1;
 	//        g_flag_misc_1 = 1.
-		const uint16 id = uint16(a[0]);
-		if (id == 0 || id > _logic->resources()->mainDat()->personsCount()) {
-			Log.setPendingError(0x16);
-			return kThxBye;
-		}
-	const uint16 room = uint16(a[1]);
-	debugC(2, kDebugLevelScript, "opcode 0x80: place object %s at room %s pos %sx%s",
-		+a[0], +a[1], +a[2], +a[3]);
-		Log.setObjectRoom(id, room);
-		Log.setObjectPosition(id, int16(uint16(a[2])), int16(uint16(a[3])));
-		if (room == 0xffff && !Log.registerObjectExit(id))
-			return kThxBye;
+	const uint16 id = uint16(a[0]);
+	if (id == 0 || id > _logic->resources()->mainDat()->personsCount()) {
+		Log.setPendingError(0x16);
 		return kThxBye;
 	}
+	debugC(2, kDebugLevelScript, "opcode 0x80: place object %s at room %s pos %sx%s",
+		+a[0], +a[1], +a[2], +a[3]);
+	const int16 x = int16(uint16(a[2]));
+	const int16 y = int16(uint16(a[3]));
+	const uint16 room = uint16(a[1]);
+	Log.setObjectRoom(id, room);
+	Log.setObjectPosition(id, x, y);
+	if (room == 0xffff) {
+		if (!Log.registerObjectExit(id))
+			return kThxBye;
+		Log.clampObjectExitToScreenLikeDos(id);
+	}
+	return kThxBye;
+}
 OPCODE(0x81) {
 	// DOS Op_81 @ 1000:45ce: same as Op_80 but room = current_location.
 	// nargs=3 (id, x, y).
-		debugC(2, kDebugLevelScript, "opcode 0x81: place object %s at current room pos %s,%s",
-			+a[0], +a[1], +a[2]);
-		const uint16 id = uint16(a[0]);
-		if (id == 0 || id > _logic->resources()->mainDat()->personsCount()) {
-			Log.setPendingError(0x16);
-			return kThxBye;
-		}
-		Log.setObjectRoom(id, Log.currentRoom());
-		Log.setObjectPosition(id, int16(uint16(a[1])), int16(uint16(a[2])));
+	debugC(2, kDebugLevelScript, "opcode 0x81: place object %s at current room pos %s,%s",
+		+a[0], +a[1], +a[2]);
+	const uint16 id = uint16(a[0]);
+	if (id == 0 || id > _logic->resources()->mainDat()->personsCount()) {
+		Log.setPendingError(0x16);
+		return kThxBye;
+	}
+	Log.setObjectRoom(id, Log.currentRoom());
+	Log.setObjectPosition(id, int16(uint16(a[1])), int16(uint16(a[2])));
 	return kThxBye;
 }
 OPCODE(0x82) {
@@ -3709,27 +3980,31 @@ OPCODE(0x82) {
 	// the drag target → PrepareDragInteraction. If either object's
 	// room is -1 (unplaced) → RemapEntityRefById to fix references.
 	const uint16 a0 = uint16(a[0]);
-		const uint16 b0 = uint16(a[1]);
-		const uint16 personsCount = _logic->resources()->mainDat()->personsCount();
-		if (a0 == 0 || b0 == 0 || a0 > personsCount || b0 > personsCount) {
-			Log.setPendingError(0x16);
-			return kThxBye;
-		}
-		if (a0 == Log.dragTarget() && !Log.prepareDragInteraction(b0))
-			return kThxBye;
-		if (b0 == Log.dragTarget() && !Log.prepareDragInteraction(a0))
-			return kThxBye;
-		const uint16 ra = Log.getObjectRoom(a0);
-		const uint16 rb = Log.getObjectRoom(b0);
-		const int16 xa = Log.getObjectPosX(a0);
+	const uint16 b0 = uint16(a[1]);
+	const uint16 personsCount = _logic->resources()->mainDat()->personsCount();
+	if (a0 == 0 || a0 > personsCount) {
+		Log.setPendingError(0x16);
+		return kThxBye;
+	}
+	if (a0 == Log.dragTarget() && !Log.prepareDragInteraction(b0))
+		return kThxBye;
+	if (Log.getObjectRoom(a0) == 0xffff)
+		Log.remapObjectExit(a0, b0);
+	if (b0 == 0 || b0 > personsCount) {
+		Log.setPendingError(0x16);
+		return kThxBye;
+	}
+	if (b0 == Log.dragTarget() && !Log.prepareDragInteraction(a0))
+		return kThxBye;
+	if (Log.getObjectRoom(b0) == 0xffff)
+		Log.remapObjectExit(b0, a0);
+	const uint16 ra = Log.getObjectRoom(a0);
+	const uint16 rb = Log.getObjectRoom(b0);
+	const int16 xa = Log.getObjectPosX(a0);
 	const int16 ya = Log.getObjectPosY(a0);
-		const int16 xb = Log.getObjectPosX(b0);
-		const int16 yb = Log.getObjectPosY(b0);
-		if (ra == 0xffff)
-			Log.remapObjectExit(a0, b0);
-		if (rb == 0xffff)
-			Log.remapObjectExit(b0, a0);
-		debugC(2, kDebugLevelScript, "opcode 0x82: swap objects %u<->%u (room+pos)", a0, b0);
+	const int16 xb = Log.getObjectPosX(b0);
+	const int16 yb = Log.getObjectPosY(b0);
+	debugC(2, kDebugLevelScript, "opcode 0x82: swap objects %u<->%u (room+pos)", a0, b0);
 	Log.setObjectRoom(a0, rb);
 	Log.setObjectRoom(b0, ra);
 	Log.setObjectPosition(a0, xb, yb);
@@ -3784,7 +4059,6 @@ OPCODE(0x83) {
 		Log.setObjectRoom(a1, room0);
 		Log.setObjectPosition(a1, x0, y0);
 		Log.setObjectRoom(a0, 0);
-		Log.unregisterObjectExit(a0);
 		return kThxBye;
 	}
 OPCODE(0x84) {
@@ -3942,8 +4216,7 @@ OPCODE(0x8b) {
 	//                                                  actor's spot
 	//   Op_8e (cursor=0, drag=0).                  // unregister
 	const uint16 dragId = Log.dragTarget();
-	if (dragId != 0)
-		Log.resetObjectAtActorPosition(dragId);
+	Log.resetObjectAtActorPosition(dragId);
 	Log.setCursorMode(0);
 	Log.setDragTarget(0);
 	debugC(2, kDebugLevelScript, "opcode 0x8b: reset drag obj %u at actor pos + unregister", dragId);
@@ -3957,9 +4230,8 @@ OPCODE(0x8c) {
 		const uint16 id = uint16(a[0]);
 		if (id == Log.dragTarget()) {
 			debugC(2, kDebugLevelScript, "opcode 0x8c: drag target %u → reset + unregister", id);
-			if (id != 0)
-				Log.resetObjectAtActorPosition(id);
-		Log.setCursorMode(0);
+			Log.resetObjectAtActorPosition(id);
+			Log.setCursorMode(0);
 			Log.setDragTarget(0);
 			return kThxBye;
 		}
@@ -3984,7 +4256,7 @@ OPCODE(0x8d) {
 	//   tail at 0x486b, which writes obj.room = -1 plus sprite-adjusted
 	//   x/y and marks dirty.
 	const uint16 id = uint16(a[0]);
-	if (id == 0 || id > _logic->resources()->mainDat()->personsCount()) {
+	if (id == 0) {
 		Log.setPendingError(0x16);
 		return kThxBye;
 	}
@@ -3994,8 +4266,7 @@ OPCODE(0x8d) {
 		return kThxBye;
 	debugC(2, kDebugLevelScript, "opcode 0x8d: register obj %u as exit at pos %s,%s",
 		id, +a[1], +a[2]);
-	Log.setObjectRoom(id, 0xffff);
-	Log.setObjectPosition(id, int16(uint16(a[1])), int16(uint16(a[2])));
+	Log.placeObjectExitAtDosPosition(id, int16(uint16(a[1])), int16(uint16(a[2])));
 	return kThxBye;
 }
 OPCODE(0x8e) {
@@ -4054,11 +4325,6 @@ OPCODE(0x91) {
 		return kThxBye;
 	}
 	const uint16 cellId = Log.currentEntityId();
-	const uint16 exitCount = _logic->blockProgram() ? _logic->blockProgram()->exitsCount() : 0;
-	if (cellId == 0 || cellId > exitCount) {
-		Log.setPendingError(0x14);
-		return kThxBye;
-	}
 	Actor *protag = Log.protagonist();
 	const bool waitForWalk = Log.sendActorToCurrentEntity(protag) && protag && protag->isMoving();
 	if (waitForWalk) {
@@ -4087,11 +4353,6 @@ OPCODE(0x92) {
 		return kThxBye;
 	}
 	const uint16 cellId = Log.currentEntityId();
-	const uint16 exitCount = _logic->blockProgram() ? _logic->blockProgram()->exitsCount() : 0;
-	if (cellId == 0 || cellId > exitCount) {
-		Log.setPendingError(0x14);
-		return kThxBye;
-	}
 	Actor *protag = Log.protagonist();
 	const bool waitForWalk = Log.sendActorToCurrentEntity(protag) && protag && protag->isMoving();
 	if (waitForWalk) {
@@ -4115,6 +4376,8 @@ OPCODE(0x93) {
 	// arg0 == g_drag_target). Then walk to the current clicked entity;
 	// if carry set, run trampoline @ 0x4a36 immediately; otherwise
 	// arm SetPostMoveCallback(BP=0x4a36, BX=arg1, AX=currentEntityId).
+	// The 0x4a36 tail restores BX but uses AX as left by
+	// DisableObjectFlag1 for EnableObjectFlag1, matching DOS exactly.
 	if (!Log.stepPending() || Log.cursorMode() != 0x20)
 		return kThxBye;
 	if (uint16(a[0]) != Log.dragTarget())
@@ -4124,11 +4387,6 @@ OPCODE(0x93) {
 		return kThxBye;
 	}
 	const uint16 cellId = Log.currentEntityId();
-	const uint16 exitCount = _logic->blockProgram() ? _logic->blockProgram()->exitsCount() : 0;
-	if (cellId == 0 || cellId > exitCount) {
-		Log.setPendingError(0x14);
-		return kThxBye;
-	}
 	Actor *protag = Log.protagonist();
 	const bool waitForWalk = Log.sendActorToCurrentEntity(protag) && protag && protag->isMoving();
 	if (waitForWalk) {
@@ -4138,12 +4396,12 @@ OPCODE(0x93) {
 			uint16(a[0]),
 			uint16(a[1])
 		);
-		debugC(2, kDebugLevelScript, "opcode 0x93: walk current entity + arm unregister callback drag=%s enable=%s",
+		debugC(2, kDebugLevelScript, "opcode 0x93: walk current entity + arm DOS 0x4a36 unregister callback drag=%s saved-bx=%s",
 			+a[0], +a[1]);
 	} else {
 		if (runDisableEnableUnregister(_logic, cellId, uint16(a[1])))
-			debugC(2, kDebugLevelScript, "opcode 0x93: immediate unregister drag=%s after disabling cell %u enable=%s",
-				+a[0], cellId, +a[1]);
+			debugC(2, kDebugLevelScript, "opcode 0x93: immediate unregister drag=%s after DOS 0x4a36 tail (cell=%u)",
+				+a[0], cellId);
 	}
 	return kThxBye;
 }
@@ -4159,7 +4417,7 @@ OPCODE(0x97) {
 	//   GetActorOffset(g_main_character_id) → ES:SI;
 	//   [0x5ef1] = [0x6609];                  // target frame mirror
 	//   [0x5ee9] = ES:[SI+0x69];               // walk callback (word)
-	//   [0x5ef2] = ES:[SI+0x62];               // walk-step state (byte)
+	//   [0x5ef2] = ES:[SI+0x62];               // target frame (byte)
 	//   [0x5ef3] = ES:[SI+0x67];               // walk-callback flag (byte)
 	//   ES:[SI+0x67] = 0; ES:[SI+0x6b] = 0; ES:[SI+0x62] = 0;
 	//   memcpy([0x5ef4], [0x65ab], 20);        // post_callback_ptr block
@@ -4192,7 +4450,7 @@ OPCODE(0x97) {
 		warning("opcode 0x97: cutscene backup already active — overwriting");
 	}
 	b.active = true;
-	b.actorField62 = protag->dosField(0x62);
+	b.actorField62 = uint8(protag->targetFrameId() & 0xff);
 	b.actorField67 = protag->dosField(0x67);
 	b.actorField69 = uint16(protag->dosField(0x69)) | (uint16(protag->dosField(0x6a)) << 8);
 	b.targetFrameMirror = uint8(protag->targetFrameId() & 0xff);
@@ -4203,6 +4461,7 @@ OPCODE(0x97) {
 	protag->setDosField(0x6b, 0);
 	protag->setDosField(0x6c, 0);
 	protag->setDosField(0x62, 0);
+	protag->setRawTargetFrame(0);
 	// Capture and clear post-move callback ([0x65ab..0x65bb]).
 	b.savedCallback = Log.postMoveCallback();
 	Log.clearPostMoveCallback();
@@ -4241,21 +4500,15 @@ OPCODE(0x98) {
 		return kThxBye;
 	}
 	Logic::CutsceneBackup &b = Log.cutsceneBackup();
-	if (!b.active) {
-		// DOS would still execute the load-from-zeroed-memory path;
-		// we no-op to avoid spurious clears of valid state.
-		debugC(1, kDebugLevelScript, "opcode 0x98: no backup active — skipping");
-		return kThxBye;
-	}
 	// Restore protag fields.
 	protag->setDosField(0x69, uint8(b.actorField69 & 0xff));
 	protag->setDosField(0x6a, uint8(b.actorField69 >> 8));
 	protag->setDosField(0x67, b.actorField67);
 	protag->setDosField(0x62, b.actorField62);
-	// LookupActorAndStartPath re-engages the walk script. Without a
-	// modeled walk callback in C++, this is a no-op; the post-move
-	// callback restoration below is what actually reactivates the
-	// pending action.
+	protag->setRawTargetFrame(b.actorField62);
+	// LookupActorAndStartPath re-engages the walk toward field+0x62.
+	if (b.actorField62 != 0)
+		protag->moveTo(b.actorField62);
 	// Restore post-move callback record.
 	Log.setPostMoveCallback(b.savedCallback);
 	// Restore speech (find first free slot in DOS; here the protag's
@@ -4289,7 +4542,7 @@ OPCODE(0x9f) {
 		return kThxBye;
 	}
 	ac->placeIn(ac->room(), uint8(a[0]));
-	ac->setAnimation(anim);
+	initActorStateLikeDos(ac, anim);
 	return kThxBye;
 }
 OPCODE(0xa0) {
@@ -4303,7 +4556,7 @@ OPCODE(0xa0) {
 		return kThxBye;
 	}
 	ac->placeIn(ac->room(), uint8(a[0]));
-	ac->setAnimation(anim);
+	initActorStateLikeDos(ac, anim);
 	return kThxBye;
 }
 OPCODE(0xa1) {
@@ -4318,12 +4571,13 @@ OPCODE(0xa1) {
 	//   POP BX → FindPlaceById(arg0)
 	//   InitActorState()
 	// So a[0] is the ACTOR ID and a[1] is the FRAME ID. C++ maps
-	// FindPlaceById + InitActorState to setRoom(current room, frame), then
-	// applies the InitActorState field reset modeled above.
+	// FindPlaceById + InitActorState to the same puppeteer init helper
+	// used by the adjacent DOS placement handlers.
 	debugC(2, kDebugLevelScript, "opcode 0xa1: warp actor %s to frame %s", +a[0], +a[1]);
-	if (Actor *ac = Log.getActor(a[0])) {
-		ac->setRoom(ac->room(), uint8(uint16(a[1])));
-		resetActorStateFieldsLikeDos(ac);
+	const uint16 id = uint16(a[0]);
+	if (Actor *ac = Log.getActor(id)) {
+		ac->placeIn(ac->room(), uint8(uint16(a[1])));
+		initActorFromPuppeteerLikeDos(_logic, ac, id);
 	} else {
 		Log.setPendingError(0x17);
 	}
@@ -4443,37 +4697,43 @@ OPCODE(0xa8) {
 	debugC(2, kDebugLevelScript, "opcode 0xa8: actor %s sub-action by entity type %s compare %s", +a[0], +a[1], +a[2]);
 	if (Log.inMapMode())
 		return kThxBye;
-	const uint16 id = uint16(a[0]);
-	int16 targetX = Log.cameraX();
-	int16 targetY = Log.cameraY();
-	if (uint16(a[1]) == 1) {
-		Exit *exit = Log.blockProgram() ? Log.blockProgram()->getExit(id) : 0;
+	const uint16 actorId = uint16(a[0]);
+	const uint16 entityType = uint16(a[1]);
+	const uint16 targetId = uint16(a[2]);
+	int16 targetX = 0;
+	int16 targetY = 0;
+	if (entityType == 1) {
+		Exit *exit = Log.blockProgram() ? Log.blockProgram()->getExit(targetId) : 0;
 		if (!exit) {
 			Log.setPendingError(0x14);
 			return kThxBye;
 		}
 		targetX = int16(exit->position().x);
 		targetY = int16(exit->position().y);
-	} else if (uint16(a[1]) == 2) {
-		if (id == 0) {
+	} else if (entityType == 2) {
+		if (targetId == 0) {
 			Log.setPendingError(0x16);
 			return kThxBye;
 		}
-		targetX = Log.getObjectPosX(id);
-		targetY = Log.getObjectPosY(id);
-	} else if (uint16(a[1]) == 3) {
-		if (id == uint16(a[2]))
+		targetX = Log.getObjectPosX(targetId);
+		targetY = Log.getObjectPosY(targetId);
+	} else if (entityType == 3) {
+		if (actorId == targetId)
 			return kThxBye;
-		Actor *target = Log.getActor(id);
+		Actor *target = Log.getActor(targetId);
 		if (!target) {
 			Log.setPendingError(0x17);
 			return kThxBye;
 		}
 		targetX = int16(target->position().x);
 		targetY = int16(target->position().y);
+	} else {
+		const Common::Point cursor = Log.engine()->graphics()->cursorPosition();
+		targetX = int16(cursor.x + Log.cameraX());
+		targetY = int16(cursor.y + Log.cameraY());
 	}
 
-	if (Actor *actor = Log.getActor(id)) {
+	if (Actor *actor = Log.getActor(actorId)) {
 		if (!checkActorAnimReadyModeled(actor)) {
 			if (!retryCurrentOpcode(current))
 				return kThxBye;
@@ -4495,24 +4755,39 @@ OPCODE(0xa9) {
 		return kThxBye;
 	}
 	const uint16 id = actor->id();
-	int16 targetX = Log.cameraX();
-	int16 targetY = Log.cameraY();
-	if (uint16(a[0]) == 1) {
-		Exit *exit = Log.blockProgram() ? Log.blockProgram()->getExit(id) : 0;
+	const uint16 entityType = uint16(a[0]);
+	const uint16 targetId = uint16(a[1]);
+	int16 targetX = 0;
+	int16 targetY = 0;
+	if (entityType == 1) {
+		Exit *exit = Log.blockProgram() ? Log.blockProgram()->getExit(targetId) : 0;
 		if (!exit) {
 			Log.setPendingError(0x14);
 			return kThxBye;
 		}
 		targetX = int16(exit->position().x);
 		targetY = int16(exit->position().y);
-	} else if (uint16(a[0]) == 2) {
-		targetX = Log.getObjectPosX(id);
-		targetY = Log.getObjectPosY(id);
-	} else if (uint16(a[0]) == 3) {
-		if (id == uint16(a[1]))
+	} else if (entityType == 2) {
+		if (targetId == 0) {
+			Log.setPendingError(0x16);
 			return kThxBye;
-		targetX = int16(actor->position().x);
-		targetY = int16(actor->position().y);
+		}
+		targetX = Log.getObjectPosX(targetId);
+		targetY = Log.getObjectPosY(targetId);
+	} else if (entityType == 3) {
+		if (id == targetId)
+			return kThxBye;
+		Actor *target = Log.getActor(targetId);
+		if (!target) {
+			Log.setPendingError(0x17);
+			return kThxBye;
+		}
+		targetX = int16(target->position().x);
+		targetY = int16(target->position().y);
+	} else {
+		const Common::Point cursor = Log.engine()->graphics()->cursorPosition();
+		targetX = int16(cursor.x + Log.cameraX());
+		targetY = int16(cursor.y + Log.cameraY());
 	}
 	if (!checkActorAnimReadyModeled(actor)) {
 		if (!retryCurrentOpcode(current))
@@ -4533,12 +4808,17 @@ OPCODE(0xaa) {
 	}
 	if (actor->id() == uint16(a[0]))
 		return kThxBye;
+	Actor *target = Log.getActor(a[0]);
+	if (!target) {
+		Log.setPendingError(0x17);
+		return kThxBye;
+	}
 	if (!checkActorAnimReadyModeled(actor)) {
 		if (!retryCurrentOpcode(current))
 			return kThxBye;
 		return kReturn;
 	}
-	setActorReadyFields(actor, actorDirectionToPoint(actor, int16(actor->position().x), int16(actor->position().y)), 0);
+	setActorReadyFields(actor, actorDirectionToPoint(actor, int16(target->position().x), int16(target->position().y)), 0);
 	return kThxBye;
 }
 OPCODE(0xac) {
@@ -4560,7 +4840,7 @@ OPCODE(0xac) {
 	}
 	queueExitTransitionLikeDos(ac, uint16(a[0]));
 	setActorCallbackWord(ac, uint16(a[1]));
-	return kReturn;
+	return kThxBye;
 }
 
 // 0xae..0xb8: walk variants. Engine doesn't model pathfinding yet, but the
@@ -4588,10 +4868,10 @@ OPCODE(0xae) {
 	debugC(2, kDebugLevelScript, "opcode 0xae: actor %s walk to frame %s + callback %s",
 		+a[0], +a[1], +a[2]);
 	const uint16 targetFrame = uint16(a[1]);
-	const bool brokeInner = moveActorToTargetExitLikeDos(ac, targetFrame);
+	moveActorToTargetExitLikeDos(ac, targetFrame);
 	const uint16 cb = uint16(a[2]);
 	setActorCallbackWord(ac, cb);
-	return brokeInner ? kReturn : kThxBye;
+	return kThxBye;
 }
 OPCODE(0xaf) {
 	// DOS Op_af_WaitActorIdle @ 1000:4f7c:
@@ -4612,8 +4892,8 @@ OPCODE(0xaf) {
 		return kReturn;
 	}
 	debugC(2, kDebugLevelScript, "opcode 0xaf: protagonist walk to current entity");
-	const bool brokeInner = sendActorToCurrentEntityLikeDos(ac);
-	return brokeInner ? kReturn : kThxBye;
+	sendActorToCurrentEntityLikeDos(ac);
+	return kThxBye;
 }
 OPCODE(0xb0) {
 	// DOS Op_b0_WaitActorIdle2 @ 1000:4fb1: same as Op_af but ALSO
@@ -4630,11 +4910,11 @@ OPCODE(0xb0) {
 			return kThxBye;
 		return kReturn;
 	}
-	const bool brokeInner = sendActorToCurrentEntityLikeDos(ac);
+	sendActorToCurrentEntityLikeDos(ac);
 	const uint16 cb = uint16(a[0]);
 	setActorCallbackWord(ac, cb);
 	debugC(2, kDebugLevelScript, "opcode 0xb0: protagonist walk current entity + cb=%u", cb);
-	return brokeInner ? kReturn : kThxBye;
+	return kThxBye;
 }
 OPCODE(0xb1) {
 	// DOS Op_b1_WaitActorIdle3 @ 1000:4eee:
@@ -4655,8 +4935,8 @@ OPCODE(0xb1) {
 		return kReturn;
 	}
 	debugC(2, kDebugLevelScript, "opcode 0xb1: protagonist walk to exit %s", +a[0]);
-	const bool brokeInner = sendActorToEntityByTypeLikeDos(protag, uint16(a[0]), 1);
-	return brokeInner ? kReturn : kThxBye;
+	sendActorToEntityByTypeLikeDos(protag, uint16(a[0]), 1);
+	return kThxBye;
 }
 OPCODE(0xb2) {
 	// DOS Op_b2_WaitActorIdle4 @ 1000:4ec8: same as Op_b1.
@@ -4673,8 +4953,8 @@ OPCODE(0xb2) {
 		return kReturn;
 	}
 	debugC(2, kDebugLevelScript, "opcode 0xb2: protagonist walk to object %s", +a[0]);
-	const bool brokeInner = sendActorToEntityByTypeLikeDos(protag, uint16(a[0]), 2);
-	return brokeInner ? kReturn : kThxBye;
+	sendActorToEntityByTypeLikeDos(protag, uint16(a[0]), 2);
+	return kThxBye;
 }
 OPCODE(0xb3) {
 	// DOS Op_b3_WaitActorIdle5 @ 1000:4f0b: same as Op_b1.
@@ -4691,8 +4971,8 @@ OPCODE(0xb3) {
 		return kReturn;
 	}
 	debugC(2, kDebugLevelScript, "opcode 0xb3: protagonist walk to actor %s", +a[0]);
-	const bool brokeInner = sendActorToEntityByTypeLikeDos(protag, uint16(a[0]), 3);
-	return brokeInner ? kReturn : kThxBye;
+	sendActorToEntityByTypeLikeDos(protag, uint16(a[0]), 3);
+	return kThxBye;
 }
 OPCODE(0xb4) {
 	// DOS Op_b4_handler @ 1000:4f97: wait actor arg0 idle, then send that
@@ -4710,8 +4990,8 @@ OPCODE(0xb4) {
 			return kThxBye;
 		return kReturn;
 	}
-	const bool brokeInner = sendActorToCurrentEntityLikeDos(ac);
-	return brokeInner ? kReturn : kThxBye;
+	sendActorToCurrentEntityLikeDos(ac);
+	return kThxBye;
 }
 OPCODE(0xb5) {
 	// DOS Op_b5_handler @ 1000:4f48: wait actor arg0, then move that
@@ -4734,8 +5014,8 @@ OPCODE(0xb5) {
 		return kReturn;
 	}
 	debugC(2, kDebugLevelScript, "opcode 0xb5: actor %s walk to exit %s", +a[0], +a[1]);
-	const bool brokeInner = sendActorToEntityByTypeLikeDos(actor, uint16(a[1]), 1);
-	return brokeInner ? kReturn : kThxBye;
+	sendActorToEntityByTypeLikeDos(actor, uint16(a[1]), 1);
+	return kThxBye;
 }
 OPCODE(0xb6) {
 	// DOS Op_b6_handler @ 1000:4f28: actor arg0 to object arg1 (DX=2).
@@ -4752,8 +5032,8 @@ OPCODE(0xb6) {
 		return kReturn;
 	}
 	debugC(2, kDebugLevelScript, "opcode 0xb6: actor %s walk to object %s", +a[0], +a[1]);
-	const bool brokeInner = sendActorToEntityByTypeLikeDos(actor, uint16(a[1]), 2);
-	return brokeInner ? kReturn : kThxBye;
+	sendActorToEntityByTypeLikeDos(actor, uint16(a[1]), 2);
+	return kThxBye;
 }
 OPCODE(0xb7) {
 	// DOS Op_b7_handler @ 1000:4f62: actor arg0 to actor target arg1 (DX=3).
@@ -4770,8 +5050,8 @@ OPCODE(0xb7) {
 		return kReturn;
 	}
 	debugC(2, kDebugLevelScript, "opcode 0xb7: actor %s walk to actor %s", +a[0], +a[1]);
-	const bool brokeInner = sendActorToEntityByTypeLikeDos(actor, uint16(a[1]), 3);
-	return brokeInner ? kReturn : kThxBye;
+	sendActorToEntityByTypeLikeDos(actor, uint16(a[1]), 3);
+	return kThxBye;
 }
 OPCODE(0xb8) {
 	// DOS Op_b8_WalkActorWaitWithBreakFast @ 1000:502d:
@@ -4783,14 +5063,14 @@ OPCODE(0xb8) {
 	//   CheckActorAnimReady(id);
 	//   if (NOT ready) RegisterSampleSlot...; RET;
 	//   arg1 = anim selector; InitActorState(id) — re-run actor's main code.
+	if (Log.inMapMode())
+		return kThxBye;
 	const uint16 id = uint16(a[0]);
 	Actor *ac = Log.getActor(id);
 	if (!ac) {
 		Log.setPendingError(0x17);
 		return kThxBye;
 	}
-	if (Log.inMapMode())
-		return kThxBye;
 	if (!checkActorAnimReadyModeled(ac)) {
 		if (!retryCurrentOpcode(current))
 			return kThxBye;
@@ -4799,10 +5079,6 @@ OPCODE(0xb8) {
 	CodePointer anim(static_cast<CodePointer &>(a[1]).offset(), Log.mainInterpreter());
 	debugC(2, kDebugLevelScript, "opcode 0xb8: actor %s main animation %s", +a[0], +anim);
 	initActorStateLikeDos(ac, anim);
-	// DOS sets g_break_inner = 1 when id == g_main_character_id; mirror
-	// by returning kReturn so the inner dispatch yields.
-	if (Log.protagonist() && ac == Log.protagonist())
-		return kReturn;
 	return kThxBye;
 }
 OPCODE(0xba) {
@@ -4820,9 +5096,11 @@ OPCODE(0xba) {
 	//   arg0 = id (re-resolved);  CheckActorAnimReady(id);
 	//   if (NOT ready) RegisterSampleSlot...; RET;
 	//   arg1 = anim;  InitActorState(id).
-	const uint16 id = uint16(a[0]);
 	if (Log.inMapMode())
 		return kThxBye;
+	const int16 destX = int16(uint16(a[2]));
+	const int16 destY = int16(uint16(a[3]));
+	const uint16 id = uint16(a[0]);
 	Actor *ac = Log.getActor(id);
 	if (!ac) {
 		Log.setPendingError(0x17);
@@ -4833,28 +5111,30 @@ OPCODE(0xba) {
 			return kThxBye;
 		return kReturn;
 	}
-	const int16 destX = int16(uint16(a[2]));
-	const int16 destY = int16(uint16(a[3]));
-	CodePointer anim(static_cast<CodePointer &>(a[1]).offset(), Log.mainInterpreter());
-	debugC(2, kDebugLevelScript, "opcode 0xba: actor %s raw-position (%d,%d) main animation %s",
-		+a[0], destX, destY, +anim);
 	ac->setRawFrame(0);
 	ac->setRawPosition(Common::Point(destX, destY));
+	if (Log.inMapMode())
+		return kThxBye;
 	if (!checkActorAnimReadyModeled(ac)) {
 		if (!retryCurrentOpcode(current))
 			return kThxBye;
 		return kReturn;
 	}
+	CodePointer anim(static_cast<CodePointer &>(a[1]).offset(), Log.mainInterpreter());
+	debugC(2, kDebugLevelScript, "opcode 0xba: actor %s raw-position (%d,%d) main animation %s",
+		+a[0], destX, destY, +anim);
 	initActorStateLikeDos(ac, anim);
-	return (Log.protagonist() && ac == Log.protagonist()) ? kReturn : kThxBye;
+	return kThxBye;
 }
 OPCODE(0xbb) {
 	// DOS Op_bb_WalkActorAnimSlow @ 1000:4fde: identical to 0xba but
 	// g_walk_speed_flag = 1 (slow stride). The C++ port doesn't model
 	// per-walk stride; behaviour is the same.
-	const uint16 id = uint16(a[0]);
 	if (Log.inMapMode())
 		return kThxBye;
+	const int16 destX = int16(uint16(a[2]));
+	const int16 destY = int16(uint16(a[3]));
+	const uint16 id = uint16(a[0]);
 	Actor *ac = Log.getActor(id);
 	if (!ac) {
 		Log.setPendingError(0x17);
@@ -4865,20 +5145,20 @@ OPCODE(0xbb) {
 			return kThxBye;
 		return kReturn;
 	}
-	const int16 destX = int16(uint16(a[2]));
-	const int16 destY = int16(uint16(a[3]));
-	CodePointer anim(static_cast<CodePointer &>(a[1]).offset(), Log.blockInterpreter());
-	debugC(2, kDebugLevelScript, "opcode 0xbb: actor %s raw-position (%d,%d) block animation %s",
-		+a[0], destX, destY, +anim);
 	ac->setRawFrame(0);
 	ac->setRawPosition(Common::Point(destX, destY));
+	if (Log.inMapMode())
+		return kThxBye;
 	if (!checkActorAnimReadyModeled(ac)) {
 		if (!retryCurrentOpcode(current))
 			return kThxBye;
 		return kReturn;
 	}
+	CodePointer anim(static_cast<CodePointer &>(a[1]).offset(), Log.blockInterpreter());
+	debugC(2, kDebugLevelScript, "opcode 0xbb: actor %s raw-position (%d,%d) block animation %s",
+		+a[0], destX, destY, +anim);
 	initActorStateLikeDos(ac, anim);
-	return (Log.protagonist() && ac == Log.protagonist()) ? kReturn : kThxBye;
+	return kThxBye;
 }
 
 OPCODE(0xbf) {
@@ -4907,20 +5187,22 @@ OPCODE(0xbf) {
 			return kThxBye;
 		return kReturn;
 	}
-	debugC(2, kDebugLevelScript, "opcode 0xbf: protagonist raw-position (%s,%s) main animation %s",
-		+a[1], +a[2], +a[0]);
 	const int16 destX = int16(uint16(a[1]));
 	const int16 destY = int16(uint16(a[2]));
 	protag->setRawFrame(0);
 	protag->setRawPosition(Common::Point(destX, destY));
+	if (Log.inMapMode())
+		return kThxBye;
 	if (!checkActorAnimReadyModeled(protag)) {
 		if (!retryCurrentOpcode(current))
 			return kThxBye;
 		return kReturn;
 	}
 	CodePointer anim(static_cast<CodePointer &>(a[0]).offset(), Log.mainInterpreter());
+	debugC(2, kDebugLevelScript, "opcode 0xbf: protagonist raw-position (%d,%d) main animation %s",
+		destX, destY, +anim);
 	initActorStateLikeDos(protag, anim);
-	return kReturn;  // DOS g_break_inner = 1 — yield
+	return kThxBye;
 }
 
 // 0xc0..0xc5: cast/actor pos.
@@ -4940,20 +5222,22 @@ OPCODE(0xc0) {
 			return kThxBye;
 		return kReturn;
 	}
-	debugC(2, kDebugLevelScript, "opcode 0xc0: protagonist raw-position (%s,%s) block animation %s",
-		+a[1], +a[2], +a[0]);
 	const int16 destX = int16(uint16(a[1]));
 	const int16 destY = int16(uint16(a[2]));
 	protag->setRawFrame(0);
 	protag->setRawPosition(Common::Point(destX, destY));
+	if (Log.inMapMode())
+		return kThxBye;
 	if (!checkActorAnimReadyModeled(protag)) {
 		if (!retryCurrentOpcode(current))
 			return kThxBye;
 		return kReturn;
 	}
 	CodePointer anim(static_cast<CodePointer &>(a[0]).offset(), Log.blockInterpreter());
+	debugC(2, kDebugLevelScript, "opcode 0xc0: protagonist raw-position (%d,%d) block animation %s",
+		destX, destY, +anim);
 	initActorStateLikeDos(protag, anim);
-	return kReturn;
+	return kThxBye;
 }
 OPCODE(0xc1) {
 	// DOS Op_c1_UnregisterActor @ 1000:5131:
@@ -5006,10 +5290,10 @@ OPCODE(0xc3) {
 	//   slot.wX = arg1;  slot.wY = arg2;
 	//   Init bookkeeping bytes (frame=1, sprite_idx=0xff, rect=0xffff…);
 	//   else: pending error 0x2a.
-	const uint16 id = uint16(a[0]);
 	const int16 x = int16(uint16(a[1]));
 	const int16 y = int16(uint16(a[2]));
-	const bool ok = Log.castTableRegister(id, x, y);
+	const uint16 id = uint16(a[0]);
+	const bool ok = Log.castTableRegister(id, x, y, current.interpreter());
 	debugC(2, kDebugLevelScript, "opcode 0xc3: RegisterCastEntry id=%u pos=(%d,%d) %s",
 		id, x, y, ok ? "ok" : "FAIL (table full → pending 0x2a)");
 	return kThxBye;
@@ -5021,9 +5305,9 @@ OPCODE(0xc4) {
 	// with (kCastTableCap - matched_index), not arg1. arg2 (in DX) is
 	// preserved and written correctly to wY. See Logic::castTableSetPos
 	// for the full disassembly trace and reproduction note.
-	const uint16 id = uint16(a[0]);
 	const int16 x = int16(uint16(a[1]));   // resolved + passed for trace; DOS discards
 	const int16 y = int16(uint16(a[2]));
+	const uint16 id = uint16(a[0]);
 	debugC(2, kDebugLevelScript, "opcode 0xc4: SetCastEntryPosition id=%u (arg1=%d ignored — DOS bug, wY=%d)",
 		id, x, y);
 	Log.castTableSetPos(id, x, y);
@@ -5049,12 +5333,12 @@ OPCODE(0xca) {
 	// not the iuc_graf.dat byte offset. Op_cb/LoadGraphicToSlot reads the
 	// same word to choose the destination graphic slot.
 	const uint16 id = uint16(a[0]);
-	const uint16 type = uint16(a[1]);
 	MainDat *main = _logic->resources()->mainDat();
 	if (!main || id == 0 || id > main->imagesCount()) {
 		Log.setPendingError(0x0a);
 		return kThxBye;
 	}
+	const uint16 type = uint16(a[1]);
 	debugC(2, kDebugLevelScript, "opcode 0xca: patch image_directory[%u].type = %u", id, type);
 	main->patchImageType(id, type);
 	return kThxBye;
@@ -5067,7 +5351,6 @@ OPCODE(0xcd) {
 	//   4. Calls Op_96_handler (unlock control = setNoStep(false) +
 	//      setStepPending(false))
 	debugC(2, kDebugLevelScript, "opcode 0xcd: end cutscene / restore room active");
-	Graf.showCursor();
 	Graf.setFullscreen(false);
 	Log.setRoomActive(true);
 	Log.setNoStep(false);
@@ -5130,13 +5413,13 @@ OPCODE(0xd7) {
 OPCODE(0xd9) {
 	// 0xd9 (DOS CS:0x5430): add zone entry to g_zone[8] (4 uint16 args, 8-byte
 	// stride). Overflow sets g_pendingErrorCode = 0x27.
-	debugC(2, kDebugLevelScript, "opcode 0xd9: add zone (%s,%s,%s,%s)",
-		+a[0], +a[1], +a[2], +a[3]);
 	if (Log.zones().size() >= 8) {
 		Log.setPendingError(0x27);
 		return kThxBye;
 	}
 	Logic::Zone z = { uint16(a[0]), uint16(a[1]), uint16(a[2]), uint16(a[3]) };
+	debugC(2, kDebugLevelScript, "opcode 0xd9: add zone (%u,%u,%u,%u)",
+		z.a, z.b, z.c, z.d);
 	Log.zonesAdd(z);
 	return kThxBye;
 }
@@ -5145,33 +5428,30 @@ OPCODE(0xdd) {
 	// 0xdd (DOS CS:0x54bf): add zone-B entry. 4 uint16 args + 1 var slot value
 	// (ReadVarBySlot_RHS) at offset +0x679. Overflow at 30 sets error 0x32.
 	// VM args 0..3 + arg 4 (variable). Stride 10 bytes per entry.
-	debugC(2, kDebugLevelScript, "opcode 0xdd: add zone-B (%s,%s,%s,%s, var=%s)",
-		+a[0], +a[1], +a[2], +a[3], +a[4]);
+	if (Log.zonesB().size() >= 30) {
+		Log.setPendingError(0x32);
+		return kThxBye;
+	}
 	Logic::ZoneB z = {
 		uint16(a[0]), uint16(a[1]), uint16(a[2]), uint16(a[3]), uint16(a[4])
 	};
+	debugC(2, kDebugLevelScript, "opcode 0xdd: add zone-B (%u,%u,%u,%u, var=%u)",
+		z.a, z.b, z.c, z.d, z.var);
 	Log.zonesBAdd(z);
 	return kThxBye;
 }
 
-// 0xe0..0xec: frame-table mutators / misc state setters. iter-17:
-// re-decompiled from DOS — these mutate the room's per-frame data table:
-//   Op_e0 (1 arg): InvalidateFrame(arg0) — set frame[arg0].x = frame.y = 999
-//                  (the "placeholder" sentinel that findPath skips per
-//                  iter-15's BFS guard).
-//   Op_e1 (3 args): SetFramePosition(arg0, x=arg1, y=arg2) — overwrite the
-//                   frame's screen position.
-//   Op_e3 (3 args): stash 3 globals + set logic dirty (palette/font region?)
-//   Op_e4 (4 args): append entry to g_anim_list (max 8) — a deferred draw
-//                   queue. C++ has no overlay queue yet (see Op_7e).
-// All are scene/cutscene-specific. Without a frame-override mechanism on
-// Room, log the call with all args so any anomalies are traceable.
+// 0xe0..0xec: frame-table mutators, anim-list state, and parser helpers.
 OPCODE(0xe0) {
 	// DOS Op_e0 (CS:0x5548): InvalidateFrame. Sets frame[arg0].x = .y = 999.
 	// findPath skips frames with this sentinel — used to remove a frame
 	// from the walkable graph mid-cutscene (e.g. blocking a path).
 	const uint16 frame = uint16(a[0]);
 	debugC(2, kDebugLevelScript, "opcode 0xe0: InvalidateFrame %u", frame);
+	if (frame >= 0xfd) {
+		Log.setPendingError(0x30);
+		return kThxBye;
+	}
 	if (Room *room = Log.room())
 		room->invalidateFrame(frame);
 	return kThxBye;
@@ -5180,6 +5460,10 @@ OPCODE(0xe1) {
 	// DOS Op_e1 (CS:0x5564): SetFramePosition. Overwrites frame[arg0]'s
 	// (x, y) with arg1, arg2. Used to dynamically move a walkable point.
 	const uint16 frame = uint16(a[0]);
+	if (frame >= 0xfd) {
+		Log.setPendingError(0x30);
+		return kThxBye;
+	}
 	const int16 x = int16(uint16(a[1]));
 	const int16 y = int16(uint16(a[2]));
 	debugC(2, kDebugLevelScript, "opcode 0xe1: SetFramePosition frame=%u (%d,%d)", frame, x, y);
@@ -5207,16 +5491,20 @@ OPCODE(0xe3) {
 OPCODE(0xe4) {
 	// DOS Op_e4_handler @ 1000:55a7:
 	//   if (anim_list_count >= 8) pending-error 0xb;
-	//   else: append (arg3, arg2, arg0+3, arg0+9, arg1+0x9b, arg1+0xa1, 0xffff)
+	//   else: append (arg3, arg2, arg0+3, arg1+0x9b, arg0+9, arg1+0xa1, 0xffff)
 	//         to anim_list[anim_list_count]; ++count.
 	// = "queue cutscene anim entry". Args are pose / position deltas.
 	if (Log.animListCount() >= 8) {
 		Log.setPendingError(0x0b);
 		return kThxBye;
 	}
-	debugC(2, kDebugLevelScript, "opcode 0xe4: anim-list append (%s, %s, %s, %s)",
-		+a[0], +a[1], +a[2], +a[3]);
-	Log.animListAppend(uint16(a[0]), uint16(a[1]), uint16(a[2]), uint16(a[3]));
+	const uint16 arg3 = uint16(a[3]);
+	const uint16 arg2 = uint16(a[2]);
+	const uint16 arg0 = uint16(a[0]);
+	const uint16 arg1 = uint16(a[1]);
+	debugC(2, kDebugLevelScript, "opcode 0xe4: anim-list append (%u, %u, %u, %u)",
+		arg0, arg1, arg2, arg3);
+	Log.animListAppend(arg0, arg1, arg2, arg3);
 	return kThxBye;
 }
 OPCODE(0xe7) {
@@ -5228,9 +5516,14 @@ OPCODE(0xe7) {
 	return kThxBye;
 }
 OPCODE(0xe8) {
-	// 0xe8 (DOS CS:0x561d): clear pending step.
-	debugC(2, kDebugLevelScript, "opcode 0xe8: stepPending = false");
-	Log.setStepPending(false);
+	// DOS Op_e8 @ 1000:561d: arg0 = resource-segment Pascal buffer.
+	// Resolves arg0 to an offset, switches DS to g_resourceSegment, and
+	// falls through to the same ClearBytesUntilWrap helper used by Op_e7.
+	byte *base = nullptr;
+	byte *ptr = resolveDosResourcePointer(a[0], current, &base);
+	debugC(2, kDebugLevelScript, "opcode 0xe8: clear pstring buffer at 0x%04x",
+		dosResourceOffset(base, ptr));
+	clearDosPascalBufferAt(base, ptr);
 	return kThxBye;
 }
 OPCODE(0xe9) {
@@ -5248,11 +5541,13 @@ OPCODE(0xe9) {
 OPCODE(0xea) {
 	// DOS Op_ea (CS:0x5642): Pascal-string append-byte. arg0 = string ptr,
 	// arg1 = byte to append. If string.length < string.capacity, increments
-	// length and writes byte at end. Falls through.
-	// PREVIOUSLY misclassified as `setInMapMode(arg0 != 0)` — would corrupt
-	// map-vs-scene state if 0xea ever emitted. Now safe-stub.
-	debugC(2, kDebugLevelScript, "opcode 0xea: pstring append byte STUB (str=%s, byte=%s)",
-		+a[0], +a[1]);
+	// length and writes byte at end. Uses signed byte comparison (`JGE`).
+	byte *base = nullptr;
+	byte *ptr = resolveDosResourcePointer(a[0], current, &base);
+	const byte ch = uint8(uint16(a[1]) & 0xff);
+	debugC(2, kDebugLevelScript, "opcode 0xea: pstring append byte at 0x%04x, byte=0x%02x",
+		dosResourceOffset(base, ptr), ch);
+	appendDosPascalByteAt(ptr, ch);
 	return kThxBye;
 }
 OPCODE(0xeb) {
@@ -5265,10 +5560,11 @@ OPCODE(0xeb) {
 OPCODE(0xec) {
 	// DOS Op_ec (CS:0x5670): Pascal-string truncate-by-length. arg0 = string
 	// ptr; if length > 0, decrements length and zeroes last char.
-	// PREVIOUSLY misclassified as `clear inMapMode` — would force out of map
-	// mode if 0xec ever emitted. Now safe-stub.
-	debugC(2, kDebugLevelScript, "opcode 0xec: pstring truncate STUB (str=%s)",
-		+a[0]);
+	byte *base = nullptr;
+	byte *ptr = resolveDosResourcePointer(a[0], current, &base);
+	debugC(2, kDebugLevelScript, "opcode 0xec: pstring truncate at 0x%04x",
+		dosResourceOffset(base, ptr));
+	popDosPascalByteAt(ptr);
 	return kThxBye;
 }
 
@@ -5280,20 +5576,24 @@ OPCODE(0xee) {
 	//     if (entry+1 byte == 0):       ; not yet claimed
 	//         g_game_score += entry word
 	//         entry+1 byte = 1          ; mark claimed
-	// = "claim a score event". Score-table data lives at CS:[0x95]
-	// loaded from iuc_main.dat by LoadCodeBlock — not yet wired in
-	// C++. As a faithful approximation, increment by 1 per event on
-	// first claim; the real DOS values vary per event but the
-	// "score increases when achievement triggers" semantic holds.
+	// = "claim a score event". In iuc_main.dat these are footer fields
+	// +0x34 (count) and +0x36 (table pointer), copied to CS:[0x93/0x95].
 	const uint16 eventId = uint16(a[0]);
-	if (Log.isScoreEventClaimed(eventId)) {
+	MainDat *main = _logic->resources()->mainDat();
+	if (!main || eventId >= main->scoreEventCount()) {
+		Log.setPendingError(0x2f);
+		return kThxBye;
+	}
+
+	uint16 delta = 0;
+	if (!main->claimScoreEvent(eventId, delta)) {
 		debugC(3, kDebugLevelScript, "opcode 0xee: score event %u already claimed", eventId);
 		return kThxBye;
 	}
-	debugC(2, kDebugLevelScript, "opcode 0xee: claim score event %u (score %u → %u)",
-		eventId, Log.gameScore(), Log.gameScore() + 1);
-	Log.markScoreEventClaimed(eventId);
-	Log.addGameScore(1);
+
+	debugC(2, kDebugLevelScript, "opcode 0xee: claim score event %u (+%u, score %u -> %u)",
+		eventId, delta, Log.gameScore(), uint16(Log.gameScore() + delta));
+	Log.addGameScore(delta);
 	return kThxBye;
 }
 
@@ -5309,10 +5609,18 @@ OPCODE(0xf1) {
 	//       }
 	//   }
 	// Routes through Sound::playSfxPair which chains Op_f0 + secondary.
-	if (Sound *snd = _engine->sound())
-		snd->playSfxPair(uint16(a[0]), uint16(a[1]));
-	debugC(1, kDebugLevelScript, "opcode 0xf1: load_sfx pair primary=%s secondary=%s",
-		+a[0], +a[1]);
+	if (Sound *snd = _engine->sound()) {
+		if (!snd->isEnabled()) {
+			debugC(1, kDebugLevelScript, "opcode 0xf1: load_sfx pair skipped (sfx disabled)");
+			return kThxBye;
+		}
+		const uint16 primary = uint16(a[0]);
+		snd->playSfx(primary);
+		const uint16 secondary = uint16(a[1]);
+		snd->playSecondarySfx(secondary);
+		debugC(1, kDebugLevelScript, "opcode 0xf1: load_sfx pair primary=%u secondary=%u",
+			primary, secondary);
+	}
 	return kThxBye;
 }
 OPCODE(0xf2) {
@@ -5322,20 +5630,33 @@ OPCODE(0xf2) {
 	// active slot range [0x6702..0x6704] and [0x6706..0x6708]; if in
 	// range, replays via driver dispatch. Routes through
 	// Sound::rangeCheck.
-	if (Sound *snd = _engine->sound())
-		snd->rangeCheck(uint16(a[0]));
-	debugC(1, kDebugLevelScript, "opcode 0xf2: sfx range check id=%s", +a[0]);
+	if (Sound *snd = _engine->sound()) {
+		if (!snd->isEnabled()) {
+			debugC(1, kDebugLevelScript, "opcode 0xf2: sfx range check skipped (sfx disabled)");
+			return kThxBye;
+		}
+		const uint16 id = uint16(a[0]);
+		snd->rangeCheck(id);
+		debugC(1, kDebugLevelScript, "opcode 0xf2: sfx range check id=%u", id);
+	}
 	return kThxBye;
 }
 OPCODE(0xf3) {
 	// DOS Op_f3 (CS:0x5769): nargs=0 per opcodes_nargs.data. Calls
-	// RegisterSampleSlot_Bare8 (or _Bare5 if SFX inactive). NOT a music
-	// load. The original C++ port had it as `Music.loadMusic(a[0])` —
-	// reading a[0] (which doesn't exist with 0 nargs) as a CodePointer
-	// offset, then loading "music" from a garbage address. Could crash
-	// if the script ever emitted Op_f3. iter-21 fix.
-	debugC(2, kDebugLevelScript, "opcode 0xf3: RegisterSampleSlot (no args) STUB");
-	return kThxBye;
+	// RegisterSampleSlot_Bare8 (BX=0xb: CheckSfxPlaying) when SFX is
+	// active/enabled, else AX=1 + RegisterSampleSlot_Bare5.
+	debugC(2, kDebugLevelScript, "opcode 0xf3: wait for sfx stop");
+	if (sampleSlotWouldError())
+		return kThxBye;
+	if (Sound *snd = _engine->sound()) {
+		if (snd->isEnabled() && snd->isActive() && snd->isSfxPlaying())
+			_logic->runLaterWithCurrentMode(current);
+		else
+			_logic->runLaterWithCurrentMode(next, 1);
+	} else {
+		_logic->runLaterWithCurrentMode(next, 1);
+	}
+	return kReturn;
 }
 OPCODE(0xf5) {
 	// DOS Op_f5 (CS:0x5812): nargs=0 per opcodes_nargs.data. Calls
@@ -5350,29 +5671,39 @@ OPCODE(0xf5) {
 	debugC(2, kDebugLevelScript, "opcode 0xf5: wait for music stop");
 	if (sampleSlotWouldError())
 		return kThxBye;
-	if (Music.isPlaying())
+	if (_engine->dosMusicEnabled() != 0 && Music.isPlaying())
 		_logic->runLaterWithCurrentMode(current);
 	else
-		_logic->runLaterWithCurrentMode(next);
+		_logic->runLaterWithCurrentMode(next, _engine->dosMusicEnabled() == 0 ? 1 : 0);
 	return kReturn;
 }
 
 OPCODE(0xfa) {
-	// Save game (DOS CS:0x58ed). Original opens the save dialog (modal); the
-	// engine should defer to ScummVM's save system. We log and leave the
-	// actual save to the user's manual menu trigger for now.
-	debugC(1, kDebugLevelScript, "opcode 0xfa: save game requested (ScummVM hotkey to save)");
+	// Save game (DOS Op_fa_handler @ 1000:58ed). The original stores the
+	// protagonist/current-place pair, opens the save-slot/name dialogs, then
+	// writes the selected save. Route the modal request through ScummVM's
+	// frontend save dialog backed by the engine save stream.
+	debugC(1, kDebugLevelScript, "opcode 0xfa: save game requested");
+	_engine->saveGameDialog();
 	return kThxBye;
 }
 OPCODE(0xfb) {
-	// Load game (DOS CS:0x593c).
+	// Load game (DOS Op_fb_handler @ 1000:593c). The original opens the
+	// save-slot picker, loads the selected DOS save, then marks room redraw /
+	// room change state and breaks the current script loop. Route the request
+	// through the frontend dialog backed by the engine save stream.
 	debugC(1, kDebugLevelScript, "opcode 0xfb: load game requested (ScummVM hotkey to load)");
+	if (_engine->loadGameDialog())
+		return kReturn;  // DOS sets g_break_loop after a successful load.
 	return kThxBye;
 }
 
 OPCODE(0xfd) {
-	// 0xfd (DOS CS:0x4087): tail-calls ResolveOpcodeArg0 — read-and-discard.
-	debugC(2, kDebugLevelScript, "opcode 0xfd: read-discard %s", +a[0]);
+	// DOS Op_fd_handler @ 1000:4087 stores arg0 into DAT_1000_885e, which
+	// FormatBubbleText_Inner reads as the text-height multiplier.
+	const uint16 lineHeight = uint16(a[0]);
+	Log.setBubbleLineHeight(lineHeight);
+	debugC(2, kDebugLevelScript, "opcode 0xfd: bubble line height = %u", lineHeight);
 	return kThxBye;
 }
 
@@ -5385,7 +5716,7 @@ OPCODE(0xfd) {
 // 	setPosition(Common::Point(left, top));
 // 	_code += 6;
 // }
-// 
+//
 // ANIMCODE(7) {
 // 	// get sprite id from main variable
 // 	const uint16 offset = READ_LE_UINT16(_code + 2);
@@ -5393,7 +5724,7 @@ OPCODE(0xfd) {
 // 	const uint16 sprite = READ_LE_UINT16(var);
 // 	setSprite(sprite);
 // }
-// 
+//
 // ANIMCODE(26) {
 // 	// set z index
 // 	setZIndex(_code[1]);

@@ -77,6 +77,9 @@ enum Offsets {
 	kTunesDirectory		= 0x2C,
 	kMusicFileCount		= 0x2E,
 	kMusicFileNames		= 0x30,
+	kMaxGameScore		= 0x32,
+	kScoreEventCount	= 0x34,
+	kScoreEventTable	= 0x36,
 	kWordVars			= 0x3A,
 	kByteVars			= 0x3E,
 	kEntryPoint			= 0x42,
@@ -108,7 +111,16 @@ enum Offsets {
 	kBubbleBottomLeftPointOffset = 0xa0,
 	kBubbleBottomRightPointOffset = 0xa2,
 	kBubbleTopLeftPointOffset = 0xa4,
-	kBubbleTopRightPointOffset = 0xa6
+	kBubbleTopRightPointOffset = 0xa6,
+
+	// DOS CycleAllAnimationsByMask @ 1000:c8a1 reads CS:[0xa9],
+	// [0xab], [0xaf], [0xad], [0xb1]. The loaded footer begins at
+	// DOS CS:[0x5f], so these are footer offsets 0x4a..0x52.
+	kCursorOverlayBit01Offset = 0x4a,
+	kCursorOverlayBit02Offset = 0x4c,
+	kCursorOverlayBit04Offset = 0x4e,
+	kCursorOverlayBit10Offset = 0x50,
+	kCursorOverlayBit08Offset = 0x52
 };
 
 void MainDat::readFile(SeekableReadStream &stream) {
@@ -131,6 +143,28 @@ void MainDat::readFile(SeekableReadStream &stream) {
 
 uint16 MainDat::personsCount() const {
 	return READ_LE_UINT16(_footer + kPersonsCount);
+}
+
+uint16 MainDat::maxGameScore() const {
+	return READ_LE_UINT16(_footer + kMaxGameScore);
+}
+
+uint16 MainDat::scoreEventCount() const {
+	return READ_LE_UINT16(_footer + kScoreEventCount);
+}
+
+bool MainDat::claimScoreEvent(uint16 eventId, uint16 &delta) {
+	delta = 0;
+	if (eventId >= scoreEventCount())
+		return false;
+
+	byte *entry = _data + READ_LE_UINT16(_footer + kScoreEventTable) + eventId * 2;
+	if (entry[1] != 0)
+		return false;
+
+	delta = READ_LE_UINT16(entry);
+	entry[1] = 1;
+	return true;
 }
 
 void MainDat::loadObjectStates() {
@@ -354,6 +388,56 @@ uint16 MainDat::getCursorSpriteId() const {
 	return sprite;
 }
 
+bool MainDat::cycleCursorOverlayAnimation(uint16 maskBit, uint16 &spriteId, uint16 &x, uint16 &y) {
+	uint16 footerOffset = 0;
+	switch (maskBit) {
+	case 0x01:
+		footerOffset = kCursorOverlayBit01Offset;
+		break;
+	case 0x02:
+		footerOffset = kCursorOverlayBit02Offset;
+		break;
+	case 0x04:
+		footerOffset = kCursorOverlayBit04Offset;
+		break;
+	case 0x08:
+		footerOffset = kCursorOverlayBit08Offset;
+		break;
+	case 0x10:
+		footerOffset = kCursorOverlayBit10Offset;
+		break;
+	default:
+		return false;
+	}
+
+	const uint16 recordOffset = READ_LE_UINT16(_footer + footerOffset);
+	if (recordOffset == 0 || uint32(recordOffset) + 8 > _dataLen) {
+		debugC(2, kDebugLevelGraphics | kDebugLevelFiles,
+			"cursor-overlay anim 0x%02x invalid record offset 0x%04x",
+			maskBit, recordOffset);
+		return false;
+	}
+
+	byte *record = _data + recordOffset;
+	x = READ_LE_UINT16(record);
+	y = READ_LE_UINT16(record + 2);
+	const uint16 frameCount = READ_LE_UINT16(record + 4);
+	const uint16 frameIndex = READ_LE_UINT16(record + 6);
+	const uint32 spriteOffset = uint32(recordOffset) + 8 + uint32(frameIndex) * 2;
+	if (frameCount == 0 || spriteOffset + 2 > _dataLen) {
+		debugC(2, kDebugLevelGraphics | kDebugLevelFiles,
+			"cursor-overlay anim 0x%02x invalid frame count/index %u/%u at 0x%04x",
+			maskBit, frameIndex, frameCount, recordOffset);
+		return false;
+	}
+
+	uint16 nextFrame = uint16(frameIndex + 1);
+	if (nextFrame == frameCount)
+		nextFrame = 0;
+	WRITE_LE_UINT16(record + 6, nextFrame);
+	spriteId = READ_LE_UINT16(_data + spriteOffset);
+	return true;
+}
 
 uint16 MainDat::getFrameId(FramePart part) const {
 	switch (part) {

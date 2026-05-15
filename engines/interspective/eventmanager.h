@@ -46,10 +46,12 @@ public:
 	Clickable();
 	virtual ~Clickable();
 
-	virtual void clicked() = 0;
+	// Returns true when the DOS click handler script actually ran.
+	virtual bool clicked() = 0;
 
 	virtual Common::Rect area() const = 0;
 	virtual byte zIndex() const = 0;
+	virtual bool isClickable() const { return true; }
 
 private:
 	friend class EventManager;

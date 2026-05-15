@@ -37,8 +37,45 @@ Room::Room(Logic *l) : _logic(l) {
 }
 
 void Room::addActorFrame(Common::Point pos, Common::Array<byte> nexts) {
-	Actor::Frame f(pos, nexts, _actorFrames.size() + 1);
-	_actorFrames.push_back(f);
+	_logic->actorFramesAdd(pos, nexts);
+}
+
+void Room::clearActorFrames() {
+	_logic->actorFramesClearCount();
+}
+
+Actor::Frame Room::getFrame(uint16 index) const {
+	return _logic->actorFrame(index);
+}
+
+void Room::invalidateFrame(uint16 index) {
+	_logic->actorFrameInvalidate(index);
+}
+
+void Room::setFramePosition(uint16 index, int16 x, int16 y) {
+	_logic->actorFrameSetPosition(index, x, y);
+}
+
+uint16 Room::frameCount() const {
+	return _logic->actorFrameCount();
+}
+
+uint16 Room::nearestFrameTo(int16 x, int16 y) const {
+	uint16 best = 0;
+	int32 bestDistSq = 0x7fffffff;
+	for (uint16 i = 0; i < _logic->actorFrameCount(); ++i) {
+		Common::Point p = _logic->actorFrame(uint16(i + 1)).position();
+		if (p.x == 999)
+			continue;  // sentinel for invalidated
+		int32 dx = int32(p.x) - int32(x);
+		int32 dy = int32(p.y) - int32(y);
+		int32 d2 = dx * dx + dy * dy;
+		if (d2 < bestDistSq) {
+			bestDistSq = d2;
+			best = uint16(i + 1);
+		}
+	}
+	return best;
 }
 
 }

@@ -77,7 +77,8 @@ public:
 	uint16 interfaceImageIndex() const;
 
 	byte *getEntryPoint() const;
-	
+	uint16 dataSize() const { return _dataLen; }
+
 	byte *_data;
 
 	Actor *actor(uint16 index) const;
@@ -90,6 +91,9 @@ public:
 	void loadObjectStates();
 	uint16 personsCount() const;
 	uint16 globalObjectStateCount() const { return personsCount(); }
+	uint16 maxGameScore() const;
+	uint16 scoreEventCount() const;
+	bool claimScoreEvent(uint16 eventId, uint16 &delta);
 
 	byte *getByteVariable(uint16 index);
 	byte *getWordVariable(uint16 index);
@@ -100,6 +104,7 @@ public:
 	uint16 spriteCount() const;
 
 	uint16 getCursorSpriteId() const;
+	bool cycleCursorOverlayAnimation(uint16 maskBit, uint16 &spriteId, uint16 &x, uint16 &y);
 	uint16 getFrameId(FramePart part) const;
 	uint16 getBubbleId(SpeechBubblePart part) const;
 

@@ -24,6 +24,7 @@
  */
 
 #include "common/rect.h"
+#include "common/serializer.h"
 
 #include "interspective/actor.h"
 #include "interspective/graphics.h"
@@ -38,11 +39,13 @@
 namespace Interspective {
 //
 
+static uint16 actorCodeSegmentTag(const byte *base) {
+	if (base && Log.blockProgram() && Log.blockProgram()->contains(base))
+		return uint16(0x4000 + (Log.currentBlock() & 0x3fff));
+	return 0x1cb5;
+}
+
 Actor::Actor(const CodePointer &code) : Animation(code, Common::Point()), _id(0) {
-	byte *header = code.code();
-	_base = header - code.offset();
-	readHeader(header);
-	snprintf(_debugInfo, 50, "actor at %s", +code);
 	_direction = kDirNone;
 	_frame = 0;
 	_debug = false;
@@ -53,6 +56,11 @@ Actor::Actor(const CodePointer &code) : Animation(code, Common::Point()), _id(0)
 	_actorCallbackSeg = 0xffff;
 	_actorCallbackOff = 0xffff;
 
+	byte *header = code.code();
+	_base = header - code.offset();
+	readHeader(header);
+	snprintf(_debugInfo, 50, "actor at %s", +code);
+
 	Engine::instance().logic()->addAnimation(this);
 
 	init_opcodes<37>();
@@ -61,6 +69,28 @@ Actor::Actor(const CodePointer &code) : Animation(code, Common::Point()), _id(0)
 bool Actor::isFine() const {
 	return _room == Log.currentRoom() && _base && !_attentionNeeded &&
 			(!_framequeue.empty() || !_confused || _nextDirection);
+}
+
+bool Actor::animReadyLikeDos() const {
+	// DOS CheckActorAnimReady @ 1000:6415 returns carry set once the
+	// actor no longer has current-room animation state that must be waited.
+	if (_room != Log.currentRoom() || !scriptActive())
+		return true;
+
+	const bool stillActive = dosField(0x6f) != 0 ||
+		(dosField(0x65) == 0 &&
+		 (dosFieldWord(0x6b) != 0 || dosFieldWord(0x69) != 0 ||
+		  dosField(0x64) == 0 || dosField(0x67) != 0));
+	return !stillActive;
+}
+
+bool Actor::idleReadyLikeDos() const {
+	// DOS CheckActorIdle @ 1000:645e uses the same carry convention:
+	// carry clear while an active current-room actor script must be retried.
+	const bool stillActive = _room == Log.currentRoom() && scriptActive() &&
+		dosFieldWord(0x6b) == 0 && dosField(0x65) == 0 &&
+		(dosField(0x64) == 0 || dosField(0x67) != 0);
+	return !stillActive;
 }
 
 void Actor::setAnimation(uint16 offset) {
@@ -87,6 +117,7 @@ void Actor::setAnimation(uint16 offset) {
 	_interval = 1;
 	_counter = _ticksLeft = 0;
 	_nextDirection = kDirNone;
+	setDosField(0x6f, 0);
 }
 
 void Actor::setAnimation(const CodePointer &anim) {
@@ -100,6 +131,18 @@ void Actor::setAnimation(const CodePointer &anim) {
 	_interval = 1;
 	_counter = _ticksLeft = 0;
 	_nextDirection = kDirNone;
+	setDosField(0x6f, 0);
+}
+
+void Actor::setActorCodeOffset(uint16 offset) {
+	if (!_base)
+		return;
+
+	byte *segmentBase = _base - _baseOffset;
+	_base = segmentBase + offset;
+	_baseOffset = offset;
+	_offset = 0;
+	_debugInvalid = false;
 }
 
 void Actor::hide() {
@@ -115,6 +158,144 @@ void Actor::hide() {
 	_framequeue.clear();
 }
 
+static void syncActorDosFields(Common::Serializer &s, Common::HashMap<uint8, uint8> &fields) {
+	uint16 count = fields.size();
+	s.syncAsUint16LE(count);
+	if (s.isLoading()) {
+		fields.clear();
+		for (uint16 i = 0; i < count; ++i) {
+			uint8 key = 0;
+			uint8 value = 0;
+			s.syncAsByte(key);
+			s.syncAsByte(value);
+			if (value != 0)
+				fields[key] = value;
+		}
+	} else {
+		for (Common::HashMap<uint8, uint8>::const_iterator it = fields.begin(); it != fields.end(); ++it) {
+			uint8 key = it->_key;
+			uint8 value = it->_value;
+			s.syncAsByte(key);
+			s.syncAsByte(value);
+		}
+	}
+}
+
+void Actor::synchronize(Common::Serializer &s) {
+	uint8 baseSource = 0;
+	if (s.isSaving() && _base) {
+		if (Log.blockProgram() && Log.blockProgram()->contains(_base))
+			baseSource = 2;
+		else
+			baseSource = 1;
+	}
+
+	uint16 posX = uint16(_position.x);
+	uint16 posY = uint16(_position.y);
+	uint8 interval = uint8(_interval);
+	uint16 ticksLeft = _ticksLeft;
+	int8 zIndex = _zIndex;
+	uint16 baseOffset = _baseOffset;
+	uint16 offset = _offset;
+	uint16 mainSprite = _mainSpriteId;
+	uint16 frame = _frame;
+	uint16 nextFrame = _nextFrame;
+	uint16 room = _room;
+	uint8 direction = uint8(_direction);
+	uint8 nextDirection = uint8(_nextDirection);
+	uint16 nextAnimator = _nextAnimator;
+	uint8 attentionNeeded = _attentionNeeded ? 1 : 0;
+	uint8 confused = _confused ? 1 : 0;
+	uint16 callbackSeg = _actorCallbackSeg;
+	uint16 callbackOff = _actorCallbackOff;
+
+	s.syncAsByte(baseSource);
+	s.syncAsUint16LE(baseOffset);
+	s.syncAsUint16LE(offset);
+	s.syncAsUint16LE(posX);
+	s.syncAsUint16LE(posY);
+	s.syncAsByte(interval);
+	s.syncAsUint16LE(ticksLeft);
+	s.syncAsSByte(zIndex);
+	s.syncAsUint16LE(mainSprite);
+	s.syncAsUint16LE(frame);
+	s.syncAsUint16LE(nextFrame);
+	s.syncAsUint16LE(room);
+	s.syncAsByte(direction);
+	s.syncAsByte(nextDirection);
+	s.syncAsUint16LE(nextAnimator);
+	s.syncAsByte(attentionNeeded);
+	s.syncAsByte(confused);
+	s.syncAsUint16LE(callbackSeg);
+	s.syncAsUint16LE(callbackOff);
+	syncActorDosFields(s, _dosFields);
+
+	uint16 moveSlotCount = _moveSlots.size();
+	s.syncAsUint16LE(moveSlotCount);
+	if (s.isLoading()) {
+		_moveSlots.clear();
+		for (uint16 i = 0; i < moveSlotCount; ++i) {
+			MoveSlot slot;
+			s.syncAsUint16LE(slot.a);
+			s.syncAsUint16LE(slot.b);
+			s.syncAsUint16LE(slot.c);
+			s.syncAsByte(slot.mode);
+			if (_moveSlots.size() < 8)
+				_moveSlots.push_back(slot);
+		}
+	} else {
+		for (uint16 i = 0; i < moveSlotCount; ++i) {
+			MoveSlot slot = _moveSlots[i];
+			s.syncAsUint16LE(slot.a);
+			s.syncAsUint16LE(slot.b);
+			s.syncAsUint16LE(slot.c);
+			s.syncAsByte(slot.mode);
+		}
+	}
+
+	if (!s.isLoading())
+		return;
+
+	_position = Common::Point(int16(posX), int16(posY));
+	_interval = int8(interval);
+	_ticksLeft = ticksLeft;
+	_zIndex = zIndex;
+	_baseOffset = baseOffset;
+	_offset = offset;
+	_frame = frame;
+	_nextFrame = nextFrame;
+	_room = room;
+	_direction = Direction(direction);
+	_nextDirection = Direction(nextDirection);
+	_nextAnimator = nextAnimator;
+	_attentionNeeded = attentionNeeded != 0;
+	_confused = confused != 0;
+	setActorCallback(callbackSeg, callbackOff);
+	_debugInvalid = false;
+	_framequeue.clear();
+	_callBacks.clear();
+	_roomCallbacks.clear();
+	_speech = Speech();
+
+	switch (baseSource) {
+	case 1:
+		_base = Log.mainInterpreter() ? Log.mainInterpreter()->rawCode(baseOffset) : 0;
+		break;
+	case 2:
+		_base = Log.blockInterpreter() ? Log.blockInterpreter()->rawCode(baseOffset) : 0;
+		break;
+	default:
+		_base = 0;
+		_baseOffset = _offset = 0;
+		break;
+	}
+
+	if (mainSprite == 0xffff)
+		clearMainSprite();
+	else
+		setMainSprite(mainSprite);
+}
+
 void Actor::copyIntervalToTicks() {
 	// DOS common actor tail at 1000:6953 zero-extends actor byte +0x10
 	// into word +0x0a. In C++ those fields are _interval and _ticksLeft.
@@ -122,6 +303,49 @@ void Actor::copyIntervalToTicks() {
 	_ticksLeft = ticks;
 	_explicitFrameDelay = true;
 	setDosFieldWord(0x0a, ticks);
+}
+
+void Actor::decrementTicksLeftLikeDos() {
+	// DOS UpdateActorAnimation @ 1000:64ae decrements actor field +0x0a
+	// on every active actor update after the optional script dispatch.
+	_ticksLeft = uint16(_ticksLeft - 1);
+	setDosFieldWord(0x0a, _ticksLeft);
+}
+
+static bool zoneContainsPoint(uint16 left, uint16 top, uint16 right, uint16 bottom, const Common::Point &p) {
+	return p.x >= int16(left) && p.x <= int16(right) &&
+		p.y >= int16(top) && p.y <= int16(bottom);
+}
+
+void Actor::updateZoneAtPointLikeDos() {
+	if (mainSpriteId() == 0xffff)
+		return;
+
+	uint8 bl = 0;
+	const Common::Array<Logic::CollisionZone> &collisionZones = Log.collisionZones();
+	for (uint i = 0; i < collisionZones.size(); ++i) {
+		const Logic::CollisionZone &z = collisionZones[i];
+		if (!zoneContainsPoint(z.a, z.b, z.c, z.d, _position))
+			continue;
+		bl = uint8(uint16(z.slot) & 0xff);
+		break;
+	}
+
+	uint8 bh = 0;
+	const Common::Array<Logic::ZoneB> &zonesB = Log.zonesB();
+	for (uint i = 0; i < zonesB.size(); ++i) {
+		const Logic::ZoneB &z = zonesB[i];
+		if (!zoneContainsPoint(z.a, z.b, z.c, z.d, _position))
+			continue;
+		bh = uint8(z.var & 0xff);
+		break;
+	}
+
+	setDosField(0x13, bh);
+	if (dosField(0x16) == 0)
+		bl = dosField(0x12);
+	setDosField(0x12, bl);
+	_zIndex = int8(bl);
 }
 
 void Actor::callMe(const CodePointer &code) {
@@ -135,10 +359,14 @@ void Actor::callMeWithMode(const CodePointer &code, uint16 mode) {
 }
 
 void Actor::tellMe(const CodePointer &code, uint16 timeout) {
+	_ticksLeft = timeout;
+	setDosFieldWord(0x0a, timeout);
 	_roomCallbacks.push_back(RoomCallback(timeout, code));
 }
 
 void Actor::tellMeWithMode(const CodePointer &code, uint16 timeout, uint16 mode) {
+	_ticksLeft = timeout;
+	setDosFieldWord(0x0a, timeout);
 	_roomCallbacks.push_back(RoomCallback(timeout, code, mode, true));
 }
 
@@ -150,12 +378,12 @@ void Actor::callMeWhenSilent(const CodePointer &cp) {
 	_speech.callWhenDone(cp);
 }
 
-void Actor::say(const Common::String &text) {
-	_speech = Speech(this, text, 3);
+void Actor::say(const Common::String &text, uint16 maxLines) {
+	_speech = Speech(this, text, maxLines);
 }
 
-void Actor::sayAtPos(const Common::String &text, Common::Point pos) {
-	_speech = Speech(this, text, pos, 2);
+void Actor::sayAtPos(const Common::String &text, Common::Point pos, uint16 maxLines) {
+	_speech = Speech(this, text, pos, maxLines);
 }
 
 Actor::Speech::~Speech() { while (!_cb.empty()) Log.runLater(_cb.pop()); }
@@ -183,8 +411,6 @@ void Actor::callMeWhenStill(const CodePointer &cp) {
 void Actor::setFrame(uint16 frame) {
 	_frame = frame;
 	Frame f(Log.room()->getFrame(frame));
-	if (f.position().x == 999)
-		return;
 	_position = f.position();
 	debugC(5, kDebugLevelActor, "actor set to frame %d, position %d:%d", f.index(), _position.x, _position.y);
 }
@@ -266,6 +492,9 @@ void Actor::moveTo(uint16 frame) {
 	// Frame::operator-'s assumption that _nexts has 8 entries.)
 	if (_frame == 0 || cur.position().x == 999) {
 		debugC(3, kDebugLevelActor, "moveTo(%u): warp (no valid current frame)", (uint)frame);
+		_framequeue.clear();
+		setDosFieldWord(0x6b, 0);
+		setDosField(0x6f, 0);
 		setFrame(frame);
 		return;
 	}
@@ -280,17 +509,27 @@ void Actor::moveTo(uint16 frame) {
 	const Frame targetFrame = Log.room()->getFrame(frame);
 	if (targetFrame.position().x == 999) {
 		debugC(3, kDebugLevelActor, "moveTo(%u): warp (target frame invalid in current room)", (uint)frame);
+		_framequeue.clear();
+		setDosFieldWord(0x6b, 0);
+		setDosField(0x6f, 0);
 		setFrame(frame);
 		return;
 	}
 
+	// DOS FindActorPath @ 1000:713e mirrors the requested destination into
+	// actor.field+0x62 before building the path.
+	_nextFrame = frame;
+	_framequeue.clear();
+	setDosFieldWord(0x6b, 0);
 	Common::List<Frame> path = findPath(cur, frame);
 
 	// findPath now returns an EMPTY list when the target is unreachable
 	// (matches DOS bound-check on visited buffer). Treat that as a
 	// single-frame walk to the validated target.
+	bool pathIncludesCurrent = true;
 	if (path.empty()) {
 		path.push_back(targetFrame);
+		pathIncludesCurrent = false;
 	} else {
 		Common::List<Frame>::iterator it = path.end();
 		it--;
@@ -298,17 +537,26 @@ void Actor::moveTo(uint16 frame) {
 			Common::List<Frame> p;
 			p.push_back(targetFrame);
 			path = p;
+			pathIncludesCurrent = false;
 		}
 	}
 
 	Common::String s;
 	Common::List<Frame>::iterator it = path.begin();
-	if (it != path.end())
+	if (pathIncludesCurrent && it != path.end())
 		it++;
 	while (it != path.end()) {
 		_framequeue.push(*it);
 		s += Common::String::format(" %d", int(it->index()));
 		it++;
+	}
+
+	const uint16 pathLen = uint16(MIN<uint>(_framequeue.size(), 0xffff));
+	setDosFieldWord(0x6b, pathLen);
+	setDosField(0x6f, pathLen != 0 ? 1 : 0);
+	if (pathLen != 0) {
+		setDosField(0x65, 1);
+		_attentionNeeded = true;
 	}
 
 	debugC(3, kDebugLevelActor, "found path: %s", s.c_str());
@@ -365,6 +613,9 @@ bool Actor::nextFrame() {
 	setAnimation(_puppeteer.moveAnimator(direction));
 	_frame = next.index();
 	_framequeue.pop();
+	setDosFieldWord(0x6b, uint16(MIN<uint>(_framequeue.size(), 0xffff)));
+	if (_framequeue.empty())
+		setDosField(0x6f, 0);
 	return true;
 }
 
@@ -451,14 +702,24 @@ Animation::Status Actor::tick() {
 		const uint16 savedEntityId = Log.currentEntityId();
 		Log.setCurrentEntityId(_id);
 
-		Animation::Status s;
-		// DOS RunActorScript clears the 8-slot movement queue at entry
-		// before dispatching actor opcodes.
-		if (_base && !_ticksLeft)
-			clearMoveSlots();
-		if (_debug) gDebugLevel += 3;
-			s = Animation::tick();
-		if (_debug) gDebugLevel -= 3;
+		Animation::Status s = kOk;
+		if (_base) {
+			if (_ticksLeft) {
+				debugC(5, kDebugLevelAnimation, "ticking animation %s (ticks left: %u)", _debugInfo, _ticksLeft);
+				decrementTicksLeftLikeDos();
+			} else {
+				// DOS RunActorScript clears the 8-slot movement queue at entry
+				// before dispatching actor opcodes.
+				clearMoveSlots();
+				if (_debug)
+					gDebugLevel += 3;
+				s = Animation::tick();
+				if (_debug)
+					gDebugLevel -= 3;
+				decrementTicksLeftLikeDos();
+			}
+			updateZoneAtPointLikeDos();
+		}
 
 		Log.setCurrentEntityId(savedEntityId);
 		return s;
@@ -494,6 +755,7 @@ void Actor::readHeader(const byte *code) {
 	_frame = code[0x61];
 	_nextFrame = code[0x62];
 	_room = READ_LE_UINT16(code + kOffsetRoom);
+	setActorCallback(READ_LE_UINT16(code + 0x5d), READ_LE_UINT16(code + 0x5f));
 	static const uint8 sparseFields[] = {
 		0x0e, 0x0f, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16,
 		0x17, 0x18, 0x63, 0x65, 0x68, 0x6b, 0x6c, 0x6d, 0x6e, 0x70
@@ -501,27 +763,36 @@ void Actor::readHeader(const byte *code) {
 	for (uint i = 0; i < ARRAYSIZE(sparseFields); ++i)
 		setDosField(sparseFields[i], code[sparseFields[i]]);
 
-	debugC(3, kDebugLevelFiles, "loading %s: interv %d ticks %d z%d pos%d:%d code %d offset %d sprite %d room %d", _debugInfo, _interval, _ticksLeft, _zIndex, _position.x, _position.y, baseOff, _offset, sprite, _room);
+	debugC(3, kDebugLevelFiles, "loading %s: interv %d ticks %u z%d pos%d:%d code %d offset %d sprite %d room %d", _debugInfo, _interval, _ticksLeft, _zIndex, _position.x, _position.y, baseOff, _offset, sprite, _room);
 
 	if (sprite != 0xffff)
 		setMainSprite(sprite);
 }
 
 void Actor::callBacks() {
-	unless (isFine()) {
-		Common::Queue<ScriptCallback> cb = _callBacks;
+	if (!_callBacks.empty()) {
+		Common::Queue<ScriptCallback> callbacks = _callBacks;
+		Common::Queue<ScriptCallback> pending;
 		_callBacks.clear();
-		while (!cb.empty()) {
-			ScriptCallback callback = cb.pop();
+		while (!callbacks.empty()) {
+			ScriptCallback callback = callbacks.pop();
+			const bool ready = callback.hasRunMode ? animReadyLikeDos() : !isFine();
+			if (!ready) {
+				pending.push(callback);
+				continue;
+			}
 			if (callback.hasRunMode)
 				Log.runLaterWithMode(callback.callback, callback.runMode);
 			else
 				Log.runLater(callback.callback);
 		}
+		_callBacks = pending;
 	}
 
 	foreach (RoomCallback, _roomCallbacks) {
 		if (_room == Log.currentRoom() || !it->timeout) {
+			_ticksLeft = 0;
+			setDosFieldWord(0x0a, 0);
 			if (it->hasRunMode)
 				Log.runLaterWithMode(it->callback, it->runMode);
 			else
@@ -529,8 +800,11 @@ void Actor::callBacks() {
 			Common::List<RoomCallback>::iterator done = it;
 			it++;
 			_roomCallbacks.erase(done);
-		} else
+		} else {
 			it->timeout--;
+			_ticksLeft = it->timeout;
+			setDosFieldWord(0x0a, it->timeout);
+		}
 	}
 }
 
@@ -671,6 +945,8 @@ Common::Point Actor::getSpeechPosition() const {
 void Actor::paint(Graphics *g) {
 	if (_room != Log.currentRoom())
 		return;
+	if (!_base)
+		return;
 
 	Animation::paint(g);
 }
@@ -757,13 +1033,14 @@ OPCODE(0x00) {
 	// Animation::OPCODE(0x00) returns kRemove which would erase the
 	// actor from Logic::_animations entirely — wrong for Actor (the
 	// actor should remain in the table, just inactive). Override to
-	// clear PC + return kFrameDone (matches Op_01's terminate-script
-	// semantic without removal).
+	// clear PC and stop dispatch. Do not return kFrameDone: DOS Op_01
+	// does not write field+0x0a, so the shared interval fallback would add
+	// a non-DOS countdown after the script PC is cleared.
 	debugC(2, kDebugLevelActor, "actor opcode 0x00: ScriptEnd (clear PC, no remove) [DOS Op_01]");
 	_offset = 0;
 	_baseOffset = 0;
 	_base = 0;
-	return kFrameDone;
+	return kOk;
 }
 
 OPCODE(0x01) {
@@ -775,7 +1052,7 @@ OPCODE(0x01) {
 	debugC(1, kDebugLevelActor, "actor opcode 0x01: UnregisterAndEnd (hide + terminate) [DOS Op_02]");
 
 	hide();
-	return kFrameDone;
+	return kOk;
 }
 
 OPCODE(0x14) {
@@ -789,24 +1066,18 @@ OPCODE(0x14) {
 	//   else → BP = ES:[BP+DI+2] (loop back to jump target = wait).
 	// DOS CheckScrollDirty returns carry clear when DS:0x662f is nonzero;
 	// in that case the protagonist advances even if a speech slot exists.
-	// Otherwise, while this actor has an active speech slot, re-enter this
-	// opcode. C++ has per-actor _speech (Actor::isSpeaking()) which matches
-	// the slot model — when the actor is speaking we rewind _offset back to
-	// the start of this opcode (jump target encodes "this opcode's address"
-	// in DOS scripts).
+	// Otherwise, while this actor has an active speech slot, DOS replaces
+	// BP with the embedded jump target and keeps the actor dispatch loop
+	// running. It does not set the script-ended flag or field +0x0a.
 	uint16 off = shift();
 	if (Log.protagonist() == this && Log.scrollChanged()) {
 		debugC(3, kDebugLevelAnimation, "actor opcode 0x14: WaitForSpeechSlot bypassed by scroll-dirty [DOS Op_15]");
 		return kOk;
 	}
 	if (isSpeaking()) {
-		// Re-execute: rewind to the jump target. The script encodes
-		// the opcode's own address as the target, so following it loops
-		// back here on the next tick. Tick advancement happens through
-		// the dispatch loop's normal flow.
 		_offset = off;
 		debugC(3, kDebugLevelAnimation, "actor opcode 0x14: WaitForSpeechSlot looping (still speaking) [DOS Op_15]");
-		return kFrameDone;
+		return kOk;
 	}
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x14: WaitForSpeechSlot done (silent) [DOS Op_15]");
 	return kOk;
@@ -1040,16 +1311,20 @@ OPCODE(0x16) {
 
 OPCODE(0x17) {
 	// C++ slot 0x17 = DOS Op_18 BranchIfMoodEquals @ 1000:6b29.
-	//   if (actor.field+0x63 == embedded_byte) actor.PC = jump_target;
+	//   if (actor.field+0x63 == embedded_byte):
+	//       AX = ES:[BP+DI+2];
+	//       DI = AX;
+	//       actor.field+0x2 = AX;
+	//       BP = 0;
 	//   else fall through.
 	// Mood is stored sparsely on Actor::_dosFields (set by ActorOp_24).
 	byte val = embeddedByte();
 	uint16 off = shift();
 	const uint8 mood = dosField(0x63);
 	if (mood == val) {
-		debugC(3, kDebugLevelAnimation, "actor opcode 0x17: BranchIfMoodEquals val=%d mood=%d → jump 0x%04x [DOS Op_18]",
+		debugC(3, kDebugLevelAnimation, "actor opcode 0x17: BranchIfMoodEquals val=%d mood=%d → code offset 0x%04x [DOS Op_18]",
 			val, mood, off);
-		_offset = off;
+		setActorCodeOffset(off);
 	} else {
 		debugC(3, kDebugLevelAnimation, "actor opcode 0x17: BranchIfMoodEquals val=%d mood=%d (no match) [DOS Op_18]",
 			val, mood);
@@ -1072,7 +1347,7 @@ OPCODE(0x19) {
 	// then ends script.
 	uint16 flags = shift();
 	debugC(2, kDebugLevelAnimation, "actor opcode 0x19: SetWalkFlagsAndEnd flags=0x%04x [DOS Op_1a]", flags);
-	_ticksLeft = int16(flags);
+	_ticksLeft = flags;
 	_explicitFrameDelay = true;
 	setDosFieldWord(0x0a, flags);
 	setMainSprite(0xffff);
@@ -1516,7 +1791,7 @@ OPCODE(0x20) {
 	// PC of the byte right after the 2-byte opcode header (the start of
 	// the 10-byte body), then skip the body by 5 shifts.
 	const uint16 callbackPC = _baseOffset + _offset;
-	setActorCallback(0 /* current code segment */, callbackPC);
+	setActorCallback(actorCodeSegmentTag(_base), callbackPC);
 	// Skip the 10-byte inline body.
 	for (int i = 0; i < 5; i++)
 		(void)shift();
@@ -1534,7 +1809,7 @@ OPCODE(0x21) {
 	uint16 cbOff = 0;
 	if (off != 0)
 		cbOff = uint16(int32(_baseOffset) + int32(off));
-	setActorCallback(0 /* current code segment */, cbOff);
+	setActorCallback(actorCodeSegmentTag(_base), cbOff);
 	debugC(2, kDebugLevelAnimation, "actor opcode 0x21: SetCallbackRelative off=%d → cbOff=0x%04x [DOS Op_22]",
 		off, cbOff);
 	return kOk;

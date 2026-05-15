@@ -113,6 +113,12 @@ Status Interpreter::run(uint16 offset, OpcodeMode mode) {
 	// sites (RunEntityScript, runQueued, etc.). Op_3a/Op_3d read this
 	// to decide deferred-mode dispatch behaviour.
 	Logic::instance().setOpcodeMode(uint16(mode));
+	// InterpretBytecode @ 1000:2ca4 resets the call-stack depth and
+	// switch branch state at each top-level script entry. The private
+	// run(offset) path used by Op_36 stays untouched so in-script calls
+	// preserve the active stack frame.
+	Logic::instance().setCallDepth(0);
+	Logic::instance().setBranchState(0);
 	return run(offset);
 }
 
@@ -264,7 +270,9 @@ CodePointer *Interpreter::readArgument<CodePointer>(byte *&code) {
 
 class ParametrizedString : public Value {
 public:
-	ParametrizedString(byte *translated, uint16 len) {
+	ParametrizedString(byte *translated, uint16 len, byte *raw, byte *base) :
+			_raw(raw),
+			_base(base) {
 		memcpy(_translateBuf, translated, len);
 		_length = len;
 	}
@@ -273,9 +281,13 @@ public:
 	}
 	virtual operator byte *() { return _translateBuf; }
 	virtual operator uint16() const { return _length; }
+	virtual byte *rawPointer() { return _raw; }
+	virtual byte *rawBase() { return _base; }
 private:
 	byte _translateBuf[500];
 	uint16 _length;
+	byte *_raw;
+	byte *_base;
 };
 
 template<>
@@ -283,8 +295,10 @@ ParametrizedString *Interpreter::readArgument<ParametrizedString>(byte *&code) {
 	byte translateBuf[500];
 	byte ch;
 	byte *str = translateBuf;
+	byte *raw = code;
 	uint16 offset, value;
-	while ((ch = *(code++))) {
+	bool rawTerminated = false;
+	while (!rawTerminated && (ch = *(code++))) {
 		assert(str - translateBuf < 500);
 		switch (ch) {
 		case 14:
@@ -310,9 +324,29 @@ ParametrizedString *Interpreter::readArgument<ParametrizedString>(byte *&code) {
 			*(str++) = *(code++);
 			break;
 		case kStringCountSpacesIf0:
-		case kStringCountSpacesIf1:
-			error("unhandled string special 0x%02x", ch);
+		case kStringCountSpacesIf1: {
+			// DOS FormatBubbleText_Inner consumes a two-byte global-byte
+			// offset after these conditional markers and skips forward to
+			// STX (0x02) when the condition matches. The raw string remains
+			// available via rawPointer(); the translated buffer should only
+			// contain text that survives the same condition.
+			offset = READ_LE_UINT16(code);
+			code += 2;
+			const byte state = *_resources->getGlobalByteVariable(offset);
+			const bool skip = (ch == kStringCountSpacesIf0) ? (state == 0) : (state != 0);
+			if (skip) {
+				while (true) {
+					const byte skipped = *(code++);
+					if (skipped == 0) {
+						rawTerminated = true;
+						break;
+					}
+					if (skipped == kStringCountSpacesTerminate)
+						break;
+				}
+			}
 			break;
+		}
 		case kStringCountSpacesTerminate:
 			break;
 		case '\r':
@@ -332,7 +366,7 @@ ParametrizedString *Interpreter::readArgument<ParametrizedString>(byte *&code) {
 
 	debugC(4, kDebugLevelScript, "read parametrized string '%s' as argument", translateBuf);
 
-	return new ParametrizedString(translateBuf, str - translateBuf);
+	return new ParametrizedString(translateBuf, str - translateBuf, raw, _base);
 }
 
 Value *Interpreter::getArgument(byte *&code) {

@@ -68,8 +68,12 @@ bool Movie::play() {
 			loadIFrame();
 			showFrame();
 			delay();
-			if ((Log.canSkipCutscene() && Eng.escapePressed()) || Eng.shouldQuit()) {
-				Log.skipCutscene();
+			if (Eng.escapePressed()) {
+				debugC(2, kDebugLevelGraphics, "movie interrupted by ESC");
+				return false;
+			}
+			if (Eng.shouldQuit()) {
+				debugC(2, kDebugLevelGraphics, "movie interrupted by quit");
 				return false;
 			}
 		}

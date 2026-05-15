@@ -100,7 +100,7 @@ protected:
 
 	Resources *_resources;
 	int8 _interval;
-	int16 _ticksLeft;
+	uint16 _ticksLeft;
 	bool _explicitFrameDelay;
 	int8 _zIndex;
 	Common::Point _position;
@@ -112,7 +112,7 @@ protected:
 	Common::List<Sprite *> _sprites;
 	Common::SharedPtr<Interspective::Sprite> _mainSprite;
 	uint16 _mainSpriteId;
-	int8 _counter;
+	uint8 _counter;
 	uint16 _loopStart;
 	/** offset of the animation from the start of its codeblock */
 	uint16 _baseOffset;

@@ -40,7 +40,7 @@ namespace Common {
 
 namespace Interspective {
 
-MusicParser::MusicParser() : MidiParser(), _tune(0), _script(0), _musicType(MT_INVALID), _time(0), _lastTick(0), _tick(0) {
+MusicParser::MusicParser() : MidiParser(), _tune(0), _script(0), _musicType(MT_INVALID), _active(true), _time(0), _lastTick(0), _tick(0) {
 	const uint32 devTypes = MDT_MIDI | MDT_ADLIB | MDT_PREFER_GM;
 	MidiDriver::DeviceHandle dev = MidiDriver::detectDevice(devTypes);
 	_musicType = MidiDriver::getMusicType(dev);

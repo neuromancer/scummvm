@@ -40,6 +40,10 @@
 #include "interspective/room.h"
 #include "interspective/value.h"
 
+namespace Common {
+class Serializer;
+}
+
 namespace Interspective {
 //
 
@@ -60,10 +64,11 @@ public:
 		  _roomActive(true),
 		  _stepPending(false),
 		  _noStep(false),
-		  _menuStashA(0),
-		  _menuStashB(0),
-		  _menuStashConsumed(false),
-		  _cursorMode(0),
+			  _menuStashA(0),
+			  _menuStashB(0),
+			  _menuStashConsumed(false),
+			  _defaultCursorMode(0x10),
+			  _cursorMode(0x10),
 		  _dragTarget(0),
 		  _dragTargetMode40(0),
 		  _implicitActor(0),
@@ -73,13 +78,16 @@ public:
 		  _branchState(0),
 		  _pendingError(0),
 		  _gameScore(0),
-		  _maxGameScore(100),  // sensible default until iuc_main.dat loader sets it
+		  _maxGameScore(100),  // overwritten from iuc_main.dat during resource load
 		  _currentEntityId(0),
 		  _drawCommandCount(0),
+		  _actorFrameCount(0),
 		  _dialogCursor0(0), _dialogCursor1(0), _dialogClickGate(0),
 		  _opcodeMode(0),
 		  _escBreakProc(0),
 		  _escBreakSrcPC(0),
+		  _escBreakPending(false),
+		  _bubbleLineHeight(12),
 		  _parserBufferCapacity(60),
 		  _callDepth(0),
 		  _runningQueued(0),
@@ -105,7 +113,7 @@ public:
 	// `g_drag_step_idx`, not the cursor/verb mode predicate used by
 	// opcodes 0x0a/0x0b/0x0d/0x0e and the cursor gate helpers.
 	uint16 verbMode() const { return _cursorMode; }
-	void setVerbMode(uint16 v) { _cursorMode = v; }
+	void setVerbMode(uint16 v) { setCursorMode(v); }
 	// DS:0x666e — current entity type for the active entity script:
 	// 0 = none, 1 = exit, 2 = object/person, 3 = actor.
 	uint16 gameState() const { return _gameState; }
@@ -153,6 +161,18 @@ public:
 
 	void walkboxesClear() { _walkboxes.clear(); }
 	const Common::Array<Zone> &walkboxes() const { return _walkboxes; }
+
+	// DOS keeps the Op_df frame/walkbox table in global memory at
+	// DS:0x0791. Op_e2 and room restarts clear only the count at DS:0x6617;
+	// SetActorPosition still indexes the backing table without checking that
+	// count. Keep count and backing storage separate so out-of-count frame
+	// IDs retain the same stale records DOS would read.
+	void actorFramesClearCount();
+	void actorFramesAdd(Common::Point p, const Common::Array<byte> &nexts);
+	Actor::Frame actorFrame(uint16 index) const;
+	uint16 actorFrameCount() const { return _actorFrameCount; }
+	void actorFrameInvalidate(uint16 index);
+	void actorFrameSetPosition(uint16 index, int16 x, int16 y);
 
 	// Object-table runtime state. Mirrors the per-object 18-byte record
 	// (DOS GetObjectOffset, stride 0x12) field at +0 (room id). Op_7f writes
@@ -221,30 +241,28 @@ public:
 			_exitFields[key] = v;
 	}
 
-	// Per-entity cell-bit array. DOS keeps an 8-bit flag byte per entity id
-	// (objects + exits share the id space, indexed against g_object_count_max).
-	// Bit 0 is the "active in current room" visibility bit; bits 1..7 are
-	// per-script flags. Op_7b sets bit 0, Op_7c clears it, Op_15 tests an
-	// arbitrary bit. We store sparsely; absent ids read as 0.
+	// Per-room, per-entity cell byte. DOS ResetCellMap fills the whole
+	// room-cell buffer with 1, and ReadCellByteAtOffset selects the current
+	// room's allocated slice. Bit 0 gates click dispatch/visibility; bits
+	// 1..7 are script flags. We store only values that differ from the DOS
+	// default byte 1.
 	uint8 cellByte(uint16 id) const {
-		Common::HashMap<uint16, uint8>::const_iterator it = _cellBits.find(id);
-		return it == _cellBits.end() ? 0 : it->_value;
+		Common::HashMap<uint32, uint8>::const_iterator it = _cellBits.find(cellKey(id));
+		return it == _cellBits.end() ? 1 : it->_value;
 	}
 	bool cellBit(uint16 id, uint8 bit) const {
 		return ((cellByte(id) >> (bit & 7)) & 1) != 0;
 	}
 	void setCellBit(uint16 id, uint8 bit) {
-		_cellBits[id] = uint8(cellByte(id) | (1 << (bit & 7)));
+		storeCellByte(id, uint8(cellByte(id) | (1 << (bit & 7))));
 	}
 	void clearCellBit(uint16 id, uint8 bit) {
 		uint8 v = uint8(cellByte(id) & ~(1 << (bit & 7)));
-		if (v == 0)
-			_cellBits.erase(id);
-		else
-			_cellBits[id] = v;
+		storeCellByte(id, v);
 	}
 	bool enableObjectFlag1(uint16 id);
 	bool disableObjectFlag1(uint16 id);
+	uint16 disableObjectFlag1ReturnAx(uint16 id);
 	void clearAllCellBits() { _cellBits.clear(); }
 
 	// Per-actor flag70 (DOS Actor.field_0x70). Op_49 writes; nothing reads
@@ -271,8 +289,13 @@ public:
 	uint16 menuStashB() const { return _menuStashB; }
 	bool menuStashConsumed() const { return _menuStashConsumed; }
 	void setMenuStashConsumed(bool v) { _menuStashConsumed = v; }
+	uint16 defaultCursorMode() const { return _defaultCursorMode; }
+	void setDefaultCursorMode(uint16 v) { _defaultCursorMode = v; }
 	uint16 cursorMode() const { return _cursorMode; }
-	void setCursorMode(uint16 v) { _cursorMode = v; }
+	void setCursorMode(uint16 v) {
+		_cursorMode = v;
+		_stepPending = false;
+	}
 	uint16 dragTarget() const { return _dragTarget; }
 	void setDragTarget(uint16 v) { _dragTarget = v; }
 
@@ -293,6 +316,8 @@ public:
 		// models AddExitToList / RemoveExitFromList membership.
 	void movePersonToActor(uint16 id);
 	void resetObjectAtActorPosition(uint16 id);
+	void placeObjectExitAtDosPosition(uint16 id, int16 x, int16 y);
+	void clampObjectExitToScreenLikeDos(uint16 id);
 	bool prepareDragInteraction(uint16 id);
 	bool isObjectExitRegistered(uint16 id) const {
 		for (uint i = 0; i < _objectExitList.size(); ++i)
@@ -301,8 +326,6 @@ public:
 		return false;
 	}
 	bool registerObjectExit(uint16 id) {
-		if (isObjectExitRegistered(id))
-			return true;
 		if (_objectExitList.size() >= 20) {
 			setPendingError(0x21);
 			return false;
@@ -310,23 +333,25 @@ public:
 		_objectExitList.push_back(id);
 		return true;
 	}
-	void unregisterObjectExit(uint16 id) {
+	bool unregisterObjectExit(uint16 id) {
 		for (uint i = 0; i < _objectExitList.size(); ++i) {
 			if (_objectExitList[i] == id) {
 				_objectExitList.remove_at(i);
-				return;
+				return true;
 			}
 		}
+		setPendingError(0x22);
+		return false;
 	}
-	void remapObjectExit(uint16 fromId, uint16 toId) {
+	bool remapObjectExit(uint16 fromId, uint16 toId) {
 		for (uint i = 0; i < _objectExitList.size(); ++i) {
 			if (_objectExitList[i] == fromId) {
 				_objectExitList[i] = toId;
-				return;
+				return true;
 			}
 		}
-		if (toId != 0)
-			registerObjectExit(toId);
+		setPendingError(0x22);
+		return false;
 	}
 
 	// Walk driver. Mirrors DOS SendActorToTarget @ 1000:7323 →
@@ -343,6 +368,7 @@ public:
 	// exists for the actor-walk opcodes (0xae/0xb8/0xb9/0xba/0xbb)
 	// that move a non-protag actor.
 	bool sendActorToTarget(Actor *walker, uint16 targetId);
+	bool sendActorToEntityByType(Actor *walker, uint16 targetId, uint16 entityType);
 	bool sendActorToCurrentEntity(Actor *walker);
 
 	// "Walk-actor-anim" variant — DOS Op_ba/Op_bb @ 1000:4fde/0x4fe5.
@@ -398,12 +424,13 @@ public:
 		uint16 id;           // w_unk_02
 		int16 x, y;          // wX, wY
 		uint8 raw[81];       // raw[0/1]=bRect_w/h, raw[2+n]=p_data[n]
-		CastEntry() : active(0), id(0), x(0), y(0) {
+		Interpreter *interpreter; // C++ mirror of wActive's caller code segment
+		CastEntry() : active(0), id(0), x(0), y(0), interpreter(0) {
 			for (uint8 i = 0; i < 81; ++i) raw[i] = 0;
 		}
 	};
 	enum { kCastTableCap = 18 };
-	bool castTableRegister(uint16 id, int16 x, int16 y);
+	bool castTableRegister(uint16 id, int16 x, int16 y, Interpreter *interpreter);
 	void castTableSetPos(uint16 id, int16 x, int16 y);
 	void castTableClear(uint16 id);
 	void castTableClearAll();
@@ -463,35 +490,40 @@ public:
 	const ModalState &modalState() const { return _modalState; }
 
 	// FormatBubbleText mirrors DOS FormatBubbleText_FullPath @ 1000:9333.
-	// Processes a Pascal-style markup-encoded string, copies the cleaned
-	// text to an output buffer, and returns dimensions.
+	// Processes a markup-encoded string, copies the DOS formatted text
+	// buffer (including render-control bytes), and returns dimensions.
 	//
 	// Markup characters (DOS-faithful):
 	//   0x00 — terminator (end of input).
 	//   0x05 — inline-literal-until-null: copy bytes verbatim until
 	//          another 0x00 byte, then absorb 2 trailing bytes (DOS
 	//          bookkeeping for the literal block).
-	//   0x06 — decimal-number formatter (3-byte param: 16-bit number,
-	//          renders via FormatDecimalNumber).
-	//   0x07 — single-byte param consumed (no output side-effect on text).
-	//   0x09 — tab/spacing (1-byte param = X-offset to advance).
-	//   0x0a — conditional skip (3-byte param = condition + address);
+	//   0x06 — decimal-number formatter (2-byte global-word offset).
+	//   0x07 — color marker + single-byte parameter copied to output.
+	//   0x09 — tab/spacing marker + 1-byte X-offset copied to output.
+	//   0x0a — conditional skip (2-byte global-byte offset);
 	//          if game-state bit is FALSE, skip following block to STX.
-	//   0x0b — conditional skip inverse (3-byte param); skip if TRUE.
+	//   0x0b — conditional skip inverse (2-byte param); skip if TRUE.
 	//   0x0d — forced row terminator.
+	//   0x02 — conditional-block terminator, consumed but not copied.
 	//   0x20 / 0x2d — word-break increment word count.
 	//   else — emit char via the char sprite (LookupCharSprite analog).
 	//
-	// Returns total pixel height = (word_count * line_height + 2),
-	// minimum 2 line-heights + 2.
+	// Returns DOS AX/CX/DX equivalents: total pixel height, adjusted
+	// max width, and explicit row count.
 	struct FormattedBubble {
-		Common::String text;       // output text (markup expanded)
+		Common::String text;       // DOS formatted text buffer
 		uint16 lineCount;          // logical line / word count
+		uint16 rowCount;           // DOS DX return: explicit rendered rows
 		uint16 totalHeight;        // pixel height (DOS formula)
-		uint16 maxLineWidth;       // pixel width of widest line
+		uint16 maxLineWidth;       // DOS CX return: widest line minus frame bias
 		bool truncated;            // true if buffer overflowed (DOS sets pending error 0x11)
 	};
 	FormattedBubble formatBubbleText(const byte *src) const;
+	FormattedBubble measureVerbBubbleText(const byte *src) const;
+	Common::String prepareTextStrippedForRender(const byte *src, bool *truncated) const;
+	uint16 bubbleLineHeight() const { return _bubbleLineHeight; }
+	void setBubbleLineHeight(uint16 h) { _bubbleLineHeight = h; }
 	// Second drag-target slot (DS:0x667e — `g_drag_target_mode40`),
 	// distinct from `_dragTarget` (DS:0x667c). Written by Op_76
 	// alongside `_g_cursor_mode = 0x40`. Read by Op_0b only.
@@ -523,8 +555,7 @@ public:
 	void setGameScore(uint16 v) { _gameScore = v; }
 	void addGameScore(uint16 delta) { _gameScore += delta; }
 	// Score-system divisor (CS:[0x91]). Used by Op_5d to compute
-	// percent and tenths display. DOS loads from iuc_main.dat at
-	// LoadCodeBlock; C++ doesn't have that loader path yet.
+	// percent and tenths display. Loaded from iuc_main.dat footer +0x32.
 	uint16 maxGameScore() const { return _maxGameScore; }
 	void setMaxGameScore(uint16 v) { _maxGameScore = v; }
 	// Per-event "claimed" flag (DOS CS:[0x95+i*2+1]). Op_ee marks
@@ -555,16 +586,23 @@ public:
 
 	// Anim-list (DOS DS:0x3f2d..., counter at `g_anim_list_count`,
 	// 8-entry cap). Op_e4 appends an entry; Op_e5 clears. Each entry
-	// holds 4 words of cutscene-animation state. Used during scene
-	// transitions to replay a sequence of pose changes.
+	// mirrors the seven words written by Op_e4: two direct args plus
+	// four derived rectangle/cursor bounds and a 0xffff sentinel.
 	struct AnimListEntry {
-		uint16 a, b, c, d;
+		uint16 arg3, arg2;
+		uint16 x0, y0, x1, y1;
+		uint16 sentinel;
 	};
 	void animListClear() { _animList.clear(); }
-	bool animListAppend(uint16 a, uint16 b, uint16 c, uint16 d) {
+	bool animListAppend(uint16 arg0, uint16 arg1, uint16 arg2, uint16 arg3) {
 		if (_animList.size() >= 8)
 			return false;
-		AnimListEntry e = { a, b, c, d };
+		AnimListEntry e = {
+			arg3, arg2,
+			uint16(arg0 + 3), uint16(arg1 + 0x9b),
+			uint16(arg0 + 9), uint16(arg1 + 0xa1),
+			0xffff
+		};
 		_animList.push_back(e);
 		return true;
 	}
@@ -655,7 +693,7 @@ public:
 		bool active;
 		// Protagonist DOS fields cleared by Op_97, restored by Op_98:
 		//   field+0x69 (word): walk callback target  → SetActorTarget
-		//   field+0x62 (byte): walk-step state byte
+		//   field+0x62 (byte): target frame byte
 		//   field+0x67 (byte): walk-callback status flag (e.g., 5 = armed)
 		uint16 actorField69;
 		uint8 actorField62;
@@ -747,11 +785,13 @@ public:
 		_escBreakProc = proc;
 		_escBreakSrcPC = srcPC;
 		_skipPoint = target;
+		_escBreakPending = false;
 	}
 	void clearEscBreakPoint() {
 		_escBreakProc = 0;
 		_escBreakSrcPC = 0;
 		_skipPoint.reset();
+		_escBreakPending = false;
 	}
 
 	// Parser-buffer (DOS Pascal-string @ DS:0x4fa9..0x4faa..[chars]):
@@ -830,6 +870,8 @@ public:
 	bool queueDeferred(const CodePointer &p);
 	uint16 deferredQueuedCount() const;
 	// Remove the first deferred entry whose CodePointer matches `p`.
+	// DOS also clears the mode-specific delayed-run entry for that
+	// deferred slot via ResetDispatchModeEntry @ 1000:3198.
 	// Returns true when the canceled slot has the currently-running
 	// deferred mode, mirroring DOS `g_break_loop = 1`.
 	bool cancelDeferred(const CodePointer &p);
@@ -841,6 +883,8 @@ public:
 
 	bool canSkipCutscene() const { return !_skipPoint.isEmpty(); }
 	void setSkipPoint(const CodePointer &);
+	void requestSkipCutscene();
+	bool handleEscDuringScript();
 	void skipCutscene();
 
 	// "Current place" id (DOS CS:[0x111], a savegame state identifier
@@ -853,6 +897,7 @@ public:
 	Music *music() const { return _music; }
 	void setMusic(Music *m) { _music = m; }
 	Resources *resources() const { return _resources; }
+	void synchronize(Common::Serializer &s);
 
 	// DOS scene-snapshot slot (`_g_block_pc_offset` @ 0x6718 et al.).
 	// Op_38 (1000:3c58) saves the current scene; Op_01 (1000:59a3)
@@ -884,8 +929,17 @@ private:
 	void doChangeRoom();
 	void clearRoomTransientAnimations();
 	void updateScrollPosition();
+	void resetQueuedRunMode(uint16 mode);
 	bool redirectDeferredMode(uint16 mode, const CodePointer &target);
 	void runQueued();
+	uint32 cellKey(uint16 id) const { return ((_currentRoom & 0xffff) << 16) | id; }
+	void storeCellByte(uint16 id, uint8 value) {
+		const uint32 key = cellKey(id);
+		if (value == 1)
+			_cellBits.erase(key);
+		else
+			_cellBits[key] = value;
+	}
 
 
 	Engine *_engine;
@@ -929,16 +983,19 @@ private:
 	Common::Array<CollisionZone> _collisionZones; // mirrors g_collision_zone[24], cleared by Op_dc
 	Common::Array<ZoneB> _zonesB;          // mirrors g_zone_b[30], cleared by Op_de
 	Common::Array<Zone> _walkboxes;        // mirrors g_walkbox[*], cleared by Op_e2
+	Common::Array<Actor::Frame> _actorFrameTable; // DOS frame backing table; active count is separate
+	uint16 _actorFrameCount;
 	Common::HashMap<uint16, uint16> _objectRoom; // sparse object-id → room map
 	Common::HashMap<uint16, int16> _objectPosX;
 	Common::HashMap<uint16, int16> _objectPosY;
 	Common::HashMap<uint32, uint8> _objectFields; // (objId<<8)|fieldOffset → byte, for Op_67 unknown offsets
 	Common::HashMap<uint32, uint8> _exitFields;   // (exitId<<8)|fieldOffset → byte, for Op_66 unknown offsets
 	Common::Array<uint16> _objectExitList;        // dynamic object exits registered through AddExitToList-style paths
-	Common::HashMap<uint16, uint8> _cellBits;    // per-entity flag byte (Op_7b/7c/Op_15)
+	Common::HashMap<uint32, uint8> _cellBits;    // (room<<16)|entity -> DOS cell byte
 	Common::HashMap<uint16, uint8> _actorFlag70; // Actor.field_0x70 (Op_49)
 	uint16 _menuStashA, _menuStashB;             // pbRam00023206/8 (Op_4d)
 	bool _menuStashConsumed;                     // uRam00023291 stash flag
+	uint16 _defaultCursorMode; // DS:0x667a — restored by ApplyChangeRoomTransition after Op_cc map/fullscreen gate
 	uint16 _cursorMode;     // DS:0x6678 — g_cursor_mode: 0x04=walk, 0x20=drag, 0x40/0x80=verb-style
 	uint16 _dragTarget;     // current drag-source object id
 	uint16 _dragTargetMode40; // DS:0x667e — written by Op_76, read by Op_0b
@@ -969,6 +1026,8 @@ private:
 	uint16 _opcodeMode;       // DS:0x670e
 	uint16 _escBreakProc;     // DS:0x6726 (g_break_target_proc)
 	uint16 _escBreakSrcPC;    // DS:0x6728 (g_break_target_di)
+	bool _escBreakPending;    // ESC latched by fade/video code until HandleEscDuringScript.
+	uint16 _bubbleLineHeight; // DOS DAT_1000_885e, written by Op_fd and read by FormatBubbleText_Inner.
 	Common::String _parserBuffer;
 	uint8 _parserBufferCapacity;
 	uint8 _callDepth;       // DOS call-stack depth (max 8)

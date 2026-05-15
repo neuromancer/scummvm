@@ -47,13 +47,17 @@ enum FooterOffsets {
 	kEntryPointOffset = 0x0E
 };
 
+enum {
+	kDosResourceSegmentSize = 0x8000
+};
+
 Program::Program(Common::ReadStream &file, uint16 id)
   :	_exits(0) {
 	uint16 length = file.readUint16LE(); // for this length
 	if (length > 25000)
 		error("too large a program (%d)", length);
 
-	_code = new byte[length];
+	_code = new byte[kDosResourceSegmentSize]();
 	_codeSize = length;
 
 	file.read(_code + 2, length - 2);
@@ -150,7 +154,7 @@ void Program::loadExits(Interpreter *in) {
 	_exits = new Exit*[nexits];
 
 	for (int i = 0; i < nexits; ++i) {
-		_exits[i] = new Exit(CodePointer(exits, in));
+		_exits[i] = new Exit(CodePointer(exits, in), uint16(i + 1));
 		exits += Exit::Size;
 	}
 

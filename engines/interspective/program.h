@@ -59,6 +59,7 @@ public:
 	// don't need access to private fields.
 	const byte *codeBegin() const { return _code; }
 	const byte *codeEnd() const { return _code + _codeSize; }
+	uint16 codeSize() const { return _codeSize; }
 
 	SpriteInfo getSpriteInfo(uint16 index) const;
 

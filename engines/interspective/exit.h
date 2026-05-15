@@ -43,6 +43,7 @@ class Exit : public StaticInspectable, public Clickable {
 public:
 	enum { Size = 0xe };
 
+	uint16 id() const { return _id; }
 	uint16 room() const { return _room; }
 	void setRoom(uint16 r) { _room = r; }
 	const Common::Point &position() const { return _position; }
@@ -54,10 +55,11 @@ public:
 
 	void paint(Graphics *g);
 
-	virtual void clicked();
+	virtual bool clicked();
 
 	virtual Common::Rect area() const;
 	virtual byte zIndex() const;
+	virtual bool isClickable() const;
 
 	bool isEnabled() const { return _enabled; }
 	void setEnabled(bool en) { _enabled = en; }
@@ -66,7 +68,7 @@ public:
 
 	friend class Program;
 private:
-	Exit(const CodePointer &code);
+	Exit(const CodePointer &code, uint16 id);
 	virtual ~Exit() {}
 
 	Sprite *sprite() const { return _sprite.get(); }
@@ -76,6 +78,7 @@ private:
 	uint16 _spriteField;
 	Common::Point _position;
 	Common::Rect _rect;
+	uint16 _id;
 	uint16 _room;
 	CodePointer _clickHandler;
 	bool _enabled;

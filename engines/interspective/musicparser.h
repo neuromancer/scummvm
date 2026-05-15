@@ -168,6 +168,8 @@ public:
 	void stopMusic();
 	void setMaxVolume();
 	bool isPlaying() const;
+	bool isActive() const { return _active; }
+	void setActive(bool active) { _active = active; }
 
 	friend class Note;
 	friend class MusicCommand;
@@ -178,6 +180,7 @@ private:
 	MidiDriver *_midiDriver;
 	MusicScript *_script;
 	MusicType _musicType;
+	bool _active;
 
 	uint32 _time, _lastTick, _tick;
 };

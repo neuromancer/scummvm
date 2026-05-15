@@ -43,7 +43,8 @@ Sound::Sound(Engine *engine) :
 	_state6706(0),
 	_state6708(0),
 	_state670a(0),
-	_state670c(0) {
+	_state670c(0),
+	_active(true) {
 }
 
 Sound::~Sound() {
@@ -51,12 +52,11 @@ Sound::~Sound() {
 }
 
 bool Sound::isEnabled() const {
-	if (!g_system || !g_system->getMixer())
+	if (!_engine)
 		return false;
-	// Mirror DOS g_sfx_enabled — non-zero = some driver loaded.
-	// In ScummVM we proxy via the mixer's sfx-volume slider: volume > 0
-	// means the user wants sfx playback.
-	return g_system->getMixer()->getVolumeForSoundType(Audio::Mixer::kSFXSoundType) > 0;
+	// Mirror DOS g_sfx_enabled — non-zero = some driver loaded. Mixer
+	// volume affects audibility, not script-visible opcode gating.
+	return _engine->dosSfxEnabled() != 0;
 }
 
 bool Sound::isSfxPlaying() const {
@@ -135,7 +135,12 @@ void Sound::playSfxPair(uint16 primaryId, uint16 secondaryId) {
 	if (!isEnabled())
 		return;
 	playSfx(primaryId);  // Op_f0 inline — handles primary
+	playSecondarySfx(secondaryId);
+}
 
+void Sound::playSecondarySfx(uint16 secondaryId) {
+	if (!isEnabled())
+		return;
 	if (secondaryId == _state6700) {
 		debugC(2, kDebugLevelSound,
 			"Sound::playSfxPair secondary %u — short-circuit", secondaryId);
@@ -149,8 +154,8 @@ void Sound::playSfxPair(uint16 primaryId, uint16 secondaryId) {
 	_state6700 = secondaryId;
 
 	debugC(1, kDebugLevelSound,
-		"Sound::playSfxPair(%u, %u) — secondary stored, sample loader pending",
-		primaryId, secondaryId);
+		"Sound::playSecondarySfx(%u) — secondary stored, sample loader pending",
+		secondaryId);
 }
 
 // DOS Op_f2_handler @ 1000:575a:
@@ -174,6 +179,8 @@ void Sound::playSfxPair(uint16 primaryId, uint16 secondaryId) {
 // engine code to retrigger an already-loaded sample.
 void Sound::rangeCheck(uint16 id) {
 	if (!isEnabled())
+		return;
+	if (!_active)
 		return;
 	if (!isSfxPlaying())
 		return;

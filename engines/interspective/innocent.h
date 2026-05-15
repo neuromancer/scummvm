@@ -34,6 +34,7 @@ class MidiDriver;
 
 namespace Common {
 //
+struct Event;
 class EventManager;
 
 }
@@ -53,7 +54,12 @@ public:
 	Engine(OSystem *syst);
 	~Engine();
 
-	virtual Common::Error run();
+	Common::Error run() override;
+	bool hasFeature(EngineFeature f) const override;
+	bool canLoadGameStateCurrently(Common::U32String *msg = nullptr) override;
+	bool canSaveGameStateCurrently(Common::U32String *msg = nullptr) override;
+	Common::Error loadGameStream(Common::SeekableReadStream *stream) override;
+	Common::Error saveGameStream(Common::WriteStream *stream, bool isAutosave = false) override;
 	void delay(int millis) const;
 
 	Logic *logic() { return _logic; }
@@ -63,6 +69,9 @@ public:
 	Debugger *debugger() { return _debugger; }
 	Common::EventManager *eventMan() { return _eventMan; }
 	MidiDriver *musicDriver() const { return _musicDriver.get(); }
+	uint16 dosSoundDeviceMask() const { return uint16(_dosMusicEnabled | _dosSfxEnabled); }
+	uint8 dosMusicEnabled() const { return _dosMusicEnabled; }
+	uint8 dosSfxEnabled() const { return _dosSfxEnabled; }
 
 	uint16 getRandom(uint16 max) const;
 
@@ -73,6 +82,10 @@ public:
 	bool escapePressed() const;
 
 private:
+	bool consumeEscapePress(const Common::Event &event) const;
+	void initDosSoundConfig();
+	void parseDosSoundSwitchString(const byte *data, uint32 length);
+
 	Logic *_logic;
 	Resources *_resources;
 	Graphics *_graphics;
@@ -82,6 +95,9 @@ private:
 
 	Common::RandomSource *_rnd;
 	mutable int _lastTicks, _startRoom;
+	mutable bool _escapeHeld;
+	uint8 _dosMusicEnabled;
+	uint8 _dosSfxEnabled;
 
 	void handleEvents();
 	static Engine *me;

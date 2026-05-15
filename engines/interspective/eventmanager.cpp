@@ -25,6 +25,7 @@
 
 #include "interspective/eventmanager.h"
 
+#include "interspective/actor.h"
 #include "interspective/debug.h"
 #include "interspective/graphics.h"
 #include "interspective/logic.h"
@@ -48,18 +49,33 @@ Clickable::~Clickable() {
 }
 
 void EventManager::clicked(Common::Point pos) {
-	if (!Logic::instance().roomActive())
+	Logic &logic = Logic::instance();
+	if (!logic.roomActive() || logic.noStep())
 		return;
 
 	Clickable *handler = 0;
 
 	foreach(Clickable *, _handlers)
-		if ((*it)->area().contains(pos))
+		if ((*it)->isClickable() && (*it)->area().contains(pos))
 			if (!handler || handler->zIndex() > (*it)->zIndex())
 				handler = *it;
 
-	if (handler)
-		handler->clicked();
+	if (handler) {
+		logic.setStepPending(true);
+		const uint16 currentRoom = logic.currentRoom();
+		if (!handler->clicked())
+			return;
+		Actor *protag = logic.protagonist();
+		const bool brokeInner = logic.roomChangePending()
+			|| logic.currentRoom() != currentRoom
+			|| (protag && protag->isMoving());
+
+		if (!brokeInner && logic.cursorMode() != 4) {
+			const Logic::PostMoveCallback savedCallback = logic.postMoveCallback();
+			logic.sendActorToCurrentEntity(protag);
+			logic.setPostMoveCallback(savedCallback);
+		}
+	}
 }
 
 void EventManager::push(Clickable *c) {
@@ -77,7 +93,8 @@ void EventManager::paint(Graphics *g) const {
 	debugC(3, kDebugLevelEvents | kDebugLevelGraphics, "EventManager paints clickable areas");
 
 	foreach_const(Clickable *, _handlers)
-		g->paintRect((*it)->area());
+		if ((*it)->isClickable())
+			g->paintRect((*it)->area());
 }
 
 void EventManager::toggleDebug() {
