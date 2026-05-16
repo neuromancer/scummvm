@@ -66,6 +66,7 @@ public:
 		  _logicDirty(false),
 		  _stepPending(false),
 		  _noStep(false),
+		  _breakInner(false),
 			  _menuStashA(0),
 			  _menuStashB(0),
 			  _menuStashConsumed(false),
@@ -141,10 +142,16 @@ public:
 	void setLogicDirty(bool v = true) { _logicDirty = v; }
 	bool stepPending() const { return _stepPending; }
 	void setStepPending(bool v) { _stepPending = v; }
+	void cycleCursorModeByRightClickLikeDos();
 	// DOS g_flag_no_step (DS:0x6747). Set by Op_95 to lock player input during
 	// cutscenes. Op_96 clears both _noStep and _stepPending.
 	bool noStep() const { return _noStep; }
 	void setNoStep(bool v) { _noStep = v; }
+	// DOS g_break_inner (DS:0x672f). InterpretBytecode clears it at each
+	// top-level script entry; protagonist walk helpers set it so click
+	// dispatch does not auto-send the actor a second time.
+	bool breakInner() const { return _breakInner; }
+	void setBreakInner(bool v) { _breakInner = v; }
 	// DOS g_walk_speed_flag (DS:0x674d). Several opcode pairs set this
 	// byte before resolving code/table pointers: 0 = main/resource bank,
 	// 1 = block bank.
@@ -730,6 +737,7 @@ public:
 	uint8 postMoveTargetFrameMirror() const { return _postMoveTargetFrameMirror; }
 	void setPostMoveTargetFrameMirror(uint8 frame) { _postMoveTargetFrameMirror = frame; }
 	void runPostMoveCallbackIfReady();
+	void resetRoomScriptSlotLikeDos(uint16 mode) { resetQueuedRunMode(mode); }
 
 	// Cutscene-PC state backup (DOS Op_97 @ 1000:4a5d / Op_98 @ 1000:4b40).
 	// Single-slot save/restore of the protagonist's walk callback fields,
@@ -1013,6 +1021,7 @@ private:
 	void doChangeRoom();
 	void clearRoomTransientAnimations();
 	void updateScrollPosition();
+	bool speechWouldConsumeRightClickLikeDos() const;
 	bool hasQueuedRunMode(uint16 mode) const;
 	bool dispatchReadyActorRoomScriptWaitMode(uint16 mode);
 	void resetQueuedRunMode(uint16 mode);
@@ -1124,6 +1133,7 @@ private:
 	uint16 _currentPlace;   // DOS CS:[0x111] — savegame "place" id, set by Op_c9
 	bool _stepPending;      // DS:0x6748 — set by hotspot click, cleared on action
 	bool _noStep;           // DS:0x6747 — true while control is locked (Op_95/Op_96)
+	bool _breakInner;       // DS:0x672f — set by protagonist walk dispatch inside scripts
 	Common::Array<Zone> _zones;            // mirrors g_zone[8], cleared by Op_da
 	Common::Array<CollisionZone> _collisionZones; // mirrors g_collision_zone[24], cleared by Op_dc
 	Common::Array<ZoneB> _zonesB;          // mirrors g_zone_b[30], cleared by Op_de

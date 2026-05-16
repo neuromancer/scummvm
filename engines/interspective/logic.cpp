@@ -92,6 +92,7 @@ static void moveActorToTargetFrameLikeDos(Logic *logic, Actor *actor, uint16 fra
 		return;
 	setActorCallbackWordLikeDos(actor, 0);
 	if (actor == logic->protagonist()) {
+		logic->setBreakInner(true);
 		logic->clearPostMoveCallback();
 		actor->stopSpeaking();
 		logic->setPostMoveTargetFrameMirror(uint8(frame));
@@ -306,6 +307,55 @@ void Logic::setEngine(Engine *e) {
 	_postMoveTargetFrameMirror = 0;
 	_speechSkipInput = false;
 	_loadedBackdropId = 0;
+}
+
+bool Logic::speechWouldConsumeRightClickLikeDos() const {
+	for (uint i = 0; i < _speechSlots.size(); ++i) {
+		const SpeechSlot &slot = _speechSlots[i];
+		if (slot.framesLeft == 0 || slot.active == 0)
+			continue;
+		if (slot.framesTotal >= 2 && slot.framesLeft <= uint8(slot.framesTotal - 2))
+			return true;
+	}
+	return false;
+}
+
+void Logic::cycleCursorModeByRightClickLikeDos() {
+	// CheckDoubleClickReset @ 1000:b92c: when not in map mode, not
+	// no-step, not dragging, and the locked button byte is 2, cycle
+	// through the verb cursor modes and clear step-pending via SetCursorMode.
+	if (_inMapMode || _noStep || _cursorMode == 0x20 || !_roomActive || canSkipCutscene())
+		return;
+	if (speechWouldConsumeRightClickLikeDos())
+		return;
+
+	uint16 nextMode = _defaultCursorMode;
+	switch (_cursorMode) {
+	case 0x10:
+		nextMode = 0x80;
+		break;
+	case 0x80:
+		nextMode = 0x04;
+		break;
+	case 0x04:
+		nextMode = 0x01;
+		break;
+	case 0x01:
+		nextMode = 0x02;
+		break;
+	case 0x02:
+		nextMode = 0x08;
+		break;
+	case 0x08:
+		nextMode = 0x10;
+		break;
+	default:
+		nextMode = _defaultCursorMode;
+		break;
+	}
+	debugC(2, kDebugLevelEvents, "right-click verb cycle: cursor mode 0x%02x -> 0x%02x",
+		_cursorMode, nextMode);
+	setCursorMode(nextMode);
 }
 
 
@@ -1453,7 +1503,9 @@ bool Logic::sendActorToEntityByType(Actor *walker, uint16 targetId, uint16 entit
 			setPendingError(0x14);
 			return false;
 		}
-		targetX = int16(exit->position().x + exit->area().width() / 2);
+		targetX = exit->hasSprite()
+			? int16(exit->position().x + exit->area().width() / 2)
+			: int16(exit->position().x);
 		targetY = int16(exit->position().y);
 		break;
 	}

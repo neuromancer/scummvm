@@ -395,6 +395,8 @@ static void queueExitTransitionLikeDos(Actor *actor, uint16 frame) {
 	Log.clearPostMoveCallback();
 	actor->stopSpeaking();
 	setActorCallbackWord(actor, 0);
+	if (actor == Log.protagonist())
+		Log.setBreakInner(true);
 	Log.setPostMoveTargetFrameMirror(uint8(frame));
 	if (actor->room() == Log.currentRoom() && actor->frameId() != 0)
 		actor->setRawTargetFrame(uint8(frame));
@@ -434,7 +436,9 @@ static bool sendActorToEntityByTypeLikeDos(Actor *actor, uint16 targetId, uint16
 			Log.setPendingError(0x14);
 			return false;
 		}
-		targetX = int16(exit->position().x + exit->area().width() / 2);
+		targetX = exit->hasSprite()
+			? int16(exit->position().x + exit->area().width() / 2)
+			: int16(exit->position().x);
 		targetY = int16(exit->position().y);
 		break;
 	}

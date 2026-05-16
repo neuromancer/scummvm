@@ -119,6 +119,7 @@ Status Interpreter::run(uint16 offset, OpcodeMode mode) {
 	// preserve the active stack frame.
 	Logic::instance().setCallDepth(0);
 	Logic::instance().setBranchState(0);
+	Logic::instance().setBreakInner(false);
 	return run(offset);
 }
 

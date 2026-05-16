@@ -240,6 +240,8 @@ void Engine::handleEvents() {
 			_graphics->setCursorPosition(event.mouse);
 			if (_logic && (event.type == Common::EVENT_RBUTTONDOWN || event.type == Common::EVENT_RBUTTONUP))
 				_logic->setSpeechSkipInput(event.type == Common::EVENT_RBUTTONDOWN);
+			if (_logic && event.type == Common::EVENT_RBUTTONDOWN)
+				_logic->cycleCursorModeByRightClickLikeDos();
 			if (event.type == Common::EVENT_LBUTTONDOWN)
 				EventManager::instance().clicked(event.mouse);
 			break;
