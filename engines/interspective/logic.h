@@ -1001,6 +1001,8 @@ public:
 	bool hasSavedScene() const { return _savedScene; }
 	void saveSceneFrame(const CodePointer &resumePC);
 	CodePointer restoreSceneFrame();
+	void backupRoomForMapLikeDos();
+	void restoreRoomFromBackupLikeDos();
 
 	friend class Debugger;
 private:
@@ -1084,6 +1086,29 @@ private:
 		bool canceled;
 	};
 	Common::List<DelayedRun> _queued;
+
+	struct RoomBackup {
+		RoomBackup() : valid(false), currentBlock(0), currentRoom(0), cameraX(0), cameraY(0),
+		               scrollChanged(false), cursorMode(0), fullscreen(false),
+		               roomActive(true), noStep(false) {}
+		bool valid;
+		uint16 currentBlock;
+		uint32 currentRoom;
+		Common::SharedPtr<Program> blockProgram;
+		Common::SharedPtr<Interpreter> blockInterpreter;
+		Common::SharedPtr<Room> room;
+		Common::List<Animation *> animations;
+		Common::Array<CastEntry> castTable;
+		Common::List<DelayedRun> queued;
+		int16 cameraX;
+		int16 cameraY;
+		bool scrollChanged;
+		uint16 cursorMode;
+		bool fullscreen;
+		bool roomActive;
+		bool noStep;
+	};
+	RoomBackup _roomBackup;
 
 	CodePointer _skipPoint;
 	uint32 _frameCounter;

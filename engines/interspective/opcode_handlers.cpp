@@ -549,10 +549,11 @@ static void finishVerbModalLoopState(Logic::ModalState &ms) {
 }
 
 static void applyFormattedTextLimit9bcc(uint16 limit, uint16 &height, uint16 &rows) {
-	// DOS helper @ 1000:9bcc compares DX with BX, possibly reduces AX,
-	// and always returns DX=BX. 0x4f/0x51 call it unconditionally after
-	// FormatBubbleText_FullPath; scripts pass a non-zero low byte when
-	// they expect the division path.
+	// Helper @ 1000:9bcc. Ghidra's function decompile currently shows
+	// a bogus plain RET, but the raw bytes at the MZ image offset
+	// 0x200+0x9bcc disassemble to:
+	//   cmp dx,bx; jle ret; push dx/bx/ax; ax=dx; div bl; inc ax;
+	//   bx=ax; pop ax; dx=0; div bx; ax+=2; pop bx/dx; dx=bx; ret
 	if (int16(rows) > int16(limit)) {
 		const uint8 divisor = uint8(limit & 0xff);
 		if (divisor != 0) {
@@ -1171,6 +1172,7 @@ OPCODE(0x54) {
 		uint8(uint16(a[2]) & 0xff), uint8(uint16(a[3]) & 0xff),
 		static_cast<byte *>(a[4]), &selectedIndex);
 	Logic::ModalState &ms = Log.modalState();
+	Log.setLogicDirty();
 	if (result == 0xffff) {
 		// User cancelled. DOS leaves g_menu_selected_item at 0xffff and
 		// keeps the next interpreter PC unchanged.
@@ -5876,13 +5878,15 @@ OPCODE(0xfb) {
 	// g_flag_change_room, restores the non-map room backup, then sets
 	// g_break_loop. ScummVM loadGameDialog/loadGameStream performs the
 	// modal load. Engine::loadGameStream mirrors LoadGame_ReadFromDisk's
-	// restore-time slot side effect; kReturn mirrors the successful
-	// g_break_loop path.
+	// restore-time slot side effect; Logic::restoreRoomFromBackupLikeDos
+	// mirrors RestoreRoomFromBackup's reload/reset tail; kReturn mirrors
+	// the successful g_break_loop path.
 	debugC(1, kDebugLevelScript, "opcode 0xfb: load game requested (ScummVM hotkey to load)");
 	if (_engine->loadGameDialog()) {
 		if (!Log.inMapMode())
-			reloadLoadedBackdropLikeDos(_graphics);
-		Log.setLogicDirty();
+			Log.restoreRoomFromBackupLikeDos();
+		else
+			Log.setLogicDirty();
 		return kReturn;  // DOS sets g_break_loop after a successful load.
 	}
 	reloadLoadedBackdropLikeDos(_graphics);

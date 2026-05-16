@@ -97,7 +97,7 @@ bool Engine::canSaveGameStateCurrently(Common::U32String *msg) {
 
 Common::Error Engine::saveGameStream(Common::WriteStream *stream, bool isAutosave) {
 	enum {
-		kSaveVersion = 2
+		kSaveVersion = 3
 	};
 
 	if (!stream || !_logic || !_resources || !_resources->mainDat())
@@ -126,7 +126,7 @@ Common::Error Engine::saveGameStream(Common::WriteStream *stream, bool isAutosav
 
 Common::Error Engine::loadGameStream(Common::SeekableReadStream *stream) {
 	enum {
-		kSaveVersion = 2
+		kSaveVersion = 3
 	};
 
 	if (!stream || !_logic || !_resources || !_resources->mainDat())

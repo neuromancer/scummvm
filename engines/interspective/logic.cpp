@@ -897,6 +897,80 @@ CodePointer Logic::restoreSceneFrame() {
 	return frame.resumePC;
 }
 
+void Logic::backupRoomForMapLikeDos() {
+	// RunMapScreenLoop @ 1000:7695 saves these fields into DS:0x5ed5..0x5ee8,
+	// then snapshots cast, actor, and script state before switching to room 999.
+	_roomBackup.valid = true;
+	_roomBackup.currentBlock = _currentBlock;
+	_roomBackup.currentRoom = _currentRoom;
+	_roomBackup.blockProgram = _blockProgram;
+	_roomBackup.blockInterpreter = _blockInterpreter;
+	_roomBackup.room = _room;
+	_roomBackup.animations = _animations;
+	_roomBackup.castTable = _castTable;
+	_roomBackup.queued = _queued;
+	_roomBackup.cameraX = _cameraX;
+	_roomBackup.cameraY = _cameraY;
+	_roomBackup.scrollChanged = _scrollChanged;
+	_roomBackup.cursorMode = _cursorMode;
+	_roomBackup.fullscreen = _engine && _engine->graphics()
+		? _engine->graphics()->screenHeight() == 200
+		: !_roomActive;
+	_roomBackup.roomActive = _roomActive;
+	_roomBackup.noStep = _noStep;
+}
+
+void Logic::restoreRoomFromBackupLikeDos() {
+	// RestoreRoomFromBackup @ 1000:7886:
+	//   subtitle_frames_left = 0; restore DS:0x5ed5 backup fields; reload
+	//   g_loaded_backdrop_id; RestoreCastBackup; RestoreActorTableBackup;
+	//   RestoreScriptStateBackup; ResetRoomScriptSlot(7); ResetRoomScriptSlot(6);
+	//   step_pending = 0; auto_close_timer = 1; change_room = logic_dirty = 1;
+	//   in_map_mode = 0.
+	if (_engine && _engine->graphics())
+		_engine->graphics()->clearSpeech();
+
+	if (_roomBackup.valid) {
+		_currentBlock = _roomBackup.currentBlock;
+		_currentRoom = _roomBackup.currentRoom;
+		_nextRoom = 0;
+		_blockProgram = _roomBackup.blockProgram;
+		_blockInterpreter = _roomBackup.blockInterpreter;
+		_room = _roomBackup.room;
+		_animations = _roomBackup.animations;
+		_castTable = _roomBackup.castTable;
+		_queued = _roomBackup.queued;
+		_cameraX = _roomBackup.cameraX;
+		_cameraY = _roomBackup.cameraY;
+		_scrollChanged = _roomBackup.scrollChanged;
+		if (_roomBackup.cursorMode == 0)
+			_cursorMode = 0;
+		_roomActive = _roomBackup.roomActive;
+		_noStep = _roomBackup.noStep;
+		if (_engine && _engine->graphics())
+			_engine->graphics()->setFullscreen(_roomBackup.fullscreen);
+		_roomBackup.valid = false;
+	}
+
+	if (_engine && _engine->graphics()) {
+		_engine->graphics()->clearFramebuffer();
+		const uint16 id = _loadedBackdropId;
+		if (id != 0) {
+			MainDat *main = _resources ? _resources->mainDat() : 0;
+			if (!main || id > main->imagesCount())
+				setPendingError(0x0a);
+			else
+				_engine->graphics()->setBackdrop(id);
+		}
+	}
+
+	resetQueuedRunMode(7);
+	resetQueuedRunMode(6);
+	_stepPending = false;
+	_logicDirty = true;
+	_inMapMode = false;
+}
+
 // Mirrors DOS RunPostMoveCallback @ 1000:73a6. The DOS check sequence is:
 //   if (protag.field+0x6f != 0)        return;         // blocked
 //   if (protag.field+0x65 == 0)         return;        // not moving
@@ -2008,6 +2082,8 @@ void Logic::synchronize(Common::Serializer &s) {
 	uint16 currentBlock = _currentBlock;
 	uint16 loadedBackdropId = _loadedBackdropId;
 	const bool hasLoadedBackdropId = s.getVersion() >= 2;
+	const bool hasScreenMode = s.getVersion() >= 3;
+	uint8 screenFullscreen = (_engine && _engine->graphics() && _engine->graphics()->screenHeight() == 200) ? 1 : 0;
 
 	s.syncAsUint16LE(currentRoom);
 	s.syncAsUint16LE(currentPlace);
@@ -2015,6 +2091,8 @@ void Logic::synchronize(Common::Serializer &s) {
 	s.syncAsUint16LE(currentBlock);
 	if (hasLoadedBackdropId)
 		s.syncAsUint16LE(loadedBackdropId);
+	if (hasScreenMode)
+		s.syncAsByte(screenFullscreen);
 
 	if (s.isLoading()) {
 		_queued.clear();
@@ -2029,6 +2107,8 @@ void Logic::synchronize(Common::Serializer &s) {
 		setProtagonist(protagonistId);
 		if (hasLoadedBackdropId)
 			_loadedBackdropId = loadedBackdropId;
+		if (hasScreenMode && _engine && _engine->graphics())
+			_engine->graphics()->setFullscreen(screenFullscreen != 0);
 	}
 
 	uint32 frameCounter = _frameCounter;
@@ -2170,6 +2250,8 @@ void Logic::synchronize(Common::Serializer &s) {
 		_menuStashA = menuStashA;
 		_menuStashB = menuStashB;
 		_menuStashConsumed = menuStashConsumed != 0;
+		if (!hasScreenMode && _engine && _engine->graphics())
+			_engine->graphics()->setFullscreen(_inMapMode || !_roomActive);
 		_runningQueued = nullptr;
 		_runningQueuedMode = 0;
 	}

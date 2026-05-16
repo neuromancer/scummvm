@@ -492,6 +492,26 @@ static int _mOption = 0;
 static Common::Rect _optionRects[10];
 static uint16 _optionValues[10];
 
+static bool modalOptionAt(Common::Point p, uint16 left, uint16 top, uint16 *selectedIndex, uint16 &value) {
+	if (_mOption == 0) {
+		value = 0xffff;
+		return true;
+	}
+
+	p.x -= left;
+	p.y -= top;
+	for (int i = 0; i < _mOption; i++) {
+		if (_optionRects[i].contains(p)) {
+			if (selectedIndex)
+				*selectedIndex = uint16(i);
+			value = _optionValues[i];
+			return true;
+		}
+	}
+
+	return false;
+}
+
 uint16 Graphics::ask(uint16 left, uint16 top, byte width, byte height, byte *string, uint16 *selectedIndex) {
 	if (selectedIndex)
 		*selectedIndex = 0xffff;
@@ -550,6 +570,7 @@ uint16 Graphics::ask(uint16 left, uint16 top, byte width, byte height, byte *str
 	_system->copyRectToScreen(reinterpret_cast<byte *>(frame.getPixels()), frame.pitch, left, top, width * kFrameTileWidth, height * kFrameTileHeight+4);
 
 	bool show = true;
+	uint8 clickDelay = 10;
 	while (show) {
 		_system->updateScreen();
 		_engine->debugger()->onFrame();
@@ -563,23 +584,25 @@ uint16 Graphics::ask(uint16 left, uint16 top, byte width, byte height, byte *str
 			case Common::EVENT_RBUTTONDOWN:
 			case Common::EVENT_RBUTTONUP:
 				return 0xffff;
-			case Common::EVENT_LBUTTONUP:
-				if (_mOption == 0)
-					return 0xffff;
-				else
-					for (int i = 0; i < _mOption; i++) {
-						Common::Point p = event.mouse;
-						p.x -= left;
-						p.y -= top;
-						if (_optionRects[i].contains(p)) {
-							if (selectedIndex)
-								*selectedIndex = uint16(i);
-							return _optionValues[i];
-						}
-					}
+			case Common::EVENT_LBUTTONDOWN:
+				if (clickDelay != 0)
+					break;
+				{
+					uint16 value = 0xffff;
+					if (modalOptionAt(event.mouse, left, top, selectedIndex, value))
+						return value;
+				}
+				break;
 			default:
 				break;
 			}
+		}
+		if (clickDelay == 0 && (_engine->eventMan()->getButtonState() & 1)) {
+			uint16 value = 0xffff;
+			if (modalOptionAt(_engine->eventMan()->getMousePos(), left, top, selectedIndex, value))
+				return value;
+		} else if (clickDelay != 0) {
+			--clickDelay;
 		}
 		_system->delayMillis(1000/60);
 	}
