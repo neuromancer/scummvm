@@ -62,15 +62,12 @@ class Engine;
 //   into the sample banks.
 // - IUC_SR.DAT (562 bytes): sound-resource index — 32-byte name strings
 //   + per-entry metadata (bank number, offset, length, sample rate?).
-// - IUC_S01.DAT..IUC_S11.DAT: sample banks. Per-sample header appears
-//   to be 5 bytes: 1-byte flag + 2-byte length (LE) + 2 bytes (?), then
-//   raw 8-bit unsigned PCM (silence = 0x80).
+// - IUC_S01.DAT..IUC_S11.DAT: sample banks. The entries are Creative
+//   VOC-style blocks: type 1 sample data, type 8 extended rate info,
+//   type 6/7 repeat markers, type 3 silence, and type 0 terminator.
 //
-// C++ port: Audio::Mixer integration — sfx playback uses
-// kSFXSoundType. Actual sample loading depends on completing the
-// iuc_s*.dat / iuc_sr.dat format reverse-engineering; for opcodes
-// to satisfy script-observable behavior, the state tracking
-// (last-played, active flag, slot ids) is what matters most.
+// C++ port: Audio::Mixer integration — range-check playback decodes the
+// VOC-style bank entry and plays it as unsigned 8-bit PCM on kSFXSoundType.
 class Sound {
 public:
 	Sound(Engine *engine);
@@ -123,9 +120,17 @@ public:
 
 private:
 	struct SfxBankInfo {
+		uint8 bank;
 		uint16 low;
 		uint16 high;
 		uint32 size;
+	};
+	struct SfxSampleInfo {
+		SfxSampleInfo() : bank(0), offset(0), end(0), valid(false) {}
+		uint8 bank;
+		uint32 offset;
+		uint32 end;
+		bool valid;
 	};
 
 	void loadSfxMetadata() const;
@@ -133,6 +138,8 @@ private:
 	bool validateSfxId(uint16 id) const;
 	const SfxBankInfo *sfxBankForId(uint16 id) const;
 	bool resolveSfxSlot(uint16 id, uint32 baseBytes, uint16 &low, uint16 &high, uint32 &size) const;
+	bool loadSfxSample(uint16 id, Common::Array<byte> &pcm, int &rate, bool &loop) const;
+	bool playSfxSample(uint16 id, Audio::SoundHandle &handle);
 
 	Engine *_engine;
 	Audio::SoundHandle _primaryHandle;
@@ -147,6 +154,7 @@ private:
 	uint16 _state670a;   // (unidentified)
 	uint16 _state670c;   // (unidentified)
 	mutable Common::Array<SfxBankInfo> _sfxBanks;
+	mutable Common::Array<SfxSampleInfo> _sfxSamples;
 	mutable uint16 _maxSfxId;
 	mutable bool _sfxMetadataLoaded;
 	bool _active;

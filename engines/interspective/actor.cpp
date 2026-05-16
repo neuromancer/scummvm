@@ -74,7 +74,7 @@ bool Actor::isFine() const {
 bool Actor::animReadyLikeDos() const {
 	// DOS CheckActorAnimReady @ 1000:6415 returns carry set once the
 	// actor no longer has current-room animation state that must be waited.
-	if (_room != Log.currentRoom() || !scriptActive())
+	if (_room != Log.currentRoom() || dosFieldWord(kOffsetOffset) == 0)
 		return true;
 
 	const bool stillActive = dosField(0x6f) != 0 ||
@@ -87,33 +87,32 @@ bool Actor::animReadyLikeDos() const {
 bool Actor::idleReadyLikeDos() const {
 	// DOS CheckActorIdle @ 1000:645e uses the same carry convention:
 	// carry clear while an active current-room actor script must be retried.
-	const bool stillActive = _room == Log.currentRoom() && scriptActive() &&
+	const bool stillActive = _room == Log.currentRoom() &&
+		dosFieldWord(kOffsetOffset) != 0 &&
 		dosFieldWord(0x6b) == 0 && dosField(0x65) == 0 &&
 		(dosField(0x64) == 0 || dosField(0x67) != 0);
 	return !stillActive;
 }
 
 void Actor::setAnimation(uint16 offset) {
-	// Invariant when _base is non-null: _base + _offset reads the current
-	// opcode, _base - _baseOffset points to file offset 0 of the same code
-	// segment, and _offset is DOS BP relative to field +2 / DI. So switching
-	// to a new animation offset within the same segment rebases DI and clears
-	// BP, matching InitActorState @ 1000:6336.
-	// If _base is null (Op_01 ScriptEnd / hide() cleared it), restore from
-	// the main interpreter so the new animator starts cleanly instead of
-	// inheriting a poisoned base.
-	byte *base = _base;
-	uint16 baseOff = _baseOffset;
-	if (!base) {
-		base = Log.mainInterpreter()->rawCode(0);
-		baseOff = 0;
-	}
-	_base = base - baseOff + offset;
-	_baseOffset = offset;
+	// This overload is used by actor-side movement recovery paths that jump
+	// back to the actor puppeteer/main animation table. DOS reaches
+	// InitActorState @ 1000:6336 with DS already set to the main data segment
+	// for those paths, then stores DS:DI into fields +0/+2 and clears BP.
+	// Do not preserve a previous block/cast segment here; only explicit
+	// CodePointer callers (Op_b9/Op_be/etc.) may select block code.
+	byte *base = Log.mainInterpreter() ? Log.mainInterpreter()->rawCode(0) : 0;
+	_base = base ? base + offset : 0;
+	_baseOffset = _base ? offset : 0;
 	_offset = 0;
 	resetActorStateFieldsLikeDos();
-	setDosFieldWord(kOffsetSegment, actorCodeSegmentTag(_base));
-	setDosFieldWord(kOffsetOffset, _baseOffset);
+	if (_base) {
+		setDosFieldWord(kOffsetSegment, actorCodeSegmentTag(_base));
+		setDosFieldWord(kOffsetOffset, _baseOffset);
+	} else {
+		setDosFieldWord(kOffsetSegment, 0);
+		setDosFieldWord(kOffsetOffset, 0);
+	}
 }
 
 void Actor::setAnimation(const CodePointer &anim) {
@@ -902,11 +901,13 @@ void Actor::readHeader(const byte *code) {
 	const uint16 segment = READ_LE_UINT16(code + kOffsetSegment);
 	const uint16 codeOffset = READ_LE_UINT16(code + kOffsetOffset);
 	_offset = READ_LE_UINT16(code + kOffsetCode);
-	if (codeOffset || segment) {
+	if (segment != 0) {
 		byte *segmentBase = const_cast<byte *>(headerBase);
-		if (segment == 0 && Log.mainInterpreter())
+		const uint16 mainSegment = actorCodeSegmentTag(Log.mainInterpreter() ? Log.mainInterpreter()->rawCode(0) : 0);
+		const uint16 blockSegment = actorCodeSegmentTag(Log.blockInterpreter() ? Log.blockInterpreter()->rawCode(0) : 0);
+		if (segment == mainSegment && Log.mainInterpreter())
 			segmentBase = Log.mainInterpreter()->rawCode(0);
-		else if (segment == 1 && Log.blockInterpreter())
+		else if ((segment == 1 || segment == blockSegment) && Log.blockInterpreter())
 			segmentBase = Log.blockInterpreter()->rawCode(0);
 		_base = segmentBase + codeOffset;
 		_baseOffset = codeOffset;

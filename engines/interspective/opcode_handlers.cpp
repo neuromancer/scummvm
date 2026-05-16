@@ -494,6 +494,20 @@ static void clearVideoAndPushToScreenLikeDos(Graphics *graphics) {
 	graphics->updateScreen();
 }
 
+static void reloadLoadedBackdropLikeDos(Graphics *graphics) {
+	if (!graphics)
+		return;
+	const uint16 id = Log.loadedBackdropId();
+	if (id == 0)
+		return;
+	MainDat *main = Log.resources()->mainDat();
+	if (!main || id > main->imagesCount()) {
+		Log.setPendingError(0x0a);
+		return;
+	}
+	graphics->setBackdrop(id);
+}
+
 static bool showFormattedModalTextAndWait(const Logic::FormattedBubble &fb,
 		uint16 frames, const CodePointer &next) {
 	if (fb.text.empty())
@@ -2071,7 +2085,10 @@ OPCODE(0xc6) {
 OPCODE(0xc7) {
 	// DOS Op_c7_handler @ 1000:51f2 plays the video synchronously. ESC
 	// only exits PlayVideoAnimationLoop; it does not dispatch the
-	// Op_3d skip target from inside the movie player.
+	// Op_3d skip target from inside the movie player. After playback DOS
+	// calls AllocBuffersB, clears the screen, sets g_in_fade, then sets
+	// logic-dirty/change-room/refresh-interface flags; the change-room flag
+	// reloads g_loaded_backdrop_id and restores the room palette target.
 	const uint16 frameDelay = uint16(a[1]);
 	byte *movieName = static_cast<byte *>(a[0]);
 	debugC(2, kDebugLevelScript, "opcode 0xc7: play movie %s with slowness %u",
@@ -2080,8 +2097,13 @@ OPCODE(0xc7) {
 	m->setFrameDelay(frameDelay);
 	m->play();
 	delete m;
-	clearVideoAndPushToScreenLikeDos(_graphics);
-	_graphics->willFadein();
+	Log.resetMovieGraphicSlotsLikeDos();
+	if (_graphics) {
+		_graphics->clearFramebuffer();
+		_graphics->willFadein();
+	}
+	reloadLoadedBackdropLikeDos(_graphics);
+	Log.setLogicDirty();
 	return kThxBye;
 }
 
@@ -2101,6 +2123,7 @@ OPCODE(0xc8) {
 		return kThxBye;
 	}
 	debugC(2, kDebugLevelScript, "opcode 0xc8: set backdrop(%u)", id);
+	_logic->setLoadedBackdropId(id);
 	_graphics->setBackdrop(id);
 	return kThxBye;
 }
@@ -2126,6 +2149,7 @@ OPCODE(0xc9) {
 			Log.setPendingError(0x0a);
 			return kThxBye;
 		}
+		_logic->setLoadedBackdropId(place);
 		_graphics->setBackdrop(place);
 	}
 	return kThxBye;
@@ -5793,7 +5817,7 @@ OPCODE(0xf3) {
 	if (sampleSlotWouldError())
 		return kThxBye;
 	if (Sound *snd = _engine->sound()) {
-		if (snd->isEnabled() && snd->isActive())
+		if (snd->isEnabled() && snd->isSfxPlaying())
 			_logic->runLaterWithCurrentMode(current);
 		else
 			_logic->runLaterWithCurrentMode(next, 1);
@@ -5836,10 +5860,13 @@ OPCODE(0xfa) {
 	// opens the save-slot/name dialogs, formats the progress percent
 	// into the saved data image, writes the selected save, then sets
 	// g_flag_misc_1 and g_flag_change_room before returning normally.
-	// ScummVM's frontend save dialog supplies the slot/name modal and
-	// Engine::saveGameStream stores the same modeled runtime state.
+	// ScummVM's frontend save dialog supplies the slot/name modal;
+	// after it returns we mirror the DOS refresh flags by reloading the
+	// current backdrop target and marking logic dirty.
 	debugC(1, kDebugLevelScript, "opcode 0xfa: save game requested");
 	_engine->saveGameDialog();
+	reloadLoadedBackdropLikeDos(_graphics);
+	Log.setLogicDirty();
 	return kThxBye;
 }
 OPCODE(0xfb) {
@@ -5848,10 +5875,17 @@ OPCODE(0xfb) {
 	// staged protagonist/current-place words, sets g_flag_misc_1 and
 	// g_flag_change_room, restores the non-map room backup, then sets
 	// g_break_loop. ScummVM loadGameDialog/loadGameStream performs the
-	// modal load; kReturn mirrors the successful g_break_loop path.
+	// modal load. Engine::loadGameStream mirrors LoadGame_ReadFromDisk's
+	// restore-time slot side effect; kReturn mirrors the successful
+	// g_break_loop path.
 	debugC(1, kDebugLevelScript, "opcode 0xfb: load game requested (ScummVM hotkey to load)");
-	if (_engine->loadGameDialog())
+	if (_engine->loadGameDialog()) {
+		if (!Log.inMapMode())
+			reloadLoadedBackdropLikeDos(_graphics);
+		Log.setLogicDirty();
 		return kReturn;  // DOS sets g_break_loop after a successful load.
+	}
+	reloadLoadedBackdropLikeDos(_graphics);
 	return kThxBye;
 }
 

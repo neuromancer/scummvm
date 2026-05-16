@@ -295,6 +295,8 @@ void Logic::setEngine(Engine *e) {
 	_actorFrameCount = 0;
 	_walkSpeedFlag = 0;
 	_postMoveTargetFrameMirror = 0;
+	_speechSkipInput = false;
+	_loadedBackdropId = 0;
 }
 
 
@@ -2004,11 +2006,15 @@ void Logic::synchronize(Common::Serializer &s) {
 	uint16 currentPlace = _currentPlace;
 	uint16 protagonistId = _protagonistId;
 	uint16 currentBlock = _currentBlock;
+	uint16 loadedBackdropId = _loadedBackdropId;
+	const bool hasLoadedBackdropId = s.getVersion() >= 2;
 
 	s.syncAsUint16LE(currentRoom);
 	s.syncAsUint16LE(currentPlace);
 	s.syncAsUint16LE(protagonistId);
 	s.syncAsUint16LE(currentBlock);
+	if (hasLoadedBackdropId)
+		s.syncAsUint16LE(loadedBackdropId);
 
 	if (s.isLoading()) {
 		_queued.clear();
@@ -2021,6 +2027,8 @@ void Logic::synchronize(Common::Serializer &s) {
 		if (currentRoom != 0 && currentRoom != 0xffff)
 			changeRoom(currentRoom);
 		setProtagonist(protagonistId);
+		if (hasLoadedBackdropId)
+			_loadedBackdropId = loadedBackdropId;
 	}
 
 	uint32 frameCounter = _frameCounter;
@@ -2484,6 +2492,7 @@ void Logic::paintSpeechSlots(Graphics *g) {
 	if (!g || escBreakPending())
 		return;
 
+	bool speechSkipAvailable = _speechSkipInput;
 	for (uint i = 0; i < _speechSlots.size(); ++i) {
 		SpeechSlot &slot = _speechSlots[i];
 		if (slot.framesLeft == 0 || slot.active == 0)
@@ -2511,6 +2520,13 @@ void Logic::paintSpeechSlots(Graphics *g) {
 				shouldDraw = true;
 				mode = Graphics::kSpeechBubbleAuto;
 			}
+		}
+
+		if (speechSkipAvailable && slot.framesLeft <= uint8(slot.framesTotal - 2)) {
+			// UpdateSpeechBubbles @ 1000:9992 consumes right-click after
+			// the first two frames and forces the slot to expire.
+			speechSkipAvailable = false;
+			slot.framesLeft = 1;
 		}
 
 		if (shouldDraw) {

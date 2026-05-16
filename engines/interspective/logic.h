@@ -103,7 +103,9 @@ public:
 		  _cameraTargetX(0xffff), _cameraTargetY(0xffff),
 		  _scrollDx(0), _scrollDy(0),
 		  _scrollChanged(false),
-		  _inputEnabled(true) {
+		  _inputEnabled(true),
+		  _speechSkipInput(false),
+		  _loadedBackdropId(0) {
 		_protagonist = nullptr;
 		_protagonistId = 0;
 		for (int i = 0; i < 7; ++i) _graphicSlots[i] = 0;
@@ -757,6 +759,14 @@ public:
 	bool scrollChanged() const { return _scrollChanged; }
 	bool inputEnabled() const { return _inputEnabled; }
 	void setInputEnabled(bool e) { _inputEnabled = e; }
+	void setLoadedBackdropId(uint16 id) { _loadedBackdropId = id; }
+	uint16 loadedBackdropId() const { return _loadedBackdropId; }
+	void resetMovieGraphicSlotsLikeDos() {
+		// AllocBuffersB @ 1000:10f8 clears the six allocated graphic-slot
+		// words at 0x676f,0x6771,0x6773,0x6775,0x6777,0x6779.
+		_graphicSlots[0] = _graphicSlots[1] = _graphicSlots[2] = 0;
+		_graphicSlots[3] = _graphicSlots[5] = _graphicSlots[6] = 0;
+	}
 
 	// Graphic-slot tracking (DOS DS:0x676f..0x677b — 7 slots × 2 bytes).
 	// Op_cb (LoadGraphicToSlot) writes the current graphic id into one
@@ -924,6 +934,7 @@ public:
 	bool anySpeechSlotActive() const;
 	const Common::String &speechTextForOwner(uint16 owner) const;
 	void clearSpeechForOwner(uint16 owner);
+	void setSpeechSkipInput(bool pressed) { _speechSkipInput = pressed; }
 	void queueSpeechSlotCallbackForOwner(uint16 owner, const CodePointer &cp);
 	void queueSpeechSlotCallbackForAnyActive(const CodePointer &cp);
 	bool backupSpeechSlotForOwner(uint16 owner, Common::String &text);
@@ -1108,6 +1119,8 @@ private:
 	int16 _scrollDx, _scrollDy; // DS:0x662b/0x662d, persistent UpdateScrollPosition deltas
 	bool _scrollChanged; // DS:0x662f, set by UpdateScrollPosition
 	bool _inputEnabled;
+	bool _speechSkipInput; // DOS g_buttons_locked == 2 path in UpdateSpeechBubbles
+	uint16 _loadedBackdropId; // DS:0x666a — written by SetBackdropImage
 	Common::Array<AnimListEntry> _animList;
 	uint16 _dialogCursor0, _dialogCursor1, _dialogClickGate;  // DOS DS:0x6662, 0x6664, 0x6660
 	uint8 _postMoveTargetFrameMirror; // DOS DS:0x6609

@@ -43,7 +43,7 @@ Movie *Movie::fromFile(const char *name) {
 	return new Movie(f);
 }
 
-Movie::Movie(Common::ReadStream *s) : _f(s) {}
+Movie::Movie(Common::ReadStream *s) : _delay(0), _iFrames(0), _f(s) {}
 
 Movie::~Movie() {
 	delete _f;
@@ -65,9 +65,6 @@ bool Movie::play() {
 
 		while (_iFrames) {
 			debugC(3, kDebugLevelGraphics, "got %d iframes", _iFrames);
-			loadIFrame();
-			showFrame();
-			delay();
 			if (Eng.escapePressed()) {
 				debugC(2, kDebugLevelGraphics, "movie interrupted by ESC");
 				return false;
@@ -76,6 +73,9 @@ bool Movie::play() {
 				debugC(2, kDebugLevelGraphics, "movie interrupted by quit");
 				return false;
 			}
+			loadIFrame();
+			showFrame();
+			delay();
 		}
 	}
 	return true;
@@ -147,7 +147,7 @@ void Movie::setPalette() {
 }
 
 void Movie::delay() {
-	Engine::instance().delay(40 * (1+_delay));
+	Engine::instance().delay(40 * _delay);
 }
 
 } // end of namespace Interspective

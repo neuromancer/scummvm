@@ -25,8 +25,11 @@
 
 #include "common/system.h"
 #include "common/debug.h"
+#include "common/endian.h"
 #include "common/file.h"
 #include "common/str.h"
+#include "audio/audiostream.h"
+#include "audio/decoders/raw.h"
 #include "audio/mixer.h"
 
 #include "interspective/sound.h"
@@ -46,6 +49,122 @@ static uint32 openFileSize(const Common::Path &path) {
 
 static uint32 alignedEvenSize(uint32 size) {
 	return (size + 1) & ~uint32(1);
+}
+
+static uint32 readUint24LE(const byte *p) {
+	return uint32(p[0]) | (uint32(p[1]) << 8) | (uint32(p[2]) << 16);
+}
+
+static int vocRateFromTimeConstant(uint8 tc) {
+	const int denom = 256 - tc;
+	return denom > 0 ? MAX<int>(1000, 1000000 / denom) : 11025;
+}
+
+static int vocRateFromExtendedTimeConstant(uint16 tc, uint8 channels) {
+	const int denom = 65536 - tc;
+	const int channelCount = channels ? channels : 1;
+	return denom > 0 ? MAX<int>(1000, 256000000 / denom / channelCount) : 11025;
+}
+
+static void appendBytes(Common::Array<byte> &out, const byte *src, uint32 len) {
+	if (len == 0)
+		return;
+	const uint oldSize = out.size();
+	out.resize(oldSize + len);
+	memcpy(&out[oldSize], src, len);
+}
+
+static void appendSilence(Common::Array<byte> &out, uint32 samples) {
+	if (samples == 0)
+		return;
+	const uint oldSize = out.size();
+	out.resize(oldSize + samples);
+	memset(&out[oldSize], 0x80, samples);
+}
+
+static bool parseVocSfxBlocks(const byte *data, uint32 size, Common::Array<byte> &pcm,
+		int &rate, bool &loop) {
+	uint32 pos = 0;
+	uint32 repeatStart = 0;
+	uint16 repeatCount = 0;
+	bool repeatActive = false;
+	bool haveExtendedRate = false;
+	int extendedRate = 0;
+
+	rate = 11025;
+	loop = false;
+	while (pos < size) {
+		const byte blockType = data[pos++];
+		if (blockType == 0)
+			return !pcm.empty();
+		if (pos + 3 > size)
+			return !pcm.empty();
+
+		const uint32 blockLen = readUint24LE(data + pos);
+		pos += 3;
+		if (blockLen > size - pos)
+			return !pcm.empty();
+
+		const byte *payload = data + pos;
+		switch (blockType) {
+		case 1:
+			if (blockLen >= 2) {
+				if (!haveExtendedRate)
+					rate = vocRateFromTimeConstant(payload[0]);
+				appendBytes(pcm, payload + 2, blockLen - 2);
+			}
+			haveExtendedRate = false;
+			break;
+		case 2:
+			appendBytes(pcm, payload, blockLen);
+			break;
+		case 3:
+			if (blockLen >= 3) {
+				if (!haveExtendedRate)
+					rate = vocRateFromTimeConstant(payload[2]);
+				appendSilence(pcm, uint32(READ_LE_UINT16(payload)) + 1);
+			}
+			break;
+		case 6:
+			if (blockLen >= 2) {
+				repeatStart = pcm.size();
+				repeatCount = READ_LE_UINT16(payload);
+				repeatActive = true;
+				if (repeatCount == 0xffff)
+					loop = true;
+			}
+			break;
+		case 7:
+			if (repeatActive && repeatCount != 0xffff && pcm.size() > repeatStart) {
+				Common::Array<byte> repeated;
+				appendBytes(repeated, &pcm[repeatStart], pcm.size() - repeatStart);
+				for (uint16 i = 0; i < repeatCount; ++i)
+					appendBytes(pcm, &repeated[0], repeated.size());
+			}
+			repeatActive = false;
+			break;
+		case 8:
+			if (blockLen >= 4) {
+				const uint8 channels = uint8(payload[3] + 1);
+				extendedRate = vocRateFromExtendedTimeConstant(READ_LE_UINT16(payload), channels);
+				rate = extendedRate;
+				haveExtendedRate = true;
+			}
+			break;
+		case 9:
+			if (blockLen >= 12 && payload[6] == 8 && payload[8] == 0) {
+				rate = int(READ_LE_UINT32(payload));
+				appendBytes(pcm, payload + 12, blockLen - 12);
+			}
+			break;
+		default:
+			break;
+		}
+		pos += blockLen;
+		if (haveExtendedRate)
+			rate = extendedRate;
+	}
+	return !pcm.empty();
 }
 
 Sound::Sound(Engine *engine) :
@@ -88,6 +207,7 @@ void Sound::loadSfxMetadata() const {
 	_sfxMetadataLoaded = true;
 	_maxSfxId = 0;
 	_sfxBanks.clear();
+	_sfxSamples.clear();
 
 	Common::File index;
 	if (!index.open(Common::Path("iuc_sdfx.dat")))
@@ -103,6 +223,7 @@ void Sound::loadSfxMetadata() const {
 		offsets.push_back(index.readUint32LE());
 
 	_maxSfxId = uint16(entries);
+	_sfxSamples.resize(entries);
 
 	uint16 low = 0;
 	uint32 bankIndex = 0;
@@ -110,13 +231,24 @@ void Sound::loadSfxMetadata() const {
 	for (uint32 i = 1; i < entries; ++i) {
 		if (offsets[i] == 0) {
 			SfxBankInfo bank;
+			bank.bank = uint8(bankIndex + 1);
 			bank.low = low;
 			bank.high = uint16(i);
 			Common::String name = Common::String::format("iuc_s%02u.dat", bankIndex + 1);
-			bank.size = openFileSize(Common::Path(name));
+			const uint32 fileSize = openFileSize(Common::Path(name));
+			bank.size = fileSize;
 			if (bank.size <= maxOffset)
 				bank.size = openFileSize(Common::Path("iuc_sr.dat"));
 			_sfxBanks.push_back(bank);
+			for (uint32 j = low; j < i; ++j) {
+				const uint32 end = (j + 1 < i) ? offsets[j + 1] : fileSize;
+				if (offsets[j] < fileSize && offsets[j] < end && end <= fileSize) {
+					_sfxSamples[j].bank = bank.bank;
+					_sfxSamples[j].offset = offsets[j];
+					_sfxSamples[j].end = end;
+					_sfxSamples[j].valid = true;
+				}
+			}
 			low = uint16(i);
 			maxOffset = 0;
 			++bankIndex;
@@ -126,13 +258,24 @@ void Sound::loadSfxMetadata() const {
 	}
 
 	SfxBankInfo bank;
+	bank.bank = uint8(bankIndex + 1);
 	bank.low = low;
 	bank.high = uint16(entries);
 	Common::String name = Common::String::format("iuc_s%02u.dat", bankIndex + 1);
-	bank.size = openFileSize(Common::Path(name));
+	const uint32 fileSize = openFileSize(Common::Path(name));
+	bank.size = fileSize;
 	if (bank.size <= maxOffset)
 		bank.size = openFileSize(Common::Path("iuc_sr.dat"));
 	_sfxBanks.push_back(bank);
+	for (uint32 j = low; j < entries; ++j) {
+		const uint32 end = (j + 1 < entries) ? offsets[j + 1] : fileSize;
+		if (offsets[j] < fileSize && offsets[j] < end && end <= fileSize) {
+			_sfxSamples[j].bank = bank.bank;
+			_sfxSamples[j].offset = offsets[j];
+			_sfxSamples[j].end = end;
+			_sfxSamples[j].valid = true;
+		}
+	}
 }
 
 uint16 Sound::maxSfxId() const {
@@ -186,6 +329,63 @@ bool Sound::resolveSfxSlot(uint16 id, uint32 baseBytes, uint16 &low, uint16 &hig
 	return true;
 }
 
+bool Sound::loadSfxSample(uint16 id, Common::Array<byte> &pcm, int &rate, bool &loop) const {
+	loadSfxMetadata();
+	if (id == 0 || id > _sfxSamples.size())
+		return false;
+
+	const SfxSampleInfo &sample = _sfxSamples[id - 1];
+	if (!sample.valid)
+		return false;
+
+	Common::String name = Common::String::format("iuc_s%02u.dat", sample.bank);
+	Common::File file;
+	if (!file.open(Common::Path(name)))
+		return false;
+
+	const uint32 bytes = sample.end - sample.offset;
+	Common::Array<byte> raw;
+	raw.resize(bytes);
+	file.seek(sample.offset);
+	if (file.read(&raw[0], bytes) != bytes)
+		return false;
+
+	pcm.clear();
+	return parseVocSfxBlocks(&raw[0], raw.size(), pcm, rate, loop);
+}
+
+bool Sound::playSfxSample(uint16 id, Audio::SoundHandle &handle) {
+	if (!g_system || !g_system->getMixer())
+		return false;
+
+	Common::Array<byte> pcm;
+	int rate = 0;
+	bool loop = false;
+	if (!loadSfxSample(id, pcm, rate, loop)) {
+		debugC(1, kDebugLevelSound, "Sound::playSfxSample(%u) — sample decode failed", id);
+		return false;
+	}
+
+	byte *buf = (byte *)malloc(pcm.size());
+	if (!buf)
+		return false;
+	memcpy(buf, &pcm[0], pcm.size());
+
+	Audio::SeekableAudioStream *raw = Audio::makeRawStream(buf, pcm.size(),
+		rate, Audio::FLAG_UNSIGNED, DisposeAfterUse::YES);
+	if (!raw) {
+		free(buf);
+		return false;
+	}
+
+	Audio::AudioStream *stream = loop ? Audio::makeLoopingAudioStream(raw, 0) : raw;
+	g_system->getMixer()->playStream(Audio::Mixer::kSFXSoundType, &handle,
+		stream, -1, Audio::Mixer::kMaxChannelVolume, 0, DisposeAfterUse::YES);
+	debugC(1, kDebugLevelSound, "Sound::playSfxSample(%u) — %u bytes @ %d Hz%s",
+		id, pcm.size(), rate, loop ? " loop" : "");
+	return true;
+}
+
 // DOS Op_load_sfx @ 1000:56d9 — full state-transition port.
 //
 // Disassembly trace:
@@ -205,11 +405,8 @@ bool Sound::resolveSfxSlot(uint16 id, uint32 baseBytes, uint16 &low, uint16 &hig
 //     [0x6700] = 0;                      ; clear secondary
 //   }
 //
-// C++ port: track all the script-visible state. Audio playback
-// dispatches through ScummVM Audio::Mixer (loading the actual
-// sample data is part of the iuc_s*.dat format RE — separate
-// data-loading task; the script-state transitions match DOS exactly
-// regardless of whether actual audio is produced).
+	// C++ port: track all the script-visible state. DOS only loads the
+	// bank here; the later DispatchSfxRangeCheck path starts playback.
 void Sound::playSfx(uint16 id) {
 	if (!isEnabled())
 		return;
@@ -224,11 +421,6 @@ void Sound::playSfx(uint16 id) {
 	uint32 size = 0;
 	if (!resolveSfxSlot(id, 0, low, high, size))
 		return;
-	// Stop any prior primary playback before starting the new sample
-	// (matches DOS slot-replacement model — only one primary slot).
-	if (g_system && g_system->getMixer())
-		g_system->getMixer()->stopHandle(_primaryHandle);
-
 	// Update state record per DOS 1000:56d9:
 	const uint32 alignedSize = alignedEvenSize(size);
 	_state670a = uint16(alignedSize >> 16);
@@ -238,12 +430,8 @@ void Sound::playSfx(uint16 id) {
 	_state66fe = id;    // cache new last-played id
 	_state6700 = 0;     // clear secondary
 
-	// TODO: Load sample id from iuc_s*.dat banks via iuc_sdfx.dat index
-	// and play through Audio::Mixer. Pending iuc_s*.dat sample-format
-	// reverse-engineering (header layout: 1-byte flag + 2-byte length +
-	// 2 unidentified bytes + raw 8-bit unsigned PCM).
 	debugC(1, kDebugLevelSound,
-		"Sound::playSfx(%u) — range [%u..%u] size=%u, sample loader pending",
+		"Sound::playSfx(%u) — loaded range [%u..%u] size=%u",
 		id, _state6702, _state6704, size);
 }
 
@@ -280,15 +468,13 @@ void Sound::playSecondarySfx(uint16 secondaryId) {
 	const uint32 primarySize = (uint32(_state670a) << 16) | _state670c;
 	if (!resolveSfxSlot(secondaryId, primarySize, low, high, size))
 		return;
-	if (g_system && g_system->getMixer())
-		g_system->getMixer()->stopHandle(_secondaryHandle);
 
 	_state6706 = low;
 	_state6708 = high;
 	_state6700 = secondaryId;
 
 	debugC(1, kDebugLevelSound,
-		"Sound::playSecondarySfx(%u) — range [%u..%u] size=%u, sample loader pending",
+		"Sound::playSecondarySfx(%u) — loaded range [%u..%u] size=%u",
 		secondaryId, _state6706, _state6708, size);
 }
 
@@ -298,13 +484,13 @@ void Sound::playSecondarySfx(uint16 secondaryId) {
 //   DispatchSfxRangeCheck();
 // DispatchSfxRangeCheck @ 1000:606d:
 //   if (g_sfx_active && g_sfx_enabled) {
-//     if (arg == 0) tail-call driver-table[0xc] (= sfx stop?);
+	//     if (arg == 0) tail-call driver command 8 (= stop);
 //     else if (sfx-mode special path) {
 //       if ([0x66fe] == 0) RET;
 //       if (arg out of range [0x6702..0x6704] AND
 //           arg out of range [0x6706..0x6708] OR [0x6700]==0): RET;
-//       if (g_sfx_active != 0) driver-table[0xc] (stop);
-//       driver-table[0xc] (play queued).
+	//       if (g_sfx_active != 0) driver command 8 (stop);
+	//       driver command 0xe (play at queued offset).
 //     }
 //   }
 //
@@ -339,11 +525,9 @@ void Sound::rangeCheck(uint16 id) {
 	}
 	// Replay: DOS stops current playback only when [0x67b7] is nonzero,
 	// then issues the driver play request.
-	if (isSfxPlaying() && g_system && g_system->getMixer()) {
-		g_system->getMixer()->stopHandle(_primaryHandle);
-		// TODO: resume primary sample at offset 0 once loader is wired.
-	}
-	debugC(1, kDebugLevelSound, "Sound::rangeCheck(%u) — replay request", id);
+	if (isSfxPlaying())
+		stopAll();
+	playSfxSample(id, _primaryHandle);
 }
 
 void Sound::stopAll() {

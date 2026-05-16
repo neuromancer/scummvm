@@ -97,7 +97,7 @@ bool Engine::canSaveGameStateCurrently(Common::U32String *msg) {
 
 Common::Error Engine::saveGameStream(Common::WriteStream *stream, bool isAutosave) {
 	enum {
-		kSaveVersion = 1
+		kSaveVersion = 2
 	};
 
 	if (!stream || !_logic || !_resources || !_resources->mainDat())
@@ -126,7 +126,7 @@ Common::Error Engine::saveGameStream(Common::WriteStream *stream, bool isAutosav
 
 Common::Error Engine::loadGameStream(Common::SeekableReadStream *stream) {
 	enum {
-		kSaveVersion = 1
+		kSaveVersion = 2
 	};
 
 	if (!stream || !_logic || !_resources || !_resources->mainDat())
@@ -163,6 +163,10 @@ Common::Error Engine::loadGameStream(Common::SeekableReadStream *stream) {
 			return Common::kReadingFailed;
 		memcpy(block->base(), &blockData[0], blockSize);
 	}
+
+	// LoadGame_ReadFromDisk @ 1000:82fd clears the type-5 fullscreen
+	// graphic slot (DS:0x677b) after a successful restore.
+	_logic->setGraphicSlot(4, 0);
 
 	return s.err() ? Common::kReadingFailed : Common::kNoError;
 }
@@ -234,6 +238,8 @@ void Engine::handleEvents() {
 		case Common::EVENT_RBUTTONDOWN:
 		case Common::EVENT_RBUTTONUP:
 			_graphics->setCursorPosition(event.mouse);
+			if (_logic && (event.type == Common::EVENT_RBUTTONDOWN || event.type == Common::EVENT_RBUTTONUP))
+				_logic->setSpeechSkipInput(event.type == Common::EVENT_RBUTTONDOWN);
 			if (event.type == Common::EVENT_LBUTTONDOWN)
 				EventManager::instance().clicked(event.mouse);
 			break;
