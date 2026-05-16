@@ -312,6 +312,11 @@ static bool retryCurrentOpcodeWhenActorReady(const CodePointer &current, Actor *
 	return true;
 }
 
+static void setBreakInnerIfProtagonist(Actor *actor) {
+	if (actor && actor == Log.protagonist())
+		Log.setBreakInner(true);
+}
+
 static Actor *getActorOrPending(uint16 id) {
 	if (id == 0) {
 		Log.setPendingError(0x17);
@@ -1992,6 +1997,7 @@ OPCODE(0xb9) {
 		Log.setPendingError(0x17);
 		return kThxBye;
 	}
+	setBreakInnerIfProtagonist(ac);
 	if (!checkActorAnimReadyModeled(ac)) {
 		if (!retryCurrentOpcodeWhenActorReady(current, ac))
 			return kThxBye;
@@ -2035,6 +2041,7 @@ OPCODE(0xbd) {
 		Log.setPendingError(0x17);
 		return kThxBye;
 	}
+	Log.setBreakInner(true);
 	if (!checkActorAnimReadyModeled(ac)) {
 		if (!retryCurrentOpcodeWhenActorReady(current, ac))
 			return kThxBye;
@@ -2059,6 +2066,7 @@ OPCODE(0xbe) {
 		Log.setPendingError(0x17);
 		return kThxBye;
 	}
+	Log.setBreakInner(true);
 	if (!checkActorAnimReadyModeled(ac)) {
 		if (!retryCurrentOpcodeWhenActorReady(current, ac))
 			return kThxBye;
@@ -4664,6 +4672,7 @@ OPCODE(0x97) {
 	b.hadSpeech = Log.backupSpeechSlotForOwner(protag->id(), b.speechText);
 	b.roomScriptWait = Actor::RoomScriptWaitSnapshot();
 	protag->takeRoomScriptWait(b.roomScriptWait);
+	Log.setBreakInner(true);
 	debugC(2, kDebugLevelScript,
 		"opcode 0x97: BackupCutscenePCState — fields(69=0x%04x 62=0x%02x 67=0x%02x) callback=%d speech='%s' roomWait=%d",
 		b.actorField69, b.actorField62, b.actorField67,
@@ -4708,6 +4717,7 @@ OPCODE(0x98) {
 		Log.restoreActorSpeechSlot(protag, b.speechText);
 	if (b.roomScriptWait.valid)
 		protag->restoreRoomScriptWait(b.roomScriptWait);
+	Log.setBreakInner(true);
 	debugC(2, kDebugLevelScript,
 		"opcode 0x98: RestoreCutscenePCState — fields(69=0x%04x 62=0x%02x 67=0x%02x) callback=%d speech='%s' roomWait=%d",
 		b.actorField69, b.actorField62, b.actorField67,
@@ -5268,6 +5278,7 @@ OPCODE(0xb8) {
 		Log.setPendingError(0x17);
 		return kThxBye;
 	}
+	setBreakInnerIfProtagonist(ac);
 	if (!checkActorAnimReadyModeled(ac)) {
 		if (!retryCurrentOpcodeWhenActorReady(current, ac))
 			return kThxBye;
@@ -5314,6 +5325,7 @@ OPCODE(0xba) {
 	ac->setRawPosition(Common::Point(destX, destY));
 	if (Log.inMapMode())
 		return kThxBye;
+	setBreakInnerIfProtagonist(ac);
 	if (!checkActorAnimReadyModeled(ac)) {
 		if (!retryCurrentOpcodeWhenActorReady(current, ac))
 			return kThxBye;
@@ -5348,6 +5360,7 @@ OPCODE(0xbb) {
 	ac->setRawPosition(Common::Point(destX, destY));
 	if (Log.inMapMode())
 		return kThxBye;
+	setBreakInnerIfProtagonist(ac);
 	if (!checkActorAnimReadyModeled(ac)) {
 		if (!retryCurrentOpcodeWhenActorReady(current, ac))
 			return kThxBye;
@@ -5382,6 +5395,7 @@ OPCODE(0xbf) {
 		Log.setPendingError(0x17);
 		return kThxBye;
 	}
+	Log.setBreakInner(true);
 	if (!checkActorAnimReadyModeled(protag)) {
 		if (!retryCurrentOpcodeWhenActorReady(current, protag))
 			return kThxBye;
@@ -5393,6 +5407,7 @@ OPCODE(0xbf) {
 	protag->setRawPosition(Common::Point(destX, destY));
 	if (Log.inMapMode())
 		return kThxBye;
+	Log.setBreakInner(true);
 	if (!checkActorAnimReadyModeled(protag)) {
 		if (!retryCurrentOpcodeWhenActorReady(current, protag))
 			return kThxBye;
@@ -5418,6 +5433,7 @@ OPCODE(0xc0) {
 		Log.setPendingError(0x17);
 		return kThxBye;
 	}
+	Log.setBreakInner(true);
 	if (!checkActorAnimReadyModeled(protag)) {
 		if (!retryCurrentOpcodeWhenActorReady(current, protag))
 			return kThxBye;
@@ -5429,6 +5445,7 @@ OPCODE(0xc0) {
 	protag->setRawPosition(Common::Point(destX, destY));
 	if (Log.inMapMode())
 		return kThxBye;
+	Log.setBreakInner(true);
 	if (!checkActorAnimReadyModeled(protag)) {
 		if (!retryCurrentOpcodeWhenActorReady(current, protag))
 			return kThxBye;
