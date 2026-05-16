@@ -2216,6 +2216,29 @@ Actor *Logic::getActor(uint16 id) const {
 	return _blockProgram ? _blockProgram->actor(id) : nullptr;
 }
 
+uint16 Logic::actorGlobalId(const Actor *actor) const {
+	if (!actor)
+		return 0;
+	if (!_resources || !_resources->mainDat())
+		return actor->id();
+
+	const uint16 mainActorCount = _resources->mainDat()->actorsCount();
+	for (uint16 i = 0; i < mainActorCount; ++i) {
+		if (_resources->mainDat()->actor(i) == actor)
+			return i + 1;
+	}
+
+	if (_blockProgram) {
+		const uint16 blockActorCount = _blockProgram->actorsCount();
+		for (uint16 i = 0; i < blockActorCount; ++i) {
+			if (_blockProgram->actor(i) == actor)
+				return mainActorCount + i + 1;
+		}
+	}
+
+	return actor->id();
+}
+
 void Logic::setSkipPoint(const CodePointer &p) {
 	_skipPoint = p;
 	_escBreakPending = false;
@@ -2365,7 +2388,7 @@ bool Logic::allocActorSpeechAt(Actor *actor, const Common::String &text, Common:
 
 	clearSpeechSlot(*slot);
 	slot->type = 0;
-	slot->owner = actor->id();
+	slot->owner = actorGlobalId(actor);
 	slot->refX = uint16(pos.x);
 	slot->refY = uint16(pos.y);
 	slot->color = actor->dosField(0x70);

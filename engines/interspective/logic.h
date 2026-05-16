@@ -902,6 +902,7 @@ public:
 	bool roomChangePending() const { return _nextRoom != 0; }
 	uint16 currentBlock() const { return _currentBlock; }
 	Actor *getActor(uint16 id) const;
+	uint16 actorGlobalId(const Actor *actor) const;
 
 	Program *blockProgram() const { return _blockProgram.get(); }
 	Interpreter *blockInterpreter() const { return _blockInterpreter.get(); }

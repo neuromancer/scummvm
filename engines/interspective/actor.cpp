@@ -469,20 +469,20 @@ void Actor::tellMeWithMode(const CodePointer &code, uint16 timeout, uint16 mode)
 }
 
 bool Actor::isSpeaking() const {
-	return Log.speechSlotActiveForOwner(_id);
+	return Log.speechSlotActiveForOwner(Log.actorGlobalId(this));
 }
 
 const Common::String &Actor::speechText() const {
-	return Log.speechTextForOwner(_id);
+	return Log.speechTextForOwner(Log.actorGlobalId(this));
 }
 
 void Actor::stopSpeaking() {
-	Log.clearSpeechForOwner(_id);
+	Log.clearSpeechForOwner(Log.actorGlobalId(this));
 	_speech = Speech();
 }
 
 void Actor::callMeWhenSilent(const CodePointer &cp) {
-	Log.queueSpeechSlotCallbackForOwner(_id, cp);
+	Log.queueSpeechSlotCallbackForOwner(Log.actorGlobalId(this), cp);
 }
 
 void Actor::say(const Common::String &text, uint16 maxLines) {
