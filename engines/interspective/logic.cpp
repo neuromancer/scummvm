@@ -297,6 +297,8 @@ void Logic::setEngine(Engine *e) {
 	_currentRoom = 0xffff;
 	_currentBlock = 0xffff;
 	_nextRoom = 0;
+	_forceRoomRestart = false;
+	_paused = false;
 	_currentPlace = 0;
 	_defaultCursorMode = 0x10;
 	_cursorStepIndex = 0;
@@ -789,16 +791,26 @@ void Logic::changeRoom(uint16 newRoom) {
 
 	// just schedule it, we'll execute on next tick
 	_nextRoom = newRoom;
+	_forceRoomRestart = false;
 
 	if (_currentRoom == 0xffff)
 		doChangeRoom(); // except if it's the first one
+}
+
+void Logic::restartRoomLikeDos() {
+	if (_currentRoom == 0xffff)
+		return;
+	_nextRoom = _currentRoom;
+	_forceRoomRestart = true;
 }
 
 void Logic::doChangeRoom() {
 	assert (_nextRoom);
 
 	debugC(1, kDebugLevelFlow, "Interspective: changeRoom %u → %u", (uint)_currentRoom, (uint)_nextRoom);
-	if (_nextRoom == _currentRoom) {
+	const bool forceRestart = _forceRoomRestart;
+	_forceRoomRestart = false;
+	if (_nextRoom == _currentRoom && !forceRestart) {
 		_nextRoom = 0;
 		return;
 	}
@@ -1245,8 +1257,8 @@ void Logic::runPostMoveCallbackIfReady() {
 		break;
 	case PostMoveCallback::kPlaceProtagonistAfterMove:
 		// DOS @ 0x4376: place the protagonist in the destination
-		// room/frame after the approach walk reaches the current entity.
-		// The callback is inert in map mode apart from renderer flags.
+		// room/frame after the approach walk reaches the current entity,
+		// then sets restart-room/logic-dirty/paused flags unconditionally.
 		if (!_inMapMode && _protagonist) {
 			const uint16 room = cb.cellId;
 			const uint16 frame = uint8(cb.arg0);
@@ -1254,7 +1266,13 @@ void Logic::runPostMoveCallbackIfReady() {
 			_protagonist->placeIn(room, frame, nextFrame);
 			if (room != _currentRoom)
 				changeRoom(room);
+			else
+				restartRoomLikeDos();
+		} else {
+			restartRoomLikeDos();
 		}
+		setLogicDirty();
+		setPaused();
 		break;
 	case PostMoveCallback::kPlaceObjectAfterHotspotMove:
 		// DOS @ 0xc408: place the dragged object after the protagonist
@@ -1269,6 +1287,12 @@ void Logic::runPostMoveCallbackIfReady() {
 		setDragTarget(0);
 		setCursorMode(1);
 		setLogicDirty();
+		break;
+	case PostMoveCallback::kActivateProtagonistSpeechAfterMove:
+		// DOS @ 0x9be9: find the protagonist speech slot, mark slot+2
+		// active again, and recompute the bubble reference point from the
+		// actor's current sprite/size fields.
+		activateActorSpeechAfterPostMoveLikeDos(_protagonist);
 		break;
 	case PostMoveCallback::kNone:
 	default:
@@ -1514,8 +1538,11 @@ bool Logic::sendActorToEntityByType(Actor *walker, uint16 targetId, uint16 entit
 			setPendingError(0x16);
 			return false;
 		}
+		// MoveProtagonistToEntity @ 1000:737e returns with CLC when the
+		// object/person record is unplaced, so callers still arm their
+		// post-move callback even though no immediate walk target is chosen.
 		if (getObjectRoom(targetId) == 0xffff)
-			return false;
+			return true;
 		targetX = int16(getObjectPosX(targetId) + int16(objectField(targetId, 0x10)) / 2);
 		targetY = int16(getObjectPosY(targetId) - 5);
 		break;
@@ -1543,7 +1570,8 @@ bool Logic::sendActorToEntityByType(Actor *walker, uint16 targetId, uint16 entit
 	const uint16 frame = _room->nearestFrameTo(targetX, targetY);
 	if (frame == 0) {
 		setPendingError(0x31);
-		return false;
+		moveActorToTargetFrameLikeDos(this, walker, walker->frameId());
+		return walker == _protagonist;
 	}
 	moveActorToTargetFrameLikeDos(this, walker, frame);
 	return walker == _protagonist;
@@ -2750,6 +2778,29 @@ bool Logic::allocActorSpeechAt(Actor *actor, const Common::String &text, Common:
 	if (!initSpeechSlot(*slot, text, maxLines))
 		clearSpeechSlot(*slot);
 	return slot->framesLeft != 0;
+}
+
+bool Logic::allocActorSpeechForPostMove(Actor *actor, const Common::String &text, uint16 maxLines) {
+	if (!actor)
+		return false;
+	const uint16 owner = actorGlobalId(actor);
+	const bool allocated = allocActorSpeech(actor, text, maxLines);
+	if (SpeechSlot *slot = findSpeechSlotForOwner(owner))
+		slot->active = 0;
+	return allocated;
+}
+
+void Logic::activateActorSpeechAfterPostMoveLikeDos(Actor *actor) {
+	if (!actor)
+		return;
+	SpeechSlot *slot = findSpeechSlotForOwner(actorGlobalId(actor));
+	if (!slot)
+		return;
+	const Common::Point pos = actor->getSpeechPosition();
+	slot->active = 1;
+	slot->refX = uint16(pos.x);
+	slot->refY = uint16(pos.y);
+	setLogicDirty();
 }
 
 bool Logic::allocNarratorSpeech(const byte *text, uint16 length, uint16 x, uint16 y,

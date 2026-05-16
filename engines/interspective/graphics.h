@@ -112,7 +112,7 @@ public:
 	}
 	Common::Rect paintText(uint16 left, uint16 top, byte colour, const byte *string, Surface *s, uint16 *lines = 0, uint8 firstLineExtraIndent = 0);
 	uint16 plainTextLineWidth(const byte *string) const;
-	Common::Rect paintPlainTextLine(uint16 left, uint16 top, byte colour, const byte *string);
+	Common::Rect paintPlainTextLine(uint16 left, uint16 top, byte colour, const byte *string, bool markDirty = true);
 
 	void paintSpeechBubbleColumn(Sprite *top, Sprite *fill, Common::Point &point, uint8 fill_tiles, Surface *dest);
 	Common::Rect paintSpeechInBubble(Common::Point pos, byte colour, const byte *string, Surface *dest,
@@ -124,7 +124,8 @@ public:
 		kPaintNormal = 0,
 		kPaintPositionIsTop = 1,
 		kPaintSemiTransparent = 2,
-		kPaintCameraRelative = 4
+		kPaintCameraRelative = 4,
+		kPaintNoDirty = 8
 	};
 	void paint(const Sprite *sprite, Common::Point pos, int flags = kPaintNormal) const {
 		paint(sprite, pos, _framebuffer.get(), flags);
@@ -141,6 +142,7 @@ public:
 	void hideCursor();
 
 	void updateScreen();
+	void markDirtyRect(Common::Rect r) const;
 	void setPalette(const byte *colours, uint start, uint num);
 
 	/** Go fullscreen. This will hide the interface. */
@@ -169,7 +171,7 @@ private:
 	 * paint a character on screen
 	 * @returns char width
 	 */
-	uint16 paintChar(uint16 left, uint16 top, byte colour, byte character, Surface *s) const;
+	uint16 paintChar(uint16 left, uint16 top, byte colour, byte character, Surface *s, int flags = kPaintNormal) const;
 	Surface *_interface;
 	Engine *_engine;
 	Resources *_resources;
@@ -186,7 +188,6 @@ private:
 	void updateTintedPalette();
 	void storePaletteTarget(const byte *colours, uint start, uint num);
 	void beginFrame();
-	void markDirtyRect(Common::Rect r) const;
 	void markFullRedraw() const;
 
 	Common::List<Paintable *> _paintables;

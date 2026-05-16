@@ -64,6 +64,8 @@ public:
 		  _mapScreenInitialized(false),
 		  _roomActive(true),
 		  _logicDirty(false),
+		  _forceRoomRestart(false),
+		  _paused(false),
 		  _stepPending(false),
 		  _noStep(false),
 		  _breakInner(false),
@@ -140,6 +142,8 @@ public:
 	void setRoomActive(bool v) { _roomActive = v; }
 	bool logicDirty() const { return _logicDirty; }
 	void setLogicDirty(bool v = true) { _logicDirty = v; }
+	bool paused() const { return _paused; }
+	void setPaused(bool v = true) { _paused = v; }
 	bool stepPending() const { return _stepPending; }
 	void setStepPending(bool v) { _stepPending = v; }
 	void cycleCursorModeByRightClickLikeDos();
@@ -717,6 +721,10 @@ public:
 			// C++ stores object id in cellId, adjusted X in arg0, and
 			// target-bottom Y in arg1.
 			kPlaceObjectAfterHotspotMove = 4,
+			// DOS callback @ 0x9be9, armed by Op_3f/0x40 after
+			// allocating an inactive protagonist speech slot while the
+			// protagonist walks to the current entity.
+			kActivateProtagonistSpeechAfterMove = 5,
 		};
 		Kind kind;
 		uint16 cellId;       // DOS AX = currentEntityId at register time
@@ -840,9 +848,10 @@ public:
 	uint16 opcodeMode() const { return _opcodeMode; }
 	void setOpcodeMode(uint16 m) { _opcodeMode = m; }
 
-	// ESC-handler break point (DOS g_break_target_proc/di/es +
-	// g_esc_during_script). Captures (mode, current PC, target) when
-	// Op_3d sets it; used by HandleEscDuringScript to dispatch ESC.
+	// ESC-handler break point (DOS g_break_target_proc/target segment/target
+	// offset + g_esc_during_script). Op_3d stores the segment:offset target;
+	// C++ keeps that pair as a CodePointer while retaining a legacy debug/save
+	// word for the dispatch site.
 	uint16 escBreakProc() const { return _escBreakProc; }
 	uint16 escBreakSrcPC() const { return _escBreakSrcPC; }
 	bool escBreakPending() const { return _escBreakPending; }
@@ -909,6 +918,7 @@ public:
 	uint16 protagonistId() const { return _protagonistId; }
 
 	void changeRoom(uint16);
+	void restartRoomLikeDos();
 
 	Engine *engine() { return _engine; }
 
@@ -956,6 +966,8 @@ public:
 	enum { kSpeechSlotCount = 6 };
 	bool allocActorSpeech(Actor *actor, const Common::String &text, uint16 maxLines = 0);
 	bool allocActorSpeechAt(Actor *actor, const Common::String &text, Common::Point pos, uint16 maxLines = 0);
+	bool allocActorSpeechForPostMove(Actor *actor, const Common::String &text, uint16 maxLines = 0);
+	void activateActorSpeechAfterPostMoveLikeDos(Actor *actor);
 	bool allocNarratorSpeech(const byte *text, uint16 length, uint16 x, uint16 y,
 	                         byte color, uint16 maxLines, uint8 type);
 	bool speechSlotActiveForOwner(uint16 owner) const;
@@ -1130,6 +1142,8 @@ private:
 	bool _mapScreenInitialized; // DOS CS:[0x52a3] — Op_cc first-entry guard
 	bool _roomActive;       // DS:0x6740 — gates room/entity interaction
 	bool _logicDirty;       // DS:0x673c — set by logic-mutating draw/cursor opcodes
+	bool _forceRoomRestart; // DOS g_flag_restart_room even when the room id is unchanged
+	bool _paused;           // DS:0x6743 — one-frame pause/repaint gate set by transition helpers
 	uint16 _currentPlace;   // DOS CS:[0x111] — savegame "place" id, set by Op_c9
 	bool _stepPending;      // DS:0x6748 — set by hotspot click, cleared on action
 	bool _noStep;           // DS:0x6747 — true while control is locked (Op_95/Op_96)
@@ -1189,7 +1203,7 @@ private:
 	Common::Array<uint16> _menuItemIndices; // DOS DS:0x4f1b — Op_54 lookup for selected idx
 	uint16 _opcodeMode;       // DS:0x670e
 	uint16 _escBreakProc;     // DS:0x6726 (g_break_target_proc)
-	uint16 _escBreakSrcPC;    // DS:0x6728 (g_break_target_di)
+	uint16 _escBreakSrcPC;    // legacy debug/save word; target segment lives in _skipPoint.interpreter()
 	bool _escBreakPending;    // ESC latched by fade/video code until HandleEscDuringScript.
 	uint16 _bubbleLineHeight; // DOS DAT_1000_885e, written by Op_fd and read by FormatBubbleText_Inner.
 	Common::String _parserBuffer;

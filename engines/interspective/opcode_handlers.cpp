@@ -187,6 +187,54 @@ static bool deferSpeechUntilReady(Actor *speaker, const CodePointer &current) {
 	return false;
 }
 
+enum MainSpeechTargetResult {
+	kMainSpeechContinue,
+	kMainSpeechDone,
+	kMainSpeechWait
+};
+
+static void setActorTargetMarkerLikeDos(Actor *actor) {
+	// DOS SetActorTarget @ 1000:7087 stores BP into actor.field+0x69 and
+	// writes marker 5 to field+0x67 only if the callback word is empty.
+	// The shared speech path seeds BP from CS:0x00bf, which has no writers
+	// in the executable image and is zero, so preserving the zero word and
+	// marker write is the observable actor-record side effect.
+	if (actor && actor->dosFieldWord(0x69) == 0) {
+		actor->setDosFieldWord(0x69, 0);
+		actor->setDosField(0x67, 5);
+	}
+}
+
+static MainSpeechTargetResult speakAsMainAfterOptionalTargetWalkLikeDos(Actor *protag,
+		const Common::String &text, uint16 maxLines, const CodePointer &current) {
+	if (Log.inMapMode() || Log.hitTarget() != 0)
+		return kMainSpeechContinue;
+
+	const bool targetAccepted = Log.sendActorToCurrentEntity(protag);
+	if (!targetAccepted)
+		return kMainSpeechContinue;
+
+	if (Log.gameState() == 2)
+		setActorTargetMarkerLikeDos(protag);
+
+	if (protag && protag->isSpeaking()) {
+		protag->callMeWhenSilent(current);
+		return kMainSpeechWait;
+	}
+
+	Log.allocActorSpeechForPostMove(protag, text, maxLines);
+	Log.setPostMoveCallback(Logic::PostMoveCallback::kActivateProtagonistSpeechAfterMove, 0, 0, 0);
+	return kMainSpeechDone;
+}
+
+static bool failIfMainActorMissingForNonMapSpeech(Actor *protag) {
+	if (!protag && !Log.inMapMode()) {
+		Log.setPendingError(0x17);
+		return true;
+	}
+	return false;
+}
+
 static bool sayNarratorOrSubtitle(const byte *text, uint16 x, uint16 y, byte color, uint16 maxLines,
                                   Graphics::SpeechBubbleMode bubbleMode, const CodePointer &current) {
 	if (!text)
@@ -452,8 +500,10 @@ static bool sendActorToEntityByTypeLikeDos(Actor *actor, uint16 targetId, uint16
 			Log.setPendingError(0x16);
 			return false;
 		}
+		// MoveProtagonistToEntity @ 1000:737e returns CLC without walking
+		// for unplaced object/person records.
 		if (Log.getObjectRoom(targetId) == 0xffff)
-			return false;
+			return true;
 		targetX = int16(Log.getObjectPosX(targetId) + int16(Log.objectField(targetId, 0x10)) / 2);
 		targetY = int16(Log.getObjectPosY(targetId) - 5);
 		break;
@@ -478,7 +528,7 @@ static bool sendActorToEntityByTypeLikeDos(Actor *actor, uint16 targetId, uint16
 	const uint16 frame = Log.room()->nearestFrameTo(targetX, targetY);
 	if (frame == 0) {
 		Log.setPendingError(0x31);
-		return false;
+		return moveActorToTargetExitLikeDos(actor, actor->frameId());
 	}
 	return moveActorToTargetExitLikeDos(actor, frame);
 }
@@ -1043,15 +1093,15 @@ OPCODE(0x3b) {
 	return selfCancel ? kReturn : kThxBye;
 }
 
-OPCODE(0x3d) {
+	OPCODE(0x3d) {
 	// DOS Op_3d_SetEscapeBreakPoint @ 1000:3d0b:
-	//   g_break_target_proc = g_opcode_mode;     ; current dispatch mode
-	//   _g_break_target_di  = g_codeptr_es_save;  ; current PC
-	//   _g_break_target_es  = arg0;               ; jump-to target
+	//   g_break_target_proc = g_opcode_mode;      ; current dispatch mode
+	//   g_break_target_seg  = g_codeptr_es_save;  ; target/current segment
+	//   g_break_target_off  = arg0;               ; target offset
 	//   g_esc_during_script = 1;                  ; flag (= !skipPoint.isEmpty in C++)
-	// HandleEscDuringScript reads all three to dispatch ESC: mode<0xb
-	// runs target inline; mode>=0xb modifies the deferred queue entry
-	// of that mode to start at the target on next tick.
+	// C++ collapses the DOS segment:offset target into CodePointer. When ESC
+	// is handled, proc<0xb runs the target inline; proc>=0xb redirects the
+	// deferred queue entry for that mode to the target.
 	const uint16 srcPC = current.offset();
 	debugC(2, kDebugLevelScript, "opcode 0x3d: ESC break (mode=%u srcPC=0x%04x → %s)",
 		Log.opcodeMode(), srcPC, +a[0]);
@@ -1065,7 +1115,8 @@ OPCODE(0x41) {
 	// actor's silent/still callback.
 	debugC(2, kDebugLevelScript, "opcode 0x41: protag says %s", +a[0]);
 	Actor *protag = Log.protagonist();
-	if (!protag) return kThxBye;
+	if (failIfMainActorMissingForNonMapSpeech(protag))
+		return kThxBye;
 
 	if (deferSpeechUntilReady(protag, current))
 		return kReturn;
@@ -2788,11 +2839,14 @@ OPCODE(0x27) {
 	debugC(2, kDebugLevelScript, "opcode 0x27: if step && cursor==4, speak as main");
 	if (Log.stepPending() && Log.cursorMode() == 4) {
 		Actor *protag = Log.protagonist();
-		if (!Log.inMapMode() && Log.hitTarget() == 0 && Log.sendActorToCurrentEntity(protag)
-				&& protag && protag->isMoving()) {
-			protag->callMeWhenStill(current);
+		const MainSpeechTargetResult targetSpeech =
+			speakAsMainAfterOptionalTargetWalkLikeDos(protag, a[0], 0, current);
+		if (targetSpeech == kMainSpeechWait)
 			return kReturn;
-		}
+		if (targetSpeech == kMainSpeechDone)
+			return kThxBye;
+		if (failIfMainActorMissingForNonMapSpeech(protag))
+			return kThxBye;
 		if (deferSpeechUntilReady(protag, current))
 			return kReturn;
 		speakOrSubtitle(protag, a[0]);
@@ -2833,11 +2887,15 @@ OPCODE(0x28) {
 		}
 	}
 
-	const byte *text = static_cast<byte *>(a[1]);
+	const byte *text = a[1].rawPointer();
+	if (!text)
+		text = static_cast<byte *>(a[1]);
 	if (text) {
 		// DrawCenteredOverlayText @ 1000:c581 calls c5fa once per line:
 		// copy up to 100 raw bytes until CR/NUL, measure that copied line,
 		// error 0x2c when width > 0x38, then draw shadow and foreground.
+		// It draws from the raw argument pointer, not the translated string
+		// buffer, and queues one fixed dirty rect after all lines.
 		const byte *p = text;
 		uint16 y = 0xb4;
 		bool done = false;
@@ -2863,11 +2921,12 @@ OPCODE(0x28) {
 				return kThxBye;
 			}
 			const uint16 x = uint16(((0x38 - textWidth) >> 1) + 4);
-			_graphics->paintPlainTextLine(x + 1, y + 1, 0xae, line);
-			_graphics->paintPlainTextLine(x, y, 0xeb, line);
+			_graphics->paintPlainTextLine(x + 1, y + 1, 0xae, line, false);
+			_graphics->paintPlainTextLine(x, y, 0xeb, line, false);
 			y += 9;
 			done = terminator == 0;
 		}
+		_graphics->markDirtyRect(Common::Rect(4, 0xb4, 4 + 0x38, 0xb4 + 0x12));
 	}
 	return kThxBye;
 }
@@ -2959,9 +3018,8 @@ OPCODE(0x2e) {
 //   0x34 CaseLessOrEqual:     arg0 < arg1 (signed)   → run if arg0 >= arg1
 // (Note: Ghidra labels describe the SKIP condition, not the run condition.)
 //
-// Pending-error (rule 2): code 4 = "no active switch". Until the
-// pending-error subsystem lands the C++ logs a warning and falls
-// through (the case ops become no-ops without an active switch).
+// Pending-error (rule 2): code 4 = "no active switch". The interpreter
+// halts on this pending error just like the DOS main loop.
 
 OPCODE(0x2f) {
 	debugC(2, kDebugLevelScript, "opcode 0x2f: case-not-equal %s vs %s", +a[0], +a[1]);
@@ -3049,11 +3107,14 @@ OPCODE(0x3f) {
 	// active DOS first sends the protagonist toward the current entity.
 	debugC(1, kDebugLevelScript, "opcode 0x3f: main says %s", +a[0]);
 	Actor *protag = Log.protagonist();
-	if (!Log.inMapMode() && Log.hitTarget() == 0 && Log.sendActorToCurrentEntity(protag)
-			&& protag && protag->isMoving()) {
-		protag->callMeWhenStill(current);
+	const MainSpeechTargetResult targetSpeech =
+		speakAsMainAfterOptionalTargetWalkLikeDos(protag, a[0], 0, current);
+	if (targetSpeech == kMainSpeechWait)
 		return kReturn;
-	}
+	if (targetSpeech == kMainSpeechDone)
+		return kThxBye;
+	if (failIfMainActorMissingForNonMapSpeech(protag))
+		return kThxBye;
 	if (deferSpeechUntilReady(protag, current))
 		return kReturn;
 	speakOrSubtitle(protag, a[0]);
@@ -3068,11 +3129,14 @@ OPCODE(0x40) {
 	const uint16 maxLines = uint16(a[0]);
 	debugC(1, kDebugLevelScript, "opcode 0x40: main says %s maxLines=%u",
 		+a[1], maxLines);
-	if (!Log.inMapMode() && Log.hitTarget() == 0 && Log.sendActorToCurrentEntity(protag)
-			&& protag && protag->isMoving()) {
-		protag->callMeWhenStill(current);
+	const MainSpeechTargetResult targetSpeech =
+		speakAsMainAfterOptionalTargetWalkLikeDos(protag, a[1], maxLines, current);
+	if (targetSpeech == kMainSpeechWait)
 		return kReturn;
-	}
+	if (targetSpeech == kMainSpeechDone)
+		return kThxBye;
+	if (failIfMainActorMissingForNonMapSpeech(protag))
+		return kThxBye;
 	if (deferSpeechUntilReady(protag, current))
 		return kReturn;
 	speakOrSubtitle(protag, a[1], maxLines);
@@ -3084,6 +3148,8 @@ OPCODE(0x42) {
 	const uint16 maxLines = uint16(a[0]);
 	debugC(1, kDebugLevelScript, "opcode 0x42: main says %s maxLines=%u",
 		+a[1], maxLines);
+	if (failIfMainActorMissingForNonMapSpeech(protag))
+		return kThxBye;
 	if (deferSpeechUntilReady(protag, current))
 		return kReturn;
 	speakOrSubtitle(protag, a[1], maxLines);

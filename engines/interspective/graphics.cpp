@@ -890,11 +890,12 @@ uint16 Graphics::plainTextLineWidth(const byte *string) const {
 	return total;
 }
 
-Common::Rect Graphics::paintPlainTextLine(uint16 left, uint16 top, byte colour, const byte *string) {
+Common::Rect Graphics::paintPlainTextLine(uint16 left, uint16 top, byte colour, const byte *string, bool markDirty) {
 	uint16 current_left = left;
 	byte ch;
 	while ((ch = *(string++)))
-		current_left += paintChar(current_left, top, colour, ch, _framebuffer.get());
+		current_left += paintChar(current_left, top, colour, ch, _framebuffer.get(),
+			markDirty ? kPaintNormal : kPaintNoDirty);
 	return Common::Rect(left, top, current_left, top + kLineHeight);
 }
 
@@ -935,13 +936,13 @@ Sprite *Graphics::getGlyph(byte ch) const {
 /**
  * @returns char width
  */
-uint16 Graphics::paintChar(uint16 left, uint16 top, byte colour, byte ch, Surface *dest) const {
+uint16 Graphics::paintChar(uint16 left, uint16 top, byte colour, byte ch, Surface *dest, int flags) const {
 	Sprite *glyph = getGlyph(ch);
 	int w;
 	if (glyph) {
 		glyph->recolour(colour);
 		if (dest)
-			paint(glyph, Common::Point(left, top+glyph->h), dest);
+			paint(glyph, Common::Point(left, top + glyph->h), dest, flags);
 		w = glyph->w - 1;
 		delete glyph;
 	} else return 4;
@@ -980,7 +981,7 @@ void Graphics::paint(const Sprite *sprite, Common::Point pos, Surface *dest, int
 	const Common::Point srcOffset(r.left - unclipped.left, r.top - unclipped.top);
 	debugC(4, kDebugLevelGraphics, "transformed rect: %d:%d %d:%d src %d:%d", r.left, r.top, r.right, r.bottom, srcOffset.x, srcOffset.y);
 
-	if (dest == _framebuffer.get())
+	if (dest == _framebuffer.get() && !(flags & kPaintNoDirty))
 		markDirtyRect(r);
 	dest->blit(sprite, r, srcOffset, 0, (flags & kPaintSemiTransparent) ? &_tintedPalette : 0);
 }
