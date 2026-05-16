@@ -276,6 +276,12 @@ public:
 	void restoreRoomScriptWait(const RoomScriptWaitSnapshot &snapshot);
 	bool hasRoomScriptWaitMode(uint16 mode) const;
 	void dropRoomScriptWaitMode(uint16 mode);
+	enum RoomScriptWaitDispatch {
+		kNoRoomScriptWait,
+		kRoomScriptWaitPending,
+		kRoomScriptWaitDispatched
+	};
+	RoomScriptWaitDispatch dispatchReadyRoomScriptWaitMode(uint16 mode);
 
 	bool isSpeaking() const;
 	const Common::String &speechText() const;

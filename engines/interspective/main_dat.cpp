@@ -82,6 +82,7 @@ enum Offsets {
 	kScoreEventTable	= 0x36,
 	kWordVars			= 0x3A,
 	kByteVars			= 0x3E,
+	kRoomLoopEntryPoint	= 0x40,
 	kEntryPoint			= 0x42,
 	kCharacterMap		= 0x48,
 	kCursors			= 0x54,
@@ -338,6 +339,10 @@ uint16 MainDat::interfaceImageIndex() const {
 
 byte *MainDat::getEntryPoint() const {
 	return _data + READ_LE_UINT16(_footer + kEntryPoint);
+}
+
+uint16 MainDat::getRoomLoopEntryPoint() const {
+	return READ_LE_UINT16(_footer + kRoomLoopEntryPoint);
 }
 
 Actor *MainDat::actor(uint16 index) const {

@@ -77,6 +77,7 @@ public:
 	uint16 interfaceImageIndex() const;
 
 	byte *getEntryPoint() const;
+	uint16 getRoomLoopEntryPoint() const;
 	uint16 dataSize() const { return _dataLen; }
 
 	byte *_data;

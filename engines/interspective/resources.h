@@ -116,6 +116,7 @@ public:
 	byte *mainBase() const;
 	/* initial entry point offset */
 	uint16 mainEntryPoint() const;
+	uint16 mainRoomLoopEntryPoint() const;
 
 	friend class ProgDat;
 

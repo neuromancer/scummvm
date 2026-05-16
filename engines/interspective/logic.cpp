@@ -69,6 +69,15 @@ static int16 stepCameraToward(int16 current, int16 target, int16 speed) {
 	return current + step;
 }
 
+static inline uint8 dosWordByte(uint16 value, uint8 baseOff, uint8 off) {
+	return uint8((value >> ((off - baseOff) * 8)) & 0xff);
+}
+
+static inline uint16 dosWordWithByte(uint16 oldValue, uint8 baseOff, uint8 off, uint8 value) {
+	const uint shift = uint(off - baseOff) * 8;
+	return uint16((oldValue & ~(0xffu << shift)) | (uint16(value) << shift));
+}
+
 static int16 cameraMaxOrigin(uint16 backdropSize, uint16 viewportSize) {
 	return backdropSize > viewportSize ? int16(backdropSize - viewportSize) : 0;
 }
@@ -335,10 +344,24 @@ void Logic::runRoomLoop() {
 	}
 }
 
+void Logic::runGlobalRoomLoop() {
+	if (!_resources || !_toplevelInterpreter)
+		return;
+	const uint16 loop = _resources->mainRoomLoopEntryPoint();
+	if (loop == 0 || hasQueuedRunMode(kCodeGlobalRoomLoop))
+		return;
+	debugC(3, kDebugLevelScript | kDebugLevelFlow, ">>>running global room loop code");
+	_toplevelInterpreter->run(loop, kCodeGlobalRoomLoop);
+	debugC(3, kDebugLevelScript | kDebugLevelFlow, "<<<finished global room loop code");
+}
+
 void Logic::runPostAnimationScripts() {
 	// DOS MainGameLoop runs the post-move callback after actor movement
-	// updates, then runs the room-loop script later in the frame.
+	// updates, then RunRoomLoopScript(mode 3) before RunStatusScript(mode 2).
 	runPostMoveCallbackIfReady();
+	runGlobalRoomLoop();
+	if (handleEscDuringScript())
+		return;
 	runRoomLoop();
 	if (handleEscDuringScript())
 		return;
@@ -366,6 +389,162 @@ void Logic::clearRoomTransientAnimations() {
 			it = _animations.erase(it);
 		else
 			++it;
+	}
+}
+
+uint16 Logic::dosRecordField(uint8 selector, uint16 id, uint8 off, uint8 size) const {
+	uint8 lo = 0;
+	uint8 hi = 0;
+
+	switch (selector) {
+	case 1: {
+		Exit *exit = _blockProgram ? _blockProgram->getExit(id) : 0;
+		if (!exit)
+			return 0;
+		if (off == 0 || off == 1)
+			lo = dosWordByte(exit->room(), 0, off);
+		else if (off == 2 || off == 3)
+			lo = dosWordByte(uint16(exit->position().x), 2, off);
+		else if (off == 4 || off == 5)
+			lo = dosWordByte(uint16(exit->position().y), 4, off);
+		else if (off == 6 || off == 7)
+			lo = dosWordByte(exit->spriteField(), 6, off);
+		else if (off == 0x0b)
+			lo = exit->zIndex();
+		else
+			lo = exitField(id, off);
+		if (size == 1)
+			return lo;
+		hi = dosRecordField(selector, id, uint8(off + 1), 1);
+		return uint16(lo) | (uint16(hi) << 8);
+	}
+	case 2:
+		if (off == 0 || off == 1)
+			lo = dosWordByte(getObjectRoom(id), 0, off);
+		else if (off == 2 || off == 3)
+			lo = dosWordByte(uint16(getObjectPosX(id)), 2, off);
+		else if (off == 4 || off == 5)
+			lo = dosWordByte(uint16(getObjectPosY(id)), 4, off);
+		else
+			lo = objectField(id, off);
+		if (size == 1)
+			return lo;
+		hi = dosRecordField(selector, id, uint8(off + 1), 1);
+		return uint16(lo) | (uint16(hi) << 8);
+	case 3: {
+		Actor *actor = getActor(id);
+		if (!actor)
+			return 0;
+		if (off == Actor::kOffsetLeft || off == Actor::kOffsetLeft + 1)
+			lo = dosWordByte(uint16(actor->position().x), Actor::kOffsetLeft, off);
+		else if (off == Actor::kOffsetTop || off == Actor::kOffsetTop + 1)
+			lo = dosWordByte(uint16(actor->position().y), Actor::kOffsetTop, off);
+		else if (off == Actor::kOffsetMainSprite || off == Actor::kOffsetMainSprite + 1)
+			lo = dosWordByte(actor->mainSpriteId(), Actor::kOffsetMainSprite, off);
+		else if (off == Actor::kOffsetTicksLeft || off == Actor::kOffsetTicksLeft + 1)
+			lo = dosWordByte(uint16(actor->ticksLeft()), Actor::kOffsetTicksLeft, off);
+		else if (off == Actor::kOffsetInterval)
+			lo = actor->interval();
+		else if (off == 0x5d || off == 0x5e)
+			lo = dosWordByte(actor->actorCallbackSeg(), 0x5d, off);
+		else if (off == 0x5f || off == 0x60)
+			lo = dosWordByte(actor->actorCallbackOff(), 0x5f, off);
+		else if (off == Actor::kOffsetRoom || off == Actor::kOffsetRoom + 1)
+			lo = dosWordByte(actor->room(), Actor::kOffsetRoom, off);
+		else if (off == 0x61)
+			lo = uint8(actor->frameId());
+		else if (off == 0x62)
+			lo = uint8(actor->targetFrameId());
+		else if (off == 0x65 && actor->isMoving())
+			lo = 1;
+		else
+			lo = actor->dosField(off);
+		if (size == 1)
+			return lo;
+		hi = dosRecordField(selector, id, uint8(off + 1), 1);
+		return uint16(lo) | (uint16(hi) << 8);
+	}
+	default:
+		const_cast<Logic *>(this)->setPendingError(0x03);
+		return 0;
+	}
+}
+
+void Logic::setDosRecordField(uint8 selector, uint16 id, uint8 off, uint8 size, uint16 value) {
+	const uint8 count = size == 1 ? 1 : 2;
+	for (uint8 i = 0; i < count; ++i) {
+		const uint8 byteOff = uint8(off + i);
+		const uint8 byteValue = uint8((value >> (i * 8)) & 0xff);
+		switch (selector) {
+		case 1: {
+			Exit *exit = _blockProgram ? _blockProgram->getExit(id) : 0;
+			if (!exit)
+				return;
+			if (byteOff == 0 || byteOff == 1)
+				exit->setRoom(dosWordWithByte(exit->room(), 0, byteOff, byteValue));
+			else if (byteOff == 2 || byteOff == 3) {
+				Common::Point p = exit->position();
+				p.x = int16(dosWordWithByte(uint16(p.x), 2, byteOff, byteValue));
+				exit->setPosition(p);
+			} else if (byteOff == 4 || byteOff == 5) {
+				Common::Point p = exit->position();
+				p.y = int16(dosWordWithByte(uint16(p.y), 4, byteOff, byteValue));
+				exit->setPosition(p);
+			} else if (byteOff == 6 || byteOff == 7)
+				exit->setSpriteField(dosWordWithByte(exit->spriteField(), 6, byteOff, byteValue));
+			else if (byteOff == 0x0b)
+				exit->setZIndex(byteValue);
+			else
+				setExitField(id, byteOff, byteValue);
+			break;
+		}
+		case 2:
+			if (byteOff == 0 || byteOff == 1)
+				setObjectRoom(id, dosWordWithByte(getObjectRoom(id), 0, byteOff, byteValue));
+			else if (byteOff == 2 || byteOff == 3) {
+				const int16 x = int16(dosWordWithByte(uint16(getObjectPosX(id)), 2, byteOff, byteValue));
+				setObjectPosition(id, x, getObjectPosY(id));
+			} else if (byteOff == 4 || byteOff == 5) {
+				const int16 y = int16(dosWordWithByte(uint16(getObjectPosY(id)), 4, byteOff, byteValue));
+				setObjectPosition(id, getObjectPosX(id), y);
+			} else
+				setObjectField(id, byteOff, byteValue);
+			break;
+		case 3: {
+			Actor *actor = getActor(id);
+			if (!actor)
+				return;
+			actor->setDosField(byteOff, byteValue);
+			if (byteOff == Actor::kOffsetLeft || byteOff == Actor::kOffsetLeft + 1) {
+				Common::Point p = actor->position();
+				p.x = int16(dosWordWithByte(uint16(p.x), Actor::kOffsetLeft, byteOff, byteValue));
+				actor->setRawPosition(p);
+			} else if (byteOff == Actor::kOffsetTop || byteOff == Actor::kOffsetTop + 1) {
+				Common::Point p = actor->position();
+				p.y = int16(dosWordWithByte(uint16(p.y), Actor::kOffsetTop, byteOff, byteValue));
+				actor->setRawPosition(p);
+			} else if (byteOff == Actor::kOffsetMainSprite || byteOff == Actor::kOffsetMainSprite + 1)
+				actor->setRawMainSprite(dosWordWithByte(actor->mainSpriteId(), Actor::kOffsetMainSprite, byteOff, byteValue));
+			else if (byteOff == Actor::kOffsetTicksLeft || byteOff == Actor::kOffsetTicksLeft + 1)
+				actor->setRawTicksLeft(dosWordWithByte(uint16(actor->ticksLeft()), Actor::kOffsetTicksLeft, byteOff, byteValue));
+			else if (byteOff == Actor::kOffsetInterval)
+				actor->setRawInterval(byteValue);
+			else if (byteOff == 0x5d || byteOff == 0x5e)
+				actor->setActorCallback(dosWordWithByte(actor->actorCallbackSeg(), 0x5d, byteOff, byteValue), actor->actorCallbackOff());
+			else if (byteOff == 0x5f || byteOff == 0x60)
+				actor->setActorCallback(actor->actorCallbackSeg(), dosWordWithByte(actor->actorCallbackOff(), 0x5f, byteOff, byteValue));
+			else if (byteOff == Actor::kOffsetRoom || byteOff == Actor::kOffsetRoom + 1)
+				actor->forceRoom(dosWordWithByte(actor->room(), Actor::kOffsetRoom, byteOff, byteValue));
+			else if (byteOff == 0x61)
+				actor->setRawFrame(byteValue);
+			else if (byteOff == 0x62)
+				actor->setRawTargetFrame(byteValue);
+			break;
+		}
+		default:
+			setPendingError(0x03);
+			return;
+		}
 	}
 }
 
@@ -1985,6 +2164,25 @@ void Logic::runQueued() {
 			debugC(3, kDebugLevelScript, "delayed %s, delay now %d", +current->code,
 					current->delay);
 			current->delay--;
+		} else if (current->deferredMode != 0 &&
+				dispatchReadyActorRoomScriptWaitMode(current->deferredMode)) {
+			// DOS RunDeferredScripts always calls RunScriptByMode before it
+			// decides whether to interpret the deferred entry. A type-0
+			// room-script slot that becomes ready is consumed in that call,
+			// and the deferred entry is cleared unless the resumed script arms
+			// another slot for the same mode.
+			if (current->canceled) {
+				toRemove.push(current);
+			} else if (!hasQueuedRunMode(current->deferredMode)) {
+				debugC(3, kDebugLevelScript,
+						"clearing deferred mode 0x%02x after actor room-script slot completed",
+						current->deferredMode);
+				current->canceled = true;
+				toRemove.push(current);
+			} else {
+				debugC(3, kDebugLevelScript, "keeping deferred %s while mode 0x%02x is armed",
+						+current->code, current->deferredMode);
+			}
 		} else if (current->deferredMode != 0 && hasQueuedRunMode(current->deferredMode)) {
 			// DOS RunDeferredScripts first services the per-mode room-script
 			// slot via RunScriptByMode. The deferred entry itself does not
@@ -2059,6 +2257,27 @@ bool Logic::hasQueuedRunMode(uint16 mode) const {
 			if (Actor *actor = getActor(id))
 				if (actor->hasRoomScriptWaitMode(mode))
 					return true;
+	}
+	return false;
+}
+
+bool Logic::dispatchReadyActorRoomScriptWaitMode(uint16 mode) {
+	if (!_resources || !_resources->mainDat())
+		return false;
+
+	const uint16 mainActors = _resources->mainDat()->actorsCount();
+	const uint16 blockActors = _blockProgram ? _blockProgram->actorsCount() : 0;
+	const uint16 actorCount = uint16(mainActors + blockActors);
+	for (uint16 id = 1; id <= actorCount; ++id) {
+		Actor *actor = getActor(id);
+		if (!actor)
+			continue;
+		const Actor::RoomScriptWaitDispatch status =
+			actor->dispatchReadyRoomScriptWaitMode(mode);
+		if (status == Actor::kRoomScriptWaitDispatched)
+			return true;
+		if (status == Actor::kRoomScriptWaitPending)
+			return false;
 	}
 	return false;
 }

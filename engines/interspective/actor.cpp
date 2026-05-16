@@ -456,6 +456,37 @@ void Actor::dropRoomScriptWaitMode(uint16 mode) {
 	_callBacks = kept;
 }
 
+Actor::RoomScriptWaitDispatch Actor::dispatchReadyRoomScriptWaitMode(uint16 mode) {
+	Common::Queue<ScriptCallback> callbacks = _callBacks;
+	Common::Queue<ScriptCallback> kept;
+	_callBacks.clear();
+
+	RoomScriptWaitDispatch status = kNoRoomScriptWait;
+	CodePointer readyCallback;
+	while (!callbacks.empty()) {
+		const ScriptCallback callback = callbacks.pop();
+		if (status == kNoRoomScriptWait && callback.hasRunMode && callback.runMode == mode) {
+			if (animReadyLikeDos()) {
+				status = kRoomScriptWaitDispatched;
+				readyCallback = callback.callback;
+				continue;
+			}
+			status = kRoomScriptWaitPending;
+		}
+		kept.push(callback);
+	}
+
+	_callBacks = kept;
+	if (status == kRoomScriptWaitDispatched) {
+		debugC(3, kDebugLevelScript, "room-script mode 0x%02x actor wait ready; running %s",
+				mode, +readyCallback);
+		const uint16 savedOpcodeMode = Log.opcodeMode();
+		readyCallback.run(static_cast<OpcodeMode>(mode));
+		Log.setOpcodeMode(savedOpcodeMode);
+	}
+	return status;
+}
+
 void Actor::tellMe(const CodePointer &code, uint16 timeout) {
 	_ticksLeft = timeout;
 	setDosFieldWord(0x0a, timeout);
@@ -845,8 +876,15 @@ void Actor::animate() {
 }
 
 Animation::Status Actor::tick() {
-	animate();
+	// DOS MainGameLoop runs RunDeferredScripts/RunScriptByMode before
+	// UpdateActors and UpdateActorAnimation. Room-script waits such as
+	// Op_9a therefore observe transient actor-ready fields (notably
+	// +0x64 set when the next actor opcode is 0xfe) before the actor
+	// update state machine consumes them. Keep the C++ callback bridge in
+	// that order; otherwise a ready marker can be reset by animate() before
+	// the queued room-script slot resumes.
 	callBacks();
+	animate();
 
 	if (_room == Log.currentRoom()) {
 		// DOS RunActorScript writes DAT_1cb5_666c = current actor id

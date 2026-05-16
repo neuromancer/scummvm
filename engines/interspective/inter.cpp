@@ -210,7 +210,11 @@ enum ArgumentTypes {
 	kArgumentImmediate = 1,
 	kArgumentMainWord = 2,
 	kArgumentMainByte = 3,
+	kArgumentFieldByte = 4,
+	kArgumentFieldWord = 5,
+	kArgumentFieldWordAlt = 6,
 	kArgumentString = 7,
+	kArgumentList = 8,
 	kArgumentCode = 9
 };
 
@@ -242,6 +246,54 @@ public:
 private:
 	mutable char _inspect[33];
 	const uint16 _index;
+};
+
+class DosRecordFieldVariable : public Value {
+public:
+	DosRecordFieldVariable(Logic *logic, uint8 selector, uint16 id, uint8 offset, uint8 size)
+		: _logic(logic), _selector(selector), _id(id), _offset(offset), _size(size) {}
+	virtual operator uint16() const {
+		return _logic ? _logic->dosRecordField(_selector, _id, _offset, _size) : 0;
+	}
+	virtual Value &operator=(uint16 value) {
+		if (_logic)
+			_logic->setDosRecordField(_selector, _id, _offset, _size, value);
+		return *this;
+	}
+	virtual Value &operator=(const Value &other) { return *this = uint16(other); }
+	virtual const char *operator+() const {
+		snprintf(_inspect, sizeof(_inspect), "record[%u:%u]+0x%02x/%u [%u]",
+			_selector, _id, _offset, _size, uint16(*this));
+		return _inspect;
+	}
+private:
+	Logic *_logic;
+	uint8 _selector;
+	uint16 _id;
+	uint8 _offset;
+	uint8 _size;
+	mutable char _inspect[48];
+};
+
+class RawPointerArgument : public Value {
+public:
+	RawPointerArgument(byte *base, byte *ptr) : _base(base), _ptr(ptr) {}
+	virtual operator uint16() const {
+		if (!_base || !_ptr || _ptr < _base)
+			return 0;
+		return uint16(_ptr - _base);
+	}
+	virtual operator byte *() { return _ptr; }
+	virtual byte *rawPointer() { return _ptr; }
+	virtual byte *rawBase() { return _base; }
+	virtual const char *operator+() const {
+		snprintf(_inspect, sizeof(_inspect), "raw pointer 0x%04x", uint16(*this));
+		return _inspect;
+	}
+private:
+	byte *_base;
+	byte *_ptr;
+	mutable char _inspect[32];
 };
 
 template<>
@@ -380,8 +432,30 @@ Value *Interpreter::getArgument(byte *&code) {
 			return readArgument<GlobalWordVariable>(code);
 		case kArgumentMainByte:
 			return readArgument<GlobalByteVariable>(code);
+		case kArgumentFieldByte:
+		case kArgumentFieldWord:
+		case kArgumentFieldWordAlt: {
+			const uint8 selector = code[0];
+			const uint8 offset = code[1];
+			const uint16 id = READ_LE_UINT16(code + 2);
+			code += 4;
+			const uint8 size = argument_type == kArgumentFieldByte ? 1 : 2;
+			debugC(4, kDebugLevelScript,
+				"read record field selector=%u id=%u offset=0x%02x size=%u as argument",
+				selector, id, offset, size);
+			return new DosRecordFieldVariable(_logic, selector, id, offset, size);
+		}
 		case kArgumentString:
 			return readArgument<ParametrizedString>(code);
+		case kArgumentList: {
+			byte *ptr = code;
+			while (*code != 0xff)
+				++code;
+			++code;
+			debugC(4, kDebugLevelScript, "read raw list at offset 0x%04x as argument",
+				uint16(ptr - _base));
+			return new RawPointerArgument(_base, ptr);
+		}
 		case kArgumentCode:
 			return readArgument<CodePointer>(code);
 		default:

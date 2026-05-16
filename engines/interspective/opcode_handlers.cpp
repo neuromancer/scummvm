@@ -302,6 +302,16 @@ static bool retryCurrentOpcode(const CodePointer &current) {
 	return true;
 }
 
+static bool retryCurrentOpcodeWhenActorReady(const CodePointer &current, Actor *actor) {
+	if (sampleSlotWouldError())
+		return false;
+	if (actor)
+		actor->callMeWithMode(current, Log.opcodeMode());
+	else
+		Log.runLaterWithCurrentMode(current);
+	return true;
+}
+
 static Actor *getActorOrPending(uint16 id) {
 	if (id == 0) {
 		Log.setPendingError(0x17);
@@ -1649,7 +1659,7 @@ OPCODE(0x77) {
 		return kThxBye;
 	}
 	if (!checkActorAnimReadyModeled(ac)) {
-		if (!retryCurrentOpcode(current))
+		if (!retryCurrentOpcodeWhenActorReady(current, ac))
 			return kThxBye;
 		return kReturn;
 	}
@@ -1922,7 +1932,7 @@ OPCODE(0xab) {
 	}
 
 	if (!checkActorIdleReadyModeled(ac)) {
-		if (!retryCurrentOpcode(current))
+		if (!retryCurrentOpcodeWhenActorReady(current, ac))
 			return kThxBye;
 		return kReturn;
 	}
@@ -1954,7 +1964,7 @@ OPCODE(0xad) {
 	}
 
 	if (!checkActorIdleReadyModeled(ac)) {
-		if (!retryCurrentOpcode(current))
+		if (!retryCurrentOpcodeWhenActorReady(current, ac))
 			return kThxBye;
 		return kReturn;
 	}
@@ -1979,7 +1989,7 @@ OPCODE(0xb9) {
 		return kThxBye;
 	}
 	if (!checkActorAnimReadyModeled(ac)) {
-		if (!retryCurrentOpcode(current))
+		if (!retryCurrentOpcodeWhenActorReady(current, ac))
 			return kThxBye;
 		return kReturn;
 	}
@@ -2022,7 +2032,7 @@ OPCODE(0xbd) {
 		return kThxBye;
 	}
 	if (!checkActorAnimReadyModeled(ac)) {
-		if (!retryCurrentOpcode(current))
+		if (!retryCurrentOpcodeWhenActorReady(current, ac))
 			return kThxBye;
 		return kReturn;
 	}
@@ -2046,7 +2056,7 @@ OPCODE(0xbe) {
 		return kThxBye;
 	}
 	if (!checkActorAnimReadyModeled(ac)) {
-		if (!retryCurrentOpcode(current))
+		if (!retryCurrentOpcodeWhenActorReady(current, ac))
 			return kThxBye;
 		return kReturn;
 	}
@@ -2403,7 +2413,7 @@ OPCODE(0xf4) {
 		}
 		return kThxBye;
 	}
-	if (Music.isPlaying()) {
+	if (Music.hasCurrentTune()) {
 		if (sampleSlotWouldError())
 			return kThxBye;
 		_logic->runLaterWithCurrentMode(current);
@@ -3874,7 +3884,7 @@ OPCODE(0x78) {
 		return kThxBye;
 	}
 	if (!checkActorAnimReadyModeled(protag)) {
-		if (!retryCurrentOpcode(current))
+		if (!retryCurrentOpcodeWhenActorReady(current, protag))
 			return kThxBye;
 		return kReturn;
 	}
@@ -4811,7 +4821,7 @@ OPCODE(0xa4) {
 		return kThxBye;
 	if (Actor *ac = Log.protagonist()) {
 		if (!checkActorAnimReadyModeled(ac)) {
-			if (!retryCurrentOpcode(current))
+			if (!retryCurrentOpcodeWhenActorReady(current, ac))
 				return kThxBye;
 			return kReturn;
 		}
@@ -4828,7 +4838,7 @@ OPCODE(0xa5) {
 		return kThxBye;
 	if (Actor *ac = Log.protagonist()) {
 		if (!checkActorAnimReadyModeled(ac)) {
-			if (!retryCurrentOpcode(current))
+			if (!retryCurrentOpcodeWhenActorReady(current, ac))
 				return kThxBye;
 			return kReturn;
 		}
@@ -4846,7 +4856,7 @@ OPCODE(0xa6) {
 		return kThxBye;
 	if (Actor *ac = Log.getActor(a[0])) {
 		if (!checkActorAnimReadyModeled(ac)) {
-			if (!retryCurrentOpcode(current))
+			if (!retryCurrentOpcodeWhenActorReady(current, ac))
 				return kThxBye;
 			return kReturn;
 		}
@@ -4864,7 +4874,7 @@ OPCODE(0xa7) {
 		return kThxBye;
 	if (Actor *ac = Log.getActor(a[0])) {
 		if (!checkActorAnimReadyModeled(ac)) {
-			if (!retryCurrentOpcode(current))
+			if (!retryCurrentOpcodeWhenActorReady(current, ac))
 				return kThxBye;
 			return kReturn;
 		}
@@ -4916,7 +4926,7 @@ OPCODE(0xa8) {
 
 	if (Actor *actor = Log.getActor(actorId)) {
 		if (!checkActorAnimReadyModeled(actor)) {
-			if (!retryCurrentOpcode(current))
+			if (!retryCurrentOpcodeWhenActorReady(current, actor))
 				return kThxBye;
 			return kReturn;
 		}
@@ -4971,7 +4981,7 @@ OPCODE(0xa9) {
 		targetY = int16(cursor.y + Log.cameraY());
 	}
 	if (!checkActorAnimReadyModeled(actor)) {
-		if (!retryCurrentOpcode(current))
+		if (!retryCurrentOpcodeWhenActorReady(current, actor))
 			return kThxBye;
 		return kReturn;
 	}
@@ -4995,7 +5005,7 @@ OPCODE(0xaa) {
 		return kThxBye;
 	}
 	if (!checkActorAnimReadyModeled(actor)) {
-		if (!retryCurrentOpcode(current))
+		if (!retryCurrentOpcodeWhenActorReady(current, actor))
 			return kThxBye;
 		return kReturn;
 	}
@@ -5016,7 +5026,7 @@ OPCODE(0xac) {
 		return kThxBye;
 	}
 	if (!checkActorIdleReadyModeled(ac)) {
-		if (!retryCurrentOpcode(current))
+		if (!retryCurrentOpcodeWhenActorReady(current, ac))
 			return kThxBye;
 		return kReturn;
 	}
@@ -5042,7 +5052,7 @@ OPCODE(0xae) {
 		return kThxBye;
 	}
 	if (!checkActorIdleReadyModeled(ac)) {
-		if (!retryCurrentOpcode(current))
+		if (!retryCurrentOpcodeWhenActorReady(current, ac))
 			return kThxBye;
 		return kReturn;
 	}
@@ -5068,7 +5078,7 @@ OPCODE(0xaf) {
 		return kThxBye;
 	}
 	if (!checkActorIdleReadyModeled(ac)) {
-		if (!retryCurrentOpcode(current))
+		if (!retryCurrentOpcodeWhenActorReady(current, ac))
 			return kThxBye;
 		return kReturn;
 	}
@@ -5087,7 +5097,7 @@ OPCODE(0xb0) {
 		return kThxBye;
 	}
 	if (!checkActorIdleReadyModeled(ac)) {
-		if (!retryCurrentOpcode(current))
+		if (!retryCurrentOpcodeWhenActorReady(current, ac))
 			return kThxBye;
 		return kReturn;
 	}
@@ -5111,7 +5121,7 @@ OPCODE(0xb1) {
 		return kThxBye;
 	}
 	if (!checkActorIdleReadyModeled(protag)) {
-		if (!retryCurrentOpcode(current))
+		if (!retryCurrentOpcodeWhenActorReady(current, protag))
 			return kThxBye;
 		return kReturn;
 	}
@@ -5129,7 +5139,7 @@ OPCODE(0xb2) {
 		return kThxBye;
 	}
 	if (!checkActorIdleReadyModeled(protag)) {
-		if (!retryCurrentOpcode(current))
+		if (!retryCurrentOpcodeWhenActorReady(current, protag))
 			return kThxBye;
 		return kReturn;
 	}
@@ -5147,7 +5157,7 @@ OPCODE(0xb3) {
 		return kThxBye;
 	}
 	if (!checkActorIdleReadyModeled(protag)) {
-		if (!retryCurrentOpcode(current))
+		if (!retryCurrentOpcodeWhenActorReady(current, protag))
 			return kThxBye;
 		return kReturn;
 	}
@@ -5167,7 +5177,7 @@ OPCODE(0xb4) {
 		return kThxBye;
 	}
 	if (!checkActorIdleReadyModeled(ac)) {
-		if (!retryCurrentOpcode(current))
+		if (!retryCurrentOpcodeWhenActorReady(current, ac))
 			return kThxBye;
 		return kReturn;
 	}
@@ -5190,7 +5200,7 @@ OPCODE(0xb5) {
 		return kThxBye;
 	}
 	if (!checkActorIdleReadyModeled(actor)) {
-		if (!retryCurrentOpcode(current))
+		if (!retryCurrentOpcodeWhenActorReady(current, actor))
 			return kThxBye;
 		return kReturn;
 	}
@@ -5208,7 +5218,7 @@ OPCODE(0xb6) {
 		return kThxBye;
 	}
 	if (!checkActorIdleReadyModeled(actor)) {
-		if (!retryCurrentOpcode(current))
+		if (!retryCurrentOpcodeWhenActorReady(current, actor))
 			return kThxBye;
 		return kReturn;
 	}
@@ -5226,7 +5236,7 @@ OPCODE(0xb7) {
 		return kThxBye;
 	}
 	if (!checkActorIdleReadyModeled(actor)) {
-		if (!retryCurrentOpcode(current))
+		if (!retryCurrentOpcodeWhenActorReady(current, actor))
 			return kThxBye;
 		return kReturn;
 	}
@@ -5255,7 +5265,7 @@ OPCODE(0xb8) {
 		return kThxBye;
 	}
 	if (!checkActorAnimReadyModeled(ac)) {
-		if (!retryCurrentOpcode(current))
+		if (!retryCurrentOpcodeWhenActorReady(current, ac))
 			return kThxBye;
 		return kReturn;
 	}
@@ -5292,7 +5302,7 @@ OPCODE(0xba) {
 		return kThxBye;
 	}
 	if (!checkActorAnimReadyModeled(ac)) {
-		if (!retryCurrentOpcode(current))
+		if (!retryCurrentOpcodeWhenActorReady(current, ac))
 			return kThxBye;
 		return kReturn;
 	}
@@ -5301,7 +5311,7 @@ OPCODE(0xba) {
 	if (Log.inMapMode())
 		return kThxBye;
 	if (!checkActorAnimReadyModeled(ac)) {
-		if (!retryCurrentOpcode(current))
+		if (!retryCurrentOpcodeWhenActorReady(current, ac))
 			return kThxBye;
 		return kReturn;
 	}
@@ -5326,7 +5336,7 @@ OPCODE(0xbb) {
 		return kThxBye;
 	}
 	if (!checkActorAnimReadyModeled(ac)) {
-		if (!retryCurrentOpcode(current))
+		if (!retryCurrentOpcodeWhenActorReady(current, ac))
 			return kThxBye;
 		return kReturn;
 	}
@@ -5335,7 +5345,7 @@ OPCODE(0xbb) {
 	if (Log.inMapMode())
 		return kThxBye;
 	if (!checkActorAnimReadyModeled(ac)) {
-		if (!retryCurrentOpcode(current))
+		if (!retryCurrentOpcodeWhenActorReady(current, ac))
 			return kThxBye;
 		return kReturn;
 	}
@@ -5369,7 +5379,7 @@ OPCODE(0xbf) {
 		return kThxBye;
 	}
 	if (!checkActorAnimReadyModeled(protag)) {
-		if (!retryCurrentOpcode(current))
+		if (!retryCurrentOpcodeWhenActorReady(current, protag))
 			return kThxBye;
 		return kReturn;
 	}
@@ -5380,7 +5390,7 @@ OPCODE(0xbf) {
 	if (Log.inMapMode())
 		return kThxBye;
 	if (!checkActorAnimReadyModeled(protag)) {
-		if (!retryCurrentOpcode(current))
+		if (!retryCurrentOpcodeWhenActorReady(current, protag))
 			return kThxBye;
 		return kReturn;
 	}
@@ -5405,7 +5415,7 @@ OPCODE(0xc0) {
 		return kThxBye;
 	}
 	if (!checkActorAnimReadyModeled(protag)) {
-		if (!retryCurrentOpcode(current))
+		if (!retryCurrentOpcodeWhenActorReady(current, protag))
 			return kThxBye;
 		return kReturn;
 	}
@@ -5416,7 +5426,7 @@ OPCODE(0xc0) {
 	if (Log.inMapMode())
 		return kThxBye;
 	if (!checkActorAnimReadyModeled(protag)) {
-		if (!retryCurrentOpcode(current))
+		if (!retryCurrentOpcodeWhenActorReady(current, protag))
 			return kThxBye;
 		return kReturn;
 	}
@@ -5843,7 +5853,7 @@ OPCODE(0xf5) {
 	// but cleaner to not invoke at all). iter-21 fix.
 	debugC(2, kDebugLevelScript, "opcode 0xf5: wait for music stop");
 	if (_engine->dosMusicEnabled() != 0) {
-		if (!Music.isPlaying())
+		if (!Music.hasCurrentTune())
 			return kThxBye;
 		if (sampleSlotWouldError())
 			return kThxBye;

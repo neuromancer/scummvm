@@ -132,7 +132,7 @@ bool MusicParser::loadMusic(const byte *data, uint32 size) {
 	// thread's _tune->tick() and crashing in Channel::tick when the old
 	// _tune was freed mid-iteration). Skip if data matches what's
 	// already loaded.
-	if (_script && _script->base() == data && isPlaying())
+	if (_script && _script->base() == data && hasCurrentTune())
 		return true;
 
 	static int loadMusicCallCount = 0;
@@ -198,6 +198,16 @@ void MusicParser::tick() {
 				(uint)_tick);
 		}
 		_tune->tick();
+		if (!_tune->isPlaying()) {
+			// DOS CheckMusicPlaying @ 1000:5c78 tests the resident driver's
+			// current-tune word, not whether any translated MIDI note is
+			// still active. Clear the modeled word as soon as the tune state
+			// reaches its terminal beat so Op_f4/Op_f5 waits can resume.
+			_currentTuneWord = 0;
+			_driverCommandByte = 0;
+			silence();
+			unloadMusic();
+		}
 	}
 	_tick++;
 }
@@ -359,12 +369,12 @@ Tune::Tune(uint16 index) {
 void Tune::setBeat(uint16 index) {
 	if (index >= _beats.size()) {
 		// Script asked to seek past the last beat — common at tune end. Stop
-		// the tune cleanly instead of indexing past the array (which used to
-		// smash the heap; pre-fix this was the suspected silent-crash path
-		// when a tune ran to completion).
+		// the modeled DOS current-tune word too; CheckMusicPlaying polls that
+		// word and should report "not playing" once the terminal beat is
+		// reached.
 		warning("Interspective music: Tune::setBeat(%u) >= beats=%u — stopping tune",
 			(uint)index, (uint)_beats.size());
-		stop();
+		Music.stopMusic();
 		return;
 	}
 	_currentBeat = index;

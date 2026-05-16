@@ -333,6 +333,10 @@ uint16 Resources::mainEntryPoint() const {
 	return _main.get()->getEntryPoint() - mainBase();
 }
 
+uint16 Resources::mainRoomLoopEntryPoint() const {
+	return _main.get()->getRoomLoopEntryPoint();
+}
+
 Surface *Resources::loadBackdrop(uint16 index, byte *palette) {
 	Common::ReadStream *stream = imageStream(index);
 

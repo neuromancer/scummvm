@@ -258,6 +258,8 @@ public:
 		else
 			_exitFields[key] = v;
 	}
+	uint16 dosRecordField(uint8 selector, uint16 id, uint8 off, uint8 size) const;
+	void setDosRecordField(uint8 selector, uint16 id, uint8 off, uint8 size, uint16 value);
 
 	// Per-room, per-entity cell byte. DOS ResetCellMap fills the whole
 	// room-cell buffer with 1, and ReadCellByteAtOffset selects the current
@@ -904,6 +906,7 @@ public:
 
 	void tick();
 	void callAnimations();
+	void runGlobalRoomLoop();
 	void runRoomLoop();
 	void runPostAnimationScripts();
 
@@ -1011,6 +1014,7 @@ private:
 	void clearRoomTransientAnimations();
 	void updateScrollPosition();
 	bool hasQueuedRunMode(uint16 mode) const;
+	bool dispatchReadyActorRoomScriptWaitMode(uint16 mode);
 	void resetQueuedRunMode(uint16 mode);
 	void cancelDeferredScriptsForInterpreter(Interpreter *interpreter);
 	bool redirectDeferredMode(uint16 mode, const CodePointer &target);
