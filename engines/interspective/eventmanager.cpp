@@ -53,6 +53,9 @@ void EventManager::clicked(Common::Point pos) {
 	if (!logic.roomActive() || logic.canSkipCutscene())
 		return;
 
+	pos.x = int16(pos.x + logic.cameraX());
+	pos.y = int16(pos.y + logic.cameraY());
+
 	Clickable *handler = 0;
 
 	foreach(Clickable *, _handlers)
@@ -92,9 +95,13 @@ void EventManager::paint(Graphics *g) const {
 		return;
 	debugC(3, kDebugLevelEvents | kDebugLevelGraphics, "EventManager paints clickable areas");
 
-	foreach_const(Clickable *, _handlers)
-		if ((*it)->isClickable())
-			g->paintRect((*it)->area());
+	foreach_const(Clickable *, _handlers) {
+		if (!(*it)->isClickable())
+			continue;
+		Common::Rect area = (*it)->area();
+		area.translate(-Logic::instance().cameraX(), -Logic::instance().cameraY());
+		g->paintRect(area);
+	}
 }
 
 void EventManager::toggleDebug() {

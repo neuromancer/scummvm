@@ -250,7 +250,7 @@ void Animation::paint(Graphics *g) {
 		return;
 	debugC(5, kDebugLevelAnimation | kDebugLevelGraphics, "painting sprites for animation %s", _debugInfo);
 
-	g->paint(_mainSprite.get(), _position);
+	g->paint(_mainSprite.get(), _position, Graphics::kPaintCameraRelative);
 
 	for (Common::List<Sprite *>::iterator it = _sprites.begin(); it != _sprites.end(); ++it)
 		(*it)->paint(g);
@@ -388,7 +388,7 @@ void Animation::paintMoveSlotLikeDos(Graphics *g, uint16 spriteId, uint16 x, uin
 		pos = Common::Point(base.x + int16(x), base.y + int16(y));
 
 	Common::SharedPtr<Interspective::Sprite> sprite(_resources->loadSprite(spriteId));
-	g->paint(sprite.get(), pos);
+	g->paint(sprite.get(), pos, Graphics::kPaintCameraRelative);
 }
 
 void Animation::paintAnimationMoveSlotsLikeDos(Graphics *g) const {

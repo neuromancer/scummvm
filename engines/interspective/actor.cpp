@@ -1125,19 +1125,21 @@ Common::Point Actor::getSpeechPosition() const {
 	return speechPosition;
 }
 
-static bool actorMainSpriteVisibleDimensions(const Interspective::Sprite *sprite, Common::Point pos, uint8 &width, uint8 &height) {
+static bool actorMainSpriteVisibleDimensions(const Interspective::Sprite *sprite, Common::Point pos, uint16 screenHeight, uint8 &width, uint8 &height) {
 	if (!sprite)
 		return false;
 
-	const int32 left = int32(pos.x) - int32(sprite->_hotPoint.x);
-	const int32 top = int32(pos.y) - int32(sprite->h) + int32(sprite->_hotPoint.y);
+	const int32 screenX = int32(pos.x) - int32(Log.cameraX());
+	const int32 screenY = int32(pos.y) - int32(Log.cameraY());
+	const int32 left = screenX - int32(sprite->_hotPoint.x);
+	const int32 top = screenY - int32(sprite->h) + int32(sprite->_hotPoint.y);
 	const int32 right = left + int32(sprite->w);
 	const int32 bottom = top + int32(sprite->h);
 
 	const int32 clippedLeft = left < 0 ? 0 : left;
 	const int32 clippedTop = top < 0 ? 0 : top;
 	const int32 clippedRight = right > 320 ? 320 : right;
-	const int32 clippedBottom = bottom > 200 ? 200 : bottom;
+	const int32 clippedBottom = bottom > int32(screenHeight) ? int32(screenHeight) : bottom;
 
 	if (clippedRight <= clippedLeft || clippedBottom <= clippedTop)
 		return false;
@@ -1164,7 +1166,7 @@ void Actor::paint(Graphics *g) {
 
 	uint8 width = 0;
 	uint8 height = 0;
-	if (actorMainSpriteVisibleDimensions(_mainSprite.get(), _position, width, height)) {
+	if (actorMainSpriteVisibleDimensions(_mainSprite.get(), _position, g->screenHeight(), width, height)) {
 		// DOS DrawActorAnimSlot @ 1000:6633/663b copies g_blit_last_w/h
 		// into actor fields +0x17/+0x18 after drawing the main sprite.
 		setDosField(0x17, width);

@@ -776,20 +776,31 @@ uint16 Graphics::paintChar(uint16 left, uint16 top, byte colour, byte ch, Surfac
 void Graphics::paint(const Sprite *sprite, Common::Point pos, Surface *dest, int flags) const {
 	debugC(4, kDebugLevelGraphics, "painting sprite at %d:%d (+%d:%d) [%dx%d]", pos.x, pos.y, sprite->_hotPoint.x, sprite->_hotPoint.y, sprite->w, sprite->h);
 
+	if (flags & kPaintCameraRelative) {
+		const Logic *logic = _engine ? _engine->logic() : 0;
+		if (logic) {
+			pos.x = int16(pos.x - logic->cameraX());
+			pos.y = int16(pos.y - logic->cameraY());
+		}
+	}
+
 	Common::Rect r(sprite->w, sprite->h);
 	r.moveTo(pos);
 	if (!(flags & kPaintPositionIsTop))
 		r.translate(0, -sprite->h); // this is actually bottom
 	r.translate(-sprite->_hotPoint.x, sprite->_hotPoint.y);
 
-	// Clip to the destination surface, not the screen — `dest` is often a small
-	// auto-allocated surface (e.g. a speech bubble buffer) and a sprite that
-	// poked even one pixel past its right/bottom edge would write past the end
-	// of the heap allocation. Caught by ASan in resources.cpp:74.
-	r.clip(dest->w - 1, dest->h - 1);
-	debugC(4, kDebugLevelGraphics, "transformed rect: %d:%d %d:%d", r.left, r.top, r.right, r.bottom);
+	// DOS DrawSprite @ 1000:a27a clips room sprites by moving both the
+	// destination rectangle and the source offset. Keep the same pairing here,
+	// while clipping against the actual destination surface for small buffers.
+	const Common::Rect unclipped = r;
+	r.clip(dest->w, dest->h);
+	if (r.isEmpty())
+		return;
+	const Common::Point srcOffset(r.left - unclipped.left, r.top - unclipped.top);
+	debugC(4, kDebugLevelGraphics, "transformed rect: %d:%d %d:%d src %d:%d", r.left, r.top, r.right, r.bottom, srcOffset.x, srcOffset.y);
 
-	dest->blit(sprite, r, 0, (flags & kPaintSemiTransparent) ? &_tintedPalette : 0);
+	dest->blit(sprite, r, srcOffset, 0, (flags & kPaintSemiTransparent) ? &_tintedPalette : 0);
 }
 
 Common::Point Graphics::cursorPosition() const {

@@ -81,7 +81,7 @@ Exit::Exit(const CodePointer &c, uint16 id)
 
 void Exit::paint(Graphics *g) {
 	if (sprite())
-		g->paint(sprite(), _position);
+		g->paint(sprite(), _position, Graphics::kPaintCameraRelative);
 }
 
 byte Exit::zIndex() const {

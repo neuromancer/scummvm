@@ -46,9 +46,10 @@ public:
 		blit(s, Common::Point(0, 0), transparent, tinted);
 	}
 	void blit(const Surface *s, Common::Point p, int transparent = -1, const byte (*tinted)[256] = 0) {
-		blit(s, Common::Rect(p.x, p.y, s->w, s->h), transparent, tinted);
+		blit(s, Common::Rect(p, s->w, s->h), transparent, tinted);
 	}
 	void blit(const Surface *s, Common::Rect r, int transparent = -1, const byte (*tinted)[256] = 0);
+	void blit(const Surface *s, Common::Rect r, Common::Point srcOffset, int transparent = -1, const byte (*tinted)[256] = 0);
 	
 	void create(uint16 width, uint16 height) {
 		::Graphics::Surface::create(width, height, ::Graphics::PixelFormat::createFormatCLUT8());

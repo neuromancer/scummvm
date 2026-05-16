@@ -50,16 +50,47 @@ namespace Interspective {
 //
 
 void Surface::blit(const Surface *s, Common::Rect r, int transparent, const byte (*tinted)[256]) {
+	blit(s, r, Common::Point(0, 0), transparent, tinted);
+}
+
+void Surface::blit(const Surface *s, Common::Rect r, Common::Point srcOffset, int transparent, const byte (*tinted)[256]) {
 	enum {
 		kSemitransparent = 0xbe
 	};
-	
-	const byte *src = reinterpret_cast<const byte *>(s->getPixels());
+
+	if (!s)
+		return;
+
+	if (r.left < 0) {
+		srcOffset.x -= r.left;
+		r.left = 0;
+	}
+	if (r.top < 0) {
+		srcOffset.y -= r.top;
+		r.top = 0;
+	}
+	if (r.right > w)
+		r.right = w;
+	if (r.bottom > h)
+		r.bottom = h;
+	if (r.isEmpty() || srcOffset.x < 0 || srcOffset.y < 0 || srcOffset.x >= s->w || srcOffset.y >= s->h)
+		return;
+
+	const int srcMaxW = s->w - srcOffset.x;
+	const int srcMaxH = s->h - srcOffset.y;
+	if (r.width() > srcMaxW)
+		r.right = r.left + srcMaxW;
+	if (r.height() > srcMaxH)
+		r.bottom = r.top + srcMaxH;
+	if (r.isEmpty())
+		return;
+
+	const byte *src = reinterpret_cast<const byte *>(s->getBasePtr(srcOffset.x, srcOffset.y));
 	byte *dest = reinterpret_cast<byte *>(getBasePtr(r.left, r.top));
 	int rw = r.width(), rh = r.height();
-	
+
 	if (transparent == -1 && !tinted) {
-		if (rw == s->pitch && rw == pitch && r.left == 0)
+		if (rw == s->pitch && rw == pitch && r.left == 0 && srcOffset.x == 0)
 			memmove(dest, src, rw * rh);
 		else for (int y = 0; y < rh; ++y) {
 			memmove(dest, src, rw);
