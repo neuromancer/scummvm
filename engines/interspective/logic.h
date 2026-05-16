@@ -603,13 +603,29 @@ public:
 	uint16 currentEntityId() const { return _currentEntityId; }
 	void setCurrentEntityId(uint16 id) { _currentEntityId = id; }
 
-	// `g_draw_command_count` (DS:0x661b) — count of pending draw
-	// commands queued for this frame. Incremented by AddDrawCommand,
-	// reset per frame. Read by Op_58.
+	// `g_draw_command_buf` (DS:0x3d93, entries are type/id/layer words)
+	// and `g_draw_command_count` (DS:0x661b). Rebuilt from room exits
+	// and current-room object records by the renderer, then consumed by
+	// DrawAllRoomObjects.
+	struct DrawCommand {
+		DrawCommand() : type(0), id(0), layer(0) {}
+		DrawCommand(uint8 t, uint16 i, int16 l) : type(t), id(i), layer(l) {}
+		uint8 type;   // 1 = exit, 2 = object
+		uint16 id;    // 1-based id in the corresponding table
+		int16 layer;  // signed extension of DOS CL in AddDrawCommand
+	};
 	uint16 drawCommandCount() const { return _drawCommandCount; }
-	void setDrawCommandCount(uint16 c) { _drawCommandCount = c; }
-	void incrementDrawCommandCount() { _drawCommandCount++; }
-	void clearDrawCommandCount() { _drawCommandCount = 0; }
+	void clearDrawCommands() { _drawCommands.clear(); _drawCommandCount = 0; }
+	bool addDrawCommand(uint8 type, uint16 id, int16 layer) {
+		if (_drawCommands.size() >= 0x1f) {
+			setPendingError(0x28);
+			return false;
+		}
+		_drawCommands.push_back(DrawCommand(type, id, layer));
+		_drawCommandCount = uint16(_drawCommands.size());
+		return true;
+	}
+	const Common::Array<DrawCommand> &drawCommands() const { return _drawCommands; }
 
 	// Anim-list (DOS DS:0x3f2d..., counter at `g_anim_list_count`,
 	// 8-entry cap). Op_e4 appends an entry; Op_e5 clears. Each entry
@@ -1092,6 +1108,7 @@ private:
 	Common::HashMap<uint32, uint8> _objectFields; // (objId<<8)|fieldOffset → byte, for Op_67 unknown offsets
 	Common::HashMap<uint32, uint8> _exitFields;   // (exitId<<8)|fieldOffset → byte, for Op_66 unknown offsets
 	Common::Array<uint16> _objectExitList;        // dynamic object exits registered through AddExitToList-style paths
+	Common::Array<DrawCommand> _drawCommands;
 	Common::HashMap<uint32, uint8> _cellBits;    // (room<<16)|entity -> DOS cell byte
 	Common::HashMap<uint16, uint8> _actorFlag70; // Actor.field_0x70 (Op_49)
 	uint16 _menuStashA, _menuStashB;             // pbRam00023206/8 (Op_4d)

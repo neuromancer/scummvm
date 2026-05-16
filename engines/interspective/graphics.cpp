@@ -76,6 +76,7 @@ void Graphics::setEngine(Engine *engine) {
 	_speechDoneCallbackMode = 0;
 	_speechDoneCallbackHasMode = false;
 	_fullscreen = false;
+	_fullRedrawPending = true;
 }
 
 void Graphics::init() {
@@ -86,6 +87,7 @@ void Graphics::init() {
 
 void Graphics::paint() {
 	debugC(3, kDebugLevelFlow | kDebugLevelGraphics, ">>>start paint procedure");
+	beginFrame();
 
 	if (_engine->logic()->roomChangePending()) {
 		debugC(2, kDebugLevelFlow | kDebugLevelGraphics, "skipping paint while room restart is pending");
@@ -120,6 +122,147 @@ void Graphics::paintExits() {
 		(*it)->paint(this);
 }
 
+static bool containsDosPoint(uint16 a, uint16 b, uint16 c, uint16 d, int16 x, int16 y) {
+	return int16(a) <= x && x <= int16(c) && int16(b) <= y && y <= int16(d);
+}
+
+static int16 normalizeLayer(int16 layer) {
+	return uint8(layer) == 0xff ? -1 : layer;
+}
+
+static int16 findObjectLayerLikeDos(Logic *logic, uint16 id, uint16 spriteId) {
+	SpriteInfo info = logic->engine()->resources()->getSpriteInfo(spriteId);
+	int16 x = logic->getObjectPosX(id);
+	int16 y = logic->getObjectPosY(id);
+
+	// CalcSpriteAndExitInfo @ 1000:bfbe calls CalcSpriteOffsetInGraphic,
+	// then FindZoneAtPoint with x + width/2 (clamped at 0) and y + height.
+	int32 zoneX = int32(x) + (int32(info.width) >> 1);
+	if (zoneX < 0)
+		zoneX = 0;
+	const int16 cx = int16(zoneX);
+	const int16 dx = int16(int32(y) + int32(info.height));
+
+	uint8 low = 0;
+	const Common::Array<Logic::CollisionZone> &collisionZones = logic->collisionZones();
+	for (uint i = 0; i < collisionZones.size(); ++i) {
+		const Logic::CollisionZone &z = collisionZones[i];
+		if (containsDosPoint(z.a, z.b, z.c, z.d, cx, dx)) {
+			low = uint8(z.slot);
+			break;
+		}
+	}
+
+	uint8 high = 0;
+	const Common::Array<Logic::ZoneB> &zonesB = logic->zonesB();
+	for (uint i = 0; i < zonesB.size(); ++i) {
+		const Logic::ZoneB &z = zonesB[i];
+		if (containsDosPoint(z.a, z.b, z.c, z.d, cx, dx)) {
+			high = uint8(z.var);
+			break;
+		}
+	}
+
+	logic->setObjectField(id, 0x0e, low);
+	logic->setObjectField(id, 0x0f, high);
+	return int8(low);
+}
+
+static void rebuildDrawCommandsLikeDos(Graphics *graphics, Logic *logic) {
+	logic->clearDrawCommands();
+	if (!logic->room())
+		return;
+
+	const Common::List<Exit *> &exits = logic->room()->exits();
+	foreach_const(Exit *, exits) {
+		Exit *exit = *it;
+		if (!exit->hasSprite())
+			continue;
+		if (!logic->cellBit(exit->id(), 0))
+			continue;
+		if (!logic->addDrawCommand(1, exit->id(), int8(exit->zIndex())))
+			return;
+	}
+
+	Resources *resources = logic->engine()->resources();
+	const uint16 objectCount = resources->mainDat()->personsCount();
+	for (uint16 id = 1; id <= objectCount; ++id) {
+		if (logic->getObjectRoom(id) != logic->currentRoom())
+			continue;
+		const int16 x = logic->getObjectPosX(id);
+		const int16 y = logic->getObjectPosY(id);
+		if (x == -1 || y == -1)
+			continue;
+		const uint16 spriteId = uint16(logic->objectField(id, 6))
+			| (uint16(logic->objectField(id, 7)) << 8);
+		if (spriteId == 0xffff)
+			continue;
+		const int16 layer = findObjectLayerLikeDos(logic, id, spriteId);
+		if (!logic->addDrawCommand(2, id, layer))
+			return;
+	}
+
+	debugC(3, kDebugLevelGraphics, "rebuilt %u draw commands [DOS AddDrawCommand]",
+		logic->drawCommandCount());
+}
+
+static bool objectDrawShouldDeferLikeDos(Logic *logic, const Logic::DrawCommand &cmd) {
+	if (cmd.type != 2)
+		return false;
+
+	Actor *protagonist = logic->protagonist();
+	if (!protagonist)
+		return false;
+
+	const uint16 spriteId = protagonist->dosFieldWord(Actor::kOffsetMainSprite);
+	if (spriteId == 0xffff)
+		return false;
+
+	SpriteInfo info = logic->engine()->resources()->getSpriteInfo(spriteId);
+	const int16 minX = int16(protagonist->position().x - int16(protagonist->dosField(0x17)));
+	const int16 maxX = int16(protagonist->position().x + int16(protagonist->dosField(0x17)));
+	const int16 minY = int16(protagonist->position().y + int16(info.hotTop));
+	const int16 maxY = int16(minY + 6);
+	const int16 x = logic->getObjectPosX(cmd.id);
+	const int16 y = logic->getObjectPosY(cmd.id);
+
+	return minX <= x && x < maxX && minY <= y && y < maxY;
+}
+
+static void paintDrawCommandLikeDos(Graphics *graphics, Logic *logic, const Logic::DrawCommand &cmd) {
+	if (cmd.type == 1) {
+		Exit *exit = logic->blockProgram() ? logic->blockProgram()->getExit(cmd.id) : 0;
+		if (exit && exit->room() == logic->currentRoom() && logic->cellBit(cmd.id, 0))
+			exit->paint(graphics);
+		return;
+	}
+
+	if (cmd.type != 2)
+		return;
+
+	const uint16 spriteId = uint16(logic->objectField(cmd.id, 6))
+		| (uint16(logic->objectField(cmd.id, 7)) << 8);
+	if (spriteId == 0xffff)
+		return;
+
+	Common::ScopedPtr<Sprite> sprite(logic->engine()->resources()->loadSprite(spriteId));
+	graphics->paint(sprite.get(), Common::Point(logic->getObjectPosX(cmd.id), logic->getObjectPosY(cmd.id)),
+		Graphics::kPaintCameraRelative);
+	logic->setObjectField(cmd.id, 0x10, uint8(MIN<int>(sprite->w, 255)));
+	logic->setObjectField(cmd.id, 0x11, uint8(MIN<int>(sprite->h, 255)));
+}
+
+static void paintAnimationsForLayerLikeDos(Graphics *graphics, const Common::List<Animation *> &animations,
+		int16 layer, bool actors) {
+	for (Common::List<Animation *>::const_iterator it = animations.begin(); it != animations.end(); ++it) {
+		Animation *anim = *it;
+		if (anim->isActor() != actors)
+			continue;
+		if (normalizeLayer(anim->zIndex()) == layer)
+			anim->paint(graphics);
+	}
+}
+
 void Graphics::loadInterface() {
 	debugC(1, kDebugLevelGraphics, "loading interface");
 	_interface = new Surface;
@@ -136,6 +279,7 @@ void Graphics::paintInterface() {
 	if (_fullscreen) return;
 	debugC(3, kDebugLevelGraphics, "painting interface");
 	_framebuffer->blit(_interface, Common::Rect(0, 152, 320, 200), 0);
+	markDirtyRect(Common::Rect(0, 152, 320, 200));
 }
 
 void Graphics::paintCursorSprite() {
@@ -190,6 +334,7 @@ void Graphics::setBackdrop(uint16 id) {
 	_backdrop = Common::SharedPtr<Surface>(_resources->loadBackdrop(id, palette));
 	setPalette(palette, 0, 256);
 	prepareInterfacePalette();
+	markFullRedraw();
 	paintBackdrop();
 }
 
@@ -219,8 +364,10 @@ void Graphics::paintBackdrop() {
 
 	const int viewHeight = screenHeight();
 	_framebuffer->fillRect(Common::Rect(0, 0, 320, viewHeight), 0);
-
 	const Logic *logic = _engine ? _engine->logic() : 0;
+	if (logic && logic->scrollChanged())
+		markDirtyRect(Common::Rect(0, 0, 320, viewHeight));
+
 	const int srcX = logic ? logic->cameraX() : 0;
 	const int srcY = logic ? logic->cameraY() : 0;
 	if (srcX < 0 || srcY < 0 || srcX >= _backdrop->w || srcY >= _backdrop->h)
@@ -309,46 +456,35 @@ void Graphics::paintSpeech() {
 
 void Graphics::paintAnimations() {
 	debugC(3, kDebugLevelGraphics, "painting animations");
-	struct RenderEntry {
-		RenderEntry() : key(0), animation(0), exitObj(0) {}
-		RenderEntry(int k, Animation *a, Exit *e) : key(k), animation(a), exitObj(e) {}
-		int key;
-		Animation *animation;
-		Exit *exitObj;
-	};
-
-	Common::Array<RenderEntry> sorted;
-	if (_engine->logic()->room()) {
-		foreach_const(Exit *, _engine->logic()->room()->exits())
-			sorted.push_back(RenderEntry((*it)->zIndex() == 0xff ? -1 : (*it)->zIndex(), 0, *it));
-	}
-
+	Logic *logic = _engine->logic();
+	rebuildDrawCommandsLikeDos(this, logic);
 	Common::List<Animation *> animations = _engine->logic()->animations();
-	for (Common::List<Animation *>::iterator it = animations.begin(); it != animations.end(); ++it) {
-		const uint8 layer = uint8((*it)->zIndex());
-		sorted.push_back(RenderEntry(layer == 0xff ? -1 : layer, *it, 0));
-	}
 
-	// DOS DrawAllRoomObjects renders layer 0x0b down to 0x00, then 0xff.
-	// Later draws appear on top, so sort descending by layer key. Exits are
-	// inserted before actors to match the per-layer object pass before
-	// CollectActorAnimSlots.
-	for (uint i = 1; i < sorted.size(); ++i) {
-		RenderEntry entry = sorted[i];
-		uint j = i;
-		while (j > 0 && sorted[j - 1].key < entry.key) {
-			sorted[j] = sorted[j - 1];
-			--j;
+	// DOS DrawAllRoomObjects @ 1000:c048 renders layers 0x0b..0x00 and
+	// then 0xff. For each layer it draws cast entries, room draw commands,
+	// actor slots, then deferred object commands that overlap the actor's
+	// feet band.
+	for (int16 layer = 0x0b; layer >= 0; --layer) {
+		paintAnimationsForLayerLikeDos(this, animations, layer, false);
+
+		Common::Array<Logic::DrawCommand> deferred;
+		const Common::Array<Logic::DrawCommand> &commands = logic->drawCommands();
+		for (uint i = 0; i < commands.size(); ++i) {
+			if (normalizeLayer(commands[i].layer) != layer)
+				continue;
+			if (objectDrawShouldDeferLikeDos(logic, commands[i]))
+				deferred.push_back(commands[i]);
+			else
+				paintDrawCommandLikeDos(this, logic, commands[i]);
 		}
-		sorted[j] = entry;
+
+		paintAnimationsForLayerLikeDos(this, animations, layer, true);
+		for (uint i = 0; i < deferred.size(); ++i)
+			paintDrawCommandLikeDos(this, logic, deferred[i]);
 	}
 
-	for (uint i = 0; i < sorted.size(); ++i) {
-		if (sorted[i].exitObj)
-			sorted[i].exitObj->paint(this);
-		else
-			sorted[i].animation->paint(this);
-	}
+	paintAnimationsForLayerLikeDos(this, animations, -1, false);
+	paintAnimationsForLayerLikeDos(this, animations, -1, true);
 }
 
 // it's modal anyway
@@ -821,6 +957,8 @@ void Graphics::paint(const Sprite *sprite, Common::Point pos, Surface *dest, int
 	const Common::Point srcOffset(r.left - unclipped.left, r.top - unclipped.top);
 	debugC(4, kDebugLevelGraphics, "transformed rect: %d:%d %d:%d src %d:%d", r.left, r.top, r.right, r.bottom, srcOffset.x, srcOffset.y);
 
+	if (dest == _framebuffer.get())
+		markDirtyRect(r);
 	dest->blit(sprite, r, srcOffset, 0, (flags & kPaintSemiTransparent) ? &_tintedPalette : 0);
 }
 
@@ -842,8 +980,69 @@ void Graphics::syncCursorVisibility() {
 	hideCursor();
 }
 
+void Graphics::beginFrame() {
+	_dirtyRects.clear();
+}
+
+void Graphics::markFullRedraw() const {
+	_fullRedrawPending = true;
+}
+
+void Graphics::markDirtyRect(Common::Rect r) const {
+	r.clip(320, 200);
+	if (r.isEmpty() || _fullRedrawPending)
+		return;
+
+	// AddDirtyRect @ 1000:b172 stores word-aligned screen offsets: odd
+	// left edges move one pixel left and the stored width is rounded up.
+	if (r.left & 1)
+		--r.left;
+	if (r.width() & 1)
+		++r.right;
+	r.clip(320, 200);
+	if (r.isEmpty())
+		return;
+
+	for (uint i = 0; i < _dirtyRects.size(); ++i)
+		if (_dirtyRects[i] == r)
+			return;
+
+	if (_dirtyRects.size() >= 50) {
+		if (_engine && _engine->logic())
+			_engine->logic()->setPendingError(0x33);
+		return;
+	}
+
+	_dirtyRects.push_back(r);
+}
+
 void Graphics::updateScreen() {
-	_system->copyRectToScreen(reinterpret_cast<byte *>(_framebuffer->getPixels()), _framebuffer->pitch, 0, 0, 320, 200);
+	if (_fullRedrawPending || _willFadein) {
+		_system->copyRectToScreen(reinterpret_cast<byte *>(_framebuffer->getPixels()), _framebuffer->pitch, 0, 0, 320, 200);
+		_previousDirtyRects.clear();
+		_previousDirtyRects.push_back(Common::Rect(0, 0, 320, 200));
+		_fullRedrawPending = false;
+	} else {
+		Common::Array<Common::Rect> rects = _previousDirtyRects;
+		for (uint i = 0; i < _dirtyRects.size(); ++i) {
+			bool duplicate = false;
+			for (uint j = 0; j < rects.size(); ++j) {
+				if (rects[j] == _dirtyRects[i]) {
+					duplicate = true;
+					break;
+				}
+			}
+			if (!duplicate)
+				rects.push_back(_dirtyRects[i]);
+		}
+
+		for (uint i = 0; i < rects.size(); ++i) {
+			const Common::Rect &r = rects[i];
+			_system->copyRectToScreen(reinterpret_cast<byte *>(_framebuffer->getBasePtr(r.left, r.top)),
+				_framebuffer->pitch, r.left, r.top, r.width(), r.height());
+		}
+		_previousDirtyRects = _dirtyRects;
+	}
 
 	if (_willFadein) {
 		debugC(3, kDebugLevelGraphics, "performing palette fade in range %u..%u",
@@ -875,6 +1074,7 @@ void Graphics::hideCursor() {
 
 void Graphics::paintRect(const Common::Rect &r, byte colour) {
 	_framebuffer->frameRect(r, colour);
+	markDirtyRect(r);
 }
 
 void Graphics::push(Paintable *p) {
@@ -953,6 +1153,8 @@ void Graphics::goFullscreen() {
 }
 
 void Graphics::setFullscreen(bool enabled) {
+	if (_fullscreen != enabled)
+		markFullRedraw();
 	_fullscreen = enabled;
 }
 
@@ -969,8 +1171,10 @@ uint16 Graphics::backdropHeight() const {
 }
 
 void Graphics::clearFramebuffer(byte colour) {
-	if (_framebuffer)
+	if (_framebuffer) {
 		_framebuffer->fillRect(Common::Rect(0, 0, 320, 200), colour);
+		markFullRedraw();
+	}
 }
 
 void Graphics::clearPaletteRange(int start, int count, bool fade) {

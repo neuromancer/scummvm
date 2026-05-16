@@ -586,7 +586,7 @@ void Logic::doChangeRoom() {
 	clearRoomTransientAnimations();
 	castTableClearAll();
 	_overlayQueue.clear();
-	_drawCommandCount = 0;
+	clearDrawCommands();
 	_postMoveCallback = PostMoveCallback();
 	_zones.clear();
 	_collisionZones.clear();

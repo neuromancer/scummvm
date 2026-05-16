@@ -185,6 +185,9 @@ private:
 	void fadeIn(const byte *colours = 0, uint start = 0, uint num = 256);
 	void updateTintedPalette();
 	void storePaletteTarget(const byte *colours, uint start, uint num);
+	void beginFrame();
+	void markDirtyRect(Common::Rect r) const;
+	void markFullRedraw() const;
 
 	Common::List<Paintable *> _paintables;
 	Common::List<CodePointer> _afterRepaintHooks;
@@ -227,6 +230,9 @@ private:
 	};
 	Common::Queue<SpeechEntry> _speechQueue;
 	bool _fullscreen;
+	mutable Common::Array<Common::Rect> _dirtyRects;
+	mutable Common::Array<Common::Rect> _previousDirtyRects;
+	mutable bool _fullRedrawPending;
 };
 
 #define Graf Graphics::instance()
