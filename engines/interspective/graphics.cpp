@@ -154,7 +154,14 @@ void Graphics::paintCursorSprite() {
 		if (_resources->mainDat() && id > _resources->mainDat()->personsCount())
 			return;
 
-		Common::ScopedPtr<Sprite> sprite(_resources->loadSprite(id));
+		// DOS DrawCursorSprite @ 1000:ba8d gets the carried object record
+		// and draws its word at offset +8, not the object id itself.
+		const uint16 spriteId = uint16(logic->objectField(id, 8))
+			| (uint16(logic->objectField(id, 9)) << 8);
+		if (spriteId == 0xffff)
+			return;
+
+		Common::ScopedPtr<Sprite> sprite(_resources->loadSprite(spriteId));
 		paint(sprite.get(), cursorPosition(), kPaintPositionIsTop);
 		return;
 	}
@@ -227,6 +234,15 @@ void Graphics::paintBackdrop() {
 		memcpy(dst, src, copyWidth);
 		dst += _framebuffer->pitch;
 		src += _backdrop->pitch;
+	}
+
+	if (logic) {
+		const Common::Array<Logic::OverlayEntry> &overlays = logic->overlayQueue();
+		for (Common::Array<Logic::OverlayEntry>::const_iterator it = overlays.begin(); it != overlays.end(); ++it) {
+			Sprite *overlay = _resources->loadSprite(it->sprite);
+			paint(overlay, Common::Point(it->x, it->y), kPaintCameraRelative);
+			delete overlay;
+		}
 	}
 }
 
@@ -790,11 +806,16 @@ void Graphics::paint(const Sprite *sprite, Common::Point pos, Surface *dest, int
 		r.translate(0, -sprite->h); // this is actually bottom
 	r.translate(-sprite->_hotPoint.x, sprite->_hotPoint.y);
 
-	// DOS DrawSprite @ 1000:a27a clips room sprites by moving both the
-	// destination rectangle and the source offset. Keep the same pairing here,
-	// while clipping against the actual destination surface for small buffers.
+	// DOS DrawSprite @ 1000:a27a / ClipSpriteRect @ 1000:a2e2 clips room
+	// sprites to g_screen_max_y, not the full 200-line framebuffer. Keep the
+	// same active-height clamp for camera-relative draws, and still clip small
+	// temporary surfaces against their own dimensions.
+	const int clipHeight = ((flags & kPaintCameraRelative) && dest == _framebuffer.get())
+		? MIN<int>(dest->h, screenHeight()) : dest->h;
+
+	// DOS clipping moves both the destination rectangle and the source offset.
 	const Common::Rect unclipped = r;
-	r.clip(dest->w, dest->h);
+	r.clip(dest->w, clipHeight);
 	if (r.isEmpty())
 		return;
 	const Common::Point srcOffset(r.left - unclipped.left, r.top - unclipped.top);

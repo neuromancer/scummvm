@@ -4004,7 +4004,7 @@ OPCODE(0x7e) {
 		return kThxBye;
 	}
 	Sprite *overlay = _logic->resources()->loadSprite(sprite);
-	_graphics->paint(overlay, Common::Point(x, y));
+	_graphics->paint(overlay, Common::Point(x, y), Graphics::kPaintCameraRelative);
 	delete overlay;
 	return kThxBye;
 }
