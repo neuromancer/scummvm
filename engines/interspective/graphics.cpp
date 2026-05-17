@@ -873,6 +873,10 @@ static Graphics::SpeechBubbleMode verbBubbleModeForPalette(byte paletteMode) {
 	//   a raw active row list plus a stashed formatted bubble.
 	if (paletteMode == 1)
 		return Graphics::kSpeechBubbleType1;
+	if (paletteMode == 2)
+		return Graphics::kSpeechBubbleVerbTopLeft;
+	if (paletteMode == 4)
+		return Graphics::kSpeechBubbleVerbBottomLeft;
 	return Graphics::kSpeechBubbleType2;
 }
 
@@ -944,6 +948,48 @@ static byte verbBubbleTextColourForPalette(byte paletteMode) {
 	return 0xeb;
 }
 
+static void paintStashedVerbBubbleLikeDos(Graphics *graphics, Logic *logic, Surface *dest) {
+	if (!graphics || !logic || !dest)
+		return;
+
+	const Common::String &savedText = logic->modalState().savedText;
+	if (savedText.empty())
+		return;
+
+	Sprite bubble;
+	bubble._hotPoint = Common::Point(0, 0);
+	Common::Rect bubbleRect = graphics->paintSpeechInBubble(Common::Point(0xe6, 0x5d), 0xf5,
+		reinterpret_cast<const byte *>(savedText.c_str()), &bubble, Graphics::kSpeechBubbleType1, true);
+	graphics->paint(&bubble, Common::Point(bubbleRect.left, bubbleRect.top), dest,
+	                Graphics::kPaintSemiTransparent | Graphics::kPaintPositionIsTop);
+}
+
+static void paintVerbBubbleConnectorsLikeDos(Graphics *graphics, Resources *resources,
+		byte paletteMode, Common::Point anchor, Surface *dest) {
+	if (!graphics || !resources || !dest)
+		return;
+	if (paletteMode != 2 && paletteMode != 4)
+		return;
+
+	Sprite * const *bubbles = resources->bubbles();
+	const Sprite *stem = bubbles[kBubbleVerbStem];           // DOS CS:[0x109], footer +0xaa
+	const Sprite *connector = bubbles[kBubbleVerbConnector]; // DOS CS:[0x107], footer +0xa8
+	if (!stem || !connector)
+		return;
+
+	Common::Point stemPos = anchor;
+	Common::Point connectorPos(anchor.x + 0x0a, anchor.y);
+	if (paletteMode == 2) {
+		stemPos.y -= 0x08;
+		connectorPos.y -= 0x14;
+	} else {
+		connectorPos.y += 0x08;
+	}
+
+	graphics->paint(stem, stemPos, dest, Graphics::kPaintPositionIsTop);
+	graphics->paint(connector, connectorPos, dest, Graphics::kPaintPositionIsTop);
+}
+
 uint16 Graphics::askVerbBubbleLikeDos(byte paletteMode, byte *string, uint16 *selectedIndex) {
 	if (selectedIndex)
 		*selectedIndex = 0xffff;
@@ -967,6 +1013,7 @@ uint16 Graphics::askVerbBubbleLikeDos(byte paletteMode, byte *string, uint16 *se
 
 	auto paintModalFrame = [&](int hover) {
 		paintConversationBackdropLikeDos();
+		paintVerbBubbleConnectorsLikeDos(this, _resources, paletteMode, anchor, _framebuffer.get());
 
 		Sprite bubble;
 		bubble._hotPoint = Common::Point(0, 0);
@@ -983,6 +1030,8 @@ uint16 Graphics::askVerbBubbleLikeDos(byte paletteMode, byte *string, uint16 *se
 			paintPlainTextLine(choices[hover].textLeft, choices[hover].textTop,
 			                   kSelectedOptionColour,
 			                   reinterpret_cast<const byte *>(choices[hover].label.c_str()), false);
+		if (paletteMode == 4)
+			paintStashedVerbBubbleLikeDos(this, _engine ? _engine->logic() : 0, _framebuffer.get());
 
 		_system->copyRectToScreen(reinterpret_cast<byte *>(_framebuffer->getPixels()),
 		                          _framebuffer->pitch, 0, 0, 320, 200);
@@ -1075,6 +1124,7 @@ void Graphics::showVerbBubbleTextLikeDos(byte paletteMode, const byte *string, u
 
 	auto paintModalFrame = [&]() {
 		paintConversationBackdropLikeDos();
+		paintVerbBubbleConnectorsLikeDos(this, _resources, paletteMode, anchor, _framebuffer.get());
 
 		Sprite bubble;
 		bubble._hotPoint = Common::Point(0, 0);
@@ -1088,6 +1138,8 @@ void Graphics::showVerbBubbleTextLikeDos(byte paletteMode, const byte *string, u
 			collectVerbBubbleLines(string, lines);
 			paintVerbBubbleLines(this, bubbleRect, lines, textColour);
 		}
+		if (paletteMode == 4)
+			paintStashedVerbBubbleLikeDos(this, _engine ? _engine->logic() : 0, _framebuffer.get());
 
 		_system->copyRectToScreen(reinterpret_cast<byte *>(_framebuffer->getPixels()),
 		                          _framebuffer->pitch, 0, 0, 320, 200);
@@ -1268,17 +1320,27 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const
 	uint8 bubble_indices[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8 };
 
 	uint8 wadj = 0;
-	const int height = (rows >= 3) ? (rows * kLineHeight + 16) : 60;
+	const bool verbRawTopLeft = mode == kSpeechBubbleVerbTopLeft;
+	const bool verbRawBottomLeft = mode == kSpeechBubbleVerbBottomLeft;
+	const int frameHeight = (rows >= 3) ? (rows * kLineHeight + 16) : 60;
+	const int rawTopLeftAnchorHeight = (rows >= 3) ? (rows * kLineHeight + 0x20) : 60;
+	const int height = verbRawTopLeft ? rawTopLeftAnchorHeight : frameHeight;
 
 	enum DosBubbleVariant {
 		kDosRenderSpeechBubble,
 		kDosRenderSpeechBubbleTopLeft,
 		kDosRenderSpeechBubbleBottomRight,
-		kDosRenderSpeechBubbleTopRight
+		kDosRenderSpeechBubbleTopRight,
+		kDosLayoutVerbBubbleTopLeft,
+		kDosLayoutVerbBubbleBottomLeft
 	};
 
 	DosBubbleVariant variant;
-	if (mode == kSpeechBubbleType1) {
+	if (verbRawTopLeft) {
+		variant = kDosLayoutVerbBubbleTopLeft;
+	} else if (verbRawBottomLeft) {
+		variant = kDosLayoutVerbBubbleBottomLeft;
+	} else if (mode == kSpeechBubbleType1) {
 		variant = (top < 0x35) ? kDosRenderSpeechBubbleTopLeft : kDosRenderSpeechBubble;
 	} else if (mode == kSpeechBubbleType2) {
 		variant = (top < 0x35) ? kDosRenderSpeechBubbleTopRight : kDosRenderSpeechBubbleBottomRight;
@@ -1339,6 +1401,31 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const
 			top = 0;
 		left += 4;
 		bubble_indices[kBubbleTopLeft] = kBubbleTopLeftPoint;
+		break;
+	case kDosLayoutVerbBubbleTopLeft:
+		// DrawVerbBubble_DispatchByMode palette 2:
+		// LayoutVerbBubbleText_Right @ 1000:8cb0 draws the connector
+		// sprites around CX/DX, then offsets the actual text frame by
+		// +0x10 on X and upward by the row-count-dependent height.
+		if (top < height)
+			top = 0;
+		else
+			top -= height;
+		left += 0x10;
+		if (left + int(widthExtra) + 0x41 >= 320)
+			left -= left + int(widthExtra) + 0x41 - 320;
+		break;
+	case kDosLayoutVerbBubbleBottomLeft:
+		// DrawVerbBubble_DispatchByMode palette 4:
+		// LayoutVerbBubbleText_Left @ 1000:8d1e draws the connector
+		// sprites around CX/DX, then offsets the actual text frame by
+		// +0x10/+0x10 before the saved formatted bubble is drawn.
+		top += 0x10;
+		if (top < 0)
+			top = 0;
+		left += 0x10;
+		if (left + int(widthExtra) + 0x41 >= 320)
+			left -= left + int(widthExtra) + 0x41 - 320;
 		break;
 	}
 	debugC(2, kDebugLevelGraphics, "painting speech bubble \"%s\" at (adjusted) %d:%d", string, left, top);

@@ -536,6 +536,8 @@ public:
 		uint8 stashFlag;
 		uint16 selectedItemIdx;
 		uint16 textContinuationPtr;
+		Common::String activeText;
+		Common::String savedText;
 		bool menuDone;
 		ModalState() : activeDi(0), activeEs(0), activeAx(0), activeBx(0),
 		               savedDi(0), savedEs(0), savedAx(0), savedBx(0),

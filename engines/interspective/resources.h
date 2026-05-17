@@ -157,7 +157,7 @@ private:
 	Common::SharedPtr<Common::SeekableReadStream> *_musicFiles;
 
 	Sprite *_frames[9];
-	Sprite *_bubbles[13];
+	Sprite *_bubbles[15];
 };
 
 #define Res Resources::instance()

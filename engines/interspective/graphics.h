@@ -96,7 +96,9 @@ public:
 	enum SpeechBubbleMode {
 		kSpeechBubbleAuto = 0,   // actor-targeted slot: dispatch by screen quadrant
 		kSpeechBubbleType1 = 1,  // DOS RenderSpeechBubble / RenderSpeechBubbleTopLeft
-		kSpeechBubbleType2 = 2   // DOS RenderSpeechBubbleBottomRight / RenderSpeechBubbleTopRight
+		kSpeechBubbleType2 = 2,  // DOS RenderSpeechBubbleBottomRight / RenderSpeechBubbleTopRight
+		kSpeechBubbleVerbTopLeft = 3,     // DOS ComputeBubbleRect_TopLeft + raw row layout
+		kSpeechBubbleVerbBottomLeft = 4   // DOS ComputeBubbleRect_BottomLeft + raw row layout
 	};
 	void sayAt(const byte *text, uint16 length, uint16 frames,
 	           uint16 x, uint16 y, byte color, uint16 maxLines = 0,

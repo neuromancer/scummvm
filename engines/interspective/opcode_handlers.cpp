@@ -652,6 +652,7 @@ static bool showFormattedModalTextAndWait(const Logic::FormattedBubble &fb,
 	const byte *out = reinterpret_cast<const byte *>(visible.c_str());
 	const uint16 length = uint16(visible.size());
 	if (Log.modalState().paletteMode != 0) {
+		Log.modalState().activeText = visible;
 		Graf.showVerbBubbleTextLikeDos(Log.modalState().paletteMode, out, MAX<uint16>(1, frames));
 		return false;
 	}
@@ -865,6 +866,7 @@ static void seedFormattedModalState(Logic::ModalState &ms,
 	ms.activeBx = rows;
 	ms.activeEs = 0;
 	ms.activeDi = 0x40b7;
+	ms.activeText = stripFormattedRowCenterRecords(fb);
 	ms.paletteMode = paletteMode;
 	ms.stashFlag = stashFlag;
 	ms.selectedItemIdx = 0xffff;
@@ -3838,6 +3840,7 @@ OPCODE(0x53) {
 		ms.savedBx = ms.activeBx;
 		ms.savedEs = ms.activeEs;
 		ms.savedDi = ms.activeDi;
+		ms.savedText = ms.activeText;
 	}
 	Logic::FormattedBubble fb = _logic->measureVerbBubbleText(measureText);
 	if (useStash) {

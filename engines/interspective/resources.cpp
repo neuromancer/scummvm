@@ -174,6 +174,8 @@ void Resources::loadSpeechBubbles() {
 	BUBBLE(kBubbleBottomRightPoint);
 	BUBBLE(kBubbleTopLeftPoint);
 	BUBBLE(kBubbleTopRightPoint);
+	BUBBLE(kBubbleVerbConnector);
+	BUBBLE(kBubbleVerbStem);
 	#undef BUBBLE
 }
 

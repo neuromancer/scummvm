@@ -113,6 +113,8 @@ enum Offsets {
 	kBubbleBottomRightPointOffset = 0xa2,
 	kBubbleTopLeftPointOffset = 0xa4,
 	kBubbleTopRightPointOffset = 0xa6,
+	kBubbleVerbConnectorOffset = 0xa8,
+	kBubbleVerbStemOffset = 0xaa,
 
 	// DOS CycleAllAnimationsByMask @ 1000:c8a1 reads CS:[0xa9],
 	// [0xab], [0xaf], [0xad], [0xb1]. The loaded footer begins at
@@ -539,6 +541,8 @@ uint16 MainDat::getBubbleId(SpeechBubblePart part) const {
 	PART(kBubbleBottomRightPoint);
 	PART(kBubbleTopLeftPoint);
 	PART(kBubbleTopRightPoint);
+	PART(kBubbleVerbConnector);
+	PART(kBubbleVerbStem);
 	#undef PART
 	default: assert(false);
 	}

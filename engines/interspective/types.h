@@ -78,7 +78,9 @@ enum SpeechBubblePart {
 	kBubbleBottomLeftPoint,
 	kBubbleBottomRightPoint,
 	kBubbleTopLeftPoint,
-	kBubbleTopRightPoint
+	kBubbleTopRightPoint,
+	kBubbleVerbConnector,
+	kBubbleVerbStem
 };
 
 } // end of namespace Interspective
