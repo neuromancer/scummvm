@@ -320,6 +320,10 @@ Program *Resources::loadCodeBlock(uint16 block) const {
 	return _progDat.get()->getScript(block);
 }
 
+Program *Resources::loadSceneCodeBlock(uint16 scene) const {
+	return _progDat.get()->getScript(uint16(_main.get()->progEntriesCount0() + scene));
+}
+
 void Resources::descramble(byte *data, uint32 len) {
 	for (uint32 i = 0; i < len; i++)
 		data[i] ^= 0x6f;

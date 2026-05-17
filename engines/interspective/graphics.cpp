@@ -321,7 +321,84 @@ void Graphics::paintInterface() {
 	if (_fullscreen) return;
 	debugC(3, kDebugLevelGraphics, "painting interface");
 	_framebuffer->blit(_interface, Common::Rect(0, 152, 320, 200), 0);
+	paintInterfaceOverlaySprites();
+	paintStatusOverlayText();
 	markDirtyRect(Common::Rect(0, 152, 320, 200));
+}
+
+void Graphics::setInterfaceOverlaySprite(uint16 maskBit, uint16 spriteId, uint16 x, uint16 y) {
+	for (uint i = 0; i < _interfaceOverlaySprites.size(); ++i) {
+		InterfaceOverlaySprite &overlay = _interfaceOverlaySprites[i];
+		if (overlay.maskBit != maskBit)
+			continue;
+		overlay.spriteId = spriteId;
+		overlay.x = x;
+		overlay.y = y;
+		return;
+	}
+
+	InterfaceOverlaySprite overlay;
+	overlay.maskBit = maskBit;
+	overlay.spriteId = spriteId;
+	overlay.x = x;
+	overlay.y = y;
+	_interfaceOverlaySprites.push_back(overlay);
+}
+
+void Graphics::paintInterfaceOverlaySprites() {
+	for (uint i = 0; i < _interfaceOverlaySprites.size(); ++i) {
+		const InterfaceOverlaySprite &overlay = _interfaceOverlaySprites[i];
+		if (overlay.spriteId == 0xffff)
+			continue;
+		Common::ScopedPtr<Sprite> sprite(_resources->loadSprite(overlay.spriteId));
+		paint(sprite.get(), Common::Point(overlay.x, overlay.y), kPaintPositionIsTop | kPaintNoDirty);
+	}
+}
+
+bool Graphics::setStatusOverlayTextLikeDos(const byte *text) {
+	_statusOverlayLines.clear();
+	if (!text)
+		return true;
+
+	const byte *p = text;
+	bool done = false;
+	while (!done) {
+		byte line[101];
+		uint16 len = 0;
+		byte terminator = 0;
+		while (len < 100) {
+			const byte ch = *p++;
+			if (ch == 0 || ch == '\r') {
+				terminator = ch;
+				break;
+			}
+			line[len++] = ch;
+		}
+		if (len == 100)
+			terminator = 0;
+		line[len] = 0;
+
+		if (plainTextLineWidth(line) > 0x38)
+			return false;
+		_statusOverlayLines.push_back(Common::String(reinterpret_cast<const char *>(line)));
+		done = terminator == 0;
+	}
+
+	paintStatusOverlayText();
+	return true;
+}
+
+void Graphics::paintStatusOverlayText() {
+	uint16 y = 0xb4;
+	for (uint i = 0; i < _statusOverlayLines.size(); ++i) {
+		const Common::String &line = _statusOverlayLines[i];
+		const byte *text = reinterpret_cast<const byte *>(line.c_str());
+		const uint16 textWidth = plainTextLineWidth(text);
+		const uint16 x = uint16(((0x38 - textWidth) >> 1) + 4);
+		paintPlainTextLine(x + 1, y + 1, 0xae, text, false);
+		paintPlainTextLine(x, y, 0xeb, text, false);
+		y += 9;
+	}
 }
 
 void Graphics::paintCursorSprite() {
@@ -477,7 +554,8 @@ void Graphics::paintSpeech() {
 					Common::Rect rect = paintSpeechInBubble(Common::Point(_speechX, _speechY), _speechColor, _speech, &bubble, _speechBubbleMode);
 					paint(&bubble, Common::Point(rect.left, rect.top), kPaintSemiTransparent | kPaintPositionIsTop);
 				} else {
-					paintText(_speechX, _speechY, _speechColor, _speech);
+					Common::Rect rect = paintText(_speechX, _speechY, _speechColor, _speech, _framebuffer.get(), 0, 0, kPaintNoDirty);
+					markDirtyRect(rect);
 				}
 			}
 		} else {
@@ -487,7 +565,8 @@ void Graphics::paintSpeech() {
 				Common::Rect rect = paintSpeechInBubble(Common::Point(_speechX, _speechY), _speechColor, _speech, &bubble, _speechBubbleMode);
 				paint(&bubble, Common::Point(rect.left, rect.top), kPaintSemiTransparent | kPaintPositionIsTop);
 			} else {
-				paintText(_speechX, _speechY, _speechColor, _speech);
+				Common::Rect rect = paintText(_speechX, _speechY, _speechColor, _speech, _framebuffer.get(), 0, 0, kPaintNoDirty);
+				markDirtyRect(rect);
 			}
 			_speechFramesLeft--;
 		}
@@ -865,7 +944,7 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const
 	return rect;
 }
 
-Common::Rect Graphics::paintText(uint16 left, uint16 top, byte colour, const byte *string, Surface *dest, uint16 *_lines, uint8 firstLineExtraIndent) {
+Common::Rect Graphics::paintText(uint16 left, uint16 top, byte colour, const byte *string, Surface *dest, uint16 *_lines, uint8 firstLineExtraIndent, int flags) {
 	byte ch = 0;
 	uint16 current_left = left + firstLineExtraIndent;
 	uint16 current_top = top;
@@ -905,14 +984,14 @@ Common::Rect Graphics::paintText(uint16 left, uint16 top, byte colour, const byt
 			break;
 		case kStringMenuOption:
 			opt = _mOption++;
-			_optionRects[opt] = paintText(current_left, current_top, kOptionColour, string, dest);
+			_optionRects[opt] = paintText(current_left, current_top, kOptionColour, string, dest, 0, 0, flags);
 			while (*(string++));
 			_optionValues[opt] = READ_LE_UINT16(string);
 			debugC(2, kDebugLevelGraphics | kDebugLevelScript, "option value %d: 0x%x", opt, _optionValues[opt]);
 			string += 2;
 			break;
 		default:
-			current_left += paintChar(current_left, current_top, current_colour, ch, dest);
+			current_left += paintChar(current_left, current_top, current_colour, ch, dest, flags);
 			if (current_left > max_left)
 				max_left = current_left;
 		}

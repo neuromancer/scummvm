@@ -1039,6 +1039,7 @@ public:
 	};
 	bool hasSavedScene() const { return _savedScene; }
 	void saveSceneFrame(const CodePointer &resumePC);
+	CodePointer switchToSceneLikeDos(uint16 sceneId, const CodePointer &resumePC);
 	CodePointer restoreSceneFrame();
 	void backupRoomForMapLikeDos();
 	void restoreRoomFromBackupLikeDos();
@@ -1102,6 +1103,8 @@ private:
 	Engine *_engine;
 	Resources *_resources;
 	Common::SharedPtr<Interpreter> _toplevelInterpreter, _blockInterpreter;
+	Common::SharedPtr<Program> _sceneProgramKeepAlive;
+	Common::SharedPtr<Interpreter> _sceneInterpreterKeepAlive;
 	Actor *_protagonist;
 	uint16 _protagonistId; // DOS CS:0x010f
 	uint32 _nextRoom;

@@ -104,6 +104,7 @@ public:
 	uint16 blockOfRoom(uint16 room) const;
 
 	Program *loadCodeBlock(uint16 block) const;
+	Program *loadSceneCodeBlock(uint16 scene) const;
 
 	static void descramble(byte *data, uint32 length);
 

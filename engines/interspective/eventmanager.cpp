@@ -49,10 +49,11 @@ namespace Interspective {
 namespace {
 
 struct HitTarget {
-	HitTarget() : type(0), id(0), z(0x7fff), exitPtr(0) {}
+	HitTarget() : type(0), id(0), z(0x7fff), y(0), exitPtr(0) {}
 	uint16 type; // DOS g_game_state: 0 none, 1 exit, 2 object, 3 actor
 	uint16 id;
 	int16 z;
+	int16 y;
 	Exit *exitPtr;
 };
 
@@ -86,50 +87,75 @@ static bool spriteContainsWorldPoint(Resources *resources, uint16 spriteId,
 	return pixel && *pixel != 0;
 }
 
-static void considerTarget(HitTarget &best, uint16 type, uint16 id, int16 z, Exit *exit = 0) {
+static bool containsDosInclusive(const Common::Rect &rect, const Common::Point &p) {
+	return p.x >= rect.left && p.x <= rect.right && p.y >= rect.top && p.y <= rect.bottom;
+}
+
+static void considerLowerZTarget(HitTarget &best, uint16 type, uint16 id, int16 z, Exit *exit = 0) {
 	if (best.type == 0 || z < best.z) {
 		best.type = type;
 		best.id = id;
 		best.z = z;
+		best.y = 0;
 		best.exitPtr = exit;
 		debugC(2, kDebugLevelEvents, "click hit candidate type=%u id=%u z=%d", type, id, z);
 	}
 }
 
-static HitTarget findBestHitTargetLikeDos(Logic &logic, Common::Point world) {
+static HitTarget hitDrawCommandAtPointLikeDos(Logic &logic, Common::Point world) {
 	HitTarget best;
 	Resources *resources = logic.resources();
-
 	const Common::Array<Logic::DrawCommand> &commands = logic.drawCommands();
+
 	for (uint i = 0; i < commands.size(); ++i) {
 		const Logic::DrawCommand &cmd = commands[i];
 		if (cmd.type == 1) {
 			Exit *exit = logic.blockProgram() ? logic.blockProgram()->getExit(cmd.id) : 0;
 			if (!exit || exit->room() != logic.currentRoom() || !logic.cellBit(cmd.id, 0))
 				continue;
-			if (exit->area().contains(world))
-				considerTarget(best, 1, cmd.id, cmd.layer, exit);
+			if (spriteContainsWorldPoint(resources, exit->spriteField(), exit->position(), world))
+				considerLowerZTarget(best, 1, cmd.id, cmd.layer, exit);
 		} else if (cmd.type == 2) {
 			if (logic.getObjectRoom(cmd.id) != logic.currentRoom() || !logic.cellBit(cmd.id, 0))
 				continue;
 			const uint16 spriteId = recordWord(logic, 2, cmd.id, 6);
 			const Common::Point pos(logic.getObjectPosX(cmd.id), logic.getObjectPosY(cmd.id));
 			if (spriteContainsWorldPoint(resources, spriteId, pos, world))
-				considerTarget(best, 2, cmd.id, cmd.layer);
+				considerLowerZTarget(best, 2, cmd.id, cmd.layer);
 		}
 	}
 
+	return best;
+}
+
+static HitTarget hitDrawCommandWithFallbackLikeDos(Logic &logic, Common::Point world) {
+	HitTarget target = hitDrawCommandAtPointLikeDos(logic, world);
+	if (target.type != 0)
+		return target;
+	target = hitDrawCommandAtPointLikeDos(logic, Common::Point(world.x, world.y + 1));
+	if (target.type != 0)
+		return target;
+	return hitDrawCommandAtPointLikeDos(logic, Common::Point(world.x + 1, world.y + 1));
+}
+
+static HitTarget hitNoSpriteExitAtPointLikeDos(Logic &logic, Common::Point world) {
+	HitTarget best;
 	if (logic.blockProgram()) {
 		Common::List<Exit *> exits = logic.blockProgram()->exitsForRoom(logic.currentRoom());
 		foreach (Exit *, exits) {
 			Exit *exit = *it;
 			if (!exit || exit->hasSprite() || !logic.cellBit(exit->id(), 0))
 				continue;
-			if (exit->area().contains(world))
-				considerTarget(best, 1, exit->id(), int16(exit->zIndex()), exit);
+			if (containsDosInclusive(exit->area(), world))
+				considerLowerZTarget(best, 1, exit->id(), int16(int8(exit->zIndex())), exit);
 		}
 	}
+	return best;
+}
 
+static HitTarget hitActorAtPointLikeDos(Logic &logic, Common::Point world) {
+	HitTarget best;
+	Resources *resources = logic.resources();
 	uint16 actorCount = logic.resources()->mainDat()->actorsCount();
 	if (logic.blockProgram())
 		actorCount += logic.blockProgram()->actorsCount();
@@ -140,8 +166,37 @@ static HitTarget findBestHitTargetLikeDos(Logic &logic, Common::Point world) {
 		const uint16 spriteId = actor->mainSpriteId();
 		if (spriteId == 0xffff)
 			continue;
-		if (spriteContainsWorldPoint(resources, spriteId, actor->position(), world))
-			considerTarget(best, 3, id, int16(actor->zIndex()));
+		if (!spriteContainsWorldPoint(resources, spriteId, actor->position(), world))
+			continue;
+
+		const int16 z = int16(actor->zIndex());
+		const int16 y = int16(actor->position().y);
+		if (best.type == 0 || z < best.z || (z == best.z && y > best.y)) {
+			best.type = 3;
+			best.id = id;
+			best.z = z;
+			best.y = y;
+			best.exitPtr = 0;
+			debugC(2, kDebugLevelEvents, "click hit candidate type=3 id=%u z=%d y=%d", id, z, y);
+		}
+	}
+	return best;
+}
+
+static HitTarget findBestHitTargetLikeDos(Logic &logic, Common::Point world) {
+	HitTarget best = hitDrawCommandWithFallbackLikeDos(logic, world);
+	const HitTarget noSpriteExit = hitNoSpriteExitAtPointLikeDos(logic, world);
+	if (best.type != 0) {
+		if (noSpriteExit.type != 0 && best.z >= noSpriteExit.z)
+			best = noSpriteExit;
+	} else if (noSpriteExit.type != 0) {
+		best = noSpriteExit;
+	}
+
+	const HitTarget actor = hitActorAtPointLikeDos(logic, world);
+	if (actor.type != 0) {
+		if (best.type == 0 || best.z > actor.z || (best.z == actor.z && best.type != 2))
+			best = actor;
 	}
 
 	return best;
@@ -157,7 +212,7 @@ static bool runEntityScriptLikeDos(Logic &logic, const HitTarget &target, Opcode
 	if (target.type == 1) {
 		if (!target.exitPtr)
 			return false;
-		debugC(1, kDebugLevelEvents | kDebugLevelScript,
+		debugC(1, kDebugLevelEvents,
 				"entity target type 1 id %u runs exit click handler in mode 0x%02x",
 				target.id, uint(mode));
 		logic.resetRoomScriptSlotLikeDos(mode);
@@ -190,7 +245,7 @@ static bool runEntityScriptLikeDos(Logic &logic, const HitTarget &target, Opcode
 	if (!interpreter)
 		return false;
 
-	debugC(1, kDebugLevelEvents | kDebugLevelScript,
+	debugC(1, kDebugLevelEvents,
 			"entity type %u id %u runs script 0x%04x in mode 0x%02x [DOS RunEntityScript]",
 			target.type, target.id, scriptOffset, uint(mode));
 	logic.resetRoomScriptSlotLikeDos(mode);

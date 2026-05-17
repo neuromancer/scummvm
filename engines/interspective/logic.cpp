@@ -1168,6 +1168,25 @@ void Logic::saveSceneFrame(const CodePointer &resumePC) {
 	_savedScene = Common::SharedPtr<SceneFrame>(frame);
 }
 
+CodePointer Logic::switchToSceneLikeDos(uint16 sceneId, const CodePointer &resumePC) {
+	// Op_38 calls LoadRoomLevelHeader, not the normal room-restart path.
+	// Scene scripts live in the second IUC_PROG.DAT entry table
+	// (main footer count0 + scene id) and execute from offset 2 in a
+	// temporary code segment. The current room/location is unchanged.
+	saveSceneFrame(resumePC);
+
+	char buf[64];
+	snprintf(buf, sizeof(buf), "scene %u code", sceneId);
+	_sceneProgramKeepAlive = Common::SharedPtr<Program>(_resources->loadSceneCodeBlock(sceneId));
+	_sceneInterpreterKeepAlive = Common::SharedPtr<Interpreter>(
+		new Interpreter(this, _sceneProgramKeepAlive->base(), buf));
+
+	_currentBlock = uint16(_resources->mainDat()->progEntriesCount0() + sceneId);
+	_blockProgram = _sceneProgramKeepAlive;
+	_blockInterpreter = _sceneInterpreterKeepAlive;
+	return CodePointer(2, _blockInterpreter.get());
+}
+
 // DOS Op_01 @ 1000:59a3 nested-pop path: when `_g_block_pc_offset != 0`,
 // restores the saved PC, calls LoadCodeBlock, RestoreCastBackup,
 // RestoreActorTableBackup, and returns WITHOUT setting g_break_loop —

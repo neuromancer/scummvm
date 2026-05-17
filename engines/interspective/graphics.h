@@ -26,11 +26,13 @@
 #ifndef INTERSPECTIVE_GRAPHICS_H
 #define INTERSPECTIVE_GRAPHICS_H
 
+#include "common/array.h"
 #include "common/list.h"
 #include "common/ptr.h"
 #include "common/queue.h"
 #include "common/rect.h"
 #include "common/singleton.h"
+#include "common/str.h"
 
 #include "interspective/types.h"
 #include "interspective/value.h"
@@ -47,7 +49,7 @@ class Sprite;
 class Graphics : public Common::Singleton<Graphics> {
 public:
 	Graphics() : _cursorPosition(160, 100), _hostCursorShown(false) {}
-	
+
 	void setEngine(Engine *engine);
 
 	/**
@@ -104,16 +106,18 @@ public:
 
 	uint16 ask(uint16 left, uint16 top, byte width, byte height, byte *string, uint16 *selectedIndex = 0);
 	Common::Rect paintText(uint16 left, uint16 top, byte colour, const byte *string) {
-		return paintText(left, top, colour, string, _framebuffer.get());
+		return paintText(left, top, colour, string, _framebuffer.get(), 0, 0, 0);
 	}
 
 	Common::Rect textMetrics(const byte *string, uint16 *lines = 0, uint16 left = 0, uint16 top = 0) {
-		return paintText(left, top, 235, string, 0, lines);
+		return paintText(left, top, 235, string, 0, lines, 0, 0);
 	}
-	Common::Rect paintText(uint16 left, uint16 top, byte colour, const byte *string, Surface *s, uint16 *lines = 0, uint8 firstLineExtraIndent = 0);
+	Common::Rect paintText(uint16 left, uint16 top, byte colour, const byte *string, Surface *s, uint16 *lines = 0, uint8 firstLineExtraIndent = 0, int flags = 0);
 	void paintMotionText(const byte *stream, uint16 length);
 	uint16 plainTextLineWidth(const byte *string) const;
 	Common::Rect paintPlainTextLine(uint16 left, uint16 top, byte colour, const byte *string, bool markDirty = true);
+	bool setStatusOverlayTextLikeDos(const byte *text);
+	void setInterfaceOverlaySprite(uint16 maskBit, uint16 spriteId, uint16 x, uint16 y);
 
 	void paintSpeechBubbleColumn(Sprite *top, Sprite *fill, Common::Point &point, uint8 fill_tiles, Surface *dest);
 	Common::Rect paintSpeechInBubble(Common::Point pos, byte colour, const byte *string, Surface *dest,
@@ -167,6 +171,8 @@ private:
 	static byte clampChar(byte ch);
 	uint16 calculateLineWidth(const byte *string) const;
 	Sprite *getGlyph(byte ch) const;
+	void paintInterfaceOverlaySprites();
+	void paintStatusOverlayText();
 
 	/**
 	 * paint a character on screen
@@ -202,6 +208,15 @@ private:
 	byte _roomPalette[0x300];
 	byte _interfacePalette[0x300];
 	byte _tintedPalette[256];
+	struct InterfaceOverlaySprite {
+		InterfaceOverlaySprite() : maskBit(0), spriteId(0xffff), x(0), y(0) {}
+		uint16 maskBit;
+		uint16 spriteId;
+		uint16 x;
+		uint16 y;
+	};
+	Common::Array<InterfaceOverlaySprite> _interfaceOverlaySprites;
+	Common::Array<Common::String> _statusOverlayLines;
 
 	// Active speech bubble. _speech is the text being painted; when
 	// _speechFramesLeft hits 0 the painter invokes _speechDoneCallback (if

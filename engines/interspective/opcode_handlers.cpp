@@ -3049,6 +3049,7 @@ OPCODE(0x28) {
 		uint16 x = 0;
 		uint16 y = 0;
 		if (_logic->resources()->mainDat()->cycleCursorOverlayAnimation(animationBits[i], spriteId, x, y)) {
+			_graphics->setInterfaceOverlaySprite(animationBits[i], spriteId, x, y);
 			Sprite *sprite = _logic->resources()->loadSprite(spriteId);
 			_graphics->paint(sprite, Common::Point(x, y), Graphics::kPaintPositionIsTop);
 			delete sprite;
@@ -3063,36 +3064,12 @@ OPCODE(0x28) {
 		// copy up to 100 raw bytes until CR/NUL, measure that copied line,
 		// error 0x2c when width > 0x38, then draw shadow and foreground.
 		// It draws from the raw argument pointer, not the translated string
-		// buffer, and queues one fixed dirty rect after all lines.
-		const byte *p = text;
-		uint16 y = 0xb4;
-		bool done = false;
-		while (!done) {
-			byte line[101];
-			uint16 len = 0;
-			byte terminator = 0;
-			while (len < 100) {
-				const byte ch = *p++;
-				if (ch == 0 || ch == '\r') {
-					terminator = ch;
-					break;
-				}
-				line[len++] = ch;
-			}
-			if (len == 100)
-				terminator = 0;
-			line[len] = 0;
-
-			const uint16 textWidth = _graphics->plainTextLineWidth(line);
-			if (textWidth > 0x38) {
-				Log.setPendingError(0x2c);
-				return kThxBye;
-			}
-			const uint16 x = uint16(((0x38 - textWidth) >> 1) + 4);
-			_graphics->paintPlainTextLine(x + 1, y + 1, 0xae, line, false);
-			_graphics->paintPlainTextLine(x, y, 0xeb, line, false);
-			y += 9;
-			done = terminator == 0;
+		// buffer, and queues one fixed dirty rect after all lines. C++ also
+		// remembers the result because paintInterface() redraws the base
+		// interface every frame, unlike DOS's dirty-rect-presented buffer.
+		if (!_graphics->setStatusOverlayTextLikeDos(text)) {
+			Log.setPendingError(0x2c);
+			return kThxBye;
 		}
 		_graphics->markDirtyRect(Common::Rect(4, 0xb4, 4 + 0x38, 0xb4 + 0x12));
 	}
@@ -3249,21 +3226,16 @@ OPCODE(0x38) {
 	//   SaveCastBackup;  // memcpy cast table (0x642 bytes)
 	//   SaveActorTableBackup;
 	//   ResolveOpcodeArg0;  // arg0 = new scene id
-	//   LoadRoomLevelHeader;
+	//   LoadRoomLevelHeader;  // second prog table: count0 + scene id
 	//   _g_block_pc_offset  = g_codeptr_es_save;  // save caller PC
 	//   _g_block_pc_segment = g_codeptr_di_save;
 	//   g_codeptr_es_save = g_seg_buffer_e;       // jump to new scene
-	//   g_codeptr_di_save = g_room_list_ptr;
+	//   g_codeptr_di_save = g_room_list_ptr;      // offset 2
 	// = "call into a sub-scene". Op_01_handler's nested-pop path
-	// then restores the saved PC. C++ uses Logic::saveSceneFrame
-	// (built in Pass1-3) to capture the current Program /
-	// Interpreter / Room / resume-PC. The caller must stop here; Op_01
-	// resumes at `next` after the nested scene exits.
-	Log.saveSceneFrame(next);
+	// then restores the saved PC.
 	const uint16 sceneId = uint16(a[0]);
 	debugC(2, kDebugLevelScript, "opcode 0x38: switch to scene %u (push)", sceneId);
-	Log.changeRoom(sceneId);
-	return kReturn;
+	return Log.switchToSceneLikeDos(sceneId, next);
 }
 
 // Speech variants (DOS CS:0x3da2..0x3e68). The engine routes everything via
