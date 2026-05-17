@@ -1156,7 +1156,8 @@ private:
 	struct RoomBackup {
 		RoomBackup() : valid(false), currentBlock(0), currentRoom(0), loadedBackdropId(0), cameraX(0), cameraY(0),
 		               scrollChanged(false), cursorMode(0), fullscreen(false),
-		               roomActive(true), noStep(false) {}
+		               roomActive(true), noStep(false), actorFrameCount(0), drawCommandCount(0),
+		               postMoveTargetFrameMirror(0) {}
 		bool valid;
 		uint16 currentBlock;
 		uint32 currentRoom;
@@ -1174,6 +1175,19 @@ private:
 		bool fullscreen;
 		bool roomActive;
 		bool noStep;
+		Common::Array<Zone> zones;
+		Common::Array<CollisionZone> collisionZones;
+		Common::Array<ZoneB> zonesB;
+		Common::Array<Zone> walkboxes;
+		Actor::Frame actorFrameZero;
+		Common::Array<Actor::Frame> actorFrameTable;
+		uint16 actorFrameCount;
+		Common::Array<OverlayEntry> overlayQueue;
+		Common::Array<AnimListEntry> animList;
+		Common::Array<DrawCommand> drawCommands;
+		uint16 drawCommandCount;
+		PostMoveCallback postMoveCallback;
+		uint8 postMoveTargetFrameMirror;
 	};
 	RoomBackup _roomBackup;
 

@@ -1275,6 +1275,19 @@ void Logic::backupRoomForStatusLikeDos() {
 		: !_roomActive;
 	_roomBackup.roomActive = _roomActive;
 	_roomBackup.noStep = _noStep;
+	_roomBackup.zones = _zones;
+	_roomBackup.collisionZones = _collisionZones;
+	_roomBackup.zonesB = _zonesB;
+	_roomBackup.walkboxes = _walkboxes;
+	_roomBackup.actorFrameZero = _actorFrameZero;
+	_roomBackup.actorFrameTable = _actorFrameTable;
+	_roomBackup.actorFrameCount = _actorFrameCount;
+	_roomBackup.overlayQueue = _overlayQueue;
+	_roomBackup.animList = _animList;
+	_roomBackup.drawCommands = _drawCommands;
+	_roomBackup.drawCommandCount = _drawCommandCount;
+	_roomBackup.postMoveCallback = _postMoveCallback;
+	_roomBackup.postMoveTargetFrameMirror = _postMoveTargetFrameMirror;
 }
 
 void Logic::enterStatusScreenLoopLikeDos() {
@@ -1342,6 +1355,19 @@ void Logic::restoreRoomFromBackupLikeDos() {
 			_cursorMode = 0;
 		_roomActive = _roomBackup.roomActive;
 		_noStep = _roomBackup.noStep;
+		_zones = _roomBackup.zones;
+		_collisionZones = _roomBackup.collisionZones;
+		_zonesB = _roomBackup.zonesB;
+		_walkboxes = _roomBackup.walkboxes;
+		_actorFrameZero = _roomBackup.actorFrameZero;
+		_actorFrameTable = _roomBackup.actorFrameTable;
+		_actorFrameCount = _roomBackup.actorFrameCount;
+		_overlayQueue = _roomBackup.overlayQueue;
+		_animList = _roomBackup.animList;
+		_drawCommands = _roomBackup.drawCommands;
+		_drawCommandCount = _roomBackup.drawCommandCount;
+		_postMoveCallback = _roomBackup.postMoveCallback;
+		_postMoveTargetFrameMirror = _roomBackup.postMoveTargetFrameMirror;
 		if (_engine && _engine->graphics())
 			_engine->graphics()->setFullscreen(_roomBackup.fullscreen);
 		_roomBackup.valid = false;
