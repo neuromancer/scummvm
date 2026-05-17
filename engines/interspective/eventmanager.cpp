@@ -92,6 +92,7 @@ static void considerTarget(HitTarget &best, uint16 type, uint16 id, int16 z, Exi
 		best.id = id;
 		best.z = z;
 		best.exitPtr = exit;
+		debugC(2, kDebugLevelEvents, "click hit candidate type=%u id=%u z=%d", type, id, z);
 	}
 }
 
@@ -156,6 +157,9 @@ static bool runEntityScriptLikeDos(Logic &logic, const HitTarget &target, Opcode
 	if (target.type == 1) {
 		if (!target.exitPtr)
 			return false;
+		debugC(1, kDebugLevelEvents | kDebugLevelScript,
+				"entity target type 1 id %u runs exit click handler in mode 0x%02x",
+				target.id, uint(mode));
 		logic.resetRoomScriptSlotLikeDos(mode);
 		return target.exitPtr->clicked();
 	}
@@ -186,7 +190,7 @@ static bool runEntityScriptLikeDos(Logic &logic, const HitTarget &target, Opcode
 	if (!interpreter)
 		return false;
 
-	debugC(3, kDebugLevelEvents | kDebugLevelScript,
+	debugC(1, kDebugLevelEvents | kDebugLevelScript,
 			"entity type %u id %u runs script 0x%04x in mode 0x%02x [DOS RunEntityScript]",
 			target.type, target.id, scriptOffset, uint(mode));
 	logic.resetRoomScriptSlotLikeDos(mode);
@@ -212,6 +216,13 @@ void EventManager::clicked(Common::Point pos) {
 	Common::Point world(pos.x + logic.cameraX(), pos.y + logic.cameraY());
 	HitTarget target = findBestHitTargetLikeDos(logic, world);
 	const uint16 dispatchCursorMode = logic.cursorMode();
+	debugC(1, kDebugLevelEvents,
+			"click pos=(%d,%d) world=(%d,%d) room=%u camera=(%d,%d) cursor=0x%02x step=%d noStep=%d hit=%u draw=%u -> target type=%u id=%u z=%d",
+			pos.x, pos.y, world.x, world.y, logic.currentRoom(),
+			logic.cameraX(), logic.cameraY(), dispatchCursorMode,
+			logic.stepPending() ? 1 : 0, logic.noStep() ? 1 : 0,
+			logic.hitTarget(), logic.drawCommandCount(),
+			target.type, target.id, target.z);
 	if (dispatchCursorMode == 0)
 		return;
 

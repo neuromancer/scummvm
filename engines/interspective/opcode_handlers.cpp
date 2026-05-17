@@ -232,13 +232,26 @@ static void setActorTargetMarkerLikeDos(Actor *actor) {
 	}
 }
 
+static bool sendActorToCurrentEntityCarryClearLikeDos(Actor *protag) {
+	// SendActorToTarget @ 1000:7323 returns carry set for the normal
+	// protagonist path through MoveActorToTargetExit @ 1000:70da,
+	// including the "already at target frame" case. The visible carry-clear
+	// path in MoveProtagonistToEntity @ 1000:737e is the unplaced object
+	// sentinel (object room == 0xffff), which returns before starting a walk.
+	const bool unplacedObject = Log.gameState() == 2
+		&& Log.getObjectRoom(Log.currentEntityId()) == 0xffff;
+	if (!Log.sendActorToCurrentEntity(protag))
+		return false;
+	return unplacedObject;
+}
+
 static MainSpeechTargetResult speakAsMainAfterOptionalTargetWalkLikeDos(Actor *protag,
 		const Common::String &text, uint16 maxLines, const CodePointer &current) {
 	if (Log.inMapMode() || Log.hitTarget() != 0)
 		return kMainSpeechContinue;
 
-	const bool targetAccepted = Log.sendActorToCurrentEntity(protag);
-	if (!targetAccepted)
+	const bool carryClear = sendActorToCurrentEntityCarryClearLikeDos(protag);
+	if (!carryClear)
 		return kMainSpeechContinue;
 
 	if (Log.gameState() == 2)
@@ -3097,7 +3110,7 @@ OPCODE(0x29) {
 		debugC(2, kDebugLevelScript,
 			"opcode 0x29: walk current entity, then place protag room %s frame %s",
 			+a[0], +a[1]);
-		if (Log.sendActorToCurrentEntity(Log.protagonist())) {
+		if (sendActorToCurrentEntityCarryClearLikeDos(Log.protagonist())) {
 			Log.setPostMoveCallback(
 				Logic::PostMoveCallback::kPlaceProtagonistAfterMove,
 				uint16(a[0]),
@@ -3115,7 +3128,7 @@ OPCODE(0x2a) {
 		debugC(2, kDebugLevelScript,
 			"opcode 0x2a: walk current entity, then place protag room %s frame %s next %s",
 			+a[0], +a[1], +a[2]);
-		if (Log.sendActorToCurrentEntity(Log.protagonist())) {
+		if (sendActorToCurrentEntityCarryClearLikeDos(Log.protagonist())) {
 			Log.setPostMoveCallback(
 				Logic::PostMoveCallback::kPlaceProtagonistAfterMove,
 				uint16(a[0]),

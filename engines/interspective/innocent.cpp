@@ -53,6 +53,48 @@ namespace Interspective {
 
 Engine *Engine::me;
 
+namespace {
+
+struct VerbButtonRegion {
+	int16 left;
+	int16 top;
+	int16 right;
+	int16 bottom;
+	uint16 region;
+	uint16 mode;
+};
+
+static const VerbButtonRegion kVerbButtonRegions[] = {
+	{ 65, 153,  79, 169, 3, 0x01 },
+	{ 83, 153,  99, 169, 4, 0x02 },
+	{101, 153, 117, 169, 5, 0x10 },
+	{ 65, 172,  81, 188, 6, 0x04 },
+	{ 83, 172,  99, 188, 7, 0x80 },
+	{101, 172, 117, 188, 8, 0x08 }
+};
+
+static bool applyVerbButtonClickLikeDos(Logic *logic, const Common::Point &pos) {
+	if (!logic || logic->inMapMode() || logic->noStep() || logic->cursorMode() == 0x20)
+		return false;
+
+	for (uint i = 0; i < ARRAYSIZE(kVerbButtonRegions); ++i) {
+		const VerbButtonRegion &r = kVerbButtonRegions[i];
+		if (pos.x < r.left || pos.x >= r.right || pos.y < r.top || pos.y >= r.bottom)
+			continue;
+
+		debugC(1, kDebugLevelEvents,
+			"verb-bar click region=%u -> cursor mode 0x%02x [DOS SetVerbModeFromHotkey]",
+			r.region, r.mode);
+		logic->setCursorMode(r.mode);
+		logic->setStepPending(false);
+		return true;
+	}
+
+	return false;
+}
+
+} // End of anonymous namespace
+
 Engine::Engine(OSystem *syst) :
 		::Engine(syst) {
 	_resources = &Res;
@@ -242,8 +284,11 @@ void Engine::handleEvents() {
 				_logic->setSpeechSkipInput(event.type == Common::EVENT_RBUTTONDOWN);
 			if (_logic && event.type == Common::EVENT_RBUTTONDOWN)
 				_logic->cycleCursorModeByRightClickLikeDos();
-			if (event.type == Common::EVENT_LBUTTONDOWN)
+			if (event.type == Common::EVENT_LBUTTONDOWN) {
+				if (applyVerbButtonClickLikeDos(_logic, event.mouse))
+					break;
 				EventManager::instance().clicked(event.mouse);
+			}
 			break;
 
 		default:
