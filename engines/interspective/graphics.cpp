@@ -97,6 +97,7 @@ void Graphics::paint() {
 
 	paintBackdrop();
 	paintAnimations();
+	paintMapScreenTextLikeDos();
 	paintInterface();
 	paintSpeech();
 	_engine->logic()->paintMotionText();
@@ -536,6 +537,15 @@ void Graphics::setBackdrop(uint16 id) {
 	paintBackdrop();
 }
 
+void Graphics::clearBackdropLikeDos(byte colour) {
+	if (!_backdrop.get()) {
+		_backdrop = Common::SharedPtr<Surface>(new Surface);
+		_backdrop->create(320, 200);
+	}
+	_backdrop->fillRect(Common::Rect(0, 0, _backdrop->w, _backdrop->h), colour);
+	markFullRedraw();
+}
+
 void Graphics::loadGraphicPalette(uint16 id) {
 	byte palette[0x300];
 	byte *scratch = new byte[320 * 200];
@@ -769,9 +779,11 @@ uint16 Graphics::ask(uint16 left, uint16 top, byte width, byte height, byte *str
 
 	_system->copyRectToScreen(reinterpret_cast<byte *>(frame.getPixels()), frame.pitch, left, top, width * kFrameTileWidth, height * kFrameTileHeight+4);
 
-	bool show = true;
+	showCursor();
+	bool done = false;
+	uint16 result = 0xffff;
 	uint8 clickDelay = 10;
-	while (show) {
+	while (!done) {
 		_system->updateScreen();
 		_engine->debugger()->onFrame();
 		Common::Event event;
@@ -779,35 +791,43 @@ uint16 Graphics::ask(uint16 left, uint16 top, byte width, byte height, byte *str
 			switch(event.type) {
 			case Common::EVENT_KEYDOWN:
 				if (event.kbd.keycode == Common::KEYCODE_ESCAPE)
-					return 0xffff;
+					done = true;
 				break;
 			case Common::EVENT_RBUTTONDOWN:
 			case Common::EVENT_RBUTTONUP:
-				return 0xffff;
+				done = true;
+				break;
 			case Common::EVENT_LBUTTONDOWN:
 				if (clickDelay != 0)
 					break;
 				{
 					uint16 value = 0xffff;
-					if (modalOptionAt(event.mouse, left, top, selectedIndex, value))
-						return value;
+					if (modalOptionAt(event.mouse, left, top, selectedIndex, value)) {
+						result = value;
+						done = true;
+					}
 				}
 				break;
 			default:
 				break;
 			}
+			if (done)
+				break;
 		}
-		if (clickDelay == 0 && (_engine->eventMan()->getButtonState() & 1)) {
+		if (!done && clickDelay == 0 && (_engine->eventMan()->getButtonState() & 1)) {
 			uint16 value = 0xffff;
-			if (modalOptionAt(_engine->eventMan()->getMousePos(), left, top, selectedIndex, value))
-				return value;
+			if (modalOptionAt(_engine->eventMan()->getMousePos(), left, top, selectedIndex, value)) {
+				result = value;
+				done = true;
+			}
 		} else if (clickDelay != 0) {
 			--clickDelay;
 		}
 		_system->delayMillis(1000/60);
 	}
 
-	return 0xffff;
+	hideCursor();
+	return result;
 }
 
 enum {
@@ -1080,6 +1100,40 @@ Common::Rect Graphics::paintText(uint16 left, uint16 top, byte colour, const byt
 		*_lines = lines;
 
 	return Common::Rect(left, top, max_left, current_top + kLineHeight);
+}
+
+void Graphics::clearMapScreenTextLikeDos() {
+	_mapScreenText.clear();
+}
+
+void Graphics::rememberMapScreenTextLikeDos(uint16 left, uint16 top, byte colour, const Common::String &text) {
+	for (Common::Array<MapScreenTextEntry>::iterator it = _mapScreenText.begin(); it != _mapScreenText.end(); ++it) {
+		if (it->left == left && it->top == top) {
+			it->colour = colour;
+			it->text = text;
+			markFullRedraw();
+			return;
+		}
+	}
+
+	MapScreenTextEntry entry;
+	entry.left = left;
+	entry.top = top;
+	entry.colour = colour;
+	entry.text = text;
+	_mapScreenText.push_back(entry);
+	markFullRedraw();
+}
+
+void Graphics::paintMapScreenTextLikeDos() {
+	const Logic *logic = _engine ? _engine->logic() : 0;
+	if (!logic || !logic->inMapMode() || _mapScreenText.empty())
+		return;
+
+	for (Common::Array<MapScreenTextEntry>::const_iterator it = _mapScreenText.begin(); it != _mapScreenText.end(); ++it)
+		paintText(it->left, it->top, it->colour,
+		          reinterpret_cast<const byte *>(it->text.c_str()),
+		          _framebuffer.get(), 0, 0, kPaintNoDirty);
 }
 
 void Graphics::paintMotionText(const byte *stream, uint16 length) {

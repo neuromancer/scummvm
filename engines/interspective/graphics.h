@@ -78,6 +78,7 @@ public:
 	void setBackdrop(uint16 id);
 	void loadGraphicPalette(uint16 id);
 	void paintBackdrop();
+	void clearBackdropLikeDos(byte colour = 0);
 
 	enum FadeFlags {
 		kFullFade = 0,
@@ -114,6 +115,8 @@ public:
 		return paintText(left, top, 235, string, 0, lines, 0, 0);
 	}
 	Common::Rect paintText(uint16 left, uint16 top, byte colour, const byte *string, Surface *s, uint16 *lines = 0, uint8 firstLineExtraIndent = 0, int flags = 0);
+	void clearMapScreenTextLikeDos();
+	void rememberMapScreenTextLikeDos(uint16 left, uint16 top, byte colour, const Common::String &text);
 	void paintMotionText(const byte *stream, uint16 length);
 	uint16 plainTextLineWidth(const byte *string) const;
 	Common::Rect paintPlainTextLine(uint16 left, uint16 top, byte colour, const byte *string, bool markDirty = true);
@@ -179,6 +182,7 @@ private:
 	void paintInventoryCloseUpLikeDos();
 	void paintInterfaceOverlaySprites();
 	void paintStatusOverlayText();
+	void paintMapScreenTextLikeDos();
 
 	/**
 	 * paint a character on screen
@@ -223,6 +227,14 @@ private:
 	};
 	Common::Array<InterfaceOverlaySprite> _interfaceOverlaySprites;
 	Common::Array<Common::String> _statusOverlayLines;
+	struct MapScreenTextEntry {
+		MapScreenTextEntry() : left(0), top(0), colour(0) {}
+		uint16 left;
+		uint16 top;
+		byte colour;
+		Common::String text;
+	};
+	Common::Array<MapScreenTextEntry> _mapScreenText;
 	uint16 _inventoryCloseUpObjectId;
 
 	// Active speech bubble. _speech is the text being painted; when

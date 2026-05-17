@@ -391,7 +391,7 @@ void EventManager::clicked(Common::Point pos) {
 		return;
 
 	const int16 hitRegion = hitRegionAtPointLikeDos(pos);
-	if (hitRegion < 0 || hitRegion == 2)
+	if (hitRegion < 0)
 		return;
 
 	Common::Point world(pos.x + logic.cameraX(), pos.y + logic.cameraY());
@@ -405,9 +405,22 @@ void EventManager::clicked(Common::Point pos) {
 			logic.stepPending() ? 1 : 0, logic.noStep() ? 1 : 0,
 			logic.hitTarget(), logic.drawCommandCount(),
 			target.type, target.id, target.z);
-	if (dispatchCursorMode == 0)
-		return;
 	if (logic.noStep())
+		return;
+	if (hitRegion == 2) {
+		logic.setStepPending(true);
+		if (logic.inMapMode()) {
+			debugC(1, kDebugLevelEvents,
+				"status/map button restores previous room [DOS RunMapScreenLoop]");
+			logic.restoreRoomFromBackupLikeDos();
+		} else {
+			debugC(1, kDebugLevelEvents,
+				"status/map button enters room 999 [DOS RunMapScreenLoop]");
+			logic.enterMapScreenLoopLikeDos();
+		}
+		return;
+	}
+	if (dispatchCursorMode == 0)
 		return;
 	if (dispatchCursorMode != 0x80 || hitRegion != 1 || target.type != 2)
 		Graphics::instance().clearInventoryCloseUpObjectLikeDos();
@@ -425,6 +438,9 @@ void EventManager::clicked(Common::Point pos) {
 	}
 
 	if (logic.roomChangePending() || logic.currentRoom() != currentRoom)
+		return;
+
+	if (logic.inMapMode() && dispatchCursorMode != 1 && dispatchCursorMode != 0x20)
 		return;
 
 	if (dispatchCursorMode == 0x20) {

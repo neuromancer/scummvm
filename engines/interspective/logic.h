@@ -62,6 +62,7 @@ public:
 		  _gameState(0),
 		  _inMapMode(false),
 		  _mapScreenInitialized(false),
+		  _enteringMapScreen(false),
 		  _roomActive(true),
 		  _logicDirty(false),
 		  _forceRoomRestart(false),
@@ -1052,6 +1053,7 @@ public:
 	CodePointer restoreSceneFrame();
 	void backupRoomForMapLikeDos();
 	void restoreRoomFromBackupLikeDos();
+	void enterMapScreenLoopLikeDos();
 
 	friend class Debugger;
 private:
@@ -1176,6 +1178,7 @@ private:
 	uint16 _gameState;      // DS:0x666e — current entity type (0 none, 1 exit, 2 object, 3 actor)
 	bool _inMapMode;        // DS:0x676e — true while world map is shown
 	bool _mapScreenInitialized; // DOS CS:[0x52a3] — Op_cc first-entry guard
+	bool _enteringMapScreen; // transient RunMapScreenLoop room-999 transition
 	bool _roomActive;       // DS:0x6740 — gates room/entity interaction
 	bool _logicDirty;       // DS:0x673c — set by logic-mutating draw/cursor opcodes
 	bool _forceRoomRestart; // DOS g_flag_restart_room even when the room id is unchanged

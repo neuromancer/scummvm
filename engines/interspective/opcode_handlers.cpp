@@ -1373,6 +1373,8 @@ OPCODE(0x55) {
 	const byte colour = uint8(uint16(a[2]) & 0xff);
 	debugC(2, kDebugLevelScript, "opcode 0x55: paint prepared '%s' with colour %u at %u:%u",
 		prepared.c_str(), colour, left, top);
+	if (Log.inMapMode())
+		_graphics->rememberMapScreenTextLikeDos(left, top, colour, prepared);
 	_graphics->paintText(left, top, colour,
 		reinterpret_cast<const byte *>(prepared.c_str()));
 	if (truncated)
