@@ -78,6 +78,58 @@ static inline uint16 dosWordWithByte(uint16 oldValue, uint8 baseOff, uint8 off, 
 	return uint16((oldValue & ~(0xffu << shift)) | (uint16(value) << shift));
 }
 
+static uint16 motionTextStreamLength(const byte *text) {
+	if (!text)
+		return 0;
+
+	const uint16 kMaxMotionTextBytes = 4096;
+	const byte *p = text;
+	uint16 length = 0;
+
+	while (length < kMaxMotionTextBytes) {
+		const byte ch = *p++;
+		++length;
+		if (ch == 0)
+			return length;
+
+		uint16 extra = 0;
+		switch (ch) {
+		case 14:
+		case kStringMove:
+			extra = 4;
+			break;
+		case kStringSetColour:
+		case kStringAdvance:
+			extra = 1;
+			break;
+		case kStringGlobalWord:
+		case kStringCountSpacesIf0:
+		case kStringCountSpacesIf1:
+			extra = 2;
+			break;
+		case kStringMenuOption:
+			while (length < kMaxMotionTextBytes) {
+				const byte optionCh = *p++;
+				++length;
+				if (optionCh == 0)
+					break;
+			}
+			extra = 2;
+			break;
+		default:
+			break;
+		}
+
+		while (extra != 0 && length < kMaxMotionTextBytes) {
+			++p;
+			++length;
+			--extra;
+		}
+	}
+
+	return length;
+}
+
 static int16 cameraMaxOrigin(uint16 backdropSize, uint16 viewportSize) {
 	return backdropSize > viewportSize ? int16(backdropSize - viewportSize) : 0;
 }
@@ -1015,13 +1067,19 @@ bool Logic::queueDeferred(const CodePointer &p) {
 
 void Logic::startMotionText(uint16 ticks, const byte *text, uint16 length) {
 	_motionTextTicks = ticks;
-	const uint16 copyLen = length ? length : 1;
-	_motionText.resize(copyLen);
-	if (text && length)
-		memcpy(&_motionText[0], text, length);
-	else
-		_motionText[0] = 0;
-	if (_motionText[copyLen - 1] != 0)
+	_motionText.clear();
+	if (!text) {
+		_motionText.push_back(0);
+		return;
+	}
+
+	if (length == 0)
+		length = motionTextStreamLength(text);
+
+	for (uint i = 0; i < length; ++i)
+		_motionText.push_back(text[i]);
+
+	if (_motionText.empty() || _motionText[_motionText.size() - 1] != 0)
 		_motionText.push_back(0);
 }
 
@@ -1032,7 +1090,7 @@ void Logic::tickMotionText() {
 
 void Logic::paintMotionText() {
 	if (_motionTextTicks && !_motionText.empty())
-		Graf.paintText(0, 0, 0xeb, &_motionText[0]);
+		Graf.paintMotionText(&_motionText[0], uint16(_motionText.size()));
 }
 
 bool Logic::enableObjectFlag1(uint16 id) {
@@ -1042,7 +1100,11 @@ bool Logic::enableObjectFlag1(uint16 id) {
 		return false;
 	}
 
-	setCellBit(id, 0);
+	const bool wasSet = cellBit(id, 0);
+	if (!wasSet) {
+		setCellBit(id, 0);
+		setLogicDirty();
+	}
 	if (Exit *exit = _blockProgram ? _blockProgram->getExit(id) : 0)
 		if (!exit->isEnabled())
 			exit->setEnabled(true);
@@ -1056,7 +1118,11 @@ bool Logic::disableObjectFlag1(uint16 id) {
 		return false;
 	}
 
-	clearCellBit(id, 0);
+	const bool wasSet = cellBit(id, 0);
+	if (wasSet) {
+		clearCellBit(id, 0);
+		setLogicDirty();
+	}
 	if (Exit *exit = _blockProgram ? _blockProgram->getExit(id) : 0)
 		if (exit->isEnabled())
 			exit->setEnabled(false);
@@ -1252,8 +1318,7 @@ void Logic::runPostMoveCallbackIfReady() {
 		// DOS @ 0x4a36: PUSH BX; DisableObjectFlag1(AX); POP BX;
 		// EnableObjectFlag1(AX as left by DisableObjectFlag1); Op_8e.
 		enableObjectFlag1(disableObjectFlag1ReturnAx(cb.cellId));
-		setCursorMode(0);
-		setDragTarget(0);
+		clearDragInteractionLikeOp8e();
 		break;
 	case PostMoveCallback::kPlaceProtagonistAfterMove:
 		// DOS @ 0x4376: place the protagonist in the destination
@@ -1303,13 +1368,13 @@ void Logic::runPostMoveCallbackIfReady() {
 // DOS MovePersonToActor @ 1000:4706 (also entry of Op_84_handler).
 //
 // Disassembly trace:
-//   if AX == 0   → JMP Op_8e (cursor=0, drag=0);
+//   if AX == 0   → JMP Op_8e (cursor=1, drag=0);
 //   if AX > g_persons_count → pending error 0x16;
 //   if g_cursor_mode == 0x20: ResetObjectAtActorPosition(g_drag_target);
 //   g_drag_target = AX;
 //   GetObjectOffset(AX) → ES:SI;
 //   if (obj.room != g_current_location && obj.room != 0xffff):
-//     CALL RetEmpty (returns CX = 0, DX = 0);
+//     CALL RetEmpty (returns locked cursor x/y in CX/DX);
 //     CX += g_camera_x;  DX += g_camera_y;
 //     obj.x = CX;  obj.y = DX;
 //   BX = (obj.room == 0xffff) ? 1 : 0;
@@ -1331,8 +1396,7 @@ void Logic::runPostMoveCallbackIfReady() {
 void Logic::movePersonToActor(uint16 id) {
 	if (id == 0) {
 		// DOS tail-jump to Op_8e.
-		setCursorMode(0);
-		setDragTarget(0);
+		clearDragInteractionLikeOp8e();
 		return;
 	}
 	if (_resources && _resources->mainDat() && id > _resources->mainDat()->personsCount()) {
@@ -1345,32 +1409,36 @@ void Logic::movePersonToActor(uint16 id) {
 	setDragTarget(id);
 
 	// If the object is in another (non-sentinel) room, snap its position
-	// to the camera origin so the drag pickup happens "where the actor
-	// is" rather than wherever the obj was previously drawn.
+	// to the locked cursor plus camera origin, matching RetEmpty.
 	const uint16 objRoom = getObjectRoom(id);
-	if (objRoom != _currentRoom && objRoom != 0xffff)
-		setObjectPosition(id, _cameraX, _cameraY);
+	if (objRoom != _currentRoom && objRoom != 0xffff) {
+		const Common::Point cursor = _engine->graphics()->cursorPosition();
+		setObjectPosition(id, int16(cursor.x + _cameraX), int16(cursor.y + _cameraY));
+	}
 
 	// PrepareDragInteraction subset: cursor-mode, drag-target, carried
 	// room sentinel, and sprite metric bytes.
-	prepareDragInteraction(id);
+	if (!prepareDragInteraction(id))
+		return;
 	if (objRoom == 0xffff)
 		unregisterObjectExit(id);
+	setLogicDirty();
 }
 
 bool Logic::prepareDragInteraction(uint16 id) {
-	if (id == 0 || (_resources && _resources->mainDat() && id > _resources->mainDat()->personsCount())) {
-		setPendingError(0x16);
-		return false;
-	}
-
 	setCursorMode(0x20);
 	setDragTarget(id);
-	setObjectRoom(id, 0);
-	const uint16 sprite = uint16(objectField(id, 6)) | (uint16(objectField(id, 7)) << 8);
+
+	uint16 recordId = id;
+	if (id == 0) {
+		setPendingError(0x16);
+		recordId = 1;
+	}
+	setObjectRoom(recordId, 0);
+	const uint16 sprite = uint16(objectField(recordId, 6)) | (uint16(objectField(recordId, 7)) << 8);
 	const SpriteInfo info = objectSpriteInfo(_resources, _blockProgram.get(), sprite);
-	setObjectField(id, 0x10, uint8(info.width));
-	setObjectField(id, 0x11, uint8(info.height));
+	setObjectField(recordId, 0x10, uint8(info.width));
+	setObjectField(recordId, 0x11, uint8(info.height));
 	return true;
 }
 
@@ -1418,11 +1486,13 @@ void Logic::placeObjectExitAtDosPosition(uint16 id, int16 x, int16 y) {
 	const int16 adjustedX = int16(uint16(uint16(x) + uint16(int16(placementInfo.hotLeft))));
 	const int16 adjustedY = int16(uint16(uint16(y) + uint16(int16(placementInfo.hotTop))));
 	setObjectPosition(id, adjustedX, adjustedY);
+	clampObjectExitToScreenLikeDos(id);
 
 	const uint16 sprite = uint16(objectField(id, 6)) | (uint16(objectField(id, 7)) << 8);
 	const SpriteInfo info = objectSpriteInfo(_resources, _blockProgram.get(), sprite);
 	setObjectField(id, 0x10, uint8(info.width));
 	setObjectField(id, 0x11, uint8(info.height));
+	setLogicDirty();
 }
 
 void Logic::clampObjectExitToScreenLikeDos(uint16 id) {
@@ -1774,6 +1844,31 @@ void Logic::castTableDeactivateAnimation(Animation *animation) {
 			return;
 		}
 	}
+}
+
+bool Logic::castEntryActiveLikeDos(uint16 id) const {
+	for (uint i = 0; i < _castTable.size(); ++i) {
+		const CastEntry &e = _castTable[i];
+		if (e.active == 0 || e.id != id)
+			continue;
+		if (e.animation)
+			return !e.animation->castWaitCompleteLikeDos();
+		if (READ_LE_UINT16(e.raw + 2) == 0 && e.interpreter) {
+			const uint16 scriptOffset = uint16(READ_LE_UINT16(e.raw + 4) + id);
+			byte *script = e.interpreter->rawCode(scriptOffset);
+			if (script && *script == 0xff)
+				return false;
+		}
+		return true;
+	}
+	return false;
+}
+
+void Logic::runLaterWhenCastEntryInactive(uint16 id, const CodePointer &p) {
+	debugC(3, kDebugLevelScript, "will call %s when cast entry %u is inactive in mode 0x%02x",
+			+p, id, _opcodeMode);
+	_queued.push_back(DelayedRun(p, 0, frameTicks(), _opcodeMode, true, 0,
+			DelayedRun::kWaitCastEntryInactive, id));
 }
 
 // DOS ResetCastTable @ 1000:671d clears only wActive + w_unk_02 for
@@ -2244,6 +2339,10 @@ void Logic::runQueued() {
 			debugC(3, kDebugLevelScript, "delayed %s, delay now %d", +current->code,
 					current->delay);
 			current->delay--;
+		} else if (current->waitKind == DelayedRun::kWaitCastEntryInactive &&
+				castEntryActiveLikeDos(current->waitParam)) {
+			debugC(3, kDebugLevelScript, "queued %s waits for cast entry %u",
+					+current->code, current->waitParam);
 		} else if (current->deferredMode != 0 &&
 				dispatchReadyActorRoomScriptWaitMode(current->deferredMode)) {
 			// DOS RunDeferredScripts always calls RunScriptByMode before it
@@ -2823,6 +2922,7 @@ bool Logic::allocNarratorSpeech(const byte *text, uint16 length, uint16 x, uint1
 	Common::String copied(reinterpret_cast<const char *>(text), length);
 	debugC(1, kDebugLevelGraphics, "alloc narrator speech slot type=%u ownerRoom=%u at %u:%u color=%u maxLines=%u text=\"%s\"",
 		type, uint16(_currentRoom), x, y, color, maxLines, copied.c_str());
+	_uiTextSpeechSlot = uint16(slot - &_speechSlots[0]);
 	if (!initSpeechSlot(*slot, copied, maxLines))
 		clearSpeechSlot(*slot);
 	return slot->framesLeft != 0;
@@ -2837,6 +2937,17 @@ bool Logic::anySpeechSlotActive() const {
 		if (_speechSlots[i].framesLeft != 0 && _speechSlots[i].owner != 0xffff)
 			return true;
 	return false;
+}
+
+bool Logic::uiTextSpeechSlotActiveLikeDos() const {
+	if (_uiTextSpeechSlot >= _speechSlots.size())
+		return false;
+	return _speechSlots[_uiTextSpeechSlot].framesLeft != 0;
+}
+
+void Logic::stashUiTextSpeechSlotForOwnerLikeDos(uint16 owner) {
+	if (SpeechSlot *slot = findSpeechSlotForOwner(owner))
+		_uiTextSpeechSlot = uint16(slot - &_speechSlots[0]);
 }
 
 const Common::String &Logic::speechTextForOwner(uint16 owner) const {
@@ -2862,6 +2973,17 @@ void Logic::queueSpeechSlotCallbackForAnyActive(const CodePointer &cp) {
 	for (uint i = 0; i < _speechSlots.size(); ++i) {
 		SpeechSlot &slot = _speechSlots[i];
 		if (slot.framesLeft != 0 && slot.owner != 0xffff) {
+			slot.callbacks.push(SpeechSlotCallback(cp, opcodeMode(), true));
+			return;
+		}
+	}
+	runLaterWithMode(cp, opcodeMode());
+}
+
+void Logic::queueUiTextSpeechSlotCallbackLikeDos(const CodePointer &cp) {
+	if (_uiTextSpeechSlot < _speechSlots.size()) {
+		SpeechSlot &slot = _speechSlots[_uiTextSpeechSlot];
+		if (slot.framesLeft != 0) {
 			slot.callbacks.push(SpeechSlotCallback(cp, opcodeMode(), true));
 			return;
 		}

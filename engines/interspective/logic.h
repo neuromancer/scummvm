@@ -108,6 +108,7 @@ public:
 		  _scrollChanged(false),
 		  _inputEnabled(true),
 		  _speechSkipInput(false),
+		  _uiTextSpeechSlot(0xffff),
 		  _loadedBackdropId(0) {
 		_protagonist = nullptr;
 		_protagonistId = 0;
@@ -316,6 +317,11 @@ public:
 		_menuStashB = a1;
 		_menuStashConsumed = false;
 	}
+	void setMenuStashFirstArgLikeDos(uint16 a0) { _menuStashA = a0; }
+	void setMenuStashSecondArgLikeDos(uint16 a1) {
+		_menuStashB = a1;
+		_menuStashConsumed = false;
+	}
 	uint16 menuStashA() const { return _menuStashA; }
 	uint16 menuStashB() const { return _menuStashB; }
 	bool menuStashConsumed() const { return _menuStashConsumed; }
@@ -332,6 +338,11 @@ public:
 	void setCursorStepIndex(uint16 v) { _cursorStepIndex = v; }
 	uint16 dragTarget() const { return _dragTarget; }
 	void setDragTarget(uint16 v) { _dragTarget = v; }
+	void clearDragInteractionLikeOp8e() {
+		setPaused();
+		setCursorMode(1);
+		setDragTarget(0);
+	}
 
 	// Object placement / drag-state subsystem. Mirrors DOS
 	// MovePersonToActor @ 1000:4706 and ResetObjectAtActorPosition @
@@ -464,14 +475,16 @@ public:
 		CastEntry() : active(0), id(0), x(0), y(0), interpreter(0), animation(0) {
 			for (uint8 i = 0; i < 81; ++i) raw[i] = 0;
 		}
-	};
-	enum { kCastTableCap = 18 };
-	bool castTableRegister(uint16 id, int16 x, int16 y, Interpreter *interpreter);
-	void castTableSetPos(uint16 id, int16 x, int16 y);
-	void castTableClear(uint16 id);
-	void castTableDeactivateAnimation(Animation *animation);
-	void castTableClearAll();
-	const Common::Array<CastEntry> &castTable() const { return _castTable; }
+		};
+		enum { kCastTableCap = 18 };
+		bool castTableRegister(uint16 id, int16 x, int16 y, Interpreter *interpreter);
+		void castTableSetPos(uint16 id, int16 x, int16 y);
+		void castTableClear(uint16 id);
+		void castTableDeactivateAnimation(Animation *animation);
+		void castTableClearAll();
+		bool castEntryActiveLikeDos(uint16 id) const;
+		void runLaterWhenCastEntryInactive(uint16 id, const CodePointer &p);
+		const Common::Array<CastEntry> &castTable() const { return _castTable; }
 
 	// Text-bubble + verb-menu modal subsystem.
 	// Mirrors DOS DS:0x66ae..0x66c6 register slots and DS:0x6741 stash
@@ -704,12 +717,12 @@ public:
 			kDisableMoveOptionalEnable = 1,
 			// DOS trampoline @ 0x4a36:
 			//   PUSH BX; CALL DisableObjectFlag1(AX);
-			//   POP BX; CALL EnableObjectFlag1(AX);  [DOS register
-			//     juggling here is buggy — AX is corrupt between
-			//     the two CALLs. We match the *intent*: enable arg1.]
-			//   JMP Op_8e (cursor=0, drag=0).
-			// = clearCellBit(cellId) + (arg1 != 0 ? setCellBit(arg1)) +
-			//   setCursorMode(0) + setDragTarget(0). Used by Op_93.
+			//   POP BX; CALL EnableObjectFlag1(AX);  [BX is restored
+			//     but never moved back to AX, so AX is the value left by
+			//     DisableObjectFlag1.]
+			//   JMP Op_8e (cursor=1, drag=0).
+			// = clearCellBit(cellId) + DOS AX-dependent EnableObjectFlag1 +
+			//   setCursorMode(1) + setDragTarget(0). Used by Op_93.
 			kDisableEnableUnregister = 2,
 			// DOS callback @ 0x4376:
 			//   if !map: protag.frame=arg0, protag.nextFrame=arg1,
@@ -799,7 +812,7 @@ public:
 		// AllocBuffersB @ 1000:10f8 clears the six allocated graphic-slot
 		// words at 0x676f,0x6771,0x6773,0x6775,0x6777,0x6779.
 		_graphicSlots[0] = _graphicSlots[1] = _graphicSlots[2] = 0;
-		_graphicSlots[3] = _graphicSlots[5] = _graphicSlots[6] = 0;
+		_graphicSlots[3] = _graphicSlots[4] = _graphicSlots[5] = 0;
 	}
 
 	// Graphic-slot tracking (DOS DS:0x676f..0x677b — 7 slots × 2 bytes).
@@ -972,11 +985,14 @@ public:
 	                         byte color, uint16 maxLines, uint8 type);
 	bool speechSlotActiveForOwner(uint16 owner) const;
 	bool anySpeechSlotActive() const;
+	bool uiTextSpeechSlotActiveLikeDos() const;
+	void stashUiTextSpeechSlotForOwnerLikeDos(uint16 owner);
 	const Common::String &speechTextForOwner(uint16 owner) const;
 	void clearSpeechForOwner(uint16 owner);
 	void setSpeechSkipInput(bool pressed) { _speechSkipInput = pressed; }
 	void queueSpeechSlotCallbackForOwner(uint16 owner, const CodePointer &cp);
 	void queueSpeechSlotCallbackForAnyActive(const CodePointer &cp);
+	void queueUiTextSpeechSlotCallbackLikeDos(const CodePointer &cp);
 	bool backupSpeechSlotForOwner(uint16 owner, Common::String &text);
 	bool restoreActorSpeechSlot(Actor *actor, const Common::String &text);
 	void recycleStaleSpeechSlotsLikeDos();
@@ -1098,10 +1114,16 @@ private:
 	Music *_music;
 
 	struct DelayedRun {
+		enum WaitKind {
+			kWaitNone,
+			kWaitCastEntryInactive
+		};
 		DelayedRun(const CodePointer &c, uint16 d, uint16 tick, uint16 mode = 0,
-		           bool hasMode = false, uint16 deferredSlotMode = 0)
+		           bool hasMode = false, uint16 deferredSlotMode = 0,
+		           WaitKind wait = kWaitNone, uint16 waitValue = 0)
 			: code(c), delay(d), queuedTick(tick), runMode(mode), hasRunMode(hasMode),
-			  deferredMode(deferredSlotMode), canceled(false) {}
+			  deferredMode(deferredSlotMode), canceled(false), waitKind(wait),
+			  waitParam(waitValue) {}
 		CodePointer code;
 		uint16 delay;
 		uint16 queuedTick;
@@ -1109,6 +1131,8 @@ private:
 		bool hasRunMode;
 		uint16 deferredMode;
 		bool canceled;
+		WaitKind waitKind;
+		uint16 waitParam;
 	};
 	Common::List<DelayedRun> _queued;
 
@@ -1199,6 +1223,7 @@ private:
 	CutsceneBackup _cutsceneBackup;     // DOS Op_97/Op_98 backup slot
 	Common::Array<CastEntry> _castTable; // DOS DS:0x1977 cast registry (18 slots)
 	Common::Array<SpeechSlot> _speechSlots; // DOS DS:0x4e63, 6 entries
+	uint16 _uiTextSpeechSlot; // DOS DS:0x669a pointer, modeled as a speech-slot index
 	ModalState _modalState;              // DOS DS:0x66ae..0x66c6 modal regs + 0x6741 stash
 	Common::Array<uint16> _menuItemIndices; // DOS DS:0x4f1b — Op_54 lookup for selected idx
 	uint16 _opcodeMode;       // DS:0x670e

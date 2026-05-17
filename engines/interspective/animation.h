@@ -66,6 +66,9 @@ public:
 	virtual bool isActor() const { return false; }
 	bool scriptActive() const { return _base != 0; }
 	uint16 mainSpriteId() const { return _mainSpriteId; }
+	bool hasDosMainSpriteForDraw() const { return _mainSpriteId != 0xffff && _mainSprite.get(); }
+	int16 dosDrawY() const { return int16(_position.y); }
+	bool castWaitCompleteLikeDos() const;
 	int8 zIndex() const { return _zIndex; }
 	void setCastTableRunner(bool v) { _castTableRunner = v; }
 

@@ -111,6 +111,7 @@ public:
 		return paintText(left, top, 235, string, 0, lines);
 	}
 	Common::Rect paintText(uint16 left, uint16 top, byte colour, const byte *string, Surface *s, uint16 *lines = 0, uint8 firstLineExtraIndent = 0);
+	void paintMotionText(const byte *stream, uint16 length);
 	uint16 plainTextLineWidth(const byte *string) const;
 	Common::Rect paintPlainTextLine(uint16 left, uint16 top, byte colour, const byte *string, bool markDirty = true);
 

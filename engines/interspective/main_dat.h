@@ -128,6 +128,7 @@ private:
 	Actor **_actors;
 	uint16 _actorsCount;
 
+	byte *imageDirectoryEntryLikeDos(uint16 index) const;
 	void parsePuppeteers() const;
 	mutable Common::HashMap<uint16, Puppeteer> _puppeteers;
 };

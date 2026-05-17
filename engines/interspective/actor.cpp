@@ -1194,6 +1194,8 @@ void Actor::paint(Graphics *g) {
 		return;
 	if (!_base)
 		return;
+	if (!hasDosMainSpriteForDraw())
+		return;
 
 	Animation::paint(g);
 
@@ -1742,7 +1744,7 @@ OPCODE(0x03) {
 	const uint16 word = shift();
 	const uint8 interval = uint8(word);
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x03: SetInterval %u [DOS Op_04]", interval);
-	_interval = interval;
+	setRawInterval(interval);
 	return kOk;
 }
 
@@ -1758,7 +1760,7 @@ OPCODE(0x04) {
 	const uint8 interval = uint8(word);
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x04: SetIntervalFromGlobal var[%u/2]=0x%04x → %u [DOS Op_05]",
 		offset, word, interval);
-	_interval = interval;
+	setRawInterval(interval);
 	return kOk;
 }
 

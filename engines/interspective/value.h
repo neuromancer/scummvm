@@ -78,6 +78,7 @@ public:
 	}
 	virtual byte *rawPointer() { return nullptr; }
 	virtual byte *rawBase() { return nullptr; }
+	virtual uint16 rawLength() const { return 0; }
 
 	Value() {}
 

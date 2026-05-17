@@ -261,21 +261,41 @@ uint16 MainDat::progEntriesCount1() const {
 	return READ_LE_UINT16(_footer + kProgEntriesCount1);
 }
 
+byte *MainDat::imageDirectoryEntryLikeDos(uint16 index) const {
+	const int32 directoryOffset = int32(_imageDirectory - _data);
+	// DOS keeps this arithmetic in 16-bit registers:
+	//   DEC AX; ADD AX,AX; ADD AX,AX; ADD DI,AX
+	// so values that pass a signed bound check can wrap back before/within
+	// the loaded data segment rather than becoming a large unsigned offset.
+	const int16 entryDelta = int16(uint16(uint16(index - 1) * 4));
+	const int32 entryOffset = directoryOffset + entryDelta;
+	if (entryOffset < 0 || entryOffset + 3 >= int32(_dataLen)) {
+		warning("MainDat::imageDirectoryEntryLikeDos: id %u resolves outside iuc_main.dat (entryOff=%d)",
+			index, entryOffset);
+		return 0;
+	}
+	return _data + entryOffset;
+}
+
 uint16 MainDat::fileIndexOfImage(uint16 index) const {
-	uint32 offset = (index - 1) * 4;
-	(void) READ_LE_UINT16(_imageDirectory + offset);
-	uint16 snd = READ_LE_UINT16(_imageDirectory + offset + 2);
-	return snd;
+	const byte *entry = imageDirectoryEntryLikeDos(index);
+	if (!entry)
+		return 0;
+	return READ_LE_UINT16(entry + 2);
 }
 
 uint16 MainDat::imageType(uint16 index) const {
-	uint32 offset = (index - 1) * 4;
-	return READ_LE_UINT16(_imageDirectory + offset);
+	const byte *entry = imageDirectoryEntryLikeDos(index);
+	if (!entry)
+		return 0;
+	return READ_LE_UINT16(entry);
 }
 
 void MainDat::patchImageType(uint16 index, uint16 type) {
-	uint32 offset = (index - 1) * 4;
-	WRITE_LE_UINT16(_imageDirectory + offset, type);
+	byte *entry = imageDirectoryEntryLikeDos(index);
+	if (!entry)
+		return;
+	WRITE_LE_UINT16(entry, type);
 }
 
 uint16 MainDat::fileIndexOfTune(uint16 index) const {

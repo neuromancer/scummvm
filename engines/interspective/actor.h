@@ -210,8 +210,14 @@ public:
 		setDosFieldWord(kOffsetLeft, uint16(p.x));
 		setDosFieldWord(kOffsetTop, uint16(p.y));
 	}
-	void setRawTicksLeft(uint16 ticks) { _ticksLeft = ticks; }
-	void setRawInterval(uint8 interval) { _interval = int8(interval); }
+	void setRawTicksLeft(uint16 ticks) {
+		_ticksLeft = ticks;
+		setDosFieldWord(kOffsetTicksLeft, ticks);
+	}
+	void setRawInterval(uint8 interval) {
+		_interval = int8(interval);
+		setDosField(kOffsetInterval, interval);
+	}
 	void setRawFrame(uint16 frame) {
 		_frame = frame;
 		setDosField(0x61, uint8(frame));
@@ -219,6 +225,10 @@ public:
 	void setRawTargetFrame(uint16 frame) {
 		_nextFrame = frame;
 		setDosField(0x62, uint8(frame));
+	}
+	void clearMoveQueueLikeDos() {
+		_framequeue.clear();
+		setDosFieldWord(0x6b, 0);
 	}
 	void setRawMainSprite(uint16 sprite) { setMainSprite(sprite); }
 	void setRawSpriteTarget(uint16 target) { setMainSprite(target); setRawTargetFrame(target); }

@@ -196,13 +196,26 @@ Animation::Status Animation::tick() {
 			setAnimationDosFieldWord(0x0a, _ticksLeft);
 	}
 
-	if (ranScript && _castTableRunner)
+	if (ranScript && _castTableRunner) {
+		setAnimationDosFieldWord(0x0c, _offset);
 		decrementAnimationTicksLeftLikeDos();
+	}
 
 	if (status == kRemove)
 		return status;
 
 	return kOk;
+}
+
+bool Animation::castWaitCompleteLikeDos() const {
+	// DOS FindCastByActorId @ 1000:67f5 resumes Op_c6 when no matching
+	// active cast exists, or when cast field +0x0a is zero and the next
+	// script byte at field +0x0c is the 0xff sentinel.
+	if (!_castTableRunner || !_base)
+		return true;
+	if (_ticksLeft != 0)
+		return false;
+	return *(_base + _offset) == 0xff;
 }
 
 void Animation::handleTrigger() {
@@ -440,6 +453,8 @@ OPCODE(0x02) {
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x02: move to %d:%d", left, top);
 
 	_position = Common::Point(left, top);
+	setAnimationDosFieldWord(0x04, left);
+	setAnimationDosFieldWord(0x06, top);
 
 	return kOk;
 }
@@ -450,6 +465,7 @@ OPCODE(0x03) {
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x03: set interval to %d", interval);
 
 	_interval = interval;
+	setAnimationDosField(0x10, interval);
 
 	return kOk;
 }
@@ -461,6 +477,7 @@ OPCODE(0x04) {
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x04: set interval to %d (from var %d)", interval, offset / 2);
 
 	_interval = interval;
+	setAnimationDosField(0x10, interval);
 
 	return kOk;
 }
@@ -476,6 +493,8 @@ OPCODE(0x05) {
 
 	_position.x += xoff;
 	_position.y += yoff;
+	setAnimationDosFieldWord(0x04, uint16(_position.x));
+	setAnimationDosFieldWord(0x06, uint16(_position.y));
 	setMainSprite(sprite);
 
 	return kFrameDone;
@@ -509,6 +528,8 @@ OPCODE(0x08) {
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x08: move by %d:%d, frame done", left, top);
 
 	_position += Common::Point(left, top);
+	setAnimationDosFieldWord(0x04, uint16(_position.x));
+	setAnimationDosFieldWord(0x06, uint16(_position.y));
 
 	return kFrameDone;
 }
@@ -522,6 +543,8 @@ OPCODE(0x0a) {
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x0a: run sprite %d at %d:%d", sprite, left, top);
 
 	_position = Common::Point(left, top);
+	setAnimationDosFieldWord(0x04, left);
+	setAnimationDosFieldWord(0x06, top);
 	setMainSprite(sprite);
 
 	return kFrameDone;
@@ -700,6 +723,8 @@ OPCODE(0x09) {
 	uint16 x = shift();
 	uint16 y = shift();
 	_position = Common::Point(int16(x), int16(y));
+	setAnimationDosFieldWord(0x04, x);
+	setAnimationDosFieldWord(0x06, y);
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x09: WalkAbsolute → _position = (%d, %d)",
 		int16(x), int16(y));
 	return kFrameDone;

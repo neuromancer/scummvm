@@ -28,6 +28,7 @@
 #include "graphics/palette.h"
 #include "graphics/paletteman.h"
 
+#include "common/algorithm.h"
 #include "common/array.h"
 #include "common/events.h"
 #include "common/system.h"
@@ -263,6 +264,47 @@ static void paintAnimationsForLayerLikeDos(Graphics *graphics, const Common::Lis
 	}
 }
 
+struct ActorDrawEntry {
+	ActorDrawEntry() : anim(0), y(0), order(0) {}
+	ActorDrawEntry(Animation *a, int16 drawY, uint drawOrder) : anim(a), y(drawY), order(drawOrder) {}
+
+	Animation *anim;
+	int16 y;
+	uint order;
+};
+
+struct ActorDrawEntryLess {
+	bool operator()(const ActorDrawEntry &a, const ActorDrawEntry &b) const {
+		if (a.y != b.y)
+			return a.y < b.y;
+
+		// DOS CollectActorAnimSlots @ 1000:65ef uses <= while searching
+		// for the next minimum y render command, so equal-y commands draw
+		// in reverse collection order.
+		return a.order > b.order;
+	}
+};
+
+static void paintActorAnimationsForLayerLikeDos(Graphics *graphics, const Common::List<Animation *> &animations,
+		int16 layer) {
+	Common::Array<ActorDrawEntry> entries;
+	uint order = 0;
+	for (Common::List<Animation *>::const_iterator it = animations.begin(); it != animations.end(); ++it, ++order) {
+		Animation *anim = *it;
+		if (!anim->isActor())
+			continue;
+		if (normalizeLayer(anim->zIndex()) != layer)
+			continue;
+		if (!anim->hasDosMainSpriteForDraw())
+			continue;
+		entries.push_back(ActorDrawEntry(anim, anim->dosDrawY(), order));
+	}
+
+	Common::sort(entries.begin(), entries.end(), ActorDrawEntryLess());
+	for (uint i = 0; i < entries.size(); ++i)
+		entries[i].anim->paint(graphics);
+}
+
 void Graphics::loadInterface() {
 	debugC(1, kDebugLevelGraphics, "loading interface");
 	_interface = new Surface;
@@ -478,13 +520,13 @@ void Graphics::paintAnimations() {
 				paintDrawCommandLikeDos(this, logic, commands[i]);
 		}
 
-		paintAnimationsForLayerLikeDos(this, animations, layer, true);
+		paintActorAnimationsForLayerLikeDos(this, animations, layer);
 		for (uint i = 0; i < deferred.size(); ++i)
 			paintDrawCommandLikeDos(this, logic, deferred[i]);
 	}
 
 	paintAnimationsForLayerLikeDos(this, animations, -1, false);
-	paintAnimationsForLayerLikeDos(this, animations, -1, true);
+	paintActorAnimationsForLayerLikeDos(this, animations, -1);
 }
 
 // it's modal anyway
@@ -880,6 +922,65 @@ Common::Rect Graphics::paintText(uint16 left, uint16 top, byte colour, const byt
 		*_lines = lines;
 
 	return Common::Rect(left, top, max_left, current_top + kLineHeight);
+}
+
+void Graphics::paintMotionText(const byte *stream, uint16 length) {
+	if (!stream || length == 0)
+		return;
+
+	const byte *p = stream;
+	const byte *end = stream + length;
+	uint16 currentLeft = 0;
+	uint16 currentTop = 0;
+	byte currentColour = 0xeb;
+
+	while (p < end) {
+		const byte ch = *p++;
+		if (ch == 0)
+			break;
+
+		switch (ch) {
+		case '\r':
+			currentTop = uint16(currentTop + kLineHeight);
+			break;
+		case kStringMove:
+			if (end - p < 4)
+				return;
+			currentLeft = READ_LE_UINT16(p);
+			p += 2;
+			currentTop = READ_LE_UINT16(p);
+			p += 2;
+			break;
+		case kStringDefaultColour:
+			currentColour = 0xeb;
+			break;
+		case kStringSetColour:
+			if (p >= end)
+				return;
+			currentColour = *p++;
+			break;
+		case kStringCenter: {
+			uint16 width = 0;
+			const byte *q = p;
+			while (q < end) {
+				const byte widthCh = *q++;
+				if (widthCh == 0 || widthCh == '\r')
+					break;
+				width = uint16(width + getGlyphWidth(widthCh));
+			}
+			currentLeft = uint16(uint16(0x0140 - width) >> 1);
+			break;
+		}
+		case kStringAdvance:
+			if (p >= end)
+				return;
+			currentLeft = uint16(currentLeft + *p++);
+			break;
+		default:
+			currentLeft = uint16(currentLeft + paintChar(currentLeft, currentTop, currentColour, ch, _framebuffer.get()));
+			break;
+		}
+	}
 }
 
 uint16 Graphics::plainTextLineWidth(const byte *string) const {

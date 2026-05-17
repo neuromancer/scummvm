@@ -323,8 +323,9 @@ CodePointer *Interpreter::readArgument<CodePointer>(byte *&code) {
 
 class ParametrizedString : public Value {
 public:
-	ParametrizedString(byte *translated, uint16 len, byte *raw, byte *base) :
+	ParametrizedString(byte *translated, uint16 len, byte *raw, uint16 rawLength, byte *base) :
 			_raw(raw),
+			_rawLength(rawLength),
 			_base(base) {
 		memcpy(_translateBuf, translated, len);
 		_length = len;
@@ -336,10 +337,12 @@ public:
 	virtual operator uint16() const { return _length; }
 	virtual byte *rawPointer() { return _raw; }
 	virtual byte *rawBase() { return _base; }
+	virtual uint16 rawLength() const { return _rawLength; }
 private:
 	byte _translateBuf[500];
 	uint16 _length;
 	byte *_raw;
+	uint16 _rawLength;
 	byte *_base;
 };
 
@@ -419,7 +422,7 @@ ParametrizedString *Interpreter::readArgument<ParametrizedString>(byte *&code) {
 
 	debugC(4, kDebugLevelScript, "read parametrized string '%s' as argument", translateBuf);
 
-	return new ParametrizedString(translateBuf, str - translateBuf, raw, _base);
+	return new ParametrizedString(translateBuf, str - translateBuf, raw, uint16(code - raw), _base);
 }
 
 Value *Interpreter::getArgument(byte *&code) {
