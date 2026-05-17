@@ -111,6 +111,7 @@ public:
 	uint16 getCursorSpriteId() const;
 	bool nextCursorSprite(uint16 mode, uint16 &stepIndex, bool &stepPending, uint16 &spriteId) const;
 	bool cycleCursorOverlayAnimation(uint16 maskBit, uint16 &spriteId, uint16 &x, uint16 &y);
+	uint16 getInterfaceMapMarkerSpriteId(uint16 selector) const;
 	uint16 getFrameId(FramePart part) const;
 	uint16 getBubbleId(SpeechBubblePart part) const;
 

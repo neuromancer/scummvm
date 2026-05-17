@@ -49,6 +49,7 @@ class Sprite;
 class Graphics : public Common::Singleton<Graphics> {
 public:
 	Graphics() : _cursorPosition(160, 100), _hostCursorShown(false),
+	             _roomCloseUpActive(false), _roomCloseUpPoint(0, 0),
 	             _inventoryCloseUpObjectId(0) {}
 
 	void setEngine(Engine *engine);
@@ -126,6 +127,8 @@ public:
 	Common::Rect paintPlainTextLine(uint16 left, uint16 top, byte colour, const byte *string, bool markDirty = true);
 	bool setStatusOverlayTextLikeDos(const byte *text);
 	void setInterfaceOverlaySprite(uint16 maskBit, uint16 spriteId, uint16 x, uint16 y);
+	void setRoomCloseUpLikeDos(Common::Point point);
+	void clearRoomCloseUpLikeDos();
 	void setInventoryCloseUpObjectLikeDos(uint16 objectId);
 	void clearInventoryCloseUpObjectLikeDos();
 
@@ -184,6 +187,8 @@ private:
 	Sprite *getGlyph(byte ch) const;
 	void prepareConversationPaletteLikeDos();
 	void paintConversationBackdropLikeDos();
+	void paintInterfaceMinimapLikeDos();
+	void paintRoomCloseUpLikeDos();
 	void paintInventoryObjectsLikeDos();
 	void paintInventoryCloseUpLikeDos();
 	void paintInterfaceOverlaySprites();
@@ -241,6 +246,8 @@ private:
 		Common::String text;
 	};
 	Common::Array<StatusScreenTextEntry> _statusScreenText;
+	bool _roomCloseUpActive;
+	Common::Point _roomCloseUpPoint;
 	uint16 _inventoryCloseUpObjectId;
 
 	// Active speech bubble. _speech is the text being painted; when

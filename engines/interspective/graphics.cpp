@@ -54,6 +54,18 @@ namespace Common {
 
 namespace Interspective {
 
+enum {
+	kInterfaceTop = 152,
+	kPanelLeft = 3,
+	kPanelTop = 155,
+	kPanelWidth = 56,
+	kPanelHeight = 25,
+	kCloseUpLeft = 4,
+	kCloseUpTop = 155,
+	kCloseUpWidth = 54,
+	kCloseUpHeight = 22
+};
+
 void Graphics::setEngine(Engine *engine) {
 	_engine = engine;
 	_framebuffer = Common::SharedPtr<Surface>(new Surface);
@@ -322,11 +334,87 @@ void Graphics::paintInterface() {
 	if (_fullscreen) return;
 	debugC(3, kDebugLevelGraphics, "painting interface");
 	_framebuffer->blit(_interface, Common::Rect(0, 152, 320, 200), 0);
+	paintInterfaceMinimapLikeDos();
 	paintInventoryObjectsLikeDos();
 	paintInterfaceOverlaySprites();
 	paintStatusOverlayText();
+	paintRoomCloseUpLikeDos();
 	paintInventoryCloseUpLikeDos();
 	markDirtyRect(Common::Rect(0, 152, 320, 200));
+}
+
+void Graphics::paintInterfaceMinimapLikeDos() {
+	Logic *logic = _engine ? _engine->logic() : 0;
+	if (!logic || !_resources)
+		return;
+	if (!logic->roomActive() || logic->cursorMode() == 0x80 || logic->dialogClickGate() == 0)
+		return;
+
+	// DrawDialogChoices @ 1000:b2e8 is the DOS mini-map renderer despite
+	// Ghidra's misleading name: Op_e3 supplies the base room-map sprite and
+	// Op_e4 supplies optional exit markers gated by the room cell map.
+	Common::ScopedPtr<Sprite> mapSprite(_resources->loadSprite(logic->dialogClickGate()));
+	paint(mapSprite.get(), Common::Point(logic->dialogCursor0(), logic->dialogCursor1()),
+		kPaintPositionIsTop | kPaintNoDirty);
+
+	MainDat *mainDat = _resources->mainDat();
+	if (!mainDat)
+		return;
+
+	const Common::Array<Logic::AnimListEntry> &entries = logic->animList();
+	for (uint i = 0; i < entries.size(); ++i) {
+		const Logic::AnimListEntry &entry = entries[i];
+		if (!logic->cellBit(entry.arg3, 0))
+			continue;
+
+		const uint16 markerSpriteId = mainDat->getInterfaceMapMarkerSpriteId(entry.arg2);
+		if (markerSpriteId == 0xffff) {
+			logic->setPendingError(0x0d);
+			continue;
+		}
+
+		Common::ScopedPtr<Sprite> marker(_resources->loadSprite(markerSpriteId));
+		paint(marker.get(), Common::Point(entry.x0, entry.y0),
+			kPaintPositionIsTop | kPaintNoDirty);
+	}
+}
+
+void Graphics::setRoomCloseUpLikeDos(Common::Point point) {
+	_roomCloseUpActive = true;
+	_roomCloseUpPoint = point;
+	_inventoryCloseUpObjectId = 0;
+}
+
+void Graphics::clearRoomCloseUpLikeDos() {
+	_roomCloseUpActive = false;
+}
+
+void Graphics::paintRoomCloseUpLikeDos() {
+	Logic *logic = _engine ? _engine->logic() : 0;
+	if (!logic)
+		return;
+	if (logic->cursorMode() != 0x80 || !logic->roomActive() || logic->noStep()
+			|| logic->canSkipCutscene() || !logic->inputEnabled()) {
+		_roomCloseUpActive = false;
+		return;
+	}
+
+	const Common::Point cursor = cursorPosition();
+	if (cursor.y >= screenHeight()) {
+		_roomCloseUpActive = false;
+		return;
+	}
+
+	_roomCloseUpPoint = cursor;
+	_roomCloseUpActive = true;
+	_inventoryCloseUpObjectId = 0;
+	const int srcLeft = CLIP<int>(_roomCloseUpPoint.x - 0x1b, 0, 0x10a);
+	const int srcTop = CLIP<int>(_roomCloseUpPoint.y - 0x0b, 0, 0x82);
+	for (int y = 0; y < kCloseUpHeight; ++y) {
+		const byte *src = reinterpret_cast<const byte *>(_framebuffer->getBasePtr(srcLeft, srcTop + y));
+		byte *dst = reinterpret_cast<byte *>(_framebuffer->getBasePtr(kCloseUpLeft, kCloseUpTop + y));
+		memcpy(dst, src, kCloseUpWidth);
+	}
 }
 
 void Graphics::paintInventoryObjectsLikeDos() {
@@ -358,6 +446,7 @@ void Graphics::paintInventoryObjectsLikeDos() {
 }
 
 void Graphics::setInventoryCloseUpObjectLikeDos(uint16 objectId) {
+	_roomCloseUpActive = false;
 	_inventoryCloseUpObjectId = objectId;
 }
 

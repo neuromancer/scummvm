@@ -89,6 +89,13 @@ enum Offsets {
 	kMenuCursors		= 0x58,
 	kInterfaceImgIdx	= 0xB4,
 
+	// DrawDialogChoices @ 1000:b2e8 uses these four main-footer sprites
+	// as mini-map exit markers, selected by Op_e4's second argument.
+	kInterfaceMapMarker1Offset = 0x62,
+	kInterfaceMapMarker5Offset = 0x64,
+	kInterfaceMapMarker3Offset = 0x66,
+	kInterfaceMapMarker7Offset = 0x68,
+
 	kFrameTopLeftOffset = 0x76,
 	kFrameTopOffset = 0x7e,
 	kFrameTopRightOffset = 0x84,
@@ -503,6 +510,28 @@ bool MainDat::cycleCursorOverlayAnimation(uint16 maskBit, uint16 &spriteId, uint
 	WRITE_LE_UINT16(record + 6, nextFrame);
 	spriteId = READ_LE_UINT16(_data + spriteOffset);
 	return true;
+}
+
+uint16 MainDat::getInterfaceMapMarkerSpriteId(uint16 selector) const {
+	uint16 footerOffset = 0;
+	switch (selector) {
+	case 1:
+		footerOffset = kInterfaceMapMarker1Offset;
+		break;
+	case 5:
+		footerOffset = kInterfaceMapMarker5Offset;
+		break;
+	case 3:
+		footerOffset = kInterfaceMapMarker3Offset;
+		break;
+	case 7:
+		footerOffset = kInterfaceMapMarker7Offset;
+		break;
+	default:
+		return 0xffff;
+	}
+
+	return READ_LE_UINT16(_footer + footerOffset);
 }
 
 uint16 MainDat::getFrameId(FramePart part) const {

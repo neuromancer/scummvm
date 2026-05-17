@@ -463,6 +463,14 @@ void EventManager::clicked(Common::Point pos) {
 		return;
 	}
 
+	if (dispatchCursorMode == 0x80 && hitRegion == 0) {
+		Graphics::instance().setRoomCloseUpLikeDos(pos);
+		debugC(1, kDebugLevelEvents,
+			"room eye close-up armed at (%d,%d) [DOS DrawCursorWithBackdrop]",
+			pos.x, pos.y);
+		return;
+	}
+
 	if (dispatchCursorMode == 1) {
 		handleSecondaryClickLikeDos(logic, hitRegion, pos);
 		return;
