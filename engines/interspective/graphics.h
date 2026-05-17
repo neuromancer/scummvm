@@ -48,7 +48,8 @@ class Sprite;
 
 class Graphics : public Common::Singleton<Graphics> {
 public:
-	Graphics() : _cursorPosition(160, 100), _hostCursorShown(false) {}
+	Graphics() : _cursorPosition(160, 100), _hostCursorShown(false),
+	             _inventoryCloseUpObjectId(0) {}
 
 	void setEngine(Engine *engine);
 
@@ -118,6 +119,8 @@ public:
 	Common::Rect paintPlainTextLine(uint16 left, uint16 top, byte colour, const byte *string, bool markDirty = true);
 	bool setStatusOverlayTextLikeDos(const byte *text);
 	void setInterfaceOverlaySprite(uint16 maskBit, uint16 spriteId, uint16 x, uint16 y);
+	void setInventoryCloseUpObjectLikeDos(uint16 objectId);
+	void clearInventoryCloseUpObjectLikeDos();
 
 	void paintSpeechBubbleColumn(Sprite *top, Sprite *fill, Common::Point &point, uint8 fill_tiles, Surface *dest);
 	Common::Rect paintSpeechInBubble(Common::Point pos, byte colour, const byte *string, Surface *dest,
@@ -130,7 +133,8 @@ public:
 		kPaintPositionIsTop = 1,
 		kPaintSemiTransparent = 2,
 		kPaintCameraRelative = 4,
-		kPaintNoDirty = 8
+		kPaintNoDirty = 8,
+		kPaintIgnoreHotPoint = 16
 	};
 	void paint(const Sprite *sprite, Common::Point pos, int flags = kPaintNormal) const {
 		paint(sprite, pos, _framebuffer.get(), flags);
@@ -171,6 +175,8 @@ private:
 	static byte clampChar(byte ch);
 	uint16 calculateLineWidth(const byte *string) const;
 	Sprite *getGlyph(byte ch) const;
+	void paintInventoryObjectsLikeDos();
+	void paintInventoryCloseUpLikeDos();
 	void paintInterfaceOverlaySprites();
 	void paintStatusOverlayText();
 
@@ -217,6 +223,7 @@ private:
 	};
 	Common::Array<InterfaceOverlaySprite> _interfaceOverlaySprites;
 	Common::Array<Common::String> _statusOverlayLines;
+	uint16 _inventoryCloseUpObjectId;
 
 	// Active speech bubble. _speech is the text being painted; when
 	// _speechFramesLeft hits 0 the painter invokes _speechDoneCallback (if

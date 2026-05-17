@@ -321,9 +321,82 @@ void Graphics::paintInterface() {
 	if (_fullscreen) return;
 	debugC(3, kDebugLevelGraphics, "painting interface");
 	_framebuffer->blit(_interface, Common::Rect(0, 152, 320, 200), 0);
+	paintInventoryObjectsLikeDos();
 	paintInterfaceOverlaySprites();
 	paintStatusOverlayText();
+	paintInventoryCloseUpLikeDos();
 	markDirtyRect(Common::Rect(0, 152, 320, 200));
+}
+
+void Graphics::paintInventoryObjectsLikeDos() {
+	Logic *logic = _engine ? _engine->logic() : 0;
+	if (!logic || !_resources)
+		return;
+
+	const Common::Array<uint16> &objectExits = logic->objectExitList();
+	for (uint i = 0; i < objectExits.size(); ++i) {
+		const uint16 id = objectExits[i];
+		if (id == 0 || logic->getObjectRoom(id) != 0xffff)
+			continue;
+
+		const uint16 spriteId = uint16(logic->objectField(id, 8))
+			| (uint16(logic->objectField(id, 9)) << 8);
+		if (spriteId == 0xffff)
+			continue;
+
+		const SpriteInfo info = _resources->getSpriteInfo(spriteId);
+		if (info.width == 0 || info.height == 0)
+			continue;
+
+		const Common::Point topLeft(
+			int16(0x80 + logic->getObjectPosX(id) - int16(info.hotLeft)),
+			int16(0xa0 + logic->getObjectPosY(id) - int16(info.hotTop)));
+		Common::ScopedPtr<Sprite> sprite(_resources->loadSprite(spriteId));
+		paint(sprite.get(), topLeft, kPaintPositionIsTop | kPaintNoDirty | kPaintIgnoreHotPoint);
+	}
+}
+
+void Graphics::setInventoryCloseUpObjectLikeDos(uint16 objectId) {
+	_inventoryCloseUpObjectId = objectId;
+}
+
+void Graphics::clearInventoryCloseUpObjectLikeDos() {
+	_inventoryCloseUpObjectId = 0;
+}
+
+void Graphics::paintInventoryCloseUpLikeDos() {
+	Logic *logic = _engine ? _engine->logic() : 0;
+	if (!logic || !_resources || _inventoryCloseUpObjectId == 0)
+		return;
+	if (logic->cursorMode() != 0x80) {
+		_inventoryCloseUpObjectId = 0;
+		return;
+	}
+
+	const uint16 id = _inventoryCloseUpObjectId;
+	if (_resources->mainDat() && id > _resources->mainDat()->personsCount()) {
+		_inventoryCloseUpObjectId = 0;
+		return;
+	}
+
+	const uint16 spriteId = uint16(logic->objectField(id, 8))
+		| (uint16(logic->objectField(id, 9)) << 8);
+	if (spriteId == 0xffff)
+		return;
+
+	const SpriteInfo info = _resources->getSpriteInfo(spriteId);
+	if (info.width == 0 || info.height == 0)
+		return;
+	if (info.width > 0x38 || info.height > 0x19) {
+		logic->setPendingError(0x2d);
+		return;
+	}
+
+	const Common::Point topLeft(
+		int16(0x03 + ((0x38 - int16(info.width)) >> 1)),
+		int16(0x9b + ((0x19 - int16(info.height)) >> 1)));
+	Common::ScopedPtr<Sprite> sprite(_resources->loadSprite(spriteId));
+	paint(sprite.get(), topLeft, kPaintPositionIsTop | kPaintNoDirty | kPaintIgnoreHotPoint);
 }
 
 void Graphics::setInterfaceOverlaySprite(uint16 maskBit, uint16 spriteId, uint16 x, uint16 y) {
@@ -425,7 +498,10 @@ void Graphics::paintCursorSprite() {
 			return;
 
 		Common::ScopedPtr<Sprite> sprite(_resources->loadSprite(spriteId));
-		paint(sprite.get(), cursorPosition(), kPaintPositionIsTop);
+		const Common::Point topLeft(
+			int16(cursorPosition().x - sprite->_hotPoint.x),
+			int16(cursorPosition().y - sprite->_hotPoint.y));
+		paint(sprite.get(), topLeft, kPaintPositionIsTop | kPaintIgnoreHotPoint);
 		return;
 	}
 
@@ -445,7 +521,10 @@ void Graphics::paintCursorSprite() {
 		logic->setStepPending(stepPending);
 
 	Common::ScopedPtr<Sprite> sprite(_resources->loadSprite(spriteId));
-	paint(sprite.get(), cursorPosition());
+	const Common::Point topLeft(
+		int16(cursorPosition().x - sprite->_hotPoint.x),
+		int16(cursorPosition().y - sprite->_hotPoint.y));
+	paint(sprite.get(), topLeft, kPaintPositionIsTop | kPaintIgnoreHotPoint);
 }
 
 void Graphics::setBackdrop(uint16 id) {
@@ -1144,7 +1223,8 @@ void Graphics::paint(const Sprite *sprite, Common::Point pos, Surface *dest, int
 	r.moveTo(pos);
 	if (!(flags & kPaintPositionIsTop))
 		r.translate(0, -sprite->h); // this is actually bottom
-	r.translate(-sprite->_hotPoint.x, sprite->_hotPoint.y);
+	if (!(flags & kPaintIgnoreHotPoint))
+		r.translate(-sprite->_hotPoint.x, sprite->_hotPoint.y);
 
 	// DOS DrawSprite @ 1000:a27a / ClipSpriteRect @ 1000:a2e2 clips room
 	// sprites to g_screen_max_y, not the full 200-line framebuffer. Keep the

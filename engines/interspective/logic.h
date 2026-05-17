@@ -148,8 +148,9 @@ public:
 	bool stepPending() const { return _stepPending; }
 	void setStepPending(bool v) { _stepPending = v; }
 	void cycleCursorModeByRightClickLikeDos();
-	// DOS g_flag_no_step (DS:0x6747). Set by Op_95 to lock player input during
-	// cutscenes. Op_96 clears both _noStep and _stepPending.
+	// DOS g_flag_no_step (DS:0x6747). Dispatch-table opcode 0x96 sets it to
+	// lock player input during cutscenes. Opcode 0x95 clears both _noStep
+	// and _stepPending.
 	bool noStep() const { return _noStep; }
 	void setNoStep(bool v) { _noStep = v; }
 	// DOS g_break_inner (DS:0x672f). InterpretBytecode clears it at each
@@ -356,14 +357,18 @@ public:
 	//                                        clears obj record's room
 	//                                        word in PrepareDragInteraction)
 	//   * obj.x/y = camera-relative pos    — for cross-room placement
-		// Dynamic object exits are tracked separately from static block exits;
-		// room 0xffff remains the DOS room word while `_objectExitList`
-		// models AddExitToList / RemoveExitFromList membership.
+	// Dynamic object exits are tracked separately from static block exits;
+	// room 0xffff remains the DOS room word while `_objectExitList` models
+	// AddExitToList / RemoveExitFromList membership. DOS also uses that
+	// global list for the visible inventory strip.
 	void movePersonToActor(uint16 id);
 	void resetObjectAtActorPosition(uint16 id);
 	void placeObjectExitAtDosPosition(uint16 id, int16 x, int16 y);
 	void clampObjectExitToScreenLikeDos(uint16 id);
 	bool prepareDragInteraction(uint16 id);
+	void beginDragAfterRemoveExitLikeDos(uint16 id, bool removeExit);
+	bool placeObjectInInventoryAtDosPoint(uint16 id, Common::Point screen);
+	const Common::Array<uint16> &objectExitList() const { return _objectExitList; }
 	bool isObjectExitRegistered(uint16 id) const {
 		for (uint i = 0; i < _objectExitList.size(); ++i)
 			if (_objectExitList[i] == id)
@@ -738,6 +743,10 @@ public:
 			// allocating an inactive protagonist speech slot while the
 			// protagonist walks to the current entity.
 			kActivateProtagonistSpeechAfterMove = 5,
+			// DOS callback @ 0x3297 (`BeginDrag_AfterRemoveExit`),
+			// armed by HandleSecondaryClick @ 0x3258 after walking to a
+			// room object with cursor mode 1.
+			kBeginDragAfterMove = 6,
 		};
 		Kind kind;
 		uint16 cellId;       // DOS AX = currentEntityId at register time

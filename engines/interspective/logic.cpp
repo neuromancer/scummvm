@@ -955,9 +955,9 @@ void Logic::doChangeRoom() {
 
 		_currentBlock = newBlock;
 		_blockProgram = Common::SharedPtr<Program>(_resources->loadCodeBlock(newBlock));
-		// Reset per-block transient state. Per-room visual/runtime
-		// state is reset above on every room change.
-		_objectExitList.clear();
+		// DOS keeps the AddExitToList dynamic-object list in global
+		// state; inventory objects registered before a block change must
+		// survive into the playable room.
 
 		char buf[100];
 		snprintf(buf, 100, "block %d code", newBlock);
@@ -1378,6 +1378,11 @@ void Logic::runPostMoveCallbackIfReady() {
 		// actor's current sprite/size fields.
 		activateActorSpeechAfterPostMoveLikeDos(_protagonist);
 		break;
+	case PostMoveCallback::kBeginDragAfterMove:
+		// DOS @ 0x3297: BeginDrag_AfterRemoveExit with BX=0 after
+		// HandleSecondaryClick walked the protagonist to a room object.
+		beginDragAfterRemoveExitLikeDos(cb.arg0, false);
+		break;
 	case PostMoveCallback::kNone:
 	default:
 		break;
@@ -1435,13 +1440,7 @@ void Logic::movePersonToActor(uint16 id) {
 		setObjectPosition(id, int16(cursor.x + _cameraX), int16(cursor.y + _cameraY));
 	}
 
-	// PrepareDragInteraction subset: cursor-mode, drag-target, carried
-	// room sentinel, and sprite metric bytes.
-	if (!prepareDragInteraction(id))
-		return;
-	if (objRoom == 0xffff)
-		unregisterObjectExit(id);
-	setLogicDirty();
+	beginDragAfterRemoveExitLikeDos(id, objRoom == 0xffff);
 }
 
 bool Logic::prepareDragInteraction(uint16 id) {
@@ -1458,6 +1457,47 @@ bool Logic::prepareDragInteraction(uint16 id) {
 	const SpriteInfo info = objectSpriteInfo(_resources, _blockProgram.get(), sprite);
 	setObjectField(recordId, 0x10, uint8(info.width));
 	setObjectField(recordId, 0x11, uint8(info.height));
+	return true;
+}
+
+void Logic::beginDragAfterRemoveExitLikeDos(uint16 id, bool removeExit) {
+	const int16 objectX = getObjectPosX(id);
+	const int16 objectY = getObjectPosY(id);
+	if (!prepareDragInteraction(id))
+		return;
+
+	int16 cursorX = objectX;
+	int16 cursorY = objectY;
+	if (removeExit) {
+		unregisterObjectExit(id);
+		cursorX = int16(cursorX + 0x80);
+		cursorY = int16(cursorY + 0xa0);
+	} else {
+		cursorX = int16(cursorX - _cameraX);
+		cursorY = int16(cursorY - _cameraY);
+		if (cursorX < 0)
+			cursorX = 0;
+		if (cursorY < 0)
+			cursorY = 0;
+	}
+
+	if (_engine && _engine->graphics())
+		_engine->graphics()->setCursorPosition(Common::Point(cursorX, cursorY));
+	setLogicDirty();
+}
+
+bool Logic::placeObjectInInventoryAtDosPoint(uint16 id, Common::Point screen) {
+	if (id == 0)
+		return false;
+	if (!registerObjectExit(id, false))
+		return false;
+
+	setObjectPosition(id, int16(screen.x - 0x80), int16(screen.y - 0xa0));
+	setObjectRoom(id, 0xffff);
+	clampObjectExitToScreenLikeDos(id);
+	setCursorMode(1);
+	setDragTarget(0);
+	setLogicDirty();
 	return true;
 }
 

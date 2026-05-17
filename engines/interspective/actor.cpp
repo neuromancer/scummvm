@@ -808,6 +808,104 @@ bool Actor::turnTo(Direction dir) {
 	return true;
 }
 
+static bool pickReadyMarkerTurnStepLikeDos(uint8 current, uint8 target, uint8 tie, Direction &stepDir) {
+	// DOS PickActorAnimSet @ 1000:6f7e returns carry set when no intermediate
+	// turn script is needed. It also treats a one-step difference as already
+	// reached for the caller that will install the final/default script.
+	if (current == 0 || current == target)
+		return false;
+	if (current < kDirUp || current > kDirUpLeft || target < kDirUp || target > kDirUpLeft)
+		return false;
+
+	uint8 side = tie;
+	if (current == kDirUp)
+		side ^= 1;
+
+	const int8 delta = int8(target) - int8(current);
+	bool increment;
+	if (delta < 0) {
+		if (delta < -4)
+			increment = true;
+		else if (delta != -4)
+			increment = false;
+		else
+			increment = side != 0;
+	} else {
+		if (delta > 4)
+			increment = false;
+		else if (delta != 4)
+			increment = true;
+		else
+			increment = side != 0;
+	}
+
+	int step = int(current) + (increment ? 1 : -1);
+	if (step < kDirUp)
+		step = kDirUpLeft;
+	if (step > kDirUpLeft)
+		step = kDirUp;
+	if (step == target)
+		return false;
+
+	stepDir = Direction(step);
+	return true;
+}
+
+bool Actor::consumeReadyMarkerCallbackLikeDos() {
+	// DOS UpdateActors @ 1000:6d98 consumes the ready marker/callback fields
+	// written by opcodes 0xa4..0xa7. The opcode handlers only arm these fields;
+	// this actor update path is what eventually starts the callback script.
+	const uint8 marker = dosField(0x67);
+	const uint16 callback = dosFieldWord(0x69);
+	if (marker == 0 && callback == 0)
+		return false;
+	if (dosFieldWord(0x6b) != 0 || !_framequeue.empty())
+		return false;
+
+	if (marker != 0) {
+		const uint16 pendingAnim = dosFieldWord(0x6d);
+		setDosFieldWord(0x6d, 0);
+		if (pendingAnim != 0) {
+			debugC(3, kDebugLevelActor,
+				"ready marker %u starting pending actor animation 0x%04x before callback 0x%04x [DOS UpdateActors]",
+				marker, pendingAnim, callback);
+			setAnimation(pendingAnim);
+			return true;
+		}
+
+		Direction stepDir = kDirNone;
+		const uint8 current = dosField(0x63);
+		if (pickReadyMarkerTurnStepLikeDos(current, marker, dosField(0x66), stepDir)) {
+			debugC(4, kDebugLevelActor, "ready marker %u needs turn step %u before callback 0x%04x [DOS UpdateActors]",
+				marker, uint8(stepDir), callback);
+			setAnimation(_puppeteer.turnAnimator(stepDir));
+			return true;
+		}
+
+		setDosField(0x63, marker);
+		if (marker >= kDirUp && marker <= kDirUpLeft)
+			_direction = Direction(marker);
+		setDosField(0x67, 0);
+	}
+
+	setDosFieldWord(0x69, 0);
+	if (callback != 0) {
+		debugC(3, kDebugLevelActor, "ready marker %u starting actor callback 0x%04x [DOS UpdateActors]",
+			marker, callback);
+		setAnimation(callback);
+		return true;
+	}
+
+	if (marker != 0) {
+		debugC(4, kDebugLevelActor, "ready marker %u returning to actor base animation [DOS UpdateActors]",
+			marker);
+		setAnimation(_puppeteer.offset());
+		return true;
+	}
+
+	return false;
+}
+
 void Actor::animate() {
 	unless (_puppeteer.valid())
 		return;
@@ -817,7 +915,9 @@ void Actor::animate() {
 		const Frame current = Log.room()->getFrame(_frame);
 		queuedWalkReady = current.position() == _position;
 	}
-	unless (_attentionNeeded || _confused || queuedWalkReady/* || _timedOut*/)
+	const bool readyMarkerActive = (dosField(0x67) != 0 || dosFieldWord(0x69) != 0) &&
+		dosFieldWord(0x6b) == 0 && _framequeue.empty();
+	unless (_attentionNeeded || _confused || queuedWalkReady || readyMarkerActive/* || _timedOut*/)
 		return;
 
 	// DOS UpdateActors @ 1000:6d3a advances queued walking through the
@@ -858,6 +958,9 @@ void Actor::animate() {
 		if (ax)
 			goto set_anim;*/
 	}
+
+	if (consumeReadyMarkerCallbackLikeDos())
+		return;
 
 	if (_confused) {
 		if (turnTo(kDirDown))

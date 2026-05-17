@@ -57,6 +57,8 @@ struct HitTarget {
 	Exit *exitPtr;
 };
 
+static HitTarget findBestHitTargetLikeDos(Logic &logic, Common::Point world);
+
 static uint16 recordWord(const Logic &logic, uint8 selector, uint16 id, uint8 off) {
 	return logic.dosRecordField(selector, id, off, 2);
 }
@@ -89,6 +91,22 @@ static bool spriteContainsWorldPoint(Resources *resources, uint16 spriteId,
 
 static bool containsDosInclusive(const Common::Rect &rect, const Common::Point &p) {
 	return p.x >= rect.left && p.x <= rect.right && p.y >= rect.top && p.y <= rect.bottom;
+}
+
+static bool containsDosHalfOpen(int16 left, int16 top, int16 right, int16 bottom, const Common::Point &p) {
+	return p.x >= left && p.x < right && p.y >= top && p.y < bottom;
+}
+
+static int16 hitRegionAtPointLikeDos(const Common::Point &pos) {
+	// iuc_main.dat hit-region table (footer +0x5a):
+	//   0 = room, 1 = inventory strip, 2 = map button, 3..8 = verb buttons.
+	if (containsDosHalfOpen(0, 0, 320, 152, pos))
+		return 0;
+	if (containsDosHalfOpen(128, 160, 310, 191, pos))
+		return 1;
+	if (containsDosHalfOpen(64, 190, 118, 200, pos))
+		return 2;
+	return -1;
 }
 
 static void considerLowerZTarget(HitTarget &best, uint16 type, uint16 id, int16 z, Exit *exit = 0) {
@@ -151,6 +169,75 @@ static HitTarget hitNoSpriteExitAtPointLikeDos(Logic &logic, Common::Point world
 		}
 	}
 	return best;
+}
+
+static bool spriteContainsTopLeftPoint(Resources *resources, uint16 spriteId,
+		Common::Point topLeft, Common::Point screen) {
+	if (!resources || spriteId == 0xffff)
+		return false;
+
+	SpriteInfo info = resources->getSpriteInfo(spriteId);
+	if (info.width == 0 || info.height == 0)
+		return false;
+
+	Common::Rect rect(info.width, info.height);
+	rect.moveTo(topLeft);
+	if (!rect.contains(screen))
+		return false;
+
+	Common::ScopedPtr<Sprite> sprite(resources->loadSprite(spriteId));
+	const int16 sx = int16(screen.x - rect.left);
+	const int16 sy = int16(screen.y - rect.top);
+	if (sx < 0 || sy < 0 || sx >= sprite->w || sy >= sprite->h)
+		return false;
+
+	const byte *pixel = reinterpret_cast<const byte *>(sprite->getBasePtr(sx, sy));
+	return pixel && *pixel != 0;
+}
+
+static HitTarget hitInventoryObjectAtPointLikeDos(Logic &logic, Common::Point screen) {
+	HitTarget target;
+	Resources *resources = logic.resources();
+	if (!resources)
+		return target;
+	const Common::Array<uint16> &objectExits = logic.objectExitList();
+
+	for (int i = int(objectExits.size()) - 1; i >= 0; --i) {
+		const uint16 id = objectExits[i];
+		if (id == 0 || logic.getObjectRoom(id) != 0xffff)
+			continue;
+
+		const uint16 spriteId = recordWord(logic, 2, id, 8);
+		if (spriteId == 0xffff)
+			continue;
+		const SpriteInfo info = resources->getSpriteInfo(spriteId);
+		if (info.width == 0 || info.height == 0)
+			continue;
+
+		const Common::Point topLeft(
+			int16(0x80 + logic.getObjectPosX(id) - int16(info.hotLeft)),
+			int16(0xa0 + logic.getObjectPosY(id) - int16(info.hotTop)));
+		if (!spriteContainsTopLeftPoint(resources, spriteId, topLeft, screen))
+			continue;
+
+		target.type = 2;
+		target.id = id;
+		target.z = int16(i);
+		debugC(2, kDebugLevelEvents, "inventory hit candidate object id=%u slot=%d", id, i);
+		return target;
+	}
+
+	return target;
+}
+
+static HitTarget findHitTargetForRegionLikeDos(Logic &logic, int16 hitRegion, Common::Point screen) {
+	if (hitRegion == 1)
+		return hitInventoryObjectAtPointLikeDos(logic, screen);
+	if (hitRegion == 0) {
+		Common::Point world(screen.x + logic.cameraX(), screen.y + logic.cameraY());
+		return findBestHitTargetLikeDos(logic, world);
+	}
+	return HitTarget();
 }
 
 static HitTarget hitActorAtPointLikeDos(Logic &logic, Common::Point world) {
@@ -253,6 +340,41 @@ static bool runEntityScriptLikeDos(Logic &logic, const HitTarget &target, Opcode
 	return true;
 }
 
+static void handleSecondaryClickLikeDos(Logic &logic, int16 hitRegion, Common::Point screen) {
+	if (logic.cursorMode() != 1)
+		return;
+
+	const HitTarget target = findHitTargetForRegionLikeDos(logic, hitRegion, screen);
+	if (target.type != 2)
+		return;
+
+	if (hitRegion != 0) {
+		logic.beginDragAfterRemoveExitLikeDos(target.id, true);
+		debugC(1, kDebugLevelEvents,
+			"inventory object %u begins drag [DOS HandleSecondaryClick/BeginDrag_AfterRemoveExit]",
+			target.id);
+		return;
+	}
+
+	if (logic.breakInner())
+		return;
+
+	Actor *protag = logic.protagonist();
+	const bool waitForWalk = logic.sendActorToCurrentEntity(protag) && protag && protag->isMoving();
+	if (waitForWalk) {
+		logic.setPostMoveCallback(Logic::PostMoveCallback::kBeginDragAfterMove,
+			logic.currentEntityId(), target.id, 0);
+		debugC(1, kDebugLevelEvents,
+			"room object %u pickup armed after walk [DOS HandleSecondaryClick]",
+			target.id);
+	} else {
+		logic.beginDragAfterRemoveExitLikeDos(target.id, false);
+		debugC(1, kDebugLevelEvents,
+			"room object %u pickup begins immediately [DOS HandleSecondaryClick]",
+			target.id);
+	}
+}
+
 } // End of anonymous namespace
 
 Clickable::Clickable() {
@@ -268,18 +390,27 @@ void EventManager::clicked(Common::Point pos) {
 	if (!logic.roomActive() || logic.canSkipCutscene())
 		return;
 
+	const int16 hitRegion = hitRegionAtPointLikeDos(pos);
+	if (hitRegion < 0 || hitRegion == 2)
+		return;
+
 	Common::Point world(pos.x + logic.cameraX(), pos.y + logic.cameraY());
-	HitTarget target = findBestHitTargetLikeDos(logic, world);
+	HitTarget target = findHitTargetForRegionLikeDos(logic, hitRegion, pos);
 	const uint16 dispatchCursorMode = logic.cursorMode();
+	const uint16 dragTargetBeforeDispatch = logic.dragTarget();
 	debugC(1, kDebugLevelEvents,
-			"click pos=(%d,%d) world=(%d,%d) room=%u camera=(%d,%d) cursor=0x%02x step=%d noStep=%d hit=%u draw=%u -> target type=%u id=%u z=%d",
-			pos.x, pos.y, world.x, world.y, logic.currentRoom(),
+			"click pos=(%d,%d) world=(%d,%d) region=%d room=%u camera=(%d,%d) cursor=0x%02x step=%d noStep=%d hit=%u draw=%u -> target type=%u id=%u z=%d",
+			pos.x, pos.y, world.x, world.y, hitRegion, logic.currentRoom(),
 			logic.cameraX(), logic.cameraY(), dispatchCursorMode,
 			logic.stepPending() ? 1 : 0, logic.noStep() ? 1 : 0,
 			logic.hitTarget(), logic.drawCommandCount(),
 			target.type, target.id, target.z);
 	if (dispatchCursorMode == 0)
 		return;
+	if (logic.noStep())
+		return;
+	if (dispatchCursorMode != 0x80 || hitRegion != 1 || target.type != 2)
+		Graphics::instance().clearInventoryCloseUpObjectLikeDos();
 
 	const uint16 currentRoom = logic.currentRoom();
 	logic.setStepPending(true);
@@ -290,6 +421,34 @@ void EventManager::clicked(Common::Point pos) {
 		logic.setGameState(0);
 		logic.setCurrentEntityId(0);
 	} else if (!runEntityScriptLikeDos(logic, target, kCodeItem)) {
+		return;
+	}
+
+	if (logic.roomChangePending() || logic.currentRoom() != currentRoom)
+		return;
+
+	if (dispatchCursorMode == 0x20) {
+		if (hitRegion == 1 && dragTargetBeforeDispatch != 0
+				&& logic.dragTarget() == dragTargetBeforeDispatch
+				&& logic.placeObjectInInventoryAtDosPoint(dragTargetBeforeDispatch, pos)) {
+			logic.setPaused();
+			debugC(1, kDebugLevelEvents,
+				"drag object %u returned to inventory at (%d,%d) [DOS HandleHotspotInteraction]",
+				dragTargetBeforeDispatch, pos.x, pos.y);
+		}
+		return;
+	}
+
+	if (dispatchCursorMode == 0x80 && hitRegion == 1 && target.type == 2) {
+		Graphics::instance().setInventoryCloseUpObjectLikeDos(target.id);
+		debugC(1, kDebugLevelEvents,
+			"inventory object %u close-up armed [DOS HandleInventoryClick]",
+			target.id);
+		return;
+	}
+
+	if (dispatchCursorMode == 1) {
+		handleSecondaryClickLikeDos(logic, hitRegion, pos);
 		return;
 	}
 

@@ -2005,20 +2005,19 @@ OPCODE(0x7c) {
 }
 
 OPCODE(0x95) {
-	// LOCK control: suppresses automatic step/cursor idle drawing, but DOS
-	// HandleClick itself does not gate on g_flag_no_step.
-	// DOS handler at CS:0x4a4c sets g_flag_no_step (DS:0x6747) = 1.
-	debugC(1, kDebugLevelScript, "opcode 0x95: lock control");
-	Log.setNoStep(true);
+	// Dispatch-table entry 0x95 points to DOS helper @ 1000:4a52:
+	// clear g_flag_no_step (DS:0x6747) and g_flag_step_pending (DS:0x6748).
+	debugC(1, kDebugLevelScript, "opcode 0x95: unlock control");
+	Log.setNoStep(false);
+	Log.setStepPending(false);
 	return kThxBye;
 }
 
 OPCODE(0x96) {
-	// UNLOCK control: re-allow user clicks/cursor movement.
-	// DOS handler at CS:0x4a52 clears g_flag_no_step and g_flag_step_pending.
-	debugC(1, kDebugLevelScript, "opcode 0x96: unlock control");
-	Log.setNoStep(false);
-	Log.setStepPending(false);
+	// Dispatch-table entry 0x96 points to DOS helper @ 1000:4a4c:
+	// set g_flag_no_step (DS:0x6747) without touching step-pending.
+	debugC(1, kDebugLevelScript, "opcode 0x96: lock control");
+	Log.setNoStep(true);
 	return kThxBye;
 }
 
@@ -2455,7 +2454,7 @@ OPCODE(0xce) {
 	//   1. g_room_active = 0
 	//   2. SetBackdropDimensions(0xc8) (fullscreen)
 	//   3. g_flag_misc_1 = 1 (dirty flag)
-	//   4. Calls Op_95_handler (lock control = setNoStep(true))
+	//   4. Calls raw lock helper @ 1000:4a4c (dispatch-table opcode 0x96)
 	debugC(2, kDebugLevelScript, "opcode 0xce: start cutscene");
 	Graf.setFullscreen(true);
 	Log.setRoomActive(false);
@@ -4458,6 +4457,10 @@ static bool hotspotZoneContainsLikeDos(int16 x, int16 y) {
 	return false;
 }
 
+static bool inventoryRegionContainsLikeDos(Common::Point point) {
+	return point.x >= 0x80 && point.x < 0x136 && point.y >= 0xa0 && point.y < 0xbf;
+}
+
 static SpriteInfo objectPrimarySpriteInfo(uint16 id) {
 	const uint16 sprite = uint16(Log.objectField(id, 6)) | (uint16(Log.objectField(id, 7)) << 8);
 	if (sprite == 0xffff)
@@ -4481,16 +4484,9 @@ static bool handleHotspotInteractionLikeDos(uint16 id, Common::Point point) {
 	if (id == 0)
 		return false;
 
-	const bool registeredExit = Log.isObjectExitRegistered(id) && Log.getObjectRoom(id) == 0xffff;
-	if (registeredExit) {
-		if (!Log.registerObjectExit(id, false))
+	if (inventoryRegionContainsLikeDos(point)) {
+		if (!Log.placeObjectInInventoryAtDosPoint(id, point))
 			return false;
-		Log.setObjectPosition(id, int16(point.x - 0x80), int16(point.y - 0xa0));
-		Log.setObjectRoom(id, 0xffff);
-		Log.clampObjectExitToScreenLikeDos(id);
-		Log.setCursorMode(1);
-		Log.setDragTarget(0);
-		Log.setLogicDirty();
 		Log.setHitTarget(id);
 		return true;
 	}
@@ -5974,8 +5970,8 @@ OPCODE(0xcd) {
 	//   1. g_room_active = 1
 	//   2. SetBackdropDimensions(0x98) (restore interface area)
 	//   3. g_flag_misc_1 = 1
-	//   4. Calls Op_96_handler (unlock control = setNoStep(false) +
-	//      setStepPending(false))
+	//   4. Calls raw unlock helper @ 1000:4a52 (dispatch-table opcode 0x95),
+	//      clearing no-step and step-pending.
 	debugC(2, kDebugLevelScript, "opcode 0xcd: end cutscene / restore room active");
 	Graf.setFullscreen(false);
 	Log.setRoomActive(true);

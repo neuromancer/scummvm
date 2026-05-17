@@ -327,6 +327,7 @@ private:
 	void animate();
 	void updateZoneAtPointLikeDos();
 	void resetActorStateFieldsLikeDos();
+	bool consumeReadyMarkerCallbackLikeDos();
 	bool turnTo(Direction);
 	bool nextFrame();
 	void copyIntervalToTicks();
