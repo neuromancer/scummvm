@@ -86,7 +86,7 @@ public:
 	 * @param size of the image,
 	 * @param palette optional buffer to read the palette to (size 0x300).
 	 */
-	void loadImage(uint16 index, byte *target, uint16 size, byte *palette = 0) const;
+	void loadImage(uint16 index, byte *target, uint32 size, byte *palette = 0) const;
 
 	/**
 	 * Loads an image given index.
@@ -135,7 +135,7 @@ public:
 	MainDat *mainDat() const { return _main.get(); }
 	MapFile *graphicsMap() const { return _graphicsMap.get(); }
 
-	static void decodeImage(Common::ReadStream *stream, byte *target, uint16 size);
+	static void decodeImage(Common::ReadStream *stream, byte *target, uint32 size);
 	static void readPalette(Common::ReadStream *stream, byte *palette);
 
 private:

@@ -255,7 +255,7 @@ void Resources::readPalette(Common::ReadStream *stream, byte *palette) {
 	stream->read(palette, 3 * 256);
 }
 
-void Resources::loadImage(uint16 index, byte *target, uint16 size, byte *palette) const {
+void Resources::loadImage(uint16 index, byte *target, uint32 size, byte *palette) const {
 	Common::ReadStream *file = imageStream(index);
 	(void) file->readUint16LE();
 	(void) file->readUint16LE(); // we know size alright
@@ -292,7 +292,7 @@ void Resources::loadTune(uint16 index, byte *target) const {
 	file->read(target, 0x8000);
 }
 
-void Resources::decodeImage(Common::ReadStream *stream, byte *target, uint16 size) {
+void Resources::decodeImage(Common::ReadStream *stream, byte *target, uint32 size) {
 	enum {
 		kRunFlag = 0xc0
 	};
@@ -357,8 +357,10 @@ Surface *Resources::loadBackdrop(uint16 index, byte *palette) {
 
 	Surface *backdrop = new Surface;
 	backdrop->create(width, height);
+	assert(backdrop->pitch == width);
 
-	decodeImage(stream, reinterpret_cast<byte *>(backdrop->getPixels()), width * height);
+	const uint32 imageSize = uint32(width) * uint32(height);
+	decodeImage(stream, reinterpret_cast<byte *>(backdrop->getPixels()), imageSize);
 
 	stream->readByte(); // skip zero
 
