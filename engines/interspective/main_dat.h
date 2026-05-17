@@ -63,6 +63,10 @@ public:
 
 	uint16 progEntriesCount0() const;
 	uint16 progEntriesCount1() const;
+	// DOS footer naming is historical here: offset 0x08 is the room-code
+	// program count used by LoadCodeBlock and as the base for Op_38 scene ids.
+	uint16 roomProgramCount() const { return progEntriesCount1(); }
+	uint16 sceneProgramCount() const { return progEntriesCount0(); }
 
 	/**
 	 * Find an image in the file contents directory.

@@ -107,6 +107,8 @@ public:
 	void runWhenSaid(const CodePointer &p);
 
 	uint16 ask(uint16 left, uint16 top, byte width, byte height, byte *string, uint16 *selectedIndex = 0);
+	uint16 askVerbBubbleLikeDos(byte paletteMode, byte *string, uint16 *selectedIndex = 0);
+	void showVerbBubbleTextLikeDos(byte paletteMode, const byte *string, uint16 frames);
 	Common::Rect paintText(uint16 left, uint16 top, byte colour, const byte *string) {
 		return paintText(left, top, colour, string, _framebuffer.get(), 0, 0, 0);
 	}
@@ -127,7 +129,7 @@ public:
 
 	void paintSpeechBubbleColumn(Sprite *top, Sprite *fill, Common::Point &point, uint8 fill_tiles, Surface *dest);
 	Common::Rect paintSpeechInBubble(Common::Point pos, byte colour, const byte *string, Surface *dest,
-	                                 SpeechBubbleMode mode = kSpeechBubbleAuto);
+	                                 SpeechBubbleMode mode = kSpeechBubbleAuto, bool renderText = true);
 
 	void paintRect(const Common::Rect &r, byte colour = 235);
 
@@ -178,6 +180,8 @@ private:
 	static byte clampChar(byte ch);
 	uint16 calculateLineWidth(const byte *string) const;
 	Sprite *getGlyph(byte ch) const;
+	void prepareConversationPaletteLikeDos();
+	void paintConversationBackdropLikeDos();
 	void paintInventoryObjectsLikeDos();
 	void paintInventoryCloseUpLikeDos();
 	void paintInterfaceOverlaySprites();

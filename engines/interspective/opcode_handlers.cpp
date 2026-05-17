@@ -651,8 +651,180 @@ static bool showFormattedModalTextAndWait(const Logic::FormattedBubble &fb,
 	}
 	const byte *out = reinterpret_cast<const byte *>(visible.c_str());
 	const uint16 length = uint16(visible.size());
+	if (Log.modalState().paletteMode != 0) {
+		Graf.showVerbBubbleTextLikeDos(Log.modalState().paletteMode, out, MAX<uint16>(1, frames));
+		return false;
+	}
 	Graf.say(out, length, MAX<uint16>(1, frames));
 	Graf.runWhenSaid(next);
+	return true;
+}
+
+static Common::String stripFormattedRowCenterRecords(const Logic::FormattedBubble &fb) {
+	Common::String visible;
+	bool atRowStart = true;
+	for (uint i = 0; i < fb.text.size(); ++i) {
+		const byte ch = byte(fb.text[i]);
+		if (atRowStart && ch == kStringCenter && i + 1 < fb.text.size()) {
+			++i;
+			atRowStart = false;
+			continue;
+		}
+		visible += char(ch);
+		atRowStart = (ch == '\r' || ch == '\n');
+	}
+	return visible;
+}
+
+static bool formattedTextHasMenuOptions(const Common::String &text) {
+	for (uint i = 0; i < text.size(); ++i) {
+		const byte ch = byte(text[i]);
+		if (ch != kStringMenuOption)
+			continue;
+		++i;
+		while (i < text.size() && byte(text[i]) != 0)
+			++i;
+		if (i + 2 < text.size())
+			return true;
+		return false;
+	}
+	return false;
+}
+
+static uint16 modalChoiceLineWidth(const Common::String &text) {
+	uint16 width = 0;
+	for (uint i = 0; i < text.size(); ++i) {
+		const byte ch = byte(text[i]);
+		switch (ch) {
+		case 0x04:
+		case kStringDefaultColour:
+			break;
+		case kStringSetColour:
+			if (i + 1 < text.size())
+				++i;
+			break;
+		case kStringAdvance:
+			if (i + 1 < text.size())
+				width += byte(text[++i]);
+			break;
+		default:
+			width += Graf.getGlyphWidth(ch);
+			break;
+		}
+	}
+	return width;
+}
+
+static bool appendRawModalChoicesLikeDos(const byte *src, Common::Array<byte> &encoded,
+		uint16 &choiceCount, uint16 &maxTextWidth) {
+	// LayoutVerbBubbleText_Right/Left @ 1000:8cb0/8d1e read a raw list
+	// of entries: one optional condition marker, NUL-terminated text, then
+	// a 16-bit branch target. 0xff terminates the list. Visible rows get
+	// hit rectangles and their target is copied into g_text_active_indices.
+	if (!src)
+		return false;
+
+	Resources *res = Log.resources();
+	const byte *p = src;
+	const byte * const limit = src + 4096;
+	choiceCount = 0;
+	maxTextWidth = 0;
+	bool sawTerminator = false;
+
+	while (p < limit) {
+		if (*p == 0xff) {
+			sawTerminator = true;
+			break;
+		}
+
+		bool visible = true;
+		const byte marker = *p;
+		if (marker == 0x0a || marker == 0x0b) {
+			const uint16 offset = READ_LE_UINT16(p + 1);
+			const byte state = res ? *res->getGlobalByteVariable(offset) : 0;
+			if ((marker == 0x0a && state == 0) || (marker == 0x0b && state != 0))
+				visible = false;
+			p += 3;
+		} else if (marker == 0x0e) {
+			const uint16 offset = READ_LE_UINT16(p + 1);
+			const uint16 expected = READ_LE_UINT16(p + 3);
+			const uint16 state = res ? READ_LE_UINT16(res->getGlobalWordVariable(offset / 2)) : 0;
+			if (state != expected)
+				visible = false;
+			p += 5;
+		}
+
+		const byte *line = p;
+		while (p < limit && *p != 0 && *p != 0xff)
+			++p;
+		if (p >= limit || *p == 0xff)
+			break;
+		const uint lineLen = uint(p - line);
+		++p;
+		if (p + 2 > limit)
+			break;
+		const uint16 target = READ_LE_UINT16(p);
+		p += 2;
+
+		if (!visible || lineLen == 0)
+			continue;
+		if (choiceCount >= 7)
+			continue;
+
+		if (choiceCount != 0)
+			encoded.push_back('\r');
+		encoded.push_back(kStringMenuOption);
+		Common::String label;
+		for (uint i = 0; i < lineLen; ++i) {
+			label += char(line[i]);
+			encoded.push_back(line[i]);
+		}
+		encoded.push_back(0);
+		encoded.push_back(byte(target & 0xff));
+		encoded.push_back(byte(target >> 8));
+		maxTextWidth = MAX<uint16>(maxTextWidth, modalChoiceLineWidth(label));
+		++choiceCount;
+	}
+
+	if (!sawTerminator || choiceCount == 0)
+		return false;
+
+	encoded.push_back(0);
+	return true;
+}
+
+static uint16 runEncodedChoiceModalLikeDos(const byte *encoded,
+		uint16 choiceCount, uint16 maxTextWidth, uint16 *selectedIndex) {
+	(void)choiceCount;
+	(void)maxTextWidth;
+	return Graf.askVerbBubbleLikeDos(Log.modalState().paletteMode,
+		const_cast<byte *>(encoded), selectedIndex);
+}
+
+static bool runRawChoiceListModalLikeDos(const byte *src, uint16 *selectedIndex, uint16 &target) {
+	Common::Array<byte> encoded;
+	uint16 choiceCount = 0;
+	uint16 maxTextWidth = 0;
+	if (!appendRawModalChoicesLikeDos(src, encoded, choiceCount, maxTextWidth))
+		return false;
+
+	target = runEncodedChoiceModalLikeDos(&encoded[0], choiceCount, maxTextWidth, selectedIndex);
+	debugC(1, kDebugLevelScript, "raw modal choice selected index=%u target=0x%04x",
+	       selectedIndex ? *selectedIndex : 0xffff, target);
+	return true;
+}
+
+static bool runFormattedChoiceModalLikeDos(const Logic::FormattedBubble &fb,
+		uint16 rows, uint16 *selectedIndex, uint16 &target) {
+	Common::String visible = stripFormattedRowCenterRecords(fb);
+	if (!formattedTextHasMenuOptions(visible))
+		return false;
+
+	const uint16 widthPixels = uint16(fb.maxLineWidth + 0x40);
+	target = runEncodedChoiceModalLikeDos(reinterpret_cast<const byte *>(visible.c_str()), MAX<uint16>(1, rows),
+	                                      widthPixels, selectedIndex);
+	debugC(1, kDebugLevelScript, "formatted modal choice selected index=%u target=0x%04x",
+	       selectedIndex ? *selectedIndex : 0xffff, target);
 	return true;
 }
 
@@ -3227,7 +3399,7 @@ OPCODE(0x38) {
 	//   SaveCastBackup;  // memcpy cast table (0x642 bytes)
 	//   SaveActorTableBackup;
 	//   ResolveOpcodeArg0;  // arg0 = new scene id
-	//   LoadRoomLevelHeader;  // second prog table: count0 + scene id
+	//   LoadRoomLevelHeader;  // second prog table: roomProgramCount + scene id
 	//   _g_block_pc_offset  = g_codeptr_es_save;  // save caller PC
 	//   _g_block_pc_segment = g_codeptr_di_save;
 	//   g_codeptr_es_save = g_seg_buffer_e;       // jump to new scene
@@ -3454,6 +3626,17 @@ OPCODE(0x4e) {
 	debugC(1, kDebugLevelScript, "opcode 0x4e: DrawTextRectWithChoices text='%s' lines=%u h=%u",
 		text ? reinterpret_cast<const char *>(text) : "(null)",
 		fb.lineCount, fb.totalHeight);
+	uint16 selectedIndex = 0xffff;
+	uint16 target = 0xffff;
+	if (runFormattedChoiceModalLikeDos(fb, fb.rowCount, &selectedIndex, target)) {
+		ms.selectedItemIdx = selectedIndex;
+		finishVerbModalLoopState(ms);
+		if (fb.truncated)
+			Log.setPendingError(0x11);
+		if (target == 0xffff)
+			return kThxBye;
+		return CodePointer(target, this);
+	}
 	const bool wait = showFormattedModalTextAndWait(fb, fb.totalHeight, next);
 	finishVerbModalLoopState(ms);
 	if (fb.truncated)
@@ -3488,6 +3671,17 @@ OPCODE(0x4f) {
 	seedFormattedModalState(ms, fb, menuValue, rows, 3, 0);
 	debugC(1, kDebugLevelScript, "opcode 0x4f: DrawTextRectWithChoicesAlt text='%s' limit=%u",
 		text ? reinterpret_cast<const char *>(text) : "(null)", limit);
+	uint16 selectedIndex = 0xffff;
+	uint16 target = 0xffff;
+	if (runFormattedChoiceModalLikeDos(fb, rows, &selectedIndex, target)) {
+		ms.selectedItemIdx = selectedIndex;
+		finishVerbModalLoopState(ms);
+		if (fb.truncated)
+			Log.setPendingError(0x11);
+		if (target == 0xffff)
+			return kThxBye;
+		return CodePointer(target, this);
+	}
 	const bool wait = showFormattedModalTextAndWait(fb, menuValue, next);
 	finishVerbModalLoopState(ms);
 	if (fb.truncated)
@@ -3512,6 +3706,17 @@ OPCODE(0x50) {
 	seedFormattedModalState(ms, fb, fb.totalHeight, fb.rowCount, 1, 1);
 	debugC(1, kDebugLevelScript, "opcode 0x50: OpenVerbMenuModal text='%s'",
 		text ? reinterpret_cast<const char *>(text) : "(null)");
+	uint16 selectedIndex = 0xffff;
+	uint16 target = 0xffff;
+	if (runFormattedChoiceModalLikeDos(fb, fb.rowCount, &selectedIndex, target)) {
+		ms.selectedItemIdx = selectedIndex;
+		finishVerbModalLoopState(ms);
+		if (fb.truncated)
+			Log.setPendingError(0x11);
+		if (target == 0xffff)
+			return kThxBye;
+		return CodePointer(target, this);
+	}
 	const bool wait = showFormattedModalTextAndWait(fb, fb.totalHeight, next);
 	finishVerbModalLoopState(ms);
 	if (fb.truncated)
@@ -3541,6 +3746,17 @@ OPCODE(0x51) {
 	seedFormattedModalState(ms, fb, menuValue, rows, 1, 1);
 	debugC(1, kDebugLevelScript, "opcode 0x51: OpenVerbMenuModalAlt text='%s' limit=%u",
 		text ? reinterpret_cast<const char *>(text) : "(null)", limit);
+	uint16 selectedIndex = 0xffff;
+	uint16 target = 0xffff;
+	if (runFormattedChoiceModalLikeDos(fb, rows, &selectedIndex, target)) {
+		ms.selectedItemIdx = selectedIndex;
+		finishVerbModalLoopState(ms);
+		if (fb.truncated)
+			Log.setPendingError(0x11);
+		if (target == 0xffff)
+			return kThxBye;
+		return CodePointer(target, this);
+	}
 	const bool wait = showFormattedModalTextAndWait(fb, menuValue, next);
 	finishVerbModalLoopState(ms);
 	if (fb.truncated)
@@ -3575,6 +3791,17 @@ OPCODE(0x52) {
 	ms.menuDone = false;
 	debugC(1, kDebugLevelScript, "opcode 0x52: DrawFixedTextBubble text='%s' h=%u",
 		text ? reinterpret_cast<const char *>(text) : "(null)", fb.totalHeight);
+	uint16 selectedIndex = 0xffff;
+	uint16 target = 0xffff;
+	if (runRawChoiceListModalLikeDos(measureText, &selectedIndex, target)) {
+		ms.selectedItemIdx = selectedIndex;
+		finishVerbModalLoopState(ms);
+		if (fb.truncated)
+			Log.setPendingError(0x11);
+		if (target == 0xffff)
+			return kThxBye;
+		return CodePointer(target, this);
+	}
 	const bool wait = showFormattedModalTextAndWait(fb, fb.totalHeight, next);
 	finishVerbModalLoopState(ms);
 	if (fb.truncated)
@@ -3634,6 +3861,17 @@ OPCODE(0x53) {
 	ms.selectedItemIdx = 0xffff;
 	ms.textContinuationPtr = 0;
 	ms.menuDone = false;
+	uint16 selectedIndex = 0xffff;
+	uint16 target = 0xffff;
+	if (runRawChoiceListModalLikeDos(measureText, &selectedIndex, target)) {
+		ms.selectedItemIdx = selectedIndex;
+		finishVerbModalLoopState(ms);
+		if (fb.truncated)
+			Log.setPendingError(0x11);
+		if (target == 0xffff)
+			return kThxBye;
+		return CodePointer(target, this);
+	}
 	const bool wait = showFormattedModalTextAndWait(fb, fb.totalHeight, next);
 	finishVerbModalLoopState(ms);
 	if (fb.truncated)

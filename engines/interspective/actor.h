@@ -247,12 +247,13 @@ public:
 	// DOS-aligned room/frame placement that does NOT reset the actor's
 	// animation script. Mirrors the field assignments in
 	// Op_7a_PlaceActorInRoomXY @ 1000:4443: writes _room (field+0x59),
-	// _frame (field+0x61), _nextFrame (field+0x62), then runs
-	// SetActorPosition (frame X/Y -> _position). InitActorState in DOS
-	// preserves the actor's existing code offset, so we mirror that by
-	// leaving _base/_offset alone (unlike setRoom which jumps the script
-	// to puppeteer.mainCode and clears the sprite — too aggressive and
-	// crashes for actors whose puppeteer isn't initialised yet).
+	// _frame (field+0x61), _nextFrame (field+0x62), clears the walk word
+	// at +0x6b, then runs SetActorPosition (frame X/Y -> _position).
+	// InitActorState in DOS preserves the actor's existing code offset,
+	// so we mirror that by leaving _base/_offset alone (unlike setRoom
+	// which jumps the script to puppeteer.mainCode and clears the sprite
+	// — too aggressive and crashes for actors whose puppeteer isn't
+	// initialised yet).
 	void placeIn(uint16 room, uint16 frame, uint16 nextFrame = 0);
 
 	bool isFine() const;

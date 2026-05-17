@@ -477,6 +477,9 @@ void Logic::runPostAnimationScripts() {
 	runRoomLoop();
 	if (handleEscDuringScript())
 		return;
+	runItemRoomScriptSlotLikeDos();
+	if (handleEscDuringScript())
+		return;
 	tickMotionText();
 	updateScrollPosition();
 }
@@ -1211,7 +1214,7 @@ CodePointer Logic::switchToSceneLikeDos(uint16 sceneId, const CodePointer &resum
 	_sceneInterpreterKeepAlive = Common::SharedPtr<Interpreter>(
 		new Interpreter(this, _sceneProgramKeepAlive->base(), buf));
 
-	_currentBlock = uint16(_resources->mainDat()->progEntriesCount0() + sceneId);
+	_currentBlock = uint16(_resources->mainDat()->roomProgramCount() + sceneId);
 	_blockProgram = _sceneProgramKeepAlive;
 	_blockInterpreter = _sceneInterpreterKeepAlive;
 	return CodePointer(2, _blockInterpreter.get());
@@ -2613,6 +2616,18 @@ bool Logic::dispatchReadyActorRoomScriptWaitMode(uint16 mode) {
 			return false;
 	}
 	return false;
+}
+
+void Logic::runItemRoomScriptSlotLikeDos() {
+	// DOS HandleInventoryClick @ 1000:2a90 starts with
+	// RunScriptByMode(kCodeItem) late in the frame, after actor movement
+	// and room-loop scripts. Entity scripts that used Op_9a therefore get
+	// one chance to resume after their actor reaches the requested frame,
+	// before the next tick's deferred ambient scripts can move that actor
+	// again.
+	if (!_roomActive || _pendingError != 0)
+		return;
+	dispatchReadyActorRoomScriptWaitMode(kCodeItem);
 }
 
 void Logic::addAnimation(Animation *anim) {

@@ -711,8 +711,7 @@ void Actor::setRoom(uint16 r, uint16 frame, uint16 next_frame) {
 	unless (next_frame)
 		next_frame = frame;
 	_nextFrame = next_frame;
-	setDosField(0x6b, 0);
-	setDosField(0x6c, 0);
+	clearMoveQueueLikeDos();
 	setFrame(frame);
 
 	setAnimation(CodePointer(_puppeteer.mainCodeOffset(), Log.mainInterpreter()));
@@ -733,8 +732,7 @@ void Actor::placeIn(uint16 r, uint16 frame, uint16 next_frame) {
 	if (!next_frame)
 		next_frame = frame;
 	_nextFrame = next_frame;
-	setDosField(0x6b, 0);
-	setDosField(0x6c, 0);
+	clearMoveQueueLikeDos();
 	setFrame(frame);
 }
 
@@ -910,8 +908,9 @@ void Actor::animate() {
 	unless (_puppeteer.valid())
 		return;
 
+	const bool walkQueueActive = !_framequeue.empty() && dosFieldWord(0x6b) != 0;
 	bool queuedWalkReady = false;
-	if (!_framequeue.empty() && Log.room()) {
+	if (walkQueueActive && Log.room()) {
 		const Frame current = Log.room()->getFrame(_frame);
 		queuedWalkReady = current.position() == _position;
 	}
@@ -920,10 +919,11 @@ void Actor::animate() {
 	unless (_attentionNeeded || _confused || queuedWalkReady || readyMarkerActive/* || _timedOut*/)
 		return;
 
-	// DOS UpdateActors @ 1000:6d3a advances queued walking through the
-	// actor state bytes (+0x65/+0x64), not merely because field +0x6b has
-	// queued path entries. While an actor script is moving between two
-	// room frames, let its pixel-delta sequence reach the current logical
+	// DOS UpdateActors @ 1000:6d3a keeps queued walking alive through
+	// word field +0x6b. Actor byte +0x65 is an attention latch that
+	// InitActorState can clear while the turn-step script is still part
+	// of the same walk. While an actor script is moving between two room
+	// frames, let its pixel-delta sequence reach the current logical
 	// frame coordinate before selecting the next path node; otherwise the
 	// queue restarts the move animator after its first delta and consumes
 	// a 5-pixel frame edge after walking only 1 pixel.
@@ -932,7 +932,7 @@ void Actor::animate() {
 
 	debugC(4, kDebugLevelActor, "attention needed");
 
-	if (nextFrame()) {
+	if (walkQueueActive && nextFrame()) {
 		return;
 	}
 

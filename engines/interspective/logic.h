@@ -1067,6 +1067,7 @@ private:
 	bool speechWouldConsumeRightClickLikeDos() const;
 	bool hasQueuedRunMode(uint16 mode) const;
 	bool dispatchReadyActorRoomScriptWaitMode(uint16 mode);
+	void runItemRoomScriptSlotLikeDos();
 	void resetQueuedRunMode(uint16 mode);
 	void cancelDeferredScriptsForInterpreter(Interpreter *interpreter);
 	bool redirectDeferredMode(uint16 mode, const CodePointer &target);

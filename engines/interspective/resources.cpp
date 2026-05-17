@@ -321,7 +321,12 @@ Program *Resources::loadCodeBlock(uint16 block) const {
 }
 
 Program *Resources::loadSceneCodeBlock(uint16 scene) const {
-	return _progDat.get()->getScript(uint16(_main.get()->progEntriesCount0() + scene));
+	// DOS LoadRoomLevelHeader @ 1000:1d05 indexes iuc_prog.dat at
+	//   sceneId + CS:[0x67]
+	// and CS:[0x67] is iuc_main.dat footer offset 0x08: the number of
+	// room-code programs. Scene ids are 1-based script values, and
+	// ProgDat::getScript is also 1-based, so no extra +/-1 adjustment.
+	return _progDat.get()->getScript(uint16(_main.get()->roomProgramCount() + scene));
 }
 
 void Resources::descramble(byte *data, uint32 len) {
