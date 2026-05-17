@@ -60,9 +60,10 @@ public:
 	Logic()
 		: _frameCounter(0),
 		  _gameState(0),
-		  _inMapMode(false),
-		  _mapScreenInitialized(false),
-		  _enteringMapScreen(false),
+		  _inStatusMode(false),
+		  _fullscreenGateActive(false),
+		  _fullscreenGateInitialized(false),
+		  _enteringStatusScreen(false),
 		  _roomActive(true),
 		  _logicDirty(false),
 		  _forceRoomRestart(false),
@@ -134,10 +135,12 @@ public:
 	// 0 = none, 1 = exit, 2 = object/person, 3 = actor.
 	uint16 gameState() const { return _gameState; }
 	void setGameState(uint16 s) { _gameState = s; }
-	bool inMapMode() const { return _inMapMode; }
-	void setInMapMode(bool v) { _inMapMode = v; }
-	bool mapScreenInitialized() const { return _mapScreenInitialized; }
-	void setMapScreenInitialized(bool v) { _mapScreenInitialized = v; }
+	bool inStatusMode() const { return _inStatusMode; }
+	void setInStatusMode(bool v) { _inStatusMode = v; }
+	bool fullscreenGateActive() const { return _fullscreenGateActive; }
+	void setFullscreenGateActive(bool v) { _fullscreenGateActive = v; }
+	bool fullscreenGateInitialized() const { return _fullscreenGateInitialized; }
+	void setFullscreenGateInitialized(bool v) { _fullscreenGateInitialized = v; }
 	// DOS g_room_active (DS:0x6740). Cutscene/fullscreen opcodes clear it
 	// to block room interactions; restore opcodes set it again.
 	bool roomActive() const { return _roomActive; }
@@ -731,7 +734,7 @@ public:
 			//   setCursorMode(1) + setDragTarget(0). Used by Op_93.
 			kDisableEnableUnregister = 2,
 			// DOS callback @ 0x4376:
-			//   if !map: protag.frame=arg0, protag.nextFrame=arg1,
+			//   if !status: protag.frame=arg0, protag.nextFrame=arg1,
 			//   protag.room=currentRoom=cellId, then SetActorPosition.
 			// Used by Op_29/Op_2a after walking to the current entity.
 			kPlaceProtagonistAfterMove = 3,
@@ -1051,9 +1054,9 @@ public:
 	void saveSceneFrame(const CodePointer &resumePC);
 	CodePointer switchToSceneLikeDos(uint16 sceneId, const CodePointer &resumePC);
 	CodePointer restoreSceneFrame();
-	void backupRoomForMapLikeDos();
+	void backupRoomForStatusLikeDos();
 	void restoreRoomFromBackupLikeDos();
-	void enterMapScreenLoopLikeDos();
+	void enterStatusScreenLoopLikeDos();
 
 	friend class Debugger;
 private:
@@ -1151,12 +1154,13 @@ private:
 	Common::List<DelayedRun> _queued;
 
 	struct RoomBackup {
-		RoomBackup() : valid(false), currentBlock(0), currentRoom(0), cameraX(0), cameraY(0),
+		RoomBackup() : valid(false), currentBlock(0), currentRoom(0), loadedBackdropId(0), cameraX(0), cameraY(0),
 		               scrollChanged(false), cursorMode(0), fullscreen(false),
 		               roomActive(true), noStep(false) {}
 		bool valid;
 		uint16 currentBlock;
 		uint32 currentRoom;
+		uint16 loadedBackdropId;
 		Common::SharedPtr<Program> blockProgram;
 		Common::SharedPtr<Interpreter> blockInterpreter;
 		Common::SharedPtr<Room> room;
@@ -1176,9 +1180,10 @@ private:
 	CodePointer _skipPoint;
 	uint32 _frameCounter;
 	uint16 _gameState;      // DS:0x666e — current entity type (0 none, 1 exit, 2 object, 3 actor)
-	bool _inMapMode;        // DS:0x676e — true while world map is shown
-	bool _mapScreenInitialized; // DOS CS:[0x52a3] — Op_cc first-entry guard
-	bool _enteringMapScreen; // transient RunMapScreenLoop room-999 transition
+	bool _inStatusMode;        // DS:0x676e — true while the room-999 status screen is active
+	bool _fullscreenGateActive; // DS:0x673f — set by Op_cc, blocks system-menu hotkeys and restores default cursor on room change
+	bool _fullscreenGateInitialized; // DOS CS:[0x52a3] — Op_cc first-entry guard
+	bool _enteringStatusScreen; // transient RunStatusScreenLoop room-999 transition
 	bool _roomActive;       // DS:0x6740 — gates room/entity interaction
 	bool _logicDirty;       // DS:0x673c — set by logic-mutating draw/cursor opcodes
 	bool _forceRoomRestart; // DOS g_flag_restart_room even when the room id is unchanged
@@ -1205,7 +1210,7 @@ private:
 	Common::HashMap<uint16, uint8> _actorFlag70; // Actor.field_0x70 (Op_49)
 	uint16 _menuStashA, _menuStashB;             // pbRam00023206/8 (Op_4d)
 	bool _menuStashConsumed;                     // uRam00023291 stash flag
-	uint16 _defaultCursorMode; // DS:0x667a — restored by ApplyChangeRoomTransition after Op_cc map/fullscreen gate
+	uint16 _defaultCursorMode; // DS:0x667a — restored by ApplyChangeRoomTransition after Op_cc fullscreen gate
 	uint16 _cursorMode;     // DS:0x6678 — g_cursor_mode: 0x04=walk, 0x20=drag, 0x40/0x80=verb-style
 	uint16 _cursorStepIndex; // DS:0x6680 — g_drag_step_idx, also used by the software cursor sequence
 	uint16 _dragTarget;     // current drag-source object id

@@ -141,7 +141,7 @@ static uint16 speechDisplayTicksLikeDos(const byte *text, uint16 maxLines) {
 }
 
 // Speech subsystem helper: route text to the appropriate sink.
-// In map mode, DOS displays subtitles (no actor bubble). Otherwise
+// In status mode, DOS displays subtitles (no actor bubble). Otherwise
 // allocate from Logic's DOS-style six-slot speech pool.
 //
 // `maxLines` is the BX value carried into AllocSpeechSlot @ 1000:9b1f.
@@ -149,9 +149,9 @@ static uint16 speechDisplayTicksLikeDos(const byte *text, uint16 maxLines) {
 // text through the DOS 9bcc helper.
 static void speakOrSubtitle(Actor *speaker, const Common::String &text, uint16 maxLines = 0) {
 	const bool mainSpeaker = !speaker || speaker == Log.protagonist();
-	if (Log.inMapMode() && mainSpeaker) {
-		// DOS map-mode: CheckSubtitleActive + RegisterSampleSlot_LoadDefaultsB
-		// or QueueDeferredFormattedText. The shared map path seeds
+	if (Log.inStatusMode() && mainSpeaker) {
+		// DOS status-mode: CheckSubtitleActive + RegisterSampleSlot_LoadDefaultsB
+		// or QueueDeferredFormattedText. The shared status path seeds
 		// CX=0xa4, DX=0x14, AX=2, BP=0xeb before QueueDeferredFormattedText.
 		const uint16 length = uint16(text.size());
 		if (length > 0)
@@ -190,7 +190,7 @@ static SpeechDeferResult waitForActiveSpeechSlotOwnerLikeDos(uint16 owner, const
 
 static SpeechDeferResult deferSpeechUntilReady(Actor *speaker, const CodePointer &current) {
 	const bool mainSpeaker = !speaker || speaker == Log.protagonist();
-	if (Log.inMapMode() && mainSpeaker) {
+	if (Log.inStatusMode() && mainSpeaker) {
 		if (Graf.isSaying()) {
 			if (sampleSlotWouldError())
 				return kSpeechWaitError;
@@ -247,7 +247,7 @@ static bool sendActorToCurrentEntityCarryClearLikeDos(Actor *protag) {
 
 static MainSpeechTargetResult speakAsMainAfterOptionalTargetWalkLikeDos(Actor *protag,
 		const Common::String &text, uint16 maxLines, const CodePointer &current) {
-	if (Log.inMapMode() || Log.hitTarget() != 0)
+	if (Log.inStatusMode() || Log.hitTarget() != 0)
 		return kMainSpeechContinue;
 
 	const bool carryClear = sendActorToCurrentEntityCarryClearLikeDos(protag);
@@ -271,8 +271,8 @@ static MainSpeechTargetResult speakAsMainAfterOptionalTargetWalkLikeDos(Actor *p
 	return kMainSpeechDone;
 }
 
-static bool failIfMainActorMissingForNonMapSpeech(Actor *protag) {
-	if (!protag && !Log.inMapMode()) {
+static bool failIfMainActorMissingForNonStatusSpeech(Actor *protag) {
+	if (!protag && !Log.inStatusMode()) {
 		Log.setPendingError(0x17);
 		return true;
 	}
@@ -280,7 +280,7 @@ static bool failIfMainActorMissingForNonMapSpeech(Actor *protag) {
 }
 
 static SpeechDeferResult deferMainSpeechNoTargetUntilReadyLikeDos(Actor *protag, const CodePointer &current) {
-	if (Log.inMapMode())
+	if (Log.inStatusMode())
 		return deferSpeechUntilReady(protag, current);
 
 	const SpeechDeferResult speechWait =
@@ -288,7 +288,7 @@ static SpeechDeferResult deferMainSpeechNoTargetUntilReadyLikeDos(Actor *protag,
 	if (speechWait != kSpeechNoWait)
 		return speechWait;
 
-	if (failIfMainActorMissingForNonMapSpeech(protag))
+	if (failIfMainActorMissingForNonStatusSpeech(protag))
 		return kSpeechWaitError;
 	return deferSpeechUntilReady(protag, current);
 }
@@ -301,13 +301,13 @@ static bool sayNarratorOrSubtitle(const byte *text, uint16 x, uint16 y, byte col
 	if (length == 0)
 		return false;
 	const uint16 ticks = speechDisplayTicksLikeDos(text, maxLines);
-	if (Log.inMapMode() && Graf.isSaying()) {
+	if (Log.inStatusMode() && Graf.isSaying()) {
 		if (sampleSlotWouldError())
 			return false;
 		Graf.runWhenSaid(current);
 		return true;
 	}
-	if (Log.inMapMode())
+	if (Log.inStatusMode())
 		Graf.sayAt(text, length, ticks, x, y, color, maxLines, bubbleMode, true);
 	else
 		Log.allocNarratorSpeech(text, length, x, y, color, maxLines, uint8(bubbleMode));
@@ -1184,14 +1184,14 @@ OPCODE(0x43) {
 		actorId, text.c_str());
 	if (actorId == Log.protagonistId()) {
 		Actor *protag = Log.protagonist();
-		if (!Log.inMapMode()) {
+		if (!Log.inStatusMode()) {
 			const SpeechDeferResult speechSlotWait = waitForActiveSpeechSlotOwnerLikeDos(actorId, current);
 			if (speechSlotWait == kSpeechWaitError)
 				return kThxBye;
 			if (speechSlotWait == kSpeechWait)
 				return kReturn;
 		}
-		if (failIfMainActorMissingForNonMapSpeech(protag))
+		if (failIfMainActorMissingForNonStatusSpeech(protag))
 			return kThxBye;
 		const SpeechDeferResult speechWait = deferSpeechUntilReady(protag, current);
 		if (speechWait == kSpeechWaitError)
@@ -1222,7 +1222,7 @@ OPCODE(0x43) {
 
 OPCODE(0x47) {
 	// DOS Op_47_SpeakWithRect @ 1000:3eb6: 5 args (x, y, color, lines, text).
-	//   if (g_in_map_mode == 0) AllocSpeechSlot_NoFormatting +
+	//   if (g_in_status_mode == 0) AllocSpeechSlot_NoFormatting +
 	//       stash arg2 in g_unknown_669a;
 	//   else CheckSubtitleActive → RegisterSampleSlot_LoadDefaultsB or
 	//       QueueDeferredFormattedText.
@@ -1243,17 +1243,17 @@ OPCODE(0x47) {
 }
 
 OPCODE(0x4a) {
-	// DOS Op_4a_RegisterSampleByMapMode @ 1000:3ed5: dispatches to
-	// `RegisterSampleSlot_Bare2` (map mode, BX=3 subtitle predicate) or
-	// `_Bare9` after loading AX=g_main_character_id (non-map, BX=1 speech
+	// DOS Op_4a_RegisterSampleByStatusMode @ 1000:3ed5: dispatches to
+	// `RegisterSampleSlot_Bare2` (status mode, BX=3 subtitle predicate) or
+	// `_Bare9` after loading AX=g_main_character_id (non-status, BX=1 speech
 	// slot owner predicate). Both save the next PC through
 	// `RegisterSampleSlot_Common` @ 1000:3154.
 	if (Log.branchState() != 0 || Log.callDepth() != 0) {
 		Log.setPendingError(0x39);
 		return kThxBye;
 	}
-	debugC(2, kDebugLevelScript, "opcode 0x4a: wait protag silent (map=%d)", Log.inMapMode() ? 1 : 0);
-	if (Log.inMapMode()) {
+	debugC(2, kDebugLevelScript, "opcode 0x4a: wait protag silent (status=%d)", Log.inStatusMode() ? 1 : 0);
+	if (Log.inStatusMode()) {
 		if (waitForSubtitleLikeDos(next))
 			return kReturn;
 		Log.runLaterWithCurrentMode(next, 0);
@@ -1267,13 +1267,13 @@ OPCODE(0x4a) {
 
 OPCODE(0x4b) {
 	// DOS Op_4b_RegisterSampleIfMainChar @ 1000:3ee7:
-	//   non-map: ResolveOpcodeArg0; RegisterSampleSlot_Bare9 (always).
-	//   map: compares the incoming dispatch-loop AX (the opcode byte 0x4b)
+	//   non-status: ResolveOpcodeArg0; RegisterSampleSlot_Bare9 (always).
+	//   status: compares the incoming dispatch-loop AX (the opcode byte 0x4b)
 	//        with g_main_character_id; only equality reaches
 	//        RegisterSampleSlot_Bare2. No arg0 resolution occurs there.
 	// Both registrations land in RegisterSampleSlot_Common with the
 	// branch_state/call_depth check and save the next PC.
-	if (Log.inMapMode()) {
+	if (Log.inStatusMode()) {
 		if (Log.protagonistId() != 0x4b)
 			return kThxBye;
 	} else {
@@ -1293,7 +1293,7 @@ OPCODE(0x4b) {
 		Log.setPendingError(0x39);
 		return kThxBye;
 	}
-	debugC(2, kDebugLevelScript, "opcode 0x4b: wait map subtitle if main id is opcode byte");
+	debugC(2, kDebugLevelScript, "opcode 0x4b: wait status subtitle if main id is opcode byte");
 	if (waitForSubtitleLikeDos(next))
 		return kReturn;
 	Log.runLaterWithCurrentMode(next, 0);
@@ -1373,8 +1373,8 @@ OPCODE(0x55) {
 	const byte colour = uint8(uint16(a[2]) & 0xff);
 	debugC(2, kDebugLevelScript, "opcode 0x55: paint prepared '%s' with colour %u at %u:%u",
 		prepared.c_str(), colour, left, top);
-	if (Log.inMapMode())
-		_graphics->rememberMapScreenTextLikeDos(left, top, colour, prepared);
+	if (Log.inStatusMode())
+		_graphics->rememberStatusScreenTextLikeDos(left, top, colour, prepared);
 	_graphics->paintText(left, top, colour,
 		reinterpret_cast<const byte *>(prepared.c_str()));
 	if (truncated)
@@ -1856,7 +1856,7 @@ OPCODE(0x77) {
 	const uint8 frame = uint8(uint16(a[1]));
 	const uint16 room = uint16(a[0]);
 	debugC(2, kDebugLevelScript, "opcode 0x77: go to room %u frame %u", room, frame);
-	if (Log.inMapMode()) {
+	if (Log.inStatusMode()) {
 		Log.restartRoomLikeDos();
 		Log.setLogicDirty();
 		Log.setPaused();
@@ -1885,7 +1885,7 @@ OPCODE(0x79) {
 	const uint8 frame = uint8(uint16(a[2]));
 	debugC(1, kDebugLevelScript, "opcode 0x79: move actor %u to room %u frame %u",
 		id, room, frame);
-	if (Log.inMapMode())
+	if (Log.inStatusMode())
 		return kThxBye;
 	Actor *ac = _logic->getActor(id);
 	if (!ac) {
@@ -1943,16 +1943,16 @@ OPCODE(0x3e) {
 }
 
 OPCODE(0x4c) {
-	// DOS Op_4c_RegisterSampleSpeechOrMap @ 1000:3eff: map mode uses
-	// Bare2 (BX=3, CheckSubtitleActive); non-map uses Bare3 (BX=2,
+	// DOS Op_4c_RegisterSampleSpeechOrStatus @ 1000:3eff: status mode uses
+	// Bare2 (BX=3, CheckSubtitleActive); non-status uses Bare3 (BX=2,
 	// CheckUiText against the speech-slot pointer last stashed in
 	// DS:0x669a). Both save the next PC through RegisterSampleSlot_Common.
 	if (Log.branchState() != 0 || Log.callDepth() != 0) {
 		Log.setPendingError(0x39);
 		return kThxBye;
 	}
-	debugC(2, kDebugLevelScript, "opcode 0x4c: wait speech/map=%d", Log.inMapMode() ? 1 : 0);
-	if (Log.inMapMode()) {
+	debugC(2, kDebugLevelScript, "opcode 0x4c: wait speech/status=%d", Log.inStatusMode() ? 1 : 0);
+	if (Log.inStatusMode()) {
 		if (waitForSubtitleLikeDos(next))
 			return kReturn;
 		Log.runLaterWithCurrentMode(next, 0);
@@ -2024,12 +2024,12 @@ OPCODE(0x96) {
 }
 
 OPCODE(0x99) {
-	// DOS Op_99 @ 1000:4bed: map-mode no-op; otherwise checks the
+	// DOS Op_99 @ 1000:4bed: status-mode no-op; otherwise checks the
 	// protagonist through MaybeRegisterActorSample, which queues the
 	// post-opcode PC in the active opcode mode while the actor is still
 	// active in the current room.
 	debugC(2, kDebugLevelScript, "opcode 0x99: wait for protagonist to exit");
-	if (Log.inMapMode())
+	if (Log.inStatusMode())
 		return kThxBye;
 
 	Actor *ac = _logic->protagonist();
@@ -2049,7 +2049,7 @@ OPCODE(0x99) {
 OPCODE(0x9a) {
 	// wait for actor to exit
 	debugC(2, kDebugLevelScript, "opcode 0x9a: wait for actor %s to exit", +a[0]);
-	if (Log.inMapMode())
+	if (Log.inStatusMode())
 		return kThxBye;
 
 	Actor *ac = _logic->getActor(a[0]);
@@ -2076,10 +2076,10 @@ OPCODE(0x9b) {
 }
 
 OPCODE(0x9c) {
-	// DOS Op_9c_handler @ 1000:4c1e: map-mode no-op. Non-map resolves
+	// DOS Op_9c_handler @ 1000:4c1e: status-mode no-op. Non-status resolves
 	// arg1 timeout first, then arg0 actor id, and registers type 6 only
 	// while the actor is outside the current room.
-	if (Log.inMapMode())
+	if (Log.inStatusMode())
 		return kThxBye;
 
 	const uint16 timeout = uint16(a[1]);
@@ -2137,7 +2137,7 @@ OPCODE(0xab) {
 	// DOS Op_ab_handler @ 1000:4e3e: protagonist CheckActorIdle gate,
 	// then ResolveOpcodeArg0 and QueueExitTransition. The queue helper
 	// sets g_break_inner, but InterpretBytecode does not stop on that flag.
-	if (Log.inMapMode())
+	if (Log.inStatusMode())
 		return kThxBye;
 	Actor *ac = Log.protagonist();
 	if (!ac) {
@@ -2193,12 +2193,12 @@ OPCODE(0xad) {
 
 OPCODE(0xb9) {
 	// DOS Op_b9_WalkActorWaitWithBreak @ 1000:5026: block/slow actor animation,
-	// map-mode no-op, validate actor id, retry current opcode while
+	// status-mode no-op, validate actor id, retry current opcode while
 	// CheckActorAnimReady says the actor is still active, set g_break_inner
 	// if arg0 is the protagonist, then InitActorState(arg1). InterpretBytecode
 	// does not stop on g_break_inner; it continues after the ready path.
 	Log.setWalkSpeedFlag(1);
-	if (Log.inMapMode())
+	if (Log.inStatusMode())
 		return kThxBye;
 	const uint16 id = uint16(a[0]);
 	if (dosPositiveIdExceedsMax(id, actorAnimMaxIdLikeDos())) {
@@ -2224,11 +2224,11 @@ OPCODE(0xb9) {
 }
 
 OPCODE(0xbc) {
-	// DOS Op_bc_handler @ 1000:5085: no-op in map mode, otherwise resolve
+	// DOS Op_bc_handler @ 1000:5085: no-op in status mode, otherwise resolve
 	// actor id, validate against GetActorOffset-style bounds, then
 	// UnregisterActor. DOS clears only actor fields +0/+2 and removes the
 	// id from g_actor_table; C++ mirrors the script-PC clear directly.
-	if (Log.inMapMode())
+	if (Log.inStatusMode())
 		return kThxBye;
 	const uint16 id = uint16(a[0]);
 	Actor *ac = _logic->getActor(id);
@@ -2246,7 +2246,7 @@ OPCODE(0xbd) {
 	// current-opcode retry gate as Op_b9. The ready path sets
 	// g_break_inner but returns normally; InterpretBytecode keeps running.
 	Log.setWalkSpeedFlag(0);
-	if (Log.inMapMode())
+	if (Log.inStatusMode())
 		return kThxBye;
 	Log.setBreakInner(true);
 	Actor *ac = Log.protagonist();
@@ -2271,7 +2271,7 @@ OPCODE(0xbe) {
 	// current-opcode retry gate as Op_b9. The ready path sets
 	// g_break_inner but returns normally; InterpretBytecode keeps running.
 	Log.setWalkSpeedFlag(1);
-	if (Log.inMapMode())
+	if (Log.inStatusMode())
 		return kThxBye;
 	Log.setBreakInner(true);
 	Actor *ac = Log.protagonist();
@@ -2351,7 +2351,7 @@ OPCODE(0xc8) {
 	//
 	// Difference from Op_c9 (clarified iter-30): Op_c8 immediately loads
 	// a backdrop image. Op_c9 sets the savegame "current place" id and
-	// only triggers a reload when in map mode.
+	// only triggers a reload when in status mode.
 	clearVideoAndPushToScreenLikeDos(_graphics);
 	const uint16 id = uint16(a[0]);
 	MainDat *main = _logic->resources()->mainDat();
@@ -2368,18 +2368,18 @@ OPCODE(0xc8) {
 OPCODE(0xc9) {
 	// DOS Op_c9_handler @ 1000:522f:
 	//   DAT_1000_0111 = arg0           ; set "current place" id (CS:[0x111])
-	//   if (g_in_map_mode != 0) {
+	//   if (g_in_status_mode != 0) {
 	//     ClearVideoAndPushToScreen();
 	//     g_flag_change_room = 1;     ; trigger room reload
 	//   }
-	// CS:[0x111] is read by the map-screen RestoreBackdrop path and by
-	// the save/load state path, so outside map mode this only records the
-	// place id. In map mode the pending change-room flag reloads that
-	// place backdrop on the next map-loop pass; C++ applies it directly.
+	// CS:[0x111] is read by the status-screen RestoreBackdrop path and by
+	// the save/load state path, so outside status mode this only records the
+	// place id. In status mode the pending change-room flag reloads that
+	// place backdrop on the next status-loop pass; C++ applies it directly.
 	const uint16 place = uint16(a[0]);
 	debugC(2, kDebugLevelScript, "opcode 0xc9: set current place to %u", place);
 	_logic->setCurrentPlace(place);
-	if (Log.inMapMode()) {
+	if (Log.inStatusMode()) {
 		clearVideoAndPushToScreenLikeDos(_graphics);
 		MainDat *main = _logic->resources()->mainDat();
 		if (!main || dosPositiveIdExceedsMax(place, main->imagesCount())) {
@@ -2435,17 +2435,17 @@ OPCODE(0xc9) {
 
 OPCODE(0xcc) {
 	// DOS Op_cc_handler @ 1000:527b:
-	//   g_in_map_mode = 1;
+	//   g_fullscreen_gate_active = 1;
 	//   if (CS:[0x52a3] != 0) Op_35_Jump(arg0);
 	//   CS:[0x52a3] = 1; g_full_redraw_pending = 0;
 	//   SetBackdropDimensions(0xc8); SetCursorMode(2). The following
 	//   ApplyChangeRoomTransition restores the default cursor from
-	//   DS:0x667a while g_in_map_mode is still set.
-	debugC(1, kDebugLevelScript, "opcode 0xcc: enter map/fullscreen gate");
-	Log.setInMapMode(true);
-	if (Log.mapScreenInitialized())
+	//   DS:0x667a while g_fullscreen_gate_active is still set.
+	debugC(1, kDebugLevelScript, "opcode 0xcc: enter fullscreen gate");
+	Log.setFullscreenGateActive(true);
+	if (Log.fullscreenGateInitialized())
 		return static_cast<CodePointer &>(a[0]);
-	Log.setMapScreenInitialized(true);
+	Log.setFullscreenGateInitialized(true);
 	Graf.setFullscreen(true);
 	Log.setCursorMode(2);
 	return kThxBye;
@@ -2703,7 +2703,7 @@ OPCODE(0xfc) {
 	// DOS Op_fc_handler @ 1000:5996:
 	//   Resolve arg0; arg0 != 0 -> ShutdownAndExit.
 	//   arg0 == 0 -> tail-jump to HandleSpecialKey's menu branch
-	//   (1000:b82d), which only opens RunModalLoop outside map mode.
+	//   (1000:b82d), which only opens RunModalLoop outside status mode.
 	//   Menu choice 2 exits, choice 1 requests restart, otherwise it
 	//   returns normally.
 	const uint16 quitMode = uint16(a[0]);
@@ -2712,8 +2712,8 @@ OPCODE(0xfc) {
 		_engine->quitGame();
 		return kThxBye;
 	}
-	if (Log.inMapMode()) {
-		debugC(2, kDebugLevelScript, "opcode 0xfc: menu request ignored in map mode");
+	if (Log.inStatusMode()) {
+		debugC(2, kDebugLevelScript, "opcode 0xfc: menu request ignored in status mode");
 		return kThxBye;
 	}
 	debugC(2, kDebugLevelScript, "opcode 0xfc: open main menu");
@@ -2762,10 +2762,10 @@ OPCODE(0x0b) {
 }
 
 OPCODE(0x0c) {
-	// DOS CS:0x38ab: skip if NOT in map mode → body runs ONLY in map mode.
+	// DOS CS:0x38ab: skip if NOT in status mode → body runs ONLY in status mode.
 	// Engine had this inverted previously.
-	debugC(2, kDebugLevelScript, "opcode 0x0c: if in map mode");
-	if (!Log.inMapMode())
+	debugC(2, kDebugLevelScript, "opcode 0x0c: if in status mode");
+	if (!Log.inStatusMode())
 		return kFail;
 	return kThxBye;
 }
@@ -3244,7 +3244,7 @@ OPCODE(0x38) {
 // differ by speaker (main vs identified actor) and target (none vs hotspot).
 OPCODE(0x3f) {
 	// DOS Op_3f_SpeakAsMainCharacter @ 1000:3d29: speak text (arg0)
-	// as the protagonist. Map-mode → subtitle; else → speech-slot
+	// as the protagonist. Status-mode → subtitle; else → speech-slot
 	// allocation for the main char. If no explicit hit-region is
 	// active DOS first sends the protagonist toward the current entity.
 	debugC(1, kDebugLevelScript, "opcode 0x3f: main says %s", +a[0]);
@@ -3348,7 +3348,7 @@ OPCODE(0x44) {
 OPCODE(0x45) {
 	// DOS Op_45_SpeakWithDelay @ 1000:3e68: 4 args (x, y, color, text).
 	//   if (!map_mode) AllocSpeechSlot_NoFormatting + stash arg2;
-	//   else map-mode subtitle.
+	//   else status-mode subtitle.
 	// AllocSpeechSlot_NoFormatting = narrator-style bubble at the
 	// explicit (x, y) with color — NOT tied to any actor.
 	const byte *text = static_cast<byte *>(a[3]);
@@ -4155,7 +4155,7 @@ OPCODE(0x78) {
 	const uint16 room = uint16(a[0]);
 	debugC(2, kDebugLevelScript, "opcode 0x78: go to room %u frame curr=%u target=%u",
 		room, frame, target);
-	if (Log.inMapMode()) {
+	if (Log.inStatusMode()) {
 		Log.restartRoomLikeDos();
 		Log.setLogicDirty();
 		Log.setPaused();
@@ -4182,7 +4182,7 @@ OPCODE(0x7a) {
 	const uint8 target = uint8(uint16(a[3]));
 	debugC(1, kDebugLevelScript, "opcode 0x7a: place actor %u in room %u frame %u target %u",
 		id, room, frame, target);
-	if (Log.inMapMode())
+	if (Log.inStatusMode())
 		return kThxBye;
 	Actor *ac = _logic->getActor(id);
 	if (!ac) {
@@ -5186,10 +5186,10 @@ OPCODE(0xa3) {
 	return kThxBye;
 }
 OPCODE(0xa4) {
-	// 0xa4 (DOS CS:0x4d47): if not in map mode, wait for protagonist animation
+	// 0xa4 (DOS CS:0x4d47): if not in status mode, wait for protagonist animation
 	// to finish (CheckActorAnimReady on g_main_character_id). The script blocks
 	// here until the actor stops moving.
-	if (Log.inMapMode())
+	if (Log.inStatusMode())
 		return kThxBye;
 	const uint8 marker = uint8(uint16(a[0]));
 	debugC(2, kDebugLevelScript, "opcode 0xa4: wait protagonist anim ready marker %u", marker);
@@ -5207,7 +5207,7 @@ OPCODE(0xa4) {
 }
 OPCODE(0xa5) {
 	// 0xa5 (DOS CS:0x4d5c): same as 0xa4 with one extra arg consumed.
-	if (Log.inMapMode())
+	if (Log.inStatusMode())
 		return kThxBye;
 	const uint8 marker = uint8(uint16(a[0]));
 	const uint16 callback = uint16(a[1]);
@@ -5228,7 +5228,7 @@ OPCODE(0xa5) {
 OPCODE(0xa6) {
 	// 0xa6 (DOS CS:0x4cfb): wait for actor `arg0`'s animation to finish.
 	// arg1 is copied into actor.field+0x67 on the ready path.
-	if (Log.inMapMode())
+	if (Log.inStatusMode())
 		return kThxBye;
 	const uint8 marker = uint8(uint16(a[1]));
 	const uint16 actorId = uint16(a[0]);
@@ -5249,7 +5249,7 @@ OPCODE(0xa6) {
 OPCODE(0xa7) {
 	// 0xa7 (DOS CS:0x4d0f): wait actor `arg0` anim ready, 3-arg variant
 	// with arg1 -> field+0x67 and arg2 -> field+0x69.
-	if (Log.inMapMode())
+	if (Log.inStatusMode())
 		return kThxBye;
 	const uint8 marker = uint8(uint16(a[1]));
 	const uint16 callback = uint16(a[2]);
@@ -5269,7 +5269,7 @@ OPCODE(0xa7) {
 	return kThxBye;
 }
 OPCODE(0xa8) {
-	if (Log.inMapMode())
+	if (Log.inStatusMode())
 		return kThxBye;
 	const uint16 actorId = uint16(a[0]);
 	const uint16 entityType = uint16(a[1]);
@@ -5323,7 +5323,7 @@ OPCODE(0xa8) {
 	return kThxBye;
 }
 OPCODE(0xa9) {
-	if (Log.inMapMode())
+	if (Log.inStatusMode())
 		return kThxBye;
 	const uint16 entityType = uint16(a[0]);
 	const uint16 targetId = uint16(a[1]);
@@ -5377,7 +5377,7 @@ OPCODE(0xa9) {
 	return kThxBye;
 }
 OPCODE(0xaa) {
-	if (Log.inMapMode())
+	if (Log.inStatusMode())
 		return kThxBye;
 	const uint16 targetId = uint16(a[0]);
 	const uint16 actorId = Log.protagonistId();
@@ -5407,7 +5407,7 @@ OPCODE(0xac) {
 	// DOS Op_ac_handler @ 1000:4e5c: Op_ab plus callback word arg1
 	// written to protagonist actor field+0x69 after QueueExitTransition.
 	// The ready path returns normally; only the idle retry path yields.
-	if (Log.inMapMode())
+	if (Log.inStatusMode())
 		return kThxBye;
 	Actor *ac = Log.protagonist();
 	if (!ac) {
@@ -5463,7 +5463,7 @@ OPCODE(0xaf) {
 	//   CheckActorIdle(g_main_character_id);
 	//   if (NOT idle) RegisterSampleSlot...; RET;
 	//   SendActorToTarget();    // current entity id/type globals.
-	if (Log.inMapMode())
+	if (Log.inStatusMode())
 		return kThxBye;
 	Actor *ac = Log.protagonist();
 	if (!ac) {
@@ -5482,7 +5482,7 @@ OPCODE(0xaf) {
 OPCODE(0xb0) {
 	// DOS Op_b0_WaitActorIdle2 @ 1000:4fb1: same as Op_af but ALSO
 	// writes arg0's value to actor.field+0x69 (walk-callback target).
-	if (Log.inMapMode())
+	if (Log.inStatusMode())
 		return kThxBye;
 	Actor *ac = Log.protagonist();
 	if (!ac) {
@@ -5506,7 +5506,7 @@ OPCODE(0xb1) {
 	//   CheckActorIdle(<implicit>);
 	//   if (NOT idle) yield;
 	//   arg0 resolved (target id);  MoveProtagonistToEntity.
-	if (Log.inMapMode())
+	if (Log.inStatusMode())
 		return kThxBye;
 	Actor *protag = Log.protagonist();
 	if (!protag) {
@@ -5525,7 +5525,7 @@ OPCODE(0xb1) {
 }
 OPCODE(0xb2) {
 	// DOS Op_b2_WaitActorIdle4 @ 1000:4ec8: same as Op_b1.
-	if (Log.inMapMode())
+	if (Log.inStatusMode())
 		return kThxBye;
 	Actor *protag = Log.protagonist();
 	if (!protag) {
@@ -5544,7 +5544,7 @@ OPCODE(0xb2) {
 }
 OPCODE(0xb3) {
 	// DOS Op_b3_WaitActorIdle5 @ 1000:4f0b: same as Op_b1.
-	if (Log.inMapMode())
+	if (Log.inStatusMode())
 		return kThxBye;
 	Actor *protag = Log.protagonist();
 	if (!protag) {
@@ -5564,7 +5564,7 @@ OPCODE(0xb3) {
 OPCODE(0xb4) {
 	// DOS Op_b4_handler @ 1000:4f97: wait actor arg0 idle, then send that
 	// actor to the current entity via MoveProtagonistToEntity_Wrapper.
-	if (Log.inMapMode())
+	if (Log.inStatusMode())
 		return kThxBye;
 	const uint16 actorId = uint16(a[0]);
 	Actor *ac = Log.getActor(actorId);
@@ -5589,7 +5589,7 @@ OPCODE(0xb5) {
 	//   if (NOT idle) RegisterSampleSlot_LoadDefaultsAndMark; RET;  // yield
 	//   arg1 = exit id;  DX = 1 (exit type);  BX = arg0;
 	//   MoveProtagonistToEntity (resolves entity → walkbox → frame).
-	if (Log.inMapMode())
+	if (Log.inStatusMode())
 		return kThxBye;
 	const uint16 actorId = uint16(a[0]);
 	Actor *actor = Log.getActor(actorId);
@@ -5609,7 +5609,7 @@ OPCODE(0xb5) {
 }
 OPCODE(0xb6) {
 	// DOS Op_b6_handler @ 1000:4f28: actor arg0 to object arg1 (DX=2).
-	if (Log.inMapMode())
+	if (Log.inStatusMode())
 		return kThxBye;
 	const uint16 actorId = uint16(a[0]);
 	Actor *actor = Log.getActor(actorId);
@@ -5629,7 +5629,7 @@ OPCODE(0xb6) {
 }
 OPCODE(0xb7) {
 	// DOS Op_b7_handler @ 1000:4f62: actor arg0 to actor target arg1 (DX=3).
-	if (Log.inMapMode())
+	if (Log.inStatusMode())
 		return kThxBye;
 	const uint16 actorId = uint16(a[0]);
 	Actor *actor = Log.getActor(actorId);
@@ -5659,7 +5659,7 @@ OPCODE(0xb8) {
 	//   arg1 = anim selector; InitActorState(id) — re-run actor's main code.
 	// InterpretBytecode does not stop on g_break_inner after the ready path.
 	Log.setWalkSpeedFlag(0);
-	if (Log.inMapMode())
+	if (Log.inStatusMode())
 		return kThxBye;
 	const uint16 id = uint16(a[0]);
 	if (dosPositiveIdExceedsMax(id, actorAnimMaxIdLikeDos())) {
@@ -5699,7 +5699,7 @@ OPCODE(0xba) {
 	//   if (NOT ready) RegisterSampleSlot...; RET;
 	//   arg1 = anim;  InitActorState(id).
 	Log.setWalkSpeedFlag(0);
-	if (Log.inMapMode())
+	if (Log.inStatusMode())
 		return kThxBye;
 	const int16 destX = int16(uint16(a[2]));
 	const int16 destY = int16(uint16(a[3]));
@@ -5720,7 +5720,7 @@ OPCODE(0xba) {
 	}
 	initialActor->setRawFrame(0);
 	initialActor->setRawPosition(Common::Point(destX, destY));
-	if (Log.inMapMode())
+	if (Log.inStatusMode())
 		return kThxBye;
 	const uint16 id = uint16(a[0]);
 	if (dosPositiveIdExceedsMax(id, actorAnimMaxIdLikeDos())) {
@@ -5748,7 +5748,7 @@ OPCODE(0xbb) {
 	// DOS Op_bb_WalkActorAnimSlow @ 1000:4fde: identical to 0xba but
 	// g_walk_speed_flag = 1 and the block-code bank is selected.
 	Log.setWalkSpeedFlag(1);
-	if (Log.inMapMode())
+	if (Log.inStatusMode())
 		return kThxBye;
 	const int16 destX = int16(uint16(a[2]));
 	const int16 destY = int16(uint16(a[3]));
@@ -5769,7 +5769,7 @@ OPCODE(0xbb) {
 	}
 	initialActor->setRawFrame(0);
 	initialActor->setRawPosition(Common::Point(destX, destY));
-	if (Log.inMapMode())
+	if (Log.inStatusMode())
 		return kThxBye;
 	const uint16 id = uint16(a[0]);
 	if (dosPositiveIdExceedsMax(id, actorAnimMaxIdLikeDos())) {
@@ -5809,7 +5809,7 @@ OPCODE(0xbf) {
 	//   g_break_inner = 1;  CheckActorAnimReady; if NOT ready yield;
 	//   arg0 = anim selector;  InitActorState(main_char).
 	Log.setWalkSpeedFlag(0);
-	if (Log.inMapMode())
+	if (Log.inStatusMode())
 		return kThxBye;
 	Log.setBreakInner(true);
 	Actor *protag = Log.protagonist();
@@ -5826,7 +5826,7 @@ OPCODE(0xbf) {
 	const int16 destY = int16(uint16(a[2]));
 	protag->setRawFrame(0);
 	protag->setRawPosition(Common::Point(destX, destY));
-	if (Log.inMapMode())
+	if (Log.inStatusMode())
 		return kThxBye;
 	Log.setBreakInner(true);
 	if (!checkActorAnimReadyModeled(protag)) {
@@ -5847,7 +5847,7 @@ OPCODE(0xc0) {
 	// but g_walk_speed_flag = 1 (this opcode entry is just 7 bytes
 	// before Op_bf @ 0x50a1, falling through into the same body).
 	Log.setWalkSpeedFlag(1);
-	if (Log.inMapMode())
+	if (Log.inStatusMode())
 		return kThxBye;
 	Log.setBreakInner(true);
 	Actor *protag = Log.protagonist();
@@ -5864,7 +5864,7 @@ OPCODE(0xc0) {
 	const int16 destY = int16(uint16(a[2]));
 	protag->setRawFrame(0);
 	protag->setRawPosition(Common::Point(destX, destY));
-	if (Log.inMapMode())
+	if (Log.inStatusMode())
 		return kThxBye;
 	Log.setBreakInner(true);
 	if (!checkActorAnimReadyModeled(protag)) {
@@ -5880,7 +5880,7 @@ OPCODE(0xc0) {
 }
 OPCODE(0xc1) {
 	// DOS Op_c1_UnregisterActor @ 1000:5131:
-	//   if (g_in_map_mode != 0) RET;
+	//   if (g_in_status_mode != 0) RET;
 	//   AX = g_main_character_id;
 	//   CALL UnregisterActor(AX);   // 0x66ed
 	//
@@ -5896,7 +5896,7 @@ OPCODE(0xc1) {
 	//
 	// C++ mirrors the actor field +0/+2 script-PC clear without resetting
 	// unrelated sprite, path, or timer fields.
-	if (Log.inMapMode())
+	if (Log.inStatusMode())
 		return kThxBye;
 	if (Actor *protag = Log.protagonist()) {
 		protag->unregisterLikeDos();
@@ -6328,7 +6328,7 @@ OPCODE(0xfb) {
 	// DOS Op_fb_handler @ 1000:593c. Zero args. The slot picker cancel path
 	// only redraws and returns. The successful load path restores the
 	// staged protagonist/current-place words, sets g_flag_misc_1 and
-	// g_flag_change_room, restores the non-map room backup, then sets
+	// g_flag_change_room, restores the non-status room backup, then sets
 	// g_break_loop. ScummVM loadGameDialog/loadGameStream performs the
 	// modal load. Engine::loadGameStream mirrors LoadGame_ReadFromDisk's
 	// restore-time slot side effect; Logic::restoreRoomFromBackupLikeDos
@@ -6336,7 +6336,7 @@ OPCODE(0xfb) {
 	// the successful g_break_loop path.
 	debugC(1, kDebugLevelScript, "opcode 0xfb: load game requested (ScummVM hotkey to load)");
 	if (_engine->loadGameDialog()) {
-		if (!Log.inMapMode())
+		if (!Log.inStatusMode())
 			Log.restoreRoomFromBackupLikeDos();
 		else
 			Log.setLogicDirty();

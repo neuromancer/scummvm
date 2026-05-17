@@ -74,7 +74,7 @@ static const VerbButtonRegion kVerbButtonRegions[] = {
 };
 
 static bool applyVerbButtonClickLikeDos(Logic *logic, const Common::Point &pos) {
-	if (!logic || logic->inMapMode() || logic->noStep() || logic->cursorMode() == 0x20)
+	if (!logic || logic->inStatusMode() || logic->noStep() || logic->cursorMode() == 0x20)
 		return false;
 
 	for (uint i = 0; i < ARRAYSIZE(kVerbButtonRegions); ++i) {

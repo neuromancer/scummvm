@@ -350,7 +350,8 @@ void Logic::setEngine(Engine *e) {
 	_currentBlock = 0xffff;
 	_nextRoom = 0;
 	_forceRoomRestart = false;
-	_enteringMapScreen = false;
+	_fullscreenGateActive = false;
+	_enteringStatusScreen = false;
 	_paused = false;
 	_currentPlace = 0;
 	_defaultCursorMode = 0x10;
@@ -376,10 +377,10 @@ bool Logic::speechWouldConsumeRightClickLikeDos() const {
 }
 
 void Logic::cycleCursorModeByRightClickLikeDos() {
-	// CheckDoubleClickReset @ 1000:b92c: when not in map mode, not
+	// CheckDoubleClickReset @ 1000:b92c: when not in status mode, not
 	// no-step, not dragging, and the locked button byte is 2, cycle
 	// through the verb cursor modes and clear step-pending via SetCursorMode.
-	if (_inMapMode || _noStep || _cursorMode == 0x20 || !_roomActive || canSkipCutscene())
+	if (_inStatusMode || _noStep || _cursorMode == 0x20 || !_roomActive || canSkipCutscene())
 		return;
 	if (speechWouldConsumeRightClickLikeDos())
 		return;
@@ -463,9 +464,9 @@ void Logic::runGlobalRoomLoop() {
 void Logic::runPostAnimationScripts() {
 	// DOS MainGameLoop runs the post-move callback after actor movement
 	// updates, then RunRoomLoopScript(mode 3) before RunStatusScript(mode 2).
-	// RunMapScreenLoop is a separate modal loop: it services map-mode room
+	// RunStatusScreenLoop is a separate modal loop: it services status-mode room
 	// scripts, but does not run the normal game post-move/global/room loops.
-	if (_inMapMode) {
+	if (_inStatusMode) {
 		tickMotionText();
 		return;
 	}
@@ -484,7 +485,7 @@ void Logic::callAnimations() {
 	if (!_animations.empty())
 		debugC(4, kDebugLevelFlow | kDebugLevelAnimation, "running animations");
 	for (Common::List<Animation *>::iterator it = _animations.begin(); it != _animations.end();) {
-		if (_inMapMode && (*it)->isActor()
+		if (_inStatusMode && (*it)->isActor()
 				&& static_cast<Actor *>(*it)->room() != _currentRoom) {
 			++it;
 			continue;
@@ -848,9 +849,9 @@ void Logic::updateScrollPosition() {
 
 void Logic::changeRoom(uint16 newRoom) {
 	// DOS ApplyChangeRoomTransition restores g_cursor_mode from DS:0x667a
-	// after the Op_cc fullscreen/map gate, before the restart-room pass clears
-	// the map-mode flag.
-	if (_inMapMode)
+	// after the Op_cc fullscreen gate, before the restart-room pass clears
+	// the fullscreen-gate flag.
+	if (_fullscreenGateActive)
 		setCursorMode(_defaultCursorMode);
 
 	// just schedule it, we'll execute on next tick
@@ -873,9 +874,9 @@ void Logic::doChangeRoom() {
 
 	debugC(1, kDebugLevelFlow, "Interspective: changeRoom %u → %u", (uint)_currentRoom, (uint)_nextRoom);
 	const bool forceRestart = _forceRoomRestart;
-	const bool enteringMapScreen = _enteringMapScreen;
+	const bool enteringStatusScreen = _enteringStatusScreen;
 	_forceRoomRestart = false;
-	_enteringMapScreen = false;
+	_enteringStatusScreen = false;
 	if (_nextRoom == _currentRoom && !forceRestart) {
 		_nextRoom = 0;
 		return;
@@ -913,11 +914,12 @@ void Logic::doChangeRoom() {
 	_stepPending = false;
 	_roomActive = true;
 	_hitTarget = 0;
-	_inMapMode = enteringMapScreen;
+	_inStatusMode = enteringStatusScreen;
+	_fullscreenGateActive = false;
 	_inputEnabled = true;
 	clearEscBreakPoint();
 	if (_engine && _engine->graphics())
-		_engine->graphics()->setFullscreen(enteringMapScreen);
+		_engine->graphics()->setFullscreen(false);
 	_motionText.clear();
 	_motionTextTicks = 0;
 	// DOS restart-room calls RecycleStaleSpeechSlots @ 1000:996c, which
@@ -1004,8 +1006,8 @@ void Logic::doChangeRoom() {
 	_blockInterpreter->run(roomHandler, kCodeNewRoom);
 	debugC(2, kDebugLevelScript, "<<<finished room entry code for room %d", _currentRoom);
 
-	if (enteringMapScreen && _engine && _engine->graphics() && _currentPlace != 0) {
-		// RunMapScreenLoop reloads the current-place backdrop immediately
+	if (enteringStatusScreen && _engine && _engine->graphics() && _currentPlace != 0) {
+		// RunStatusScreenLoop reloads the current-place backdrop immediately
 		// after EnsureRoomLoaded/room entry via RestoreBackdrop.
 		MainDat *main = _resources ? _resources->mainDat() : 0;
 		if (!main || _currentPlace > main->imagesCount())
@@ -1251,12 +1253,13 @@ CodePointer Logic::restoreSceneFrame() {
 	return frame.resumePC;
 }
 
-void Logic::backupRoomForMapLikeDos() {
-	// RunMapScreenLoop @ 1000:7695 saves these fields into DS:0x5ed5..0x5ee8,
+void Logic::backupRoomForStatusLikeDos() {
+	// RunStatusScreenLoop @ 1000:7695 saves these fields into DS:0x5ed5..0x5ee8,
 	// then snapshots cast, actor, and script state before switching to room 999.
 	_roomBackup.valid = true;
 	_roomBackup.currentBlock = _currentBlock;
 	_roomBackup.currentRoom = _currentRoom;
+	_roomBackup.loadedBackdropId = _loadedBackdropId;
 	_roomBackup.blockProgram = _blockProgram;
 	_roomBackup.blockInterpreter = _blockInterpreter;
 	_roomBackup.room = _room;
@@ -1274,17 +1277,17 @@ void Logic::backupRoomForMapLikeDos() {
 	_roomBackup.noStep = _noStep;
 }
 
-void Logic::enterMapScreenLoopLikeDos() {
+void Logic::enterStatusScreenLoopLikeDos() {
 	// DispatchVerbAction @ 1000:b9a0 sends hit-region 2 to
-	// RunMapScreenLoop @ 1000:7695. DOS snapshots the current room state,
+	// RunStatusScreenLoop @ 1000:7695. DOS snapshots the current room state,
 	// switches to special room 999, then lets that room's scripts drive the
 	// visible status/save/load surface until region 2 restores the backup.
-	if (_inMapMode || _enteringMapScreen)
+	if (_inStatusMode || _enteringStatusScreen)
 		return;
 
-	backupRoomForMapLikeDos();
-	// The DOS map loop saves the deferred queue/room-script slots, then
-	// services only map-room mode 7 until RestoreScriptStateBackup. Keep the
+	backupRoomForStatusLikeDos();
+	// The DOS status loop saves the deferred queue/room-script slots, then
+	// services only status-room mode 7 until RestoreScriptStateBackup. Keep the
 	// saved game-room queue out of the live C++ dispatcher while room 999 is
 	// active; restoreRoomFromBackupLikeDos() reinstates it.
 	_queued.clear();
@@ -1295,17 +1298,17 @@ void Logic::enterMapScreenLoopLikeDos() {
 	_cameraY = 0;
 	_scrollChanged = false;
 	_zones.clear();
-	_inMapMode = true;
+	_inStatusMode = true;
 	_noStep = false;
 	_roomActive = true;
 	_logicDirty = true;
-	_enteringMapScreen = true;
+	_enteringStatusScreen = true;
 	_nextRoom = 999;
 	_forceRoomRestart = true;
 	if (_engine && _engine->graphics()) {
-		_engine->graphics()->clearMapScreenTextLikeDos();
+		_engine->graphics()->clearStatusScreenTextLikeDos();
 		_engine->graphics()->clearBackdropLikeDos();
-		_engine->graphics()->setFullscreen(true);
+		_engine->graphics()->setFullscreen(false);
 	}
 }
 
@@ -1315,15 +1318,16 @@ void Logic::restoreRoomFromBackupLikeDos() {
 	//   g_loaded_backdrop_id; RestoreCastBackup; RestoreActorTableBackup;
 	//   RestoreScriptStateBackup; ResetRoomScriptSlot(7); ResetRoomScriptSlot(6);
 	//   step_pending = 0; auto_close_timer = 1; change_room = logic_dirty = 1;
-	//   in_map_mode = 0.
+	//   in_status_mode = 0.
 	if (_engine && _engine->graphics()) {
-		_engine->graphics()->clearMapScreenTextLikeDos();
+		_engine->graphics()->clearStatusScreenTextLikeDos();
 		_engine->graphics()->clearSpeech();
 	}
 
 	if (_roomBackup.valid) {
 		_currentBlock = _roomBackup.currentBlock;
 		_currentRoom = _roomBackup.currentRoom;
+		_loadedBackdropId = _roomBackup.loadedBackdropId;
 		_nextRoom = 0;
 		_blockProgram = _roomBackup.blockProgram;
 		_blockInterpreter = _roomBackup.blockInterpreter;
@@ -1359,7 +1363,7 @@ void Logic::restoreRoomFromBackupLikeDos() {
 	resetQueuedRunMode(6);
 	_stepPending = false;
 	_logicDirty = true;
-	_inMapMode = false;
+	_inStatusMode = false;
 }
 
 // Mirrors DOS RunPostMoveCallback @ 1000:73a6. The DOS check sequence is:
@@ -1408,7 +1412,7 @@ void Logic::runPostMoveCallbackIfReady() {
 		// DOS @ 0x4376: place the protagonist in the destination
 		// room/frame after the approach walk reaches the current entity,
 		// then sets restart-room/logic-dirty/paused flags unconditionally.
-		if (!_inMapMode && _protagonist) {
+		if (!_inStatusMode && _protagonist) {
 			const uint16 room = cb.cellId;
 			const uint16 frame = uint8(cb.arg0);
 			const uint16 nextFrame = uint8(cb.arg1);
@@ -2635,8 +2639,8 @@ void Logic::synchronize(Common::Serializer &s) {
 
 	uint32 frameCounter = _frameCounter;
 	uint16 gameState = _gameState;
-	uint8 inMapMode = _inMapMode ? 1 : 0;
-	uint8 mapScreenInitialized = _mapScreenInitialized ? 1 : 0;
+	uint8 inStatusMode = _inStatusMode ? 1 : 0;
+	uint8 fullscreenGateInitialized = _fullscreenGateInitialized ? 1 : 0;
 	uint8 roomActive = _roomActive ? 1 : 0;
 	uint8 logicDirty = _logicDirty ? 1 : 0;
 	uint8 stepPending = _stepPending ? 1 : 0;
@@ -2681,8 +2685,8 @@ void Logic::synchronize(Common::Serializer &s) {
 
 	s.syncAsUint32LE(frameCounter);
 	s.syncAsUint16LE(gameState);
-	s.syncAsByte(inMapMode);
-	s.syncAsByte(mapScreenInitialized);
+	s.syncAsByte(inStatusMode);
+	s.syncAsByte(fullscreenGateInitialized);
 	s.syncAsByte(roomActive);
 	s.syncAsByte(logicDirty);
 	s.syncAsByte(stepPending);
@@ -2729,8 +2733,9 @@ void Logic::synchronize(Common::Serializer &s) {
 	if (s.isLoading()) {
 		_frameCounter = frameCounter;
 		_gameState = gameState;
-		_inMapMode = inMapMode != 0;
-		_mapScreenInitialized = mapScreenInitialized != 0;
+		_inStatusMode = inStatusMode != 0;
+		_fullscreenGateActive = false;
+		_fullscreenGateInitialized = fullscreenGateInitialized != 0;
 		_roomActive = roomActive != 0;
 		_logicDirty = logicDirty != 0;
 		_stepPending = stepPending != 0;
@@ -2773,7 +2778,7 @@ void Logic::synchronize(Common::Serializer &s) {
 		_menuStashB = menuStashB;
 		_menuStashConsumed = menuStashConsumed != 0;
 		if (!hasScreenMode && _engine && _engine->graphics())
-			_engine->graphics()->setFullscreen(_inMapMode || !_roomActive);
+			_engine->graphics()->setFullscreen(!_roomActive);
 		_runningQueued = nullptr;
 		_runningQueuedMode = 0;
 	}

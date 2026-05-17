@@ -99,7 +99,7 @@ static bool containsDosHalfOpen(int16 left, int16 top, int16 right, int16 bottom
 
 static int16 hitRegionAtPointLikeDos(const Common::Point &pos) {
 	// iuc_main.dat hit-region table (footer +0x5a):
-	//   0 = room, 1 = inventory strip, 2 = map button, 3..8 = verb buttons.
+	//   0 = room, 1 = inventory strip, 2 = status button, 3..8 = verb buttons.
 	if (containsDosHalfOpen(0, 0, 320, 152, pos))
 		return 0;
 	if (containsDosHalfOpen(128, 160, 310, 191, pos))
@@ -409,14 +409,14 @@ void EventManager::clicked(Common::Point pos) {
 		return;
 	if (hitRegion == 2) {
 		logic.setStepPending(true);
-		if (logic.inMapMode()) {
+		if (logic.inStatusMode()) {
 			debugC(1, kDebugLevelEvents,
-				"status/map button restores previous room [DOS RunMapScreenLoop]");
+				"status button restores previous room [DOS RunStatusScreenLoop]");
 			logic.restoreRoomFromBackupLikeDos();
 		} else {
 			debugC(1, kDebugLevelEvents,
-				"status/map button enters room 999 [DOS RunMapScreenLoop]");
-			logic.enterMapScreenLoopLikeDos();
+				"status button enters room 999 [DOS RunStatusScreenLoop]");
+			logic.enterStatusScreenLoopLikeDos();
 		}
 		return;
 	}
@@ -440,7 +440,7 @@ void EventManager::clicked(Common::Point pos) {
 	if (logic.roomChangePending() || logic.currentRoom() != currentRoom)
 		return;
 
-	if (logic.inMapMode() && dispatchCursorMode != 1 && dispatchCursorMode != 0x20)
+	if (logic.inStatusMode() && dispatchCursorMode != 1 && dispatchCursorMode != 0x20)
 		return;
 
 	if (dispatchCursorMode == 0x20) {

@@ -97,7 +97,7 @@ void Graphics::paint() {
 
 	paintBackdrop();
 	paintAnimations();
-	paintMapScreenTextLikeDos();
+	paintStatusScreenTextLikeDos();
 	paintInterface();
 	paintSpeech();
 	_engine->logic()->paintMotionText();
@@ -1102,12 +1102,12 @@ Common::Rect Graphics::paintText(uint16 left, uint16 top, byte colour, const byt
 	return Common::Rect(left, top, max_left, current_top + kLineHeight);
 }
 
-void Graphics::clearMapScreenTextLikeDos() {
-	_mapScreenText.clear();
+void Graphics::clearStatusScreenTextLikeDos() {
+	_statusScreenText.clear();
 }
 
-void Graphics::rememberMapScreenTextLikeDos(uint16 left, uint16 top, byte colour, const Common::String &text) {
-	for (Common::Array<MapScreenTextEntry>::iterator it = _mapScreenText.begin(); it != _mapScreenText.end(); ++it) {
+void Graphics::rememberStatusScreenTextLikeDos(uint16 left, uint16 top, byte colour, const Common::String &text) {
+	for (Common::Array<StatusScreenTextEntry>::iterator it = _statusScreenText.begin(); it != _statusScreenText.end(); ++it) {
 		if (it->left == left && it->top == top) {
 			it->colour = colour;
 			it->text = text;
@@ -1116,21 +1116,21 @@ void Graphics::rememberMapScreenTextLikeDos(uint16 left, uint16 top, byte colour
 		}
 	}
 
-	MapScreenTextEntry entry;
+	StatusScreenTextEntry entry;
 	entry.left = left;
 	entry.top = top;
 	entry.colour = colour;
 	entry.text = text;
-	_mapScreenText.push_back(entry);
+	_statusScreenText.push_back(entry);
 	markFullRedraw();
 }
 
-void Graphics::paintMapScreenTextLikeDos() {
+void Graphics::paintStatusScreenTextLikeDos() {
 	const Logic *logic = _engine ? _engine->logic() : 0;
-	if (!logic || !logic->inMapMode() || _mapScreenText.empty())
+	if (!logic || !logic->inStatusMode() || _statusScreenText.empty())
 		return;
 
-	for (Common::Array<MapScreenTextEntry>::const_iterator it = _mapScreenText.begin(); it != _mapScreenText.end(); ++it)
+	for (Common::Array<StatusScreenTextEntry>::const_iterator it = _statusScreenText.begin(); it != _statusScreenText.end(); ++it)
 		paintText(it->left, it->top, it->colour,
 		          reinterpret_cast<const byte *>(it->text.c_str()),
 		          _framebuffer.get(), 0, 0, kPaintNoDirty);
