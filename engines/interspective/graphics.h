@@ -50,7 +50,8 @@ class Graphics : public Common::Singleton<Graphics> {
 public:
 	Graphics() : _cursorPosition(160, 100), _hostCursorShown(false),
 	             _roomCloseUpActive(false), _roomCloseUpPoint(0, 0),
-	             _inventoryCloseUpObjectId(0) {}
+	             _inventoryCloseUpObjectId(0),
+	             _conversationPaletteRestorePending(false) {}
 
 	void setEngine(Engine *engine);
 
@@ -113,6 +114,7 @@ public:
 
 	uint16 ask(uint16 left, uint16 top, byte width, byte height, byte *string, uint16 *selectedIndex = 0);
 	uint16 askVerbBubbleLikeDos(byte paletteMode, byte *string, uint16 *selectedIndex = 0);
+	uint16 askVerbBubbleTextLikeDos(byte paletteMode, const byte *string, uint16 *selectedIndex = 0);
 	void showVerbBubbleTextLikeDos(byte paletteMode, const byte *string, uint16 frames);
 	Common::Rect paintText(uint16 left, uint16 top, byte colour, const byte *string) {
 		return paintText(left, top, colour, string, _framebuffer.get(), 0, 0, 0);
@@ -189,6 +191,9 @@ private:
 	uint16 calculateLineWidth(const byte *string) const;
 	Sprite *getGlyph(byte ch) const;
 	void prepareConversationPaletteLikeDos();
+	void beginConversationModalLikeDos();
+	void finishConversationModalLikeDos();
+	void restoreConversationPaletteLikeDos();
 	void paintConversationBackdropLikeDos();
 	void paintInterfaceMinimapLikeDos();
 	void paintRoomCloseUpLikeDos();
@@ -253,6 +258,8 @@ private:
 	bool _roomCloseUpActive;
 	Common::Point _roomCloseUpPoint;
 	uint16 _inventoryCloseUpObjectId;
+	bool _conversationPaletteRestorePending;
+	byte _conversationSavedPalette[0x300];
 
 	// Active speech bubble. _speech is the text being painted; when
 	// _speechFramesLeft hits 0 the painter invokes _speechDoneCallback (if

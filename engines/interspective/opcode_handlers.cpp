@@ -692,6 +692,33 @@ static bool formattedTextHasMenuOptions(const Common::String &text) {
 	return false;
 }
 
+static bool formattedTextIsPureChoiceListLikeDos(const Common::String &text) {
+	bool sawChoice = false;
+	for (uint i = 0; i < text.size();) {
+		const byte ch = byte(text[i++]);
+		if (ch == '\r' || ch == '\n' || ch == 0x04 || ch == kStringDefaultColour)
+			continue;
+		if (ch == kStringSetColour || ch == kStringAdvance || ch == kStringCenter) {
+			if (i < text.size())
+				++i;
+			continue;
+		}
+		if (ch != kStringMenuOption)
+			return false;
+
+		sawChoice = true;
+		while (i < text.size() && byte(text[i]) != 0)
+			++i;
+		if (i >= text.size())
+			return false;
+		++i; // label terminator
+		if (i + 2 > text.size())
+			return false;
+		i += 2; // branch target
+	}
+	return sawChoice;
+}
+
 static uint16 modalChoiceLineWidth(const Common::String &text) {
 	uint16 width = 0;
 	for (uint i = 0; i < text.size(); ++i) {
@@ -820,6 +847,14 @@ static bool runFormattedChoiceModalLikeDos(const Logic::FormattedBubble &fb,
 	Common::String visible = stripFormattedRowCenterRecords(fb);
 	if (!formattedTextHasMenuOptions(visible))
 		return false;
+
+	if (!formattedTextIsPureChoiceListLikeDos(visible)) {
+		target = Graf.askVerbBubbleTextLikeDos(Log.modalState().paletteMode,
+			reinterpret_cast<const byte *>(visible.c_str()), selectedIndex);
+		debugC(1, kDebugLevelScript, "inline formatted modal choice selected index=%u target=0x%04x",
+		       selectedIndex ? *selectedIndex : 0xffff, target);
+		return true;
+	}
 
 	const uint16 widthPixels = uint16(fb.maxLineWidth + 0x40);
 	target = runEncodedChoiceModalLikeDos(reinterpret_cast<const byte *>(visible.c_str()), MAX<uint16>(1, rows),
