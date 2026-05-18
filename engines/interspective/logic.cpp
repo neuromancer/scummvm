@@ -365,6 +365,9 @@ void Logic::setEngine(Engine *e) {
 	_postMoveTargetFrameMirror = 0;
 	_speechSkipInput = false;
 	_loadedBackdropId = 0;
+	_loadBlockOverrideId = 0xffff;
+	_loadBlockOverrideData.clear();
+	resetActiveActorTableLikeDos();
 	_roomBackup = RoomBackup();
 	_statusSaveShadow = RoomBackup();
 	_statusSaveOverrideActive = false;
@@ -553,10 +556,21 @@ void Logic::callAnimations() {
 	if (!_animations.empty())
 		debugC(4, kDebugLevelFlow | kDebugLevelAnimation, "running animations");
 	for (Common::List<Animation *>::iterator it = _animations.begin(); it != _animations.end();) {
-		if (_inStatusMode && (*it)->isActor()
-				&& static_cast<Actor *>(*it)->room() != _currentRoom) {
-			++it;
-			continue;
+		if ((*it)->isActor()) {
+			Actor * const actor = static_cast<Actor *>(*it);
+			if (_inStatusMode && actor->room() != _currentRoom) {
+				++it;
+				continue;
+			}
+			if (!activeActorLikeDos(actorGlobalId(actor))) {
+				// DOS room-script slots are checked before actor animation
+				// updates and are independent of the active actor render table.
+				// An ActorOp_02 unregister therefore must still be able to
+				// release a pending Op_9a/0x99 wait on the next frame.
+				actor->processWaitCallbacksLikeDos();
+				++it;
+				continue;
+			}
 		}
 		Animation::Status ret = (*it)->tick();
 		if (ret == Animation::kRemove) {
@@ -574,6 +588,90 @@ void Logic::clearRoomTransientAnimations() {
 			it = _animations.erase(it);
 		else
 			++it;
+	}
+}
+
+void Logic::resetActiveActorTableLikeDos() {
+	_activeActorIds.clear();
+	_activeActorIds.resize(kActiveActorTableSlots);
+	for (uint i = 0; i < _activeActorIds.size(); ++i)
+		_activeActorIds[i] = 0;
+}
+
+bool Logic::registerActiveActorLikeDos(uint16 id) {
+	if (id == 0)
+		return false;
+	if (_activeActorIds.size() != kActiveActorTableSlots)
+		resetActiveActorTableLikeDos();
+	for (uint i = 0; i < _activeActorIds.size(); ++i)
+		if (_activeActorIds[i] == id)
+			return true;
+	for (uint i = 0; i < _activeActorIds.size(); ++i) {
+		if (_activeActorIds[i] == 0) {
+			_activeActorIds[i] = id;
+			return true;
+		}
+	}
+	setPendingError(0x2b);
+	return false;
+}
+
+void Logic::unregisterActiveActorLikeDos(uint16 id) {
+	for (uint i = 0; i < _activeActorIds.size(); ++i)
+		if (_activeActorIds[i] == id)
+			_activeActorIds[i] = 0;
+}
+
+bool Logic::activeActorLikeDos(uint16 id) const {
+	for (uint i = 0; i < _activeActorIds.size(); ++i)
+		if (_activeActorIds[i] == id)
+			return true;
+	return false;
+}
+
+void Logic::registerCurrentRoomActorsLikeDos() {
+	if (!_resources || !_resources->mainDat())
+		return;
+
+	const uint16 mainActors = _resources->mainDat()->actorsCount();
+	for (uint16 i = 0; i < mainActors; ++i) {
+		const uint16 id = i + 1;
+		Actor * const actor = _resources->mainDat()->actor(i);
+		if (!actor || actor->room() != _currentRoom || actor->dosFieldWord(Actor::kOffsetOffset) == 0)
+			continue;
+		registerActiveActorLikeDos(id);
+		actor->prepareRoomEntryActiveActorLikeDos();
+	}
+
+	if (!_blockProgram)
+		return;
+
+	const uint16 blockActors = _blockProgram->actorsCount();
+	for (uint16 i = 0; i < blockActors; ++i) {
+		const uint16 id = uint16(mainActors + i + 1);
+		Actor * const actor = _blockProgram->actor(i);
+		if (!actor || actor->room() != _currentRoom || actor->dosFieldWord(Actor::kOffsetOffset) == 0)
+			continue;
+		registerActiveActorLikeDos(id);
+		actor->prepareRoomEntryActiveActorLikeDos();
+	}
+}
+
+void Logic::refreshCurrentRoomActorFramesLikeDos() {
+	// DOS DrawActors @ 1000:6cca walks the active actor table every pass:
+	// if actor.field+0x61 is nonzero it calls SetActorPosition, then starts
+	// MoveActorToTargetExit when field+0x62 differs. C++ keeps the actor path
+	// queue outside the saved scalar fields, so this must run again after
+	// deserializing actors, not only during the initial room restart.
+	for (uint i = 0; i < _activeActorIds.size(); ++i) {
+		Actor * const ac = getActor(_activeActorIds[i]);
+		if (ac && ac->room() == _currentRoom && ac->frameId() != 0) {
+			const uint16 frame = ac->frameId();
+			const uint16 target = ac->targetFrameId();
+			ac->setFrame(frame);
+			if (target != frame)
+				ac->moveTo(target);
+		}
 	}
 }
 
@@ -1010,6 +1108,7 @@ void Logic::doChangeRoom() {
 	// room script. Mirror the modeled pieces here for every room change,
 	// not only block changes.
 	clearRoomTransientAnimations();
+	resetActiveActorTableLikeDos();
 	castTableClearAll();
 	_overlayQueue.clear();
 	clearDrawCommands();
@@ -1093,6 +1192,17 @@ void Logic::doChangeRoom() {
 
 		_currentBlock = newBlock;
 		_blockProgram = Common::SharedPtr<Program>(_resources->loadCodeBlock(newBlock));
+		if (_loadBlockOverrideId == newBlock && !_loadBlockOverrideData.empty()) {
+			if (_blockProgram->codeSize() == _loadBlockOverrideData.size()) {
+				memcpy(_blockProgram->base(), &_loadBlockOverrideData[0], _loadBlockOverrideData.size());
+			} else {
+				setPendingError(0x07);
+				warning("Interspective: saved block %u image size %u does not match loaded block size %u",
+					(uint)newBlock, (uint)_loadBlockOverrideData.size(), (uint)_blockProgram->codeSize());
+			}
+			_loadBlockOverrideData.clear();
+			_loadBlockOverrideId = 0xffff;
+		}
 		// DOS keeps the AddExitToList dynamic-object list in global
 		// state; inventory objects registered before a block change must
 		// survive into the playable room.
@@ -1110,6 +1220,7 @@ void Logic::doChangeRoom() {
 	}
 
 	cancelDeferredScriptsForInterpreter(_blockInterpreter.get());
+	registerCurrentRoomActorsLikeDos();
 
 	_room = Common::SharedPtr<Room>(new Room(this));
 	const uint16 roomHandler = _blockProgram->roomHandler(_currentRoom);
@@ -1149,21 +1260,7 @@ void Logic::doChangeRoom() {
 	// shortcut fires — matching what the skipped intro animation would
 	// have done.)
 
-	// DOS DrawActors @ 1000:64f4 runs after the room script. For each
-	// active actor in the current room it calls SetActorPosition only when
-	// actor.field+0x61 is nonzero, then starts target movement when
-	// field+0x62 differs. Actors with frame 0 keep their raw x/y fields.
-	foreach(Animation *, _animations)
-		if ((*it)->isActor()) {
-			Actor * const ac = static_cast<Actor *>(*it);
-			if (ac->room() == _currentRoom && ac->frameId() != 0) {
-				const uint16 frame = ac->frameId();
-				const uint16 target = ac->targetFrameId();
-				ac->setFrame(frame);
-				if (target != frame)
-					ac->moveTo(target);
-			}
-		}
+	refreshCurrentRoomActorFramesLikeDos();
 
 	if (changedBlock)
 		restartBlockAudioLikeDos();
@@ -1331,6 +1428,108 @@ uint16 Logic::deferredQueuedCount() const {
 	return count;
 }
 
+void Logic::syncCodePointerLikeDos(Common::Serializer &s, CodePointer &p) const {
+	enum SavedCodeSegment {
+		kSavedCodeNone = 0,
+		kSavedCodeMain = 1,
+		kSavedCodeBlock = 2
+	};
+
+	uint8 source = kSavedCodeNone;
+	uint16 offset = p.offset();
+	if (s.isSaving() && !p.isEmpty()) {
+		if (p.interpreter() == _toplevelInterpreter.get()) {
+			source = kSavedCodeMain;
+		} else if (p.interpreter() == _blockInterpreter.get()) {
+			source = kSavedCodeBlock;
+		} else {
+			warning("Interspective: dropping save callback for stale interpreter %p at 0x%04x",
+				(void *)p.interpreter(), (uint)offset);
+			source = kSavedCodeNone;
+			offset = 0;
+		}
+	}
+
+	s.syncAsByte(source);
+	s.syncAsUint16LE(offset);
+
+	if (!s.isLoading())
+		return;
+
+	switch (source) {
+	case kSavedCodeMain:
+		p = CodePointer(offset, _toplevelInterpreter.get());
+		break;
+	case kSavedCodeBlock:
+		p = CodePointer(offset, _blockInterpreter.get());
+		break;
+	default:
+		p.reset();
+		break;
+	}
+}
+
+void Logic::syncQueuedRunsLikeDos(Common::Serializer &s) {
+	uint16 count = uint16(_queued.size());
+	s.syncAsUint16LE(count);
+
+	if (s.isLoading()) {
+		_queued.clear();
+		_runningQueued = 0;
+		_runningQueuedMode = 0;
+		for (uint16 i = 0; i < count; ++i) {
+			CodePointer code;
+			syncCodePointerLikeDos(s, code);
+			uint16 delay = 0;
+			uint16 queuedTick = 0;
+			uint16 runMode = 0;
+			uint8 hasRunMode = 0;
+			uint16 deferredMode = 0;
+			uint8 canceled = 0;
+			uint8 waitKind = 0;
+			uint16 waitParam = 0;
+			s.syncAsUint16LE(delay);
+			s.syncAsUint16LE(queuedTick);
+			s.syncAsUint16LE(runMode);
+			s.syncAsByte(hasRunMode);
+			s.syncAsUint16LE(deferredMode);
+			s.syncAsByte(canceled);
+			s.syncAsByte(waitKind);
+			s.syncAsUint16LE(waitParam);
+			if (code.isEmpty())
+				continue;
+			if (waitKind > DelayedRun::kWaitCastEntryInactive)
+				waitKind = DelayedRun::kWaitNone;
+			DelayedRun run(code, delay, queuedTick, runMode, hasRunMode != 0,
+				deferredMode, static_cast<DelayedRun::WaitKind>(waitKind), waitParam);
+			run.canceled = canceled != 0;
+			_queued.push_back(run);
+		}
+		return;
+	}
+
+	for (Common::List<DelayedRun>::const_iterator it = _queued.begin(); it != _queued.end(); ++it) {
+		CodePointer code = it->code;
+		uint16 delay = it->delay;
+		uint16 queuedTick = it->queuedTick;
+		uint16 runMode = it->runMode;
+		uint8 hasRunMode = it->hasRunMode ? 1 : 0;
+		uint16 deferredMode = it->deferredMode;
+		uint8 canceled = it->canceled ? 1 : 0;
+		uint8 waitKind = uint8(it->waitKind);
+		uint16 waitParam = it->waitParam;
+		syncCodePointerLikeDos(s, code);
+		s.syncAsUint16LE(delay);
+		s.syncAsUint16LE(queuedTick);
+		s.syncAsUint16LE(runMode);
+		s.syncAsByte(hasRunMode);
+		s.syncAsUint16LE(deferredMode);
+		s.syncAsByte(canceled);
+		s.syncAsByte(waitKind);
+		s.syncAsUint16LE(waitParam);
+	}
+}
+
 bool Logic::queueDeferred(const CodePointer &p) {
 	static const uint16 kDeferredModeBase = 0x0b;
 	static const uint16 kDeferredSlotCount = 8;
@@ -1451,6 +1650,7 @@ void Logic::saveSceneFrame(const CodePointer &resumePC) {
 	// Snapshot _animations so the sub-scene's loadActors-appended
 	// entries can be unwound on pop (DOS RestoreActorTableBackup).
 	frame->savedAnimations = _animations;
+	frame->savedActiveActorIds = _activeActorIds;
 	// Snapshot the post-move callback record (DOS [0x65ab..0x65bb]).
 	// The sub-scene starts with a clean slot and any callbacks it
 	// arms get cleared on pop.
@@ -1507,6 +1707,7 @@ CodePointer Logic::restoreSceneFrame() {
 	// SceneFrame held the old Program SharedPtr keeping their _code
 	// buffer valid.
 	_animations = frame.savedAnimations;
+	_activeActorIds = frame.savedActiveActorIds;
 	// Restore the post-move callback slot (any sub-scene callback is
 	// dropped — DOS Op_97/Op_98 do this by save/restoring the [0x65ab..]
 	// register block).
@@ -1527,6 +1728,7 @@ void Logic::captureRoomStateForStatusSaveLikeDos(RoomBackup &dst) const {
 	dst.blockInterpreter = _blockInterpreter;
 	dst.room = _room;
 	dst.animations = _animations;
+	dst.activeActorIds = _activeActorIds;
 	dst.castTable = _castTable;
 	dst.queued = _queued;
 	dst.cameraX = _cameraX;
@@ -1568,6 +1770,7 @@ void Logic::applyRoomStateForStatusSaveLikeDos(const RoomBackup &src) {
 	_blockInterpreter = src.blockInterpreter;
 	_room = src.room;
 	_animations = src.animations;
+	_activeActorIds = src.activeActorIds;
 	_castTable = src.castTable;
 	_queued = src.queued;
 	_cameraX = src.cameraX;
@@ -1701,6 +1904,7 @@ void Logic::restoreRoomFromBackupLikeDos() {
 		_blockInterpreter = _roomBackup.blockInterpreter;
 		_room = _roomBackup.room;
 		_animations = _roomBackup.animations;
+		_activeActorIds = _roomBackup.activeActorIds;
 		_castTable = _roomBackup.castTable;
 		_queued = _roomBackup.queued;
 		_cameraX = _roomBackup.cameraX;
@@ -3007,24 +3211,25 @@ void Logic::setRoomLoop(const CodePointer &code) {
 	_roomLoop = Common::SharedPtr<CodePointer>(new CodePointer(code));
 }
 
+void Logic::setLoadBlockImageOverride(uint16 blockId, const Common::Array<byte> &data) {
+	_loadBlockOverrideId = blockId;
+	_loadBlockOverrideData = data;
+}
+
 void Logic::synchronize(Common::Serializer &s) {
 	uint16 currentRoom = uint16(_currentRoom);
 	uint16 currentPlace = _currentPlace;
 	uint16 protagonistId = _protagonistId;
 	uint16 currentBlock = _currentBlock;
 	uint16 loadedBackdropId = _loadedBackdropId;
-	const bool hasLoadedBackdropId = s.getVersion() >= 2;
-	const bool hasScreenMode = s.getVersion() >= 3;
 	uint8 screenFullscreen = (_engine && _engine->graphics() && _engine->graphics()->screenHeight() == 200) ? 1 : 0;
 
 	s.syncAsUint16LE(currentRoom);
 	s.syncAsUint16LE(currentPlace);
 	s.syncAsUint16LE(protagonistId);
 	s.syncAsUint16LE(currentBlock);
-	if (hasLoadedBackdropId)
-		s.syncAsUint16LE(loadedBackdropId);
-	if (hasScreenMode)
-		s.syncAsByte(screenFullscreen);
+	s.syncAsUint16LE(loadedBackdropId);
+	s.syncAsByte(screenFullscreen);
 
 	if (s.isLoading()) {
 		_queued.clear();
@@ -3034,15 +3239,9 @@ void Logic::synchronize(Common::Serializer &s) {
 		_roomBackup = RoomBackup();
 		_enteringStatusScreen = false;
 		_currentRoom = 0xffff;
+		_currentBlock = 0xffff;
 		_nextRoom = 0;
 		_currentPlace = currentPlace;
-		if (currentRoom != 0 && currentRoom != 0xffff)
-			changeRoom(currentRoom);
-		setProtagonist(protagonistId);
-		if (hasLoadedBackdropId)
-			_loadedBackdropId = loadedBackdropId;
-		if (hasScreenMode && _engine && _engine->graphics())
-			_engine->graphics()->setFullscreen(screenFullscreen != 0);
 	}
 
 	uint32 frameCounter = _frameCounter;
@@ -3138,10 +3337,9 @@ void Logic::synchronize(Common::Serializer &s) {
 	s.syncAsUint16LE(menuStashA);
 	s.syncAsUint16LE(menuStashB);
 	s.syncAsByte(menuStashConsumed);
-	if (s.getVersion() >= 6)
-		s.syncAsSint16LE(autoCloseTimer);
+	s.syncAsSint16LE(autoCloseTimer);
 
-	if (s.isLoading()) {
+	const auto applyLoadedScalarState = [&]() {
 		_frameCounter = frameCounter;
 		_gameState = gameState;
 		_inStatusMode = inStatusMode != 0;
@@ -3150,9 +3348,9 @@ void Logic::synchronize(Common::Serializer &s) {
 		_roomActive = roomActive != 0;
 		_logicDirty = logicDirty != 0;
 		_stepPending = stepPending != 0;
-	_noStep = noStep != 0;
-	_defaultCursorMode = defaultCursorMode;
-	_cursorMode = cursorMode;
+		_noStep = noStep != 0;
+		_defaultCursorMode = defaultCursorMode;
+		_cursorMode = cursorMode;
 		_dragTarget = dragTarget;
 		_dragTargetMode40 = dragTargetMode40;
 		_hitTarget = hitTarget;
@@ -3188,11 +3386,13 @@ void Logic::synchronize(Common::Serializer &s) {
 		_menuStashA = menuStashA;
 		_menuStashB = menuStashB;
 		_menuStashConsumed = menuStashConsumed != 0;
-		_autoCloseTimer = (s.getVersion() >= 6) ? autoCloseTimer : 0;
-		if (!hasScreenMode && _engine && _engine->graphics())
-			_engine->graphics()->setFullscreen(!_roomActive);
+		_autoCloseTimer = autoCloseTimer;
 		_runningQueued = nullptr;
 		_runningQueuedMode = 0;
+	};
+
+	if (s.isLoading()) {
+		applyLoadedScalarState();
 	}
 
 	syncHashMapUint16Uint16(s, _objectRoom);
@@ -3212,17 +3412,34 @@ void Logic::synchronize(Common::Serializer &s) {
 	for (int i = 0; i < 7; ++i)
 		s.syncAsUint16LE(_graphicSlots[i]);
 
-	if (s.getVersion() >= 4) {
-		for (uint i = 0; i < ARRAYSIZE(_dirtyObjectPlacements); ++i) {
-			s.syncAsUint16LE(_dirtyObjectPlacements[i].objId);
-			s.syncAsSint16LE(_dirtyObjectPlacements[i].currentX);
-			s.syncAsSint16LE(_dirtyObjectPlacements[i].currentYMinusHeight);
-			s.syncAsSint16LE(_dirtyObjectPlacements[i].targetX);
-			s.syncAsSint16LE(_dirtyObjectPlacements[i].targetYMinusHeight);
-		}
-	} else if (s.isLoading()) {
-		for (uint i = 0; i < ARRAYSIZE(_dirtyObjectPlacements); ++i)
-			_dirtyObjectPlacements[i] = DirtyObjectPlacement();
+	for (uint i = 0; i < ARRAYSIZE(_dirtyObjectPlacements); ++i) {
+		s.syncAsUint16LE(_dirtyObjectPlacements[i].objId);
+		s.syncAsSint16LE(_dirtyObjectPlacements[i].currentX);
+		s.syncAsSint16LE(_dirtyObjectPlacements[i].currentYMinusHeight);
+		s.syncAsSint16LE(_dirtyObjectPlacements[i].targetX);
+		s.syncAsSint16LE(_dirtyObjectPlacements[i].targetYMinusHeight);
+	}
+
+	if (s.isLoading()) {
+		const Actor::Frame loadedActorFrameZero = _actorFrameZero;
+		const Common::Array<Actor::Frame> loadedActorFrameTable = _actorFrameTable;
+		const uint16 loadedActorFrameCount = _actorFrameCount;
+
+		if (currentRoom != 0 && currentRoom != 0xffff)
+			changeRoom(currentRoom);
+
+		// Room-entry scripts rebuild transient cast/animation/minimap state
+		// from the restored persistent maps. Reapply serialized scalar and
+		// actor-frame state afterwards because doChangeRoom() resets the same
+		// DOS globals while entering the room.
+		applyLoadedScalarState();
+		_actorFrameZero = loadedActorFrameZero;
+		_actorFrameTable = loadedActorFrameTable;
+		_actorFrameCount = MIN<uint16>(loadedActorFrameCount, uint16(_actorFrameTable.size()));
+		setProtagonist(protagonistId);
+		_loadedBackdropId = loadedBackdropId;
+		if (_engine && _engine->graphics())
+			_engine->graphics()->setFullscreen(screenFullscreen != 0);
 	}
 
 	uint16 actorCount = _resources->mainDat()->actorsCount();
@@ -3236,6 +3453,17 @@ void Logic::synchronize(Common::Serializer &s) {
 		if (!actor)
 			error("invalid actor %u while synchronizing Interspective save", storedId);
 		actor->synchronize(s);
+	}
+
+	syncUint16Array(s, _activeActorIds);
+	if (s.isLoading() && _activeActorIds.size() != kActiveActorTableSlots)
+		_activeActorIds.resize(kActiveActorTableSlots);
+
+	syncQueuedRunsLikeDos(s);
+
+	if (s.isLoading()) {
+		registerCurrentRoomActorsLikeDos();
+		refreshCurrentRoomActorFramesLikeDos();
 	}
 }
 

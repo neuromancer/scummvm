@@ -2448,7 +2448,7 @@ OPCODE(0xbc) {
 	// DOS Op_bc_handler @ 1000:5085: no-op in status mode, otherwise resolve
 	// actor id, validate against GetActorOffset-style bounds, then
 	// UnregisterActor. DOS clears only actor fields +0/+2 and removes the
-	// id from g_actor_table; C++ mirrors the script-PC clear directly.
+	// id from g_actor_table.
 	if (Log.inStatusMode())
 		return kThxBye;
 	const uint16 id = uint16(a[0]);
@@ -6182,8 +6182,8 @@ OPCODE(0xc1) {
 	//     DI += 0x2e;  LOOP;
 	//   RET;  // no match
 	//
-	// C++ mirrors the actor field +0/+2 script-PC clear without resetting
-	// unrelated sprite, path, or timer fields.
+	// C++ mirrors the actor field +0/+2 script-PC clear and active-table
+	// removal without resetting unrelated sprite, path, or timer fields.
 	if (Log.inStatusMode())
 		return kThxBye;
 	if (Actor *protag = Log.protagonist()) {

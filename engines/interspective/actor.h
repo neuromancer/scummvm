@@ -242,7 +242,7 @@ public:
 	// Used by Logic::doChangeRoom to keep the protagonist's _room in
 	// sync with _currentRoom so the gating in Actor::tick() doesn't
 	// short-circuit (see PLAN iter-27).
-	void forceRoom(uint16 r) { _room = r; }
+	void forceRoom(uint16 r) { _room = r; setDosFieldWord(kOffsetRoom, r); }
 
 	// DOS-aligned room/frame placement that does NOT reset the actor's
 	// animation script. Mirrors the field assignments in
@@ -269,7 +269,9 @@ public:
 	void setAnimation(const CodePointer &anim);
 	void setAnimation(uint16);
 
+	void clearScriptPcLikeDos();
 	void unregisterLikeDos();
+	void prepareRoomEntryActiveActorLikeDos();
 	void hide();
 	void callMe(const CodePointer &cp);
 	void callMeWithMode(const CodePointer &cp, uint16 mode);
@@ -287,6 +289,7 @@ public:
 	void restoreRoomScriptWait(const RoomScriptWaitSnapshot &snapshot);
 	bool hasRoomScriptWaitMode(uint16 mode) const;
 	void dropRoomScriptWaitMode(uint16 mode);
+	void processWaitCallbacksLikeDos();
 	enum RoomScriptWaitDispatch {
 		kNoRoomScriptWait,
 		kRoomScriptWaitPending,
@@ -311,6 +314,7 @@ public:
 	void paint(Graphics *g);
 	void paintSpeech(Graphics *g);
 	void synchronize(Common::Serializer &s);
+	void syncWaitCallbacksLikeDos(Common::Serializer &s);
 
 	void toggleDebug();
 
@@ -328,6 +332,8 @@ private:
 	void animate();
 	void updateZoneAtPointLikeDos();
 	void resetActorStateFieldsLikeDos();
+	void mirrorFirstClassFieldsToDosRecordLikeDos();
+	void registerActiveIfCurrentRoomLikeDos();
 	bool consumeReadyMarkerCallbackLikeDos();
 	bool turnTo(Direction);
 	bool nextFrame();

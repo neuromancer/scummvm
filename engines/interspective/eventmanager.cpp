@@ -283,6 +283,8 @@ static HitTarget hitActorAtPointLikeDos(Logic &logic, Common::Point world) {
 	if (logic.blockProgram())
 		actorCount += logic.blockProgram()->actorsCount();
 	for (uint16 id = 1; id <= actorCount; ++id) {
+		if (!logic.activeActorLikeDos(id))
+			continue;
 		Actor *actor = logic.getActor(id);
 		if (!actor || actor->room() != logic.currentRoom())
 			continue;

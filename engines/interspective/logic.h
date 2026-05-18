@@ -113,11 +113,13 @@ public:
 		  _speechSkipInput(false),
 		  _uiTextSpeechSlot(0xffff),
 		  _loadedBackdropId(0),
+		  _loadBlockOverrideId(0xffff),
 		  _statusSaveOverrideActive(false) {
 		_protagonist = nullptr;
 		_protagonistId = 0;
 		for (int i = 0; i < 7; ++i) _graphicSlots[i] = 0;
 		_castTable.resize(kCastTableCap);
+		_activeActorIds.resize(kActiveActorTableSlots);
 		_speechSlots.resize(kSpeechSlotCount);
 	}
 	~Logic();
@@ -963,6 +965,10 @@ public:
 	void addAnimation(Animation *anim);
 	void removeAnimation(Animation *anim);
 	void setRoomLoop(const CodePointer &code);
+	void resetActiveActorTableLikeDos();
+	bool registerActiveActorLikeDos(uint16 id);
+	void unregisterActiveActorLikeDos(uint16 id);
+	bool activeActorLikeDos(uint16 id) const;
 
 	const Common::List<Animation *> animations() const { return _animations; }
 	Room *room() const { return _room.get(); }
@@ -981,6 +987,7 @@ public:
 	void runLaterWithCurrentMode(const CodePointer &, uint16 delay = 0);
 	bool queueDeferred(const CodePointer &p);
 	uint16 deferredQueuedCount() const;
+	void syncCodePointerLikeDos(Common::Serializer &s, CodePointer &p) const;
 	// Remove the first deferred entry whose CodePointer matches `p`.
 	// DOS also clears the mode-specific delayed-run entry for that
 	// deferred slot via ResetDispatchModeEntry @ 1000:3198.
@@ -1035,6 +1042,7 @@ public:
 	Music *music() const { return _music; }
 	void setMusic(Music *m) { _music = m; }
 	Resources *resources() const { return _resources; }
+	void setLoadBlockImageOverride(uint16 blockId, const Common::Array<byte> &data);
 	void synchronize(Common::Serializer &s);
 
 	// DOS scene-snapshot slot (`_g_block_pc_offset` @ 0x6718 et al.).
@@ -1054,6 +1062,7 @@ public:
 		Common::SharedPtr<Room> room;
 		CodePointer resumePC;
 		Common::List<Animation *> savedAnimations;
+		Common::Array<uint16> savedActiveActorIds; // DOS active actor table DS:0x25fb
 		PostMoveCallback savedPostMoveCallback;     // DOS [0x65ab..] block snapshot
 		Common::Array<CastEntry> savedCastTable;    // DOS [0x1977..] cast table snapshot (Op_38 SaveCastBackup)
 	};
@@ -1072,6 +1081,8 @@ private:
 
 	void doChangeRoom();
 	void clearRoomTransientAnimations();
+	void refreshCurrentRoomActorFramesLikeDos();
+	void registerCurrentRoomActorsLikeDos();
 	void centerCameraOnProtagonistLikeDos();
 	void queueDirtyObjectPlacementLikeDos(uint16 objId, int16 x, int16 y);
 	void flushDirtyObjectPlacementsLikeDos(uint16 room);
@@ -1086,6 +1097,7 @@ private:
 	void cancelDeferredScriptsForInterpreter(Interpreter *interpreter);
 	void cancelSpeechSlotCallbacksForInterpreter(Interpreter *interpreter);
 	bool redirectDeferredMode(uint16 mode, const CodePointer &target);
+	void syncQueuedRunsLikeDos(Common::Serializer &s);
 	void runQueued();
 	uint16 cellGroupLikeDos() const {
 		return _savedScene ? _savedScene->currentBlock : _currentBlock;
@@ -1144,7 +1156,13 @@ private:
 	uint32 _currentRoom;
 	uint16 _currentBlock;
 	Common::SharedPtr<Program> _blockProgram;
+	uint16 _loadBlockOverrideId;
+	Common::Array<byte> _loadBlockOverrideData;
 	Common::List<Animation *> _animations;
+	enum {
+		kActiveActorTableSlots = 20
+	};
+	Common::Array<uint16> _activeActorIds; // DOS DS:0x25fb, 20 slots × 0x2e stride; only wId is modeled.
 	Common::SharedPtr<CodePointer> _roomLoop;
 	Common::SharedPtr<Room> _room;
 	Music *_music;
@@ -1187,6 +1205,7 @@ private:
 		Common::SharedPtr<Interpreter> blockInterpreter;
 		Common::SharedPtr<Room> room;
 		Common::List<Animation *> animations;
+		Common::Array<uint16> activeActorIds;
 		Common::Array<CastEntry> castTable;
 		Common::List<DelayedRun> queued;
 		int16 cameraX;

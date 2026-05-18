@@ -113,6 +113,7 @@ void Actor::setAnimation(uint16 offset) {
 		setDosFieldWord(kOffsetSegment, 0);
 		setDosFieldWord(kOffsetOffset, 0);
 	}
+	registerActiveIfCurrentRoomLikeDos();
 }
 
 void Actor::setAnimation(const CodePointer &anim) {
@@ -123,6 +124,7 @@ void Actor::setAnimation(const CodePointer &anim) {
 	resetActorStateFieldsLikeDos();
 	setDosFieldWord(kOffsetSegment, actorCodeSegmentTag(_base));
 	setDosFieldWord(kOffsetOffset, _baseOffset);
+	registerActiveIfCurrentRoomLikeDos();
 }
 
 void Actor::resetActorStateFieldsLikeDos() {
@@ -175,13 +177,78 @@ void Actor::hide() {
 	_framequeue.clear();
 }
 
-void Actor::unregisterLikeDos() {
+void Actor::clearScriptPcLikeDos() {
 	_base = 0;
 	_baseOffset = 0;
 	_offset = 0;
 	setDosFieldWord(kOffsetSegment, 0);
 	setDosFieldWord(kOffsetOffset, 0);
 	setDosFieldWord(kOffsetCode, 0);
+}
+
+void Actor::unregisterLikeDos() {
+	clearScriptPcLikeDos();
+	const uint16 globalId = Log.actorGlobalId(this);
+	if (globalId != 0)
+		Log.unregisterActiveActorLikeDos(globalId);
+}
+
+void Actor::prepareRoomEntryActiveActorLikeDos() {
+	const uint16 segment = dosFieldWord(kOffsetSegment);
+	const uint16 codeOffset = dosFieldWord(kOffsetOffset);
+	const bool blockSegment = segment == 1 || ((segment & 0xc000) == 0x4000);
+	const bool mainSegment = segment == 0 ||
+		segment == actorCodeSegmentTag(Log.mainInterpreter() ? Log.mainInterpreter()->rawCode(0) : 0);
+	if (blockSegment || mainSegment) {
+		Interpreter * const interp = blockSegment ? Log.blockInterpreter() : Log.mainInterpreter();
+		byte * const segmentBase = interp ? interp->rawCode(0) : 0;
+		if (segmentBase) {
+			_base = segmentBase + codeOffset;
+			_baseOffset = codeOffset;
+			_offset = dosFieldWord(kOffsetCode);
+			setDosFieldWord(kOffsetSegment, actorCodeSegmentTag(segmentBase));
+			setDosFieldWord(kOffsetOffset, codeOffset);
+			setDosFieldWord(kOffsetCode, _offset);
+		}
+	}
+	setDosField(0x63, 0);
+}
+
+void Actor::registerActiveIfCurrentRoomLikeDos() {
+	if (_room != Log.currentRoom())
+		return;
+	const uint16 globalId = Log.actorGlobalId(this);
+	if (globalId != 0)
+		Log.registerActiveActorLikeDos(globalId);
+}
+
+void Actor::mirrorFirstClassFieldsToDosRecordLikeDos() {
+	// DOS has one 0x71-byte actor record. The C++ port keeps common fields
+	// as first-class members plus a sparse byte map for less common offsets;
+	// keep the sparse record synchronized before/after save/load so helpers
+	// that read raw DOS fields see the same state as the renderer/ticker.
+	if (_base) {
+		setDosFieldWord(kOffsetSegment, actorCodeSegmentTag(_base));
+		setDosFieldWord(kOffsetOffset, _baseOffset);
+		setDosFieldWord(kOffsetCode, _offset);
+	} else {
+		setDosFieldWord(kOffsetSegment, 0);
+		setDosFieldWord(kOffsetOffset, 0);
+		setDosFieldWord(kOffsetCode, 0);
+	}
+	setDosFieldWord(kOffsetLeft, uint16(_position.x));
+	setDosFieldWord(kOffsetTop, uint16(_position.y));
+	setDosFieldWord(kOffsetMainSprite, _mainSpriteId);
+	setDosFieldWord(kOffsetTicksLeft, _ticksLeft);
+	setDosField(kOffsetInterval, uint8(_interval));
+	setDosField(kOffsetZIndex, uint8(_zIndex));
+	setDosFieldWord(kOffsetRoom, _room);
+	setDosField(0x61, uint8(_frame));
+	setDosField(0x62, uint8(_nextFrame));
+	setDosField(0x64, _confused ? 1 : 0);
+	setDosField(0x65, _attentionNeeded ? 1 : 0);
+	setDosFieldWord(0x5d, _actorCallbackSeg);
+	setDosFieldWord(0x5f, _actorCallbackOff);
 }
 
 static void syncActorDosFields(Common::Serializer &s, Common::HashMap<uint8, uint8> &fields) {
@@ -203,6 +270,63 @@ static void syncActorDosFields(Common::Serializer &s, Common::HashMap<uint8, uin
 			uint8 value = it->_value;
 			s.syncAsByte(key);
 			s.syncAsByte(value);
+		}
+	}
+}
+
+void Actor::syncWaitCallbacksLikeDos(Common::Serializer &s) {
+	uint16 callbackCount = uint16(_callBacks.size());
+	s.syncAsUint16LE(callbackCount);
+	if (s.isLoading()) {
+		_callBacks.clear();
+		for (uint16 i = 0; i < callbackCount; ++i) {
+			CodePointer callback;
+			uint16 runMode = 0;
+			uint8 hasRunMode = 0;
+			Log.syncCodePointerLikeDos(s, callback);
+			s.syncAsUint16LE(runMode);
+			s.syncAsByte(hasRunMode);
+			if (!callback.isEmpty())
+				_callBacks.push(ScriptCallback(callback, runMode, hasRunMode != 0));
+		}
+	} else {
+		Common::Queue<ScriptCallback> callbacks = _callBacks;
+		while (!callbacks.empty()) {
+			ScriptCallback callback = callbacks.pop();
+			uint16 runMode = callback.runMode;
+			uint8 hasRunMode = callback.hasRunMode ? 1 : 0;
+			Log.syncCodePointerLikeDos(s, callback.callback);
+			s.syncAsUint16LE(runMode);
+			s.syncAsByte(hasRunMode);
+		}
+	}
+
+	uint16 roomCallbackCount = uint16(_roomCallbacks.size());
+	s.syncAsUint16LE(roomCallbackCount);
+	if (s.isLoading()) {
+		_roomCallbacks.clear();
+		for (uint16 i = 0; i < roomCallbackCount; ++i) {
+			uint16 timeout = 0;
+			CodePointer callback;
+			uint16 runMode = 0;
+			uint8 hasRunMode = 0;
+			s.syncAsUint16LE(timeout);
+			Log.syncCodePointerLikeDos(s, callback);
+			s.syncAsUint16LE(runMode);
+			s.syncAsByte(hasRunMode);
+			if (!callback.isEmpty())
+				_roomCallbacks.push_back(RoomCallback(timeout, callback, runMode, hasRunMode != 0));
+		}
+	} else {
+		for (Common::List<RoomCallback>::const_iterator it = _roomCallbacks.begin(); it != _roomCallbacks.end(); ++it) {
+			uint16 timeout = it->timeout;
+			CodePointer callback = it->callback;
+			uint16 runMode = it->runMode;
+			uint8 hasRunMode = it->hasRunMode ? 1 : 0;
+			s.syncAsUint16LE(timeout);
+			Log.syncCodePointerLikeDos(s, callback);
+			s.syncAsUint16LE(runMode);
+			s.syncAsByte(hasRunMode);
 		}
 	}
 }
@@ -234,6 +358,9 @@ void Actor::synchronize(Common::Serializer &s) {
 	uint8 confused = _confused ? 1 : 0;
 	uint16 callbackSeg = _actorCallbackSeg;
 	uint16 callbackOff = _actorCallbackOff;
+
+	if (s.isSaving())
+		mirrorFirstClassFieldsToDosRecordLikeDos();
 
 	s.syncAsByte(baseSource);
 	s.syncAsUint16LE(baseOffset);
@@ -279,6 +406,9 @@ void Actor::synchronize(Common::Serializer &s) {
 		}
 	}
 
+	if (s.isSaving())
+		syncWaitCallbacksLikeDos(s);
+
 	if (!s.isLoading())
 		return;
 
@@ -302,6 +432,7 @@ void Actor::synchronize(Common::Serializer &s) {
 	_callBacks.clear();
 	_roomCallbacks.clear();
 	_speech = Speech();
+	syncWaitCallbacksLikeDos(s);
 
 	switch (baseSource) {
 	case 1:
@@ -320,6 +451,8 @@ void Actor::synchronize(Common::Serializer &s) {
 		clearMainSprite();
 	else
 		setMainSprite(mainSprite);
+
+	mirrorFirstClassFieldsToDosRecordLikeDos();
 }
 
 void Actor::copyIntervalToTicks() {
@@ -454,6 +587,10 @@ void Actor::dropRoomScriptWaitMode(uint16 mode) {
 			kept.push(callback);
 	}
 	_callBacks = kept;
+}
+
+void Actor::processWaitCallbacksLikeDos() {
+	callBacks();
 }
 
 Actor::RoomScriptWaitDispatch Actor::dispatchReadyRoomScriptWaitMode(uint16 mode) {
@@ -1401,7 +1538,7 @@ OPCODE(0x00) {
 	// does not write field+0x0a, so the shared interval fallback would add
 	// a non-DOS countdown after the script PC is cleared.
 	debugC(2, kDebugLevelActor, "actor opcode 0x00: ScriptEnd (clear PC, no remove) [DOS Op_01]");
-	unregisterLikeDos();
+	clearScriptPcLikeDos();
 	return kOk;
 }
 

@@ -128,13 +128,11 @@ static MusicStateSyncResult synchronizeMusicState(Common::Serializer &s, Resourc
 	s.syncAsUint32LE(beatTicks);
 	s.syncAsByte(commandByte);
 	s.syncAsByte(modeFlag);
-	if (s.getVersion() >= 5) {
-		s.syncAsByte(savedMusicMode);
-		s.syncAsByte(savedSfxMode);
-	}
+	s.syncAsByte(savedMusicMode);
+	s.syncAsByte(savedSfxMode);
 
 	if (s.isLoading()) {
-		if (s.getVersion() >= 5 && savedSfxMode != currentSfxMode)
+		if (savedSfxMode != currentSfxMode)
 			result.disableSfx = true;
 
 		if (currentMusicMode == 0) {
@@ -147,7 +145,7 @@ static MusicStateSyncResult synchronizeMusicState(Common::Serializer &s, Resourc
 		// is validated/restored.
 		result.stopSfx = true;
 
-		if (s.getVersion() >= 5 && savedMusicMode != currentMusicMode) {
+		if (savedMusicMode != currentMusicMode) {
 			Music.stopMusic();
 			result.disableAllSound = true;
 			return result;
@@ -227,7 +225,7 @@ void Engine::captureStatusSaveThumbnail() {
 
 Common::Error Engine::saveGameStream(Common::WriteStream *stream, bool isAutosave) {
 	enum {
-		kSaveVersion = 6
+		kSaveVersion = 1
 	};
 
 	if (!stream || !_logic || !_resources || !_resources->mainDat())
@@ -266,7 +264,7 @@ Common::Error Engine::saveGameStream(Common::WriteStream *stream, bool isAutosav
 
 Common::Error Engine::loadGameStream(Common::SeekableReadStream *stream) {
 	enum {
-		kSaveVersion = 6
+		kSaveVersion = 1
 	};
 
 	if (!stream || !_logic || !_resources || !_resources->mainDat())
@@ -293,34 +291,36 @@ Common::Error Engine::loadGameStream(Common::SeekableReadStream *stream) {
 	if (blockSize != 0) {
 		blockData.resize(blockSize);
 		s.syncBytes(&blockData[0], blockSize);
+		_logic->setLoadBlockImageOverride(blockId, blockData);
 	}
 
 	_logic->synchronize(s);
-	if (s.getVersion() >= 4 && _sound)
+	if (_sound)
 		_sound->synchronize(s);
-	if (s.getVersion() >= 4) {
-		const MusicStateSyncResult musicResult =
-			synchronizeMusicState(s, _resources, _dosMusicEnabled, _dosSfxEnabled);
-		if (musicResult.stopSfx && _sound && _sound->isSfxPlaying())
+	const MusicStateSyncResult musicResult =
+		synchronizeMusicState(s, _resources, _dosMusicEnabled, _dosSfxEnabled);
+	if (musicResult.stopSfx && _sound && _sound->isSfxPlaying())
+		_sound->stopAll();
+	if (musicResult.disableAllSound) {
+		if (_sound)
 			_sound->stopAll();
-		if (musicResult.disableAllSound) {
-			if (_sound)
-				_sound->stopAll();
-			_dosMusicEnabled = 0;
-			_dosSfxEnabled = 0;
-			_logic->setGraphicSlot(4, 0);
-		} else if (musicResult.disableSfx) {
-			if (_sound)
-				_sound->stopAll();
-			_dosSfxEnabled = 0;
-		}
+		_dosMusicEnabled = 0;
+		_dosSfxEnabled = 0;
+		_logic->setGraphicSlot(4, 0);
+	} else if (musicResult.disableSfx) {
+		if (_sound)
+			_sound->stopAll();
+		_dosSfxEnabled = 0;
 	}
 
 	if (blockSize != 0) {
+		// LoadGame_ReadFromDisk copies the saved resource-segment image
+		// before RestoreGameStateFromBuffer/RestoreRoomFromBackup. Logic
+		// consumes the override during doChangeRoom(); a second copy here
+		// would erase room-restore side effects that DOS keeps.
 		Program *block = _logic->blockProgram();
 		if (!block || block->codeSize() != blockSize || _logic->currentBlock() != blockId)
 			return Common::kReadingFailed;
-		memcpy(block->base(), &blockData[0], blockSize);
 	}
 
 	// LoadGame_ReadFromDisk @ 1000:82fd clears the type-5 fullscreen

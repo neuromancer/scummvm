@@ -366,13 +366,16 @@ struct ActorDrawEntryLess {
 	}
 };
 
-static void paintActorAnimationsForLayerLikeDos(Graphics *graphics, const Common::List<Animation *> &animations,
+static void paintActorAnimationsForLayerLikeDos(Graphics *graphics, Logic *logic, const Common::List<Animation *> &animations,
 		int16 layer) {
 	Common::Array<ActorDrawEntry> entries;
 	uint order = 0;
 	for (Common::List<Animation *>::const_iterator it = animations.begin(); it != animations.end(); ++it, ++order) {
 		Animation *anim = *it;
 		if (!anim->isActor())
+			continue;
+		Actor *actor = static_cast<Actor *>(anim);
+		if (!logic->activeActorLikeDos(logic->actorGlobalId(actor)))
 			continue;
 		if (normalizeLayer(anim->zIndex()) != layer)
 			continue;
@@ -890,14 +893,14 @@ void Graphics::paintAnimations() {
 				paintDrawCommandLikeDos(this, logic, commands[i]);
 		}
 
-		paintActorAnimationsForLayerLikeDos(this, animations, layer);
+		paintActorAnimationsForLayerLikeDos(this, logic, animations, layer);
 		for (uint i = 0; i < deferred.size(); ++i)
 			paintDrawCommandLikeDos(this, logic, deferred[i]);
 		logic->paintDirtyObjectPlacementsLikeDos(this, layer);
 	}
 
 	paintAnimationsForLayerLikeDos(this, animations, -1, false);
-	paintActorAnimationsForLayerLikeDos(this, animations, -1);
+	paintActorAnimationsForLayerLikeDos(this, logic, animations, -1);
 }
 
 // it's modal anyway
