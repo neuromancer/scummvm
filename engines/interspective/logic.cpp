@@ -32,10 +32,12 @@
 #include "interspective/inter.h"
 #include "interspective/exit.h"
 #include "interspective/graphics.h"
+#include "interspective/musicparser.h"
 #include "interspective/program.h"
 #include "interspective/animation.h"
 #include "interspective/resources.h"
 #include "interspective/room.h"
+#include "interspective/sound.h"
 #include "interspective/util.h"
 
 namespace Common {
@@ -363,6 +365,8 @@ void Logic::setEngine(Engine *e) {
 	_postMoveTargetFrameMirror = 0;
 	_speechSkipInput = false;
 	_loadedBackdropId = 0;
+	for (uint i = 0; i < ARRAYSIZE(_dirtyObjectPlacements); ++i)
+		_dirtyObjectPlacements[i] = DirtyObjectPlacement();
 }
 
 bool Logic::speechWouldConsumeRightClickLikeDos() const {
@@ -850,16 +854,62 @@ void Logic::updateScrollPosition() {
 	_scrollChanged = oldX != _cameraX || oldY != _cameraY;
 }
 
+void Logic::centerCameraOnProtagonistLikeDos() {
+	// CenterCameraOnActor @ 1000:742c runs after the room script and before
+	// DrawActors. It only runs while input is enabled, and centers from the
+	// protagonist's current frame table entry, not the actor's raw x/y.
+	if (!_inputEnabled || !_protagonist || !_engine || !_engine->graphics())
+		return;
+
+	Graphics *graphics = _engine->graphics();
+	const Actor::Frame frame = actorFrame(uint8(_protagonist->frameId()));
+	const Common::Point pos = frame.position();
+	const int16 oldX = _cameraX;
+	const int16 oldY = _cameraY;
+
+	const int16 maxX = cameraMaxOrigin(graphics->backdropWidth(), 320);
+	int16 x = int16(pos.x - 0xa0);
+	if (x < 0)
+		x = 0;
+	else if (pos.x + 0xa0 >= int16(graphics->backdropWidth()))
+		x = maxX;
+	_cameraX = x;
+
+	const uint16 viewHeight = graphics->screenHeight();
+	const int16 maxY = cameraMaxOrigin(graphics->backdropHeight(), viewHeight);
+	int16 y = int16(pos.y - int16(viewHeight >> 1));
+	if (y < 0)
+		y = 0;
+	else if (y + int16(viewHeight) >= int16(graphics->backdropHeight()))
+		y = maxY;
+	_cameraY = y;
+
+	_scrollChanged = oldX != _cameraX || oldY != _cameraY;
+}
+
 void Logic::changeRoom(uint16 newRoom) {
+	// ApplyChangeRoomTransition first stores g_current_location = AX and
+	// then flushes the five pending PlaceObjectInRoom slots into that room.
+	flushDirtyObjectPlacementsLikeDos(newRoom);
+
 	// DOS ApplyChangeRoomTransition restores g_cursor_mode from DS:0x667a
 	// after the Op_cc fullscreen gate, before the restart-room pass clears
 	// the fullscreen-gate flag.
 	if (_fullscreenGateActive)
 		setCursorMode(_defaultCursorMode);
 
+	// ApplyChangeRoomTransition @ 1000:4396 performs a direct video wipe for
+	// any non-initial script while not already faded out, then leaves the
+	// screen black for the restart-room pass.
+	Graphics *graphics = _engine ? _engine->graphics() : 0;
+	if (_currentRoom != 0xffff && _opcodeMode != 0 && graphics && !graphics->inFade())
+		graphics->applyRoomChangeWipeLikeDos();
+
 	// just schedule it, we'll execute on next tick
 	_nextRoom = newRoom;
-	_forceRoomRestart = false;
+	_forceRoomRestart = true;
+	setLogicDirty();
+	setPaused();
 
 	if (_currentRoom == 0xffff)
 		doChangeRoom(); // except if it's the first one
@@ -932,8 +982,9 @@ void Logic::doChangeRoom() {
 		_engine->graphics()->clearSpeech();
 
 	uint16 newBlock = _resources->blockOfRoom(_currentRoom);
+	const bool changedBlock = newBlock != _currentBlock;
 
-	if (newBlock != _currentBlock) {
+	if (changedBlock) {
 		// Drop any deferred code or skip points still pointing into the outgoing block — its
 		// Interpreter (and Program::_code) is about to be destroyed and any queued CodePointer
 		// to it would be a use-after-free when runQueued() fires it.
@@ -948,6 +999,7 @@ void Logic::doChangeRoom() {
 			}
 			if (_skipPoint.interpreter() == oldBlock)
 				_skipPoint.reset();
+			cancelSpeechSlotCallbacksForInterpreter(oldBlock);
 		}
 
 		// Block change: any animation (including main-code actors like
@@ -1021,6 +1073,8 @@ void Logic::doChangeRoom() {
 		}
 	}
 
+	centerCameraOnProtagonistLikeDos();
+
 	// (iter-27's unconditional `_protagonist->forceRoom(_currentRoom)`
 	// removed iter-36 — it caused the protagonist sprite to be rendered
 	// on top of the title-card logo and any other "no protagonist" room
@@ -1045,6 +1099,98 @@ void Logic::doChangeRoom() {
 					ac->moveTo(target);
 			}
 		}
+
+	if (changedBlock)
+		restartBlockAudioLikeDos();
+}
+
+void Logic::queueDirtyObjectPlacementLikeDos(uint16 objId, int16 x, int16 y) {
+	const int16 height = int16(objectField(objId, 0x11));
+	for (uint i = 0; i < ARRAYSIZE(_dirtyObjectPlacements); ++i) {
+		DirtyObjectPlacement &slot = _dirtyObjectPlacements[i];
+		if (slot.objId != 0)
+			continue;
+		slot.objId = objId;
+		slot.x = x;
+		slot.yMinusHeight = int16(y - height);
+		debugC(2, kDebugLevelScript,
+			"queued dirty object placement slot %u: obj=%u x=%d yMinusHeight=%d",
+			i, objId, slot.x, slot.yMinusHeight);
+		return;
+	}
+
+	// DOS falls back to a direct object-record write if the transient table
+	// is full. The active C++ record is already updated by the caller; keep
+	// this here for the observable dirty side effect and trace.
+	debugC(1, kDebugLevelScript,
+		"dirty object placement table full; object %u remains directly placed", objId);
+	setLogicDirty();
+}
+
+void Logic::flushDirtyObjectPlacementsLikeDos(uint16 room) {
+	for (uint i = 0; i < ARRAYSIZE(_dirtyObjectPlacements); ++i) {
+		DirtyObjectPlacement &slot = _dirtyObjectPlacements[i];
+		if (slot.objId == 0)
+			continue;
+		const uint16 objId = slot.objId;
+		const int16 y = int16(slot.yMinusHeight + int16(objectField(objId, 0x11)));
+		setObjectRoom(objId, room);
+		setObjectPosition(objId, slot.x, y);
+		debugC(2, kDebugLevelScript,
+			"flushed dirty object placement slot %u: obj=%u room=%u x=%d y=%d",
+			i, objId, room, slot.x, y);
+		slot = DirtyObjectPlacement();
+		setLogicDirty();
+	}
+}
+
+void Logic::refreshObjectSpriteAndExitInfoLikeDos(uint16 objId) {
+	const uint16 sprite = uint16(objectField(objId, 6)) | (uint16(objectField(objId, 7)) << 8);
+	if (sprite == 0xffff)
+		return;
+
+	const SpriteInfo info = objectSpriteInfo(_resources, _blockProgram.get(), sprite);
+	setObjectField(objId, 0x10, uint8(info.width));
+	setObjectField(objId, 0x11, uint8(info.height));
+
+	int32 zoneX = int32(getObjectPosX(objId)) + (int32(info.width) >> 1);
+	if (zoneX < 0)
+		zoneX = 0;
+	const int16 cx = int16(zoneX);
+	const int16 dy = int16(int32(getObjectPosY(objId)) + int32(info.height));
+
+	uint8 low = 0;
+	for (uint i = 0; i < _collisionZones.size(); ++i) {
+		const CollisionZone &z = _collisionZones[i];
+		if (int16(z.a) <= cx && cx <= int16(z.c) &&
+				int16(z.b) <= dy && dy <= int16(z.d)) {
+			low = uint8(z.slot);
+			break;
+		}
+	}
+
+	uint8 high = 0;
+	for (uint i = 0; i < _zonesB.size(); ++i) {
+		const ZoneB &z = _zonesB[i];
+		if (int16(z.a) <= cx && cx <= int16(z.c) &&
+				int16(z.b) <= dy && dy <= int16(z.d)) {
+			high = uint8(z.var);
+			break;
+		}
+	}
+
+	setObjectField(objId, 0x0e, low);
+	setObjectField(objId, 0x0f, high);
+}
+
+void Logic::restartBlockAudioLikeDos() {
+	if (!_engine)
+		return;
+
+	if (_engine->dosMusicEnabled() != 0)
+		Music.restartCurrentLikeDos();
+	if (Sound *snd = _engine->sound())
+		snd->playQueuedLikeDos();
 }
 
 void Logic::runLater(const CodePointer &p, uint16 delay) {
@@ -1458,14 +1604,15 @@ void Logic::runPostMoveCallbackIfReady() {
 		break;
 	case PostMoveCallback::kPlaceObjectAfterHotspotMove:
 		// DOS @ 0xc408: place the dragged object after the protagonist
-		// reaches the hotspot approach frame, clear drag state, and dirty
-		// the object pass. The original also fills a small five-entry
-		// transient draw table; the persistent object record effects are
-		// the room/position/cursor updates below.
+		// reaches the hotspot approach frame. PlaceObjectInRoom fills a
+		// five-entry transient table that ApplyChangeRoomTransition flushes
+		// into the next location; keep the modeled object record current too
+		// so the existing render/hit-test path sees the same placement until
+		// a room transition happens.
 		setObjectRoom(cb.cellId, uint16(_currentRoom));
 		setObjectPosition(cb.cellId, int16(cb.arg0), int16(cb.arg1));
-		setObjectField(cb.cellId, 0x0e, uint8(cb.arg1 & 0xff));
-		setObjectField(cb.cellId, 0x0f, uint8(cb.arg1 >> 8));
+		refreshObjectSpriteAndExitInfoLikeDos(cb.cellId);
+		queueDirtyObjectPlacementLikeDos(cb.cellId, int16(cb.arg0), int16(cb.arg1));
 		setDragTarget(0);
 		setCursorMode(1);
 		setLogicDirty();
@@ -2993,8 +3140,7 @@ Logic::SpeechSlot *Logic::findSpeechSlotForOwner(uint16 owner) {
 }
 
 void Logic::clearSpeechSlot(SpeechSlot &slot) {
-	while (!slot.callbacks.empty())
-		slot.callbacks.pop();
+	slot.callbacks.clear();
 	slot = SpeechSlot();
 }
 
@@ -3183,8 +3329,7 @@ void Logic::recycleStaleSpeechSlotsLikeDos() {
 			slot.owner = 0;
 			slot.framesLeft = 0;
 			slot.active = 0;
-			while (!slot.callbacks.empty())
-				slot.callbacks.pop();
+			slot.callbacks.clear();
 		}
 	}
 }
@@ -3310,6 +3455,22 @@ void Logic::cancelDeferredScriptsForInterpreter(Interpreter *interpreter) {
 		} else {
 			++it;
 		}
+	}
+}
+
+void Logic::cancelSpeechSlotCallbacksForInterpreter(Interpreter *interpreter) {
+	if (!interpreter)
+		return;
+
+	for (uint i = 0; i < _speechSlots.size(); ++i) {
+		SpeechSlot &slot = _speechSlots[i];
+		Common::Queue<SpeechSlotCallback> kept;
+		while (!slot.callbacks.empty()) {
+			SpeechSlotCallback cb = slot.callbacks.pop();
+			if (cb.callback.interpreter() != interpreter)
+				kept.push(cb);
+		}
+		slot.callbacks = kept;
 	}
 }
 

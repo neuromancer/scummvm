@@ -237,7 +237,13 @@ Common::Error Engine::run() {
 		_graphics->paint();
 		_graphics->syncCursorVisibility();
 //		_graphics->paintAnimations();
-		_graphics->updateScreen();
+		const bool paused = _logic->paused();
+		if (!paused)
+			_graphics->updateScreen();
+		else
+			debugC(3, kDebugLevelGraphics, "skipping screen update while paused");
+		if (paused)
+			_logic->setPaused(false);
 		_debugger->onFrame();
 		delay(40);
 	}

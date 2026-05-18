@@ -530,6 +530,19 @@ void Sound::rangeCheck(uint16 id) {
 	playSfxSample(id, _primaryHandle);
 }
 
+void Sound::playQueuedLikeDos() {
+	if (!isEnabled() || !_active || _state66fe == 0)
+		return;
+
+	// PlayQueuedSfx @ 1000:6103 calls PlaySfxSound, the same non-audible
+	// sample-cache loader used by Op_f0/Op_f1. Actual playback happens only
+	// through DispatchSfxRangeCheck. Our resource backend loads samples on
+	// demand, so the room-change cache refresh is a no-op.
+	debugC(1, kDebugLevelSound,
+		"Sound::playQueuedLikeDos() — cache retained primary=%u secondary=%u",
+		_state66fe, _state6700);
+}
+
 void Sound::stopAll() {
 	if (!g_system || !g_system->getMixer())
 		return;

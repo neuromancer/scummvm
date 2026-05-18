@@ -253,6 +253,19 @@ void MusicParser::requestStopCurrent() {
 	_driverCommandByte = 1;
 }
 
+bool MusicParser::restartCurrentLikeDos() {
+	if (!_midiDriver || !_active || !_script || !hasCurrentTune())
+		return false;
+
+	// RestartCurrentMusic @ 1000:5d6a calls QueueAndStartTune, but the
+	// underlying StartMusicTune @ 1000:5d9d returns without reloading when
+	// the requested tune id already matches g_current_tune. ScummVM keeps
+	// the active tune resident, so there is no audible work to do here.
+	debugC(2, kDebugLevelMusic,
+		"Interspective music: block-change current tune reasserted (no reload)");
+	return true;
+}
+
 void MusicParser::setMaxVolume(uint8 dosMusicMode) {
 	debugC(2, kDebugLevelMusic, "setting music channel volume to maximum");
 	_driverCommandByte = 0xff;

@@ -278,11 +278,11 @@ public:
 	uint16 dosRecordField(uint8 selector, uint16 id, uint8 off, uint8 size) const;
 	void setDosRecordField(uint8 selector, uint16 id, uint8 off, uint8 size, uint16 value);
 
-	// Per-room, per-entity cell byte. DOS ResetCellMap fills the whole
-	// room-cell buffer with 1, and ReadCellByteAtOffset selects the current
-	// room's allocated slice. Bit 0 gates click dispatch/visibility; bits
-	// 1..7 are script flags. We store only values that differ from the DOS
-	// default byte 1.
+	// Per room-program-group, per-entity cell byte. DOS ResetCellMap fills
+	// the whole room-cell buffer with 1, and ReadCellByteAtOffset selects
+	// the slice via g_room_index_in_block, not the literal room id. Bit 0
+	// gates click dispatch/visibility; bits 1..7 are script flags. We store
+	// only values that differ from the DOS default byte 1.
 	uint8 cellByte(uint16 id) const {
 		Common::HashMap<uint32, uint8>::const_iterator it = _cellBits.find(cellKey(id));
 		return it == _cellBits.end() ? 1 : it->_value;
@@ -1065,6 +1065,11 @@ private:
 
 	void doChangeRoom();
 	void clearRoomTransientAnimations();
+	void centerCameraOnProtagonistLikeDos();
+	void queueDirtyObjectPlacementLikeDos(uint16 objId, int16 x, int16 y);
+	void flushDirtyObjectPlacementsLikeDos(uint16 room);
+	void refreshObjectSpriteAndExitInfoLikeDos(uint16 objId);
+	void restartBlockAudioLikeDos();
 	void updateScrollPosition();
 	bool speechWouldConsumeRightClickLikeDos() const;
 	bool hasQueuedRunMode(uint16 mode) const;
@@ -1072,9 +1077,13 @@ private:
 	void runItemRoomScriptSlotLikeDos();
 	void resetQueuedRunMode(uint16 mode);
 	void cancelDeferredScriptsForInterpreter(Interpreter *interpreter);
+	void cancelSpeechSlotCallbacksForInterpreter(Interpreter *interpreter);
 	bool redirectDeferredMode(uint16 mode, const CodePointer &target);
 	void runQueued();
-	uint32 cellKey(uint16 id) const { return ((_currentRoom & 0xffff) << 16) | id; }
+	uint16 cellGroupLikeDos() const {
+		return _savedScene ? _savedScene->currentBlock : _currentBlock;
+	}
+	uint32 cellKey(uint16 id) const { return (uint32(cellGroupLikeDos()) << 16) | id; }
 	void storeCellByte(uint16 id, uint8 value) {
 		const uint32 key = cellKey(id);
 		if (value == 1)
@@ -1193,6 +1202,14 @@ private:
 		uint8 postMoveTargetFrameMirror;
 	};
 	RoomBackup _roomBackup;
+
+	struct DirtyObjectPlacement {
+		DirtyObjectPlacement() : objId(0), x(0), yMinusHeight(0) {}
+		uint16 objId;
+		int16 x;
+		int16 yMinusHeight;
+	};
+	DirtyObjectPlacement _dirtyObjectPlacements[5]; // DS:0x1945, five 10-byte placement slots
 
 	CodePointer _skipPoint;
 	uint32 _frameCounter;

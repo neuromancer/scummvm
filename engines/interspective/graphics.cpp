@@ -101,8 +101,9 @@ void Graphics::init() {
 void Graphics::paint() {
 	debugC(3, kDebugLevelFlow | kDebugLevelGraphics, ">>>start paint procedure");
 	beginFrame();
+	Logic *logic = _engine->logic();
 
-	if (_engine->logic()->roomChangePending()) {
+	if (logic->roomChangePending()) {
 		debugC(2, kDebugLevelFlow | kDebugLevelGraphics, "skipping paint while room restart is pending");
 		return;
 	}
@@ -125,7 +126,10 @@ void Graphics::paint() {
 		_afterRepaintHooks.clear();
 	}
 
-	paintCursorSprite();
+	if (!logic->paused())
+		paintCursorSprite();
+	else
+		debugC(3, kDebugLevelGraphics, "skipping cursor paint while paused");
 
 	debugC(3, kDebugLevelFlow | kDebugLevelGraphics, "<<<end paint procedure");
 }
@@ -2097,6 +2101,42 @@ uint16 Graphics::backdropWidth() const {
 
 uint16 Graphics::backdropHeight() const {
 	return _backdrop.get() ? uint16(_backdrop->h) : screenHeight();
+}
+
+void Graphics::applyRoomChangeWipeLikeDos() {
+	if (!_framebuffer || !_system || _inFade)
+		return;
+
+	debugC(2, kDebugLevelGraphics, "performing DOS room-change screen wipe");
+	const int viewHeight = screenHeight();
+	const Common::Rect view(0, 0, 320, viewHeight);
+
+	// FadeWipeBlackTopDown @ 1000:b0b0 clears one x+y diagonal per pass
+	// directly in video memory, for 0x208 passes. The visible height is the
+	// current backdrop dimension (0x98 normally, 0xc8 in fullscreen modes).
+	for (int diag = 0; diag < 0x208; ++diag) {
+		for (int y = 0; y < viewHeight; ++y) {
+			const int x = diag - y;
+			if (x >= 0 && x < 320)
+				*reinterpret_cast<byte *>(_framebuffer->getBasePtr(x, y)) = 0;
+		}
+
+		if ((diag & 3) == 0) {
+			_system->copyRectToScreen(reinterpret_cast<byte *>(_framebuffer->getBasePtr(0, 0)),
+				_framebuffer->pitch, 0, 0, 320, viewHeight);
+			_system->updateScreen();
+			Eng.delay(1);
+		}
+	}
+
+	// ApplyChangeRoomTransition then calls ClearVideoAndPushToScreen, which
+	// leaves the visible playfield black until the restart-room path paints
+	// the newly loaded backdrop.
+	_framebuffer->fillRect(view, 0);
+	_system->copyRectToScreen(reinterpret_cast<byte *>(_framebuffer->getBasePtr(0, 0)),
+		_framebuffer->pitch, 0, 0, 320, viewHeight);
+	_system->updateScreen();
+	markFullRedraw();
 }
 
 void Graphics::clearFramebuffer(byte colour) {

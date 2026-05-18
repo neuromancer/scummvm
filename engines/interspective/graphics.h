@@ -85,6 +85,7 @@ public:
 		kFullFade = 0,
 		kPartialFade = 1
 	};
+	void applyRoomChangeWipeLikeDos();
 	void willFadein(FadeFlags f = kFullFade);
 	bool fadeOut(FadeFlags f = kFullFade);
 	bool inFade() const { return _inFade; }

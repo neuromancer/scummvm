@@ -167,6 +167,7 @@ public:
 	void silence();
 	void stopMusic();
 	void requestStopCurrent();
+	bool restartCurrentLikeDos();
 	void setMaxVolume(uint8 dosMusicMode);
 	bool isPlaying() const;
 	bool hasCurrentTune() const { return _currentTuneWord != 0; }
