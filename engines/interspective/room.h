@@ -28,7 +28,6 @@
 
 #include "common/array.h"
 #include "common/list.h"
-#include "common/rect.h"
 
 #include "interspective/actor.h"
 #include "interspective/debug.h"
@@ -42,16 +41,6 @@ class Logic;
 class Room : public StaticInspectable {
 //
 public:
-	class Rect {
-	public:
-		Rect() : _zindex(999) {}
-		Rect(int16 z, Common::Rect r) : _zindex(z), _rect(r) {}
-
-	private:
-		int16 _zindex;
-		Common::Rect _rect;
-	};
-
 	const Common::List<Exit *> &exits() const { return _exits; }
 
 	void addActorFrame(Common::Point p, Common::Array<byte> nexts);
@@ -63,8 +52,6 @@ public:
 	// unused frame-0 backing slot.
 	void invalidateFrame(uint16 index);
 	void setFramePosition(uint16 index, int16 x, int16 y);
-
-	void addRect(const Room::Rect &f) { _rects.push_back(f); }
 
 	uint16 frameCount() const;
 
@@ -86,8 +73,6 @@ private:
 
 	Common::List<Exit *> _exits;
 	Logic *_logic;
-
-	Common::List<Rect> _rects;
 
 	DEBUG_INFO
 };

@@ -113,6 +113,7 @@ public:
 	bool cycleCursorOverlayAnimation(uint16 maskBit, uint16 &spriteId, uint16 &x, uint16 &y);
 	uint16 getInterfaceMapMarkerSpriteId(uint16 selector) const;
 	uint16 getStatusButtonSpriteId(bool statusMode) const;
+	uint16 getEyeCloseUpSpriteId(bool rightHalf) const;
 	uint16 getFrameId(FramePart part) const;
 	uint16 getBubbleId(SpeechBubblePart part) const;
 

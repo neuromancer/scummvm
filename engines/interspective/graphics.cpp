@@ -60,11 +60,55 @@ enum {
 	kPanelTop = 155,
 	kPanelWidth = 56,
 	kPanelHeight = 25,
-	kCloseUpLeft = 4,
-	kCloseUpTop = 155,
-	kCloseUpWidth = 54,
-	kCloseUpHeight = 22
+	kCloseUpFrameLeft = 3,
+	kCloseUpFrameTop = 155,
+	kCloseUpFrameRightLeft = 31,
+	kCloseUpContentLeft = 4,
+	kCloseUpContentTop = 156,
+	kCloseUpContentWidth = 54,
+	kCloseUpContentHeight = 22
 };
+
+static uint16 inventoryObjectAtPointLikeDos(Logic *logic, Resources *resources,
+		const Common::Point &screen) {
+	if (!logic || !resources)
+		return 0;
+	if (screen.x < 128 || screen.x >= 310 || screen.y < 160 || screen.y >= 191)
+		return 0;
+
+	const Common::Array<uint16> &objectExits = logic->objectExitList();
+	for (int i = int(objectExits.size()) - 1; i >= 0; --i) {
+		const uint16 id = objectExits[i];
+		if (id == 0 || logic->getObjectRoom(id) != 0xffff)
+			continue;
+
+		const uint16 spriteId = uint16(logic->objectField(id, 8))
+			| (uint16(logic->objectField(id, 9)) << 8);
+		if (spriteId == 0xffff)
+			continue;
+
+		const SpriteInfo info = resources->getSpriteInfo(spriteId);
+		if (info.width == 0 || info.height == 0)
+			continue;
+
+		const Common::Point topLeft(
+			int16(0x80 + logic->getObjectPosX(id) - int16(info.hotLeft)),
+			int16(0xa0 + logic->getObjectPosY(id) - int16(info.hotTop)));
+		Common::Rect rect(info.width, info.height);
+		rect.moveTo(topLeft);
+		if (!rect.contains(screen))
+			continue;
+
+		Common::ScopedPtr<Sprite> sprite(resources->loadSprite(spriteId));
+		const int16 sx = int16(screen.x - topLeft.x);
+		const int16 sy = int16(screen.y - topLeft.y);
+		const byte *pixel = reinterpret_cast<const byte *>(sprite->getBasePtr(sx, sy));
+		if (pixel && *pixel != 0)
+			return id;
+	}
+
+	return 0;
+}
 
 void Graphics::setEngine(Engine *engine) {
 	_engine = engine;
@@ -406,7 +450,7 @@ void Graphics::paintRoomCloseUpLikeDos() {
 	}
 
 	const Common::Point cursor = cursorPosition();
-	if (cursor.y >= screenHeight()) {
+	if (cursor.x < 0 || cursor.x >= 320 || cursor.y < 0 || cursor.y >= kInterfaceTop) {
 		_roomCloseUpActive = false;
 		return;
 	}
@@ -416,10 +460,20 @@ void Graphics::paintRoomCloseUpLikeDos() {
 	_inventoryCloseUpObjectId = 0;
 	const int srcLeft = CLIP<int>(_roomCloseUpPoint.x - 0x1b, 0, 0x10a);
 	const int srcTop = CLIP<int>(_roomCloseUpPoint.y - 0x0b, 0, 0x82);
-	for (int y = 0; y < kCloseUpHeight; ++y) {
+	for (int y = 0; y < kCloseUpContentHeight; ++y) {
 		const byte *src = reinterpret_cast<const byte *>(_framebuffer->getBasePtr(srcLeft, srcTop + y));
-		byte *dst = reinterpret_cast<byte *>(_framebuffer->getBasePtr(kCloseUpLeft, kCloseUpTop + y));
-		memcpy(dst, src, kCloseUpWidth);
+		byte *dst = reinterpret_cast<byte *>(_framebuffer->getBasePtr(kCloseUpContentLeft, kCloseUpContentTop + y));
+		memcpy(dst, src, kCloseUpContentWidth);
+	}
+
+	MainDat *mainDat = _resources ? _resources->mainDat() : 0;
+	if (mainDat) {
+		Common::ScopedPtr<Sprite> leftHalf(_resources->loadSprite(mainDat->getEyeCloseUpSpriteId(false)));
+		Common::ScopedPtr<Sprite> rightHalf(_resources->loadSprite(mainDat->getEyeCloseUpSpriteId(true)));
+		paint(leftHalf.get(), Common::Point(kCloseUpFrameLeft, kCloseUpFrameTop),
+			kPaintPositionIsTop | kPaintNoDirty);
+		paint(rightHalf.get(), Common::Point(kCloseUpFrameRightLeft, kCloseUpFrameTop),
+			kPaintPositionIsTop | kPaintNoDirty);
 	}
 }
 
@@ -462,12 +516,17 @@ void Graphics::clearInventoryCloseUpObjectLikeDos() {
 
 void Graphics::paintInventoryCloseUpLikeDos() {
 	Logic *logic = _engine ? _engine->logic() : 0;
-	if (!logic || !_resources || _inventoryCloseUpObjectId == 0)
+	if (!logic || !_resources)
 		return;
-	if (logic->cursorMode() != 0x80) {
+	if (logic->cursorMode() != 0x80 || !logic->roomActive() || logic->noStep()
+			|| logic->canSkipCutscene() || !logic->inputEnabled()) {
 		_inventoryCloseUpObjectId = 0;
 		return;
 	}
+
+	_inventoryCloseUpObjectId = inventoryObjectAtPointLikeDos(logic, _resources, cursorPosition());
+	if (_inventoryCloseUpObjectId == 0)
+		return;
 
 	const uint16 id = _inventoryCloseUpObjectId;
 	if (_resources->mainDat() && id > _resources->mainDat()->personsCount()) {
@@ -489,8 +548,8 @@ void Graphics::paintInventoryCloseUpLikeDos() {
 	}
 
 	const Common::Point topLeft(
-		int16(0x03 + ((0x38 - int16(info.width)) >> 1)),
-		int16(0x9b + ((0x19 - int16(info.height)) >> 1)));
+		int16(0x03 + ((0x38 - int16(info.width)) >> 1) + int16(info.hotLeft)),
+		int16(0x9b + ((0x19 - int16(info.height)) >> 1) + int16(info.hotTop)));
 	Common::ScopedPtr<Sprite> sprite(_resources->loadSprite(spriteId));
 	paint(sprite.get(), topLeft, kPaintPositionIsTop | kPaintNoDirty | kPaintIgnoreHotPoint);
 }

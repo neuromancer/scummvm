@@ -129,6 +129,12 @@ enum Offsets {
 	kBubbleVerbConnectorOffset = 0xa8,
 	kBubbleVerbStemOffset = 0xaa,
 
+	// DrawCursorWithBackdrop @ 1000:c800 draws the two eye close-up panel
+	// halves from CS:[0x10b] and CS:[0x10d]. The loaded footer begins at
+	// DOS CS:[0x5f], so these are footer offsets 0xac and 0xae.
+	kEyeCloseUpLeftOffset = 0xac,
+	kEyeCloseUpRightOffset = 0xae,
+
 	// DOS CycleAllAnimationsByMask @ 1000:c8a1 reads CS:[0xa9],
 	// [0xab], [0xaf], [0xad], [0xb1]. The loaded footer begins at
 	// DOS CS:[0x5f], so these are footer offsets 0x4a..0x52.
@@ -542,6 +548,10 @@ uint16 MainDat::getInterfaceMapMarkerSpriteId(uint16 selector) const {
 
 uint16 MainDat::getStatusButtonSpriteId(bool statusMode) const {
 	return READ_LE_UINT16(_footer + (statusMode ? kStatusButtonStatusOffset : kStatusButtonNormalOffset));
+}
+
+uint16 MainDat::getEyeCloseUpSpriteId(bool rightHalf) const {
+	return READ_LE_UINT16(_footer + (rightHalf ? kEyeCloseUpRightOffset : kEyeCloseUpLeftOffset));
 }
 
 uint16 MainDat::getFrameId(FramePart part) const {
