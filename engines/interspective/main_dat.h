@@ -58,8 +58,18 @@ public:
 		Common::String filename;
 	};
 
+	struct SfxFile {
+		uint16 low;
+		uint16 high;
+		uint8 mode;
+		Common::String filename;
+	};
+
 	Common::List<struct GraphicFile> graphicFiles() const;
 	Common::List<Common::String> musicFiles() const;
+	Common::List<SfxFile> sfxFiles() const;
+	uint16 sfxSampleCount() const;
+	uint16 sfxFileCount() const;
 
 	uint16 progEntriesCount0() const;
 	uint16 progEntriesCount1() const;

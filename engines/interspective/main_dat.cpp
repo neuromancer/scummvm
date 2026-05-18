@@ -73,6 +73,9 @@ enum Offsets {
 	kImageDirectory		= 0x1E,
 	kGraphicFileCount	= 0x20,
 	kGraphicFileNames	= 0x22,
+	kSfxSampleCount     = 0x24,
+	kSfxFileNames       = 0x26,
+	kSfxFileCount       = 0x28,
 	kTunesCount			= 0x2A,
 	kTunesDirectory		= 0x2C,
 	kMusicFileCount		= 0x2E,
@@ -359,6 +362,45 @@ Common::List<Common::String> MainDat::musicFiles() const {
 		while (*data)
 			data++;
 		data++;
+	}
+
+	return files;
+}
+
+uint16 MainDat::sfxSampleCount() const {
+	return READ_LE_UINT16(_footer + kSfxSampleCount);
+}
+
+uint16 MainDat::sfxFileCount() const {
+	return READ_LE_UINT16(_footer + kSfxFileCount);
+}
+
+Common::List<MainDat::SfxFile> MainDat::sfxFiles() const {
+	const uint16 fileCount = sfxFileCount();
+	const uint16 namesOffset = READ_LE_UINT16(_footer + kSfxFileNames);
+	const byte *data = _data + namesOffset;
+	const byte *end = _data + _dataLen;
+	Common::List<SfxFile> files;
+
+	// DOS OpenSfxFile @ 1000:5ff7 walks this footer list. Each entry is:
+	//   uint16 strict-low sample id, uint8 driver mode, ASCIIZ filename.
+	// The high bound is the next entry's low word, except for the final
+	// entry, where OpenSfxFile uses CS:[0x83] (footer +0x24 sample count).
+	for (uint16 i = 0; i < fileCount && data + 3 < end; ++i) {
+		SfxFile file;
+		file.low = READ_LE_UINT16(data);
+		data += 2;
+		file.mode = *data++;
+		file.filename = reinterpret_cast<const char *>(data);
+		while (data < end && *data)
+			++data;
+		if (data >= end)
+			break;
+		++data;
+		file.high = (i + 1 == fileCount || data + 1 >= end)
+			? sfxSampleCount()
+			: READ_LE_UINT16(data);
+		files.push_back(file);
 	}
 
 	return files;

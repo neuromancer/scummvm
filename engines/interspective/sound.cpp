@@ -37,6 +37,8 @@
 #include "interspective/debug.h"
 #include "interspective/innocent.h"
 #include "interspective/logic.h"
+#include "interspective/main_dat.h"
+#include "interspective/musicparser.h"
 #include "interspective/util.h"
 
 namespace Interspective {
@@ -179,6 +181,7 @@ Sound::Sound(Engine *engine) :
 	_state670a(0),
 	_state670c(0),
 	_maxSfxId(0),
+	_maxSfxBankId(0),
 	_sfxMetadataLoaded(false),
 	_active(true) {
 }
@@ -197,9 +200,10 @@ bool Sound::isEnabled() const {
 
 bool Sound::isSfxPlaying() const {
 	if (!g_system || !g_system->getMixer())
-		return false;
+		return Music.isSfxNotePlaying();
 	return g_system->getMixer()->isSoundHandleActive(_primaryHandle) ||
-	       g_system->getMixer()->isSoundHandleActive(_secondaryHandle);
+	       g_system->getMixer()->isSoundHandleActive(_secondaryHandle) ||
+	       Music.isSfxNotePlaying();
 }
 
 void Sound::synchronize(Common::Serializer &s) {
@@ -242,6 +246,7 @@ void Sound::loadSfxMetadata() const {
 		return;
 	_sfxMetadataLoaded = true;
 	_maxSfxId = 0;
+	_maxSfxBankId = 0;
 	_sfxBanks.clear();
 	_sfxSamples.clear();
 
@@ -258,59 +263,48 @@ void Sound::loadSfxMetadata() const {
 	for (uint32 i = 0; i < entries; ++i)
 		offsets.push_back(index.readUint32LE());
 
-	_maxSfxId = uint16(entries);
+	MainDat *main = Res.mainDat();
+	const uint16 dosSampleCount = main ? main->sfxSampleCount() : uint16(entries);
+	_maxSfxId = MIN<uint16>(uint16(entries), dosSampleCount);
 	_sfxSamples.resize(entries);
+	if (dosSampleCount != entries)
+		warning("Sound::loadSfxMetadata: iuc_sdfx entries=%u, main.dat sample count=%u",
+			(uint)entries, (uint)dosSampleCount);
 
-	uint16 low = 0;
-	uint32 bankIndex = 0;
-	uint32 maxOffset = 0;
-	for (uint32 i = 1; i < entries; ++i) {
-		if (offsets[i] == 0) {
-			SfxBankInfo bank;
-			bank.bank = uint8(bankIndex + 1);
-			bank.low = low;
-			bank.high = uint16(i);
-			Common::String name = Common::String::format("iuc_s%02u.dat", bankIndex + 1);
-			const uint32 fileSize = openFileSize(Common::Path(name));
-			bank.size = fileSize;
-			if (bank.size <= maxOffset)
-				bank.size = openFileSize(Common::Path("iuc_sr.dat"));
-			_sfxBanks.push_back(bank);
-			for (uint32 j = low; j < i; ++j) {
-				const uint32 end = (j + 1 < i) ? offsets[j + 1] : fileSize;
-				if (offsets[j] < fileSize && offsets[j] < end && end <= fileSize) {
-					_sfxSamples[j].bank = bank.bank;
-					_sfxSamples[j].offset = offsets[j];
-					_sfxSamples[j].end = end;
-					_sfxSamples[j].valid = true;
-				}
+	if (!main)
+		return;
+
+	const Common::List<MainDat::SfxFile> files = main->sfxFiles();
+	_maxSfxBankId = uint16(files.size());
+	uint16 bankIndex = 0;
+	for (Common::List<MainDat::SfxFile>::const_iterator it = files.begin(); it != files.end(); ++it) {
+		++bankIndex;
+		SfxBankInfo bank;
+		bank.bank = uint8(bankIndex);
+		bank.mode = it->mode;
+		bank.low = it->low;
+		bank.high = MIN<uint16>(it->high, _maxSfxId);
+		bank.filename = it->filename;
+		bank.size = openFileSize(Common::Path(bank.filename));
+		_sfxBanks.push_back(bank);
+
+		for (uint16 sampleId = uint16(bank.low + 1); sampleId <= bank.high; ++sampleId) {
+			const uint32 sampleIndex = sampleId - 1;
+			const uint32 end = (sampleId < bank.high) ? offsets[sampleIndex + 1] : bank.size;
+			if (sampleIndex < _sfxSamples.size() &&
+					offsets[sampleIndex] < bank.size &&
+					offsets[sampleIndex] < end &&
+					end <= bank.size) {
+				_sfxSamples[sampleIndex].bank = bank.bank;
+				_sfxSamples[sampleIndex].offset = offsets[sampleIndex];
+				_sfxSamples[sampleIndex].end = end;
+				_sfxSamples[sampleIndex].valid = true;
 			}
-			low = uint16(i);
-			maxOffset = 0;
-			++bankIndex;
-		} else if (offsets[i] > maxOffset) {
-			maxOffset = offsets[i];
 		}
-	}
-
-	SfxBankInfo bank;
-	bank.bank = uint8(bankIndex + 1);
-	bank.low = low;
-	bank.high = uint16(entries);
-	Common::String name = Common::String::format("iuc_s%02u.dat", bankIndex + 1);
-	const uint32 fileSize = openFileSize(Common::Path(name));
-	bank.size = fileSize;
-	if (bank.size <= maxOffset)
-		bank.size = openFileSize(Common::Path("iuc_sr.dat"));
-	_sfxBanks.push_back(bank);
-	for (uint32 j = low; j < entries; ++j) {
-		const uint32 end = (j + 1 < entries) ? offsets[j + 1] : fileSize;
-		if (offsets[j] < fileSize && offsets[j] < end && end <= fileSize) {
-			_sfxSamples[j].bank = bank.bank;
-			_sfxSamples[j].offset = offsets[j];
-			_sfxSamples[j].end = end;
-			_sfxSamples[j].valid = true;
-		}
+		debugC(2, kDebugLevelSound,
+			"Sound::loadSfxMetadata: bank %u mode=%u range=(%u..%u] file=%s size=%u",
+			(uint)bank.bank, (uint)bank.mode, (uint)bank.low, (uint)bank.high,
+			bank.filename.c_str(), (uint)bank.size);
 	}
 }
 
@@ -326,7 +320,26 @@ bool Sound::validateSfxId(uint16 id) const {
 	return false;
 }
 
-const Sound::SfxBankInfo *Sound::sfxBankForId(uint16 id) const {
+uint16 Sound::maxSfxBankId() const {
+	loadSfxMetadata();
+	return _maxSfxBankId;
+}
+
+bool Sound::validateSfxBankId(uint16 id) const {
+	if (id != 0 && id <= maxSfxBankId())
+		return true;
+	Log.setPendingError(0x3f);
+	return false;
+}
+
+const Sound::SfxBankInfo *Sound::sfxBankForLoadId(uint16 id) const {
+	loadSfxMetadata();
+	if (id == 0 || id > _sfxBanks.size())
+		return nullptr;
+	return &_sfxBanks[id - 1];
+}
+
+const Sound::SfxBankInfo *Sound::sfxBankForSampleId(uint16 id) const {
 	loadSfxMetadata();
 	for (uint i = 0; i < _sfxBanks.size(); ++i) {
 		const SfxBankInfo &bank = _sfxBanks[i];
@@ -337,14 +350,18 @@ const Sound::SfxBankInfo *Sound::sfxBankForId(uint16 id) const {
 }
 
 bool Sound::resolveSfxSlot(uint16 id, uint32 baseBytes, uint16 &low, uint16 &high, uint32 &size) const {
-	if (!validateSfxId(id))
+	if (!validateSfxBankId(id))
 		return false;
 
-	const SfxBankInfo *bank = sfxBankForId(id);
+	const SfxBankInfo *bank = sfxBankForLoadId(id);
 	if (!bank)
 		return false;
 
-	const uint8 mode = _engine ? _engine->dosSfxEnabled() : 0;
+	// DOS OpenSfxFile rejects entries whose mode byte differs from
+	// g_sfx_enabled. ScummVM keeps the DOS config byte for script branches,
+	// but the backend intentionally accepts all listed banks so SoundBlaster
+	// samples and Roland-only effects can coexist when both are decodable.
+	const uint8 mode = bank->mode ? bank->mode : (_engine ? _engine->dosSfxEnabled() : 0);
 	if (mode == 2) {
 		if (baseBytes + bank->size > 0x40000) {
 			Log.setPendingError(0x40);
@@ -374,7 +391,9 @@ bool Sound::loadSfxSample(uint16 id, Common::Array<byte> &pcm, int &rate, bool &
 	if (!sample.valid)
 		return false;
 
-	Common::String name = Common::String::format("iuc_s%02u.dat", sample.bank);
+	if (sample.bank == 0 || sample.bank > _sfxBanks.size())
+		return false;
+	Common::String name = _sfxBanks[sample.bank - 1].filename;
 	Common::File file;
 	if (!file.open(Common::Path(name)))
 		return false;
@@ -390,6 +409,82 @@ bool Sound::loadSfxSample(uint16 id, Common::Array<byte> &pcm, int &rate, bool &
 	return parseVocSfxBlocks(&raw[0], raw.size(), pcm, rate, loop);
 }
 
+bool Sound::loadRolandSfxNote(uint16 id, uint8 &channel, uint8 &note, uint8 &velocity, uint16 &durationTicks) const {
+	loadSfxMetadata();
+	channel = 9;
+	note = 0;
+	velocity = 0;
+	durationTicks = 0;
+
+	if (id == 0 || id > _sfxSamples.size())
+		return false;
+	const SfxSampleInfo &sample = _sfxSamples[id - 1];
+	if (!sample.valid || sample.bank == 0 || sample.bank > _sfxBanks.size())
+		return false;
+
+	const SfxBankInfo &bank = _sfxBanks[sample.bank - 1];
+	if (bank.mode != 4)
+		return false;
+
+	Common::File file;
+	if (!file.open(Common::Path(bank.filename)))
+		return false;
+
+	const uint32 bytes = sample.end - sample.offset;
+	if (bytes < 0x25)
+		return false;
+	Common::Array<byte> raw;
+	raw.resize(bytes);
+	file.seek(sample.offset);
+	if (file.read(&raw[0], bytes) != bytes)
+		return false;
+
+	const uint16 beatCount = READ_LE_UINT16(&raw[0x21]);
+	const uint32 beatOffset = 0x25;
+	const uint32 channelBase = beatOffset + uint32(beatCount) * 8;
+	if (beatCount == 0 || channelBase >= raw.size())
+		return false;
+
+	for (uint16 beat = 0; beat < beatCount; ++beat) {
+		for (uint8 beatChannel = 0; beatChannel < 8; ++beatChannel) {
+			const uint8 channelIndex = raw[beatOffset + uint32(beat) * 8 + beatChannel];
+			if (channelIndex == 0)
+				continue;
+			const uint32 channelDef = channelBase + uint32(channelIndex) * 16;
+			if (channelDef + 16 > raw.size())
+				continue;
+
+			for (uint8 noteSlot = 0; noteSlot < 4; ++noteSlot) {
+				uint32 pos = READ_LE_UINT16(&raw[channelDef + noteSlot * 2]);
+				if (pos == 0 || pos + 1 >= raw.size())
+					continue;
+
+				bool foundNote = false;
+				uint16 duration = 0;
+				for (uint8 guard = 0; guard < 64 && pos + 1 < raw.size(); ++guard, pos += 2) {
+					const uint8 command = raw[pos];
+					const uint8 parameter = raw[pos + 1];
+					if (command < 0x80) {
+						channel = beatChannel + 2;
+						note = command;
+						velocity = parameter;
+						foundNote = true;
+					} else if (command == 0xfe && foundNote) {
+						duration = uint16(duration + parameter);
+					} else if (command == 0x8b && foundNote) {
+						break;
+					}
+				}
+				if (foundNote) {
+					durationTicks = duration ? duration : 32;
+					return true;
+				}
+			}
+		}
+	}
+	return false;
+}
+
 bool Sound::playSfxSample(uint16 id, Audio::SoundHandle &handle) {
 	if (!g_system || !g_system->getMixer())
 		return false;
@@ -398,6 +493,12 @@ bool Sound::playSfxSample(uint16 id, Audio::SoundHandle &handle) {
 	int rate = 0;
 	bool loop = false;
 	if (!loadSfxSample(id, pcm, rate, loop)) {
+		uint8 channel = 0;
+		uint8 note = 0;
+		uint8 velocity = 0;
+		uint16 durationTicks = 0;
+		if (loadRolandSfxNote(id, channel, note, velocity, durationTicks))
+			return Music.playSfxNote(channel, note, velocity, durationTicks);
 		debugC(1, kDebugLevelSound, "Sound::playSfxSample(%u) — sample decode failed", id);
 		return false;
 	}
@@ -426,7 +527,7 @@ bool Sound::playSfxSample(uint16 id, Audio::SoundHandle &handle) {
 //
 // Disassembly trace:
 //   if (g_sfx_enabled == 0) RET;
-//   AX = ResolveOpcodeArg0;             ; AX = sfx id requested
+//   AX = ResolveOpcodeArg0;             ; AX = SFX file-list id requested
 //   if (AX == [0x66fe]) RET;             ; same as last played → short-circuit
 //   CX = 0; DX = 0;
 //   PlaySfxSound();                      ; AX/BX=bank id bounds, CX/DX=size
@@ -501,7 +602,11 @@ void Sound::playSecondarySfx(uint16 secondaryId) {
 	uint16 low = 0;
 	uint16 high = 0;
 	uint32 size = 0;
-	const uint32 primarySize = (uint32(_state670a) << 16) | _state670c;
+	uint32 primarySize = (uint32(_state670a) << 16) | _state670c;
+	const SfxBankInfo *primaryBank = sfxBankForLoadId(_state66fe);
+	const SfxBankInfo *secondaryBank = sfxBankForLoadId(secondaryId);
+	if (primaryBank && secondaryBank && primaryBank->mode != secondaryBank->mode)
+		primarySize = 0;
 	if (!resolveSfxSlot(secondaryId, primarySize, low, high, size))
 		return;
 
@@ -580,10 +685,11 @@ void Sound::playQueuedLikeDos() {
 }
 
 void Sound::stopAll() {
-	if (!g_system || !g_system->getMixer())
-		return;
-	g_system->getMixer()->stopHandle(_primaryHandle);
-	g_system->getMixer()->stopHandle(_secondaryHandle);
+	if (g_system && g_system->getMixer()) {
+		g_system->getMixer()->stopHandle(_primaryHandle);
+		g_system->getMixer()->stopHandle(_secondaryHandle);
+	}
+	Music.stopSfxNotes();
 }
 
 } // namespace Interspective

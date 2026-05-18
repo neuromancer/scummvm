@@ -55,7 +55,10 @@ static uint16 midiTuneIndexForScriptTune(uint16 tuneIdx) {
 }
 
 MusicParser::MusicParser() : MidiParser(), _tune(0), _script(0), _musicType(MT_INVALID), _active(true),
-	_currentTuneWord(0), _driverCommandByte(0), _driverModeFlag(0), _time(0), _lastTick(0), _tick(0) {
+	_currentTuneWord(0), _driverCommandByte(0), _driverModeFlag(0),
+	_sfxNoteCount(0), _sfxNoteTicks(0), _time(0), _lastTick(0), _tick(0) {
+	memset(_sfxNoteChannels, 0, sizeof(_sfxNoteChannels));
+	memset(_sfxNotes, 0, sizeof(_sfxNotes));
 	const uint32 devTypes = MDT_MIDI | MDT_ADLIB | MDT_PREFER_GM;
 	MidiDriver::DeviceHandle dev = MidiDriver::detectDevice(devTypes);
 	_musicType = MidiDriver::getMusicType(dev);
@@ -108,6 +111,7 @@ MusicParser::MusicParser() : MidiParser(), _tune(0), _script(0), _musicType(MT_I
 }
 
 MusicParser::~MusicParser() {
+	stopSfxNotes();
 	silence();
 	unloadMusic();
 	delete _tune; _tune = 0;
@@ -209,6 +213,8 @@ void MusicParser::tick() {
 			unloadMusic();
 		}
 	}
+	if (_sfxNoteTicks != 0 && --_sfxNoteTicks == 0)
+		stopSfxNotes();
 	_tick++;
 }
 
@@ -234,6 +240,37 @@ void MusicParser::silence() {
 				Music._driver->send(channel | kMidiNoteOff, notes[channel - 2][i], 0);
 
 	memset(notes, 0, sizeof(notes));
+}
+
+bool MusicParser::playSfxNote(uint8 channel, uint8 note, uint8 velocity, uint16 durationTicks) {
+	if (!_driver || note == 0)
+		return false;
+
+	stopSfxNotes();
+	_driver->send(channel | kMidiNoteOn, note, velocity);
+	_sfxNoteChannels[0] = channel;
+	_sfxNotes[0] = note;
+	_sfxNoteCount = 1;
+	_sfxNoteTicks = durationTicks ? durationTicks : 32;
+	debugC(1, kDebugLevelSound, "Interspective music: Roland SFX note channel=%u note=%u velocity=%u duration=%u",
+		(uint)channel, (uint)note, (uint)velocity, (uint)_sfxNoteTicks);
+	return true;
+}
+
+void MusicParser::stopSfxNotes() {
+	if (!_driver) {
+		_sfxNoteCount = 0;
+		_sfxNoteTicks = 0;
+		return;
+	}
+	for (uint8 i = 0; i < _sfxNoteCount; ++i) {
+		if (_sfxNotes[i] != 0)
+			_driver->send(_sfxNoteChannels[i] | kMidiNoteOff, _sfxNotes[i], 0);
+	}
+	_sfxNoteCount = 0;
+	_sfxNoteTicks = 0;
+	memset(_sfxNoteChannels, 0, sizeof(_sfxNoteChannels));
+	memset(_sfxNotes, 0, sizeof(_sfxNotes));
 }
 
 bool MusicParser::isPlaying() const {

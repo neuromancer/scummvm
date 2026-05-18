@@ -28,6 +28,7 @@
 
 #include "common/array.h"
 #include "common/scummsys.h"
+#include "common/str.h"
 #include "audio/mixer.h"
 
 namespace Common {
@@ -41,14 +42,15 @@ class Engine;
 // Sound subsystem — DOS SFX driver port.
 //
 // DOS architecture (per Ghidra):
-// - `g_sfx_enabled` (CS:[0xe]): sfx driver mode (0=off, 1=adlib?, 2=xms-backed,
-//   3=conventional, 4=sound-blaster digitized).
+// - `g_sfx_enabled` (CS:[0xe]): sfx driver mode (0=off, 2=SoundBlaster/XMS
+//   sampled effects, 4=Roland effects through the music driver).
 // - `g_sfx_active` (DS:0x67b7): bit-flag set while a sample is playing;
 //   read by `CheckSfxPlaying @ 1000:5eb3`.
 // - `pbRam0002324e` (DS:0x66fe): "last played sfx id" cache used by
 //   Op_load_sfx (0xf0) for short-circuit (same arg = no replay).
 // - `pbRam00023250` (DS:0x6700): secondary slot id cache for Op_f1.
-// - `g_sfx_count` / `g_sfx_count_alt` (CS:[0x47]/[0x48?]): bound checks.
+// - `g_sfx_count` / `g_sfx_count_alt` (CS:[0x83]/[0x87]): sample-count
+//   and SFX file-list count from iuc_main.dat footer offsets 0x24/0x28.
 //
 // State globals at DS:0x66fe..0x670c form a 14-byte SFX-engine record
 // modified by Op_load_sfx / Op_f1 (per DOS 1000:56d9 / 0x5725):
@@ -62,13 +64,12 @@ class Engine;
 //   [0x670c] = ?
 //
 // File layout (IUC_SDFX.DAT + IUC_S*.DAT banks):
-// - IUC_SDFX.DAT: 144-byte index, 36 entries × 4-byte uint32 offsets
-//   into the sample banks.
-// - IUC_SR.DAT (562 bytes): sound-resource index — 32-byte name strings
-//   + per-entry metadata (bank number, offset, length, sample rate?).
-// - IUC_S01.DAT..IUC_S11.DAT: sample banks. The entries are Creative
-//   VOC-style blocks: type 1 sample data, type 8 extended rate info,
-//   type 6/7 repeat markers, type 3 silence, and type 0 terminator.
+// - IUC_MAIN.DAT footer +0x26: SFX file-list entries used by OpenSfxFile:
+//   uint16 strict-low sample id, uint8 driver mode, ASCIIZ filename.
+// - IUC_SDFX.DAT: 144-byte index, 36 entries × 4-byte uint32 offsets into
+//   the file selected by the footer list.
+// - IUC_S01.DAT..IUC_S10.DAT: SoundBlaster Creative VOC-style sample banks.
+// - IUC_SR.DAT: Roland effect tune records for mode 4.
 //
 // C++ port: Audio::Mixer integration — range-check playback decodes the
 // VOC-style bank entry and plays it as unsigned 8-bit PCM on kSFXSoundType.
@@ -130,9 +131,11 @@ public:
 private:
 	struct SfxBankInfo {
 		uint8 bank;
+		uint8 mode;
 		uint16 low;
 		uint16 high;
 		uint32 size;
+		Common::String filename;
 	};
 	struct SfxSampleInfo {
 		SfxSampleInfo() : bank(0), offset(0), end(0), valid(false) {}
@@ -145,9 +148,13 @@ private:
 	void loadSfxMetadata() const;
 	uint16 maxSfxId() const;
 	bool validateSfxId(uint16 id) const;
-	const SfxBankInfo *sfxBankForId(uint16 id) const;
+	uint16 maxSfxBankId() const;
+	bool validateSfxBankId(uint16 id) const;
+	const SfxBankInfo *sfxBankForLoadId(uint16 id) const;
+	const SfxBankInfo *sfxBankForSampleId(uint16 id) const;
 	bool resolveSfxSlot(uint16 id, uint32 baseBytes, uint16 &low, uint16 &high, uint32 &size) const;
 	bool loadSfxSample(uint16 id, Common::Array<byte> &pcm, int &rate, bool &loop) const;
+	bool loadRolandSfxNote(uint16 id, uint8 &channel, uint8 &note, uint8 &velocity, uint16 &durationTicks) const;
 	bool playSfxSample(uint16 id, Audio::SoundHandle &handle);
 
 	Engine *_engine;
@@ -165,6 +172,7 @@ private:
 	mutable Common::Array<SfxBankInfo> _sfxBanks;
 	mutable Common::Array<SfxSampleInfo> _sfxSamples;
 	mutable uint16 _maxSfxId;
+	mutable uint16 _maxSfxBankId;
 	mutable bool _sfxMetadataLoaded;
 	bool _active;
 };

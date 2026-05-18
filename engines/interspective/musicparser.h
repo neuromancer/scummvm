@@ -184,6 +184,9 @@ public:
 	void restoreSavedState(const byte *script, uint16 currentTuneWord, uint8 active,
 	                       uint8 driverCommandByte, uint8 driverModeFlag,
 	                       uint16 beat, uint32 beatTicks);
+	bool playSfxNote(uint8 channel, uint8 note, uint8 velocity, uint16 durationTicks);
+	void stopSfxNotes();
+	bool isSfxNotePlaying() const { return _sfxNoteCount != 0; }
 
 	friend class Note;
 	friend class MusicCommand;
@@ -198,6 +201,10 @@ private:
 	uint16 _currentTuneWord;
 	uint8 _driverCommandByte;
 	uint8 _driverModeFlag;
+	uint8 _sfxNoteChannels[4];
+	uint8 _sfxNotes[4];
+	uint8 _sfxNoteCount;
+	uint16 _sfxNoteTicks;
 
 	uint32 _time, _lastTick, _tick;
 };
