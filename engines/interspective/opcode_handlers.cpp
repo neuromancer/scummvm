@@ -559,10 +559,16 @@ static bool sendActorToEntityByTypeLikeDos(Actor *actor, uint16 targetId, uint16
 			Log.setPendingError(0x14);
 			return false;
 		}
-		targetX = exit->hasSprite()
-			? int16(exit->position().x + exit->area().width() / 2)
-			: int16(exit->position().x);
-		targetY = int16(exit->position().y);
+		const int16 exitX = int16(Log.dosRecordField(1, targetId, 2, 2));
+		const int16 exitY = int16(Log.dosRecordField(1, targetId, 4, 2));
+		if (Log.dosRecordField(1, targetId, 0x0a, 1) == 0) {
+			const uint16 spriteId = Log.dosRecordField(1, targetId, 6, 2);
+			const SpriteInfo info = Log.engine()->resources()->getSpriteInfo(spriteId);
+			targetX = int16(exitX + int16(info.width) / 2);
+		} else {
+			targetX = exitX;
+		}
+		targetY = exitY;
 		break;
 	}
 	case 2:
@@ -1661,6 +1667,8 @@ static uint8 exitRecordByte(Logic *logic, Exit *exit, uint16 id, uint8 off) {
 		return wordRecordByte(uint16(exit->position().y), 4, off);
 	if (off == 6 || off == 7)
 		return wordRecordByte(exit->spriteField(), 6, off);
+	if (off == 0x0a)
+		return exit->noSpriteLikeDos() ? 1 : 0;
 	if (off == 0x0b)
 		return exit->zIndex();
 	return logic->exitField(id, off);
@@ -1692,6 +1700,10 @@ static void writeExitRecordByte(Logic *logic, Exit *exit, uint16 id, uint8 off, 
 	}
 	if (off == 6 || off == 7) {
 		exit->setSpriteField(wordRecordWithByte(exit->spriteField(), 6, off, value));
+		return;
+	}
+	if (off == 0x0a) {
+		exit->setNoSpriteLikeDos(value != 0);
 		return;
 	}
 	if (off == 0x0b) {

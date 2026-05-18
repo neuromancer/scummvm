@@ -42,6 +42,7 @@
 #include "interspective/exit.h"
 #include "interspective/innocent.h"
 #include "interspective/logic.h"
+#include "interspective/program.h"
 #include "interspective/resources.h"
 #include "interspective/room.h"
 #include "interspective/util.h"
@@ -192,6 +193,14 @@ static bool containsDosPoint(uint16 a, uint16 b, uint16 c, uint16 d, int16 x, in
 	return int16(a) <= x && x <= int16(c) && int16(b) <= y && y <= int16(d);
 }
 
+static uint16 recordWord(const Logic *logic, uint8 selector, uint16 id, uint8 off) {
+	return logic->dosRecordField(selector, id, off, 2);
+}
+
+static bool exitIsNoSpriteLikeDos(const Logic *logic, uint16 id) {
+	return logic->dosRecordField(1, id, 0x0a, 1) != 0;
+}
+
 static int16 normalizeLayer(int16 layer) {
 	return uint8(layer) == 0xff ? -1 : layer;
 }
@@ -236,17 +245,18 @@ static int16 findObjectLayerLikeDos(Logic *logic, uint16 id, uint16 spriteId) {
 
 static void rebuildDrawCommandsLikeDos(Graphics *graphics, Logic *logic) {
 	logic->clearDrawCommands();
-	if (!logic->room())
+	if (!logic->room() || !logic->blockProgram())
 		return;
 
-	const Common::List<Exit *> &exits = logic->room()->exits();
-	foreach_const(Exit *, exits) {
-		Exit *exit = *it;
-		if (!exit->hasSprite())
+	Program *program = logic->blockProgram();
+	for (uint16 id = 1; id <= program->exitsCount(); ++id) {
+		if (logic->dosRecordField(1, id, 0, 2) != logic->currentRoom())
 			continue;
-		if (!logic->cellBit(exit->id(), 0))
+		if (exitIsNoSpriteLikeDos(logic, id))
 			continue;
-		if (!logic->addDrawCommand(1, exit->id(), int8(exit->zIndex())))
+		if (!logic->cellBit(id, 0))
+			continue;
+		if (!logic->addDrawCommand(1, id, int8(logic->dosRecordField(1, id, 0x0b, 1))))
 			return;
 	}
 
@@ -297,9 +307,15 @@ static bool objectDrawShouldDeferLikeDos(Logic *logic, const Logic::DrawCommand 
 
 static void paintDrawCommandLikeDos(Graphics *graphics, Logic *logic, const Logic::DrawCommand &cmd) {
 	if (cmd.type == 1) {
-		Exit *exit = logic->blockProgram() ? logic->blockProgram()->getExit(cmd.id) : 0;
-		if (exit && exit->room() == logic->currentRoom() && logic->cellBit(cmd.id, 0))
-			exit->paint(graphics);
+		if (logic->dosRecordField(1, cmd.id, 0, 2) == logic->currentRoom()
+				&& logic->cellBit(cmd.id, 0)) {
+			const uint16 spriteId = recordWord(logic, 1, cmd.id, 6);
+			Common::ScopedPtr<Sprite> sprite(logic->engine()->resources()->loadSprite(spriteId));
+			graphics->paint(sprite.get(), Common::Point(
+				int16(recordWord(logic, 1, cmd.id, 2)),
+				int16(recordWord(logic, 1, cmd.id, 4))),
+				Graphics::kPaintCameraRelative);
+		}
 		return;
 	}
 

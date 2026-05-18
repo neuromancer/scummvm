@@ -63,9 +63,11 @@ public:
 
 	bool isEnabled() const { return _enabled; }
 	void setEnabled(bool en) { _enabled = en; }
-	bool hasSprite() const { return _sprite.get() != 0; }
+	bool hasSprite() const { return !_noSprite; }
+	bool noSpriteLikeDos() const { return _noSprite; }
+	void setNoSpriteLikeDos(bool noSprite);
 	uint16 spriteField() const { return _spriteField; }
-	void setSpriteField(uint16 sprite) { _spriteField = sprite; }
+	void setSpriteField(uint16 sprite);
 
 	friend class Program;
 private:
@@ -83,6 +85,7 @@ private:
 	uint16 _room;
 	CodePointer _clickHandler;
 	bool _enabled;
+	bool _noSprite;
 };
 
 }

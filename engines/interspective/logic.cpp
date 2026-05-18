@@ -591,6 +591,8 @@ uint16 Logic::dosRecordField(uint8 selector, uint16 id, uint8 off, uint8 size) c
 			lo = dosWordByte(uint16(exit->position().y), 4, off);
 		else if (off == 6 || off == 7)
 			lo = dosWordByte(exit->spriteField(), 6, off);
+		else if (off == 0x0a)
+			lo = exit->noSpriteLikeDos() ? 1 : 0;
 		else if (off == 0x0b)
 			lo = exit->zIndex();
 		else
@@ -674,6 +676,8 @@ void Logic::setDosRecordField(uint8 selector, uint16 id, uint8 off, uint8 size, 
 				exit->setPosition(p);
 			} else if (byteOff == 6 || byteOff == 7)
 				exit->setSpriteField(dosWordWithByte(exit->spriteField(), 6, byteOff, byteValue));
+			else if (byteOff == 0x0a)
+				exit->setNoSpriteLikeDos(byteValue != 0);
 			else if (byteOff == 0x0b)
 				exit->setZIndex(byteValue);
 			else
@@ -2025,10 +2029,16 @@ bool Logic::sendActorToEntityByType(Actor *walker, uint16 targetId, uint16 entit
 			setPendingError(0x14);
 			return false;
 		}
-		targetX = exit->hasSprite()
-			? int16(exit->position().x + exit->area().width() / 2)
-			: int16(exit->position().x);
-		targetY = int16(exit->position().y);
+		const int16 exitX = int16(dosRecordField(1, targetId, 2, 2));
+		const int16 exitY = int16(dosRecordField(1, targetId, 4, 2));
+		if (dosRecordField(1, targetId, 0x0a, 1) == 0) {
+			const uint16 spriteId = dosRecordField(1, targetId, 6, 2);
+			const SpriteInfo info = objectSpriteInfo(_resources, _blockProgram.get(), spriteId);
+			targetX = int16(exitX + int16(info.width) / 2);
+		} else {
+			targetX = exitX;
+		}
+		targetY = exitY;
 		break;
 	}
 	case 2: { // object/person

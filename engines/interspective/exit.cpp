@@ -45,12 +45,11 @@ enum Offsets {
 };
 
 Exit::Exit(const CodePointer &c, uint16 id)
-  :	_sprite(), _spriteField(0xffff), _id(id), _enabled(false) {
+  :	_sprite(), _spriteField(0xffff), _id(id), _enabled(false), _noSprite(false) {
 	debugC(4, kDebugLevelFiles, "loading exit from %s", +c);
 
-	bool nosprite;
-	c.field(nosprite, kOffsetNoSprite);
-	if (!nosprite) {
+	c.field(_noSprite, kOffsetNoSprite);
+	if (!_noSprite) {
 		c.field(_spriteField, kOffsetSprite);
 		c.field(_sprite, kOffsetSprite);
 		_rect = Common::Rect(_sprite->w, _sprite->h);
@@ -66,7 +65,7 @@ Exit::Exit(const CodePointer &c, uint16 id)
 	c.field(_position, kOffsetPosition);
 	_rect.moveTo(_position.x, _position.y);
 
-	if (!nosprite) // these have bottom for some reason
+	if (!_noSprite) // these have bottom for some reason
 		_rect.translate(0, -(_rect.height() - 1));
 
 	c.field(_room, kOffsetRoom);
@@ -76,7 +75,21 @@ Exit::Exit(const CodePointer &c, uint16 id)
 	c.field(offset, kOffsetClickHandler);
 	_clickHandler = CodePointer(offset, c.interpreter());
 
-	snprintf(_debugInfo, 100, "exit %u %s%s r%d z%d %s", _id, nosprite ? "n" : "s" , +_rect, _room, _zIndex, +c);
+	snprintf(_debugInfo, 100, "exit %u %s%s r%d z%d %s", _id, _noSprite ? "n" : "s" , +_rect, _room, _zIndex, +c);
+}
+
+void Exit::setSpriteField(uint16 sprite) {
+	_spriteField = sprite;
+	if (_noSprite) {
+		_rect = Common::Rect(uint8(sprite), uint8(sprite >> 8));
+		_rect.moveTo(_position.x, _position.y);
+	}
+}
+
+void Exit::setNoSpriteLikeDos(bool noSprite) {
+	_noSprite = noSprite;
+	if (_noSprite)
+		setSpriteField(_spriteField);
 }
 
 void Exit::paint(Graphics *g) {

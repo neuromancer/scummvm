@@ -97,6 +97,10 @@ static bool containsDosHalfOpen(int16 left, int16 top, int16 right, int16 bottom
 	return p.x >= left && p.x < right && p.y >= top && p.y < bottom;
 }
 
+static bool exitIsNoSpriteLikeDos(const Logic &logic, uint16 id) {
+	return logic.dosRecordField(1, id, 0x0a, 1) != 0;
+}
+
 static int16 hitRegionAtPointLikeDos(const Common::Point &pos) {
 	// iuc_main.dat hit-region table (footer +0x5a):
 	//   0 = room, 1 = inventory strip, 2 = status button, 3..8 = verb buttons.
@@ -141,9 +145,14 @@ static HitTarget hitDrawCommandAtPointLikeDos(Logic &logic, Common::Point world)
 		const Logic::DrawCommand &cmd = commands[i];
 		if (cmd.type == 1) {
 			Exit *exit = logic.blockProgram() ? logic.blockProgram()->getExit(cmd.id) : 0;
-			if (!exit || exit->room() != logic.currentRoom() || !logic.cellBit(cmd.id, 0))
+			if (!exit || logic.dosRecordField(1, cmd.id, 0, 2) != logic.currentRoom()
+					|| !logic.cellBit(cmd.id, 0))
 				continue;
-			if (spriteContainsWorldPoint(resources, exit->spriteField(), exit->position(), world))
+			const uint16 spriteId = recordWord(logic, 1, cmd.id, 6);
+			const Common::Point pos(
+				int16(recordWord(logic, 1, cmd.id, 2)),
+				int16(recordWord(logic, 1, cmd.id, 4)));
+			if (spriteContainsWorldPoint(resources, spriteId, pos, world))
 				considerLowerZTarget(best, 1, cmd.id, cmd.layer, exit);
 		} else if (cmd.type == 2) {
 			if (logic.getObjectRoom(cmd.id) != logic.currentRoom() || !logic.cellBit(cmd.id, 0))
@@ -170,14 +179,29 @@ static HitTarget hitDrawCommandWithFallbackLikeDos(Logic &logic, Common::Point w
 
 static HitTarget hitNoSpriteExitAtPointLikeDos(Logic &logic, Common::Point world) {
 	HitTarget best;
-	if (logic.blockProgram()) {
-		Common::List<Exit *> exits = logic.blockProgram()->exitsForRoom(logic.currentRoom());
-		foreach (Exit *, exits) {
-			Exit *exit = *it;
-			if (!exit || exit->hasSprite() || !logic.cellBit(exit->id(), 0))
+	best.z = 0x0c;
+	Program *program = logic.blockProgram();
+	if (program) {
+		for (uint16 id = 1; id <= program->exitsCount(); ++id) {
+			Exit *exit = program->getExit(id);
+			if (!exit || logic.dosRecordField(1, id, 0, 2) != logic.currentRoom()
+					|| !logic.cellBit(id, 0) || !exitIsNoSpriteLikeDos(logic, id))
 				continue;
-			if (containsDosInclusive(exit->area(), world))
-				considerLowerZTarget(best, 1, exit->id(), int16(int8(exit->zIndex())), exit);
+
+			const int16 left = int16(recordWord(logic, 1, id, 2));
+			const int16 top = int16(recordWord(logic, 1, id, 4));
+			const int16 right = int16(left + int16(logic.dosRecordField(1, id, 6, 1)));
+			const int16 bottom = int16(top + int16(logic.dosRecordField(1, id, 7, 1)));
+			const Common::Rect area(left, top, right, bottom);
+			const int16 z = int16(int8(logic.dosRecordField(1, id, 0x0b, 1)));
+			if (containsDosInclusive(area, world) && z < best.z) {
+				best.type = 1;
+				best.id = id;
+				best.z = z;
+				best.y = 0;
+				best.exitPtr = exit;
+				debugC(2, kDebugLevelEvents, "click hit candidate type=1 id=%u z=%d", id, z);
+			}
 		}
 	}
 	return best;
