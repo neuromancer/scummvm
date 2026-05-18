@@ -6508,15 +6508,20 @@ OPCODE(0xf2) {
 OPCODE(0xf3) {
 	// DOS Op_f3 (CS:0x5769): nargs=0 per opcodes_nargs.data. Calls
 	// RegisterSampleSlot_Bare8 (BX=0xb: CheckSfxPlaying) when SFX is
-	// active/enabled, else AX=1 + RegisterSampleSlot_Bare5.
+	// active/enabled, else AX=1 + RegisterSampleSlot_Bare5. Because the
+	// C++ wait model re-runs this opcode instead of storing a native DOS
+	// sample slot, retry only while CheckSfxPlaying would return "busy".
 	debugC(2, kDebugLevelScript, "opcode 0xf3: wait for sfx stop");
 	if (sampleSlotWouldError())
 		return kThxBye;
 	if (Sound *snd = _engine->sound()) {
-		if (snd->isEnabled() && snd->isActive())
+		if (snd->isEnabled() && snd->isActive()) {
+			if (!snd->isSfxPlaying())
+				return kThxBye;
 			_logic->runLaterWithCurrentMode(current);
-		else
+		} else {
 			_logic->runLaterWithCurrentMode(next, 1);
+		}
 	} else {
 		_logic->runLaterWithCurrentMode(next, 1);
 	}

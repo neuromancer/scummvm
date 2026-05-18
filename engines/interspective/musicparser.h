@@ -124,9 +124,11 @@ public:
 	Tune(uint16 index);
 	MusicCommand::Status parseNextEvent(EventInfo &info);
 	void setBeat(uint16);
+	void restorePosition(uint16 beat, uint32 beatTicks);
 	void stop();
 	bool isPlaying() const;
 	uint16 beatId() const { return _currentBeat; }
+	uint32 beatTicks() const { return _beatticks; }
 	void tick();
 
 	friend class Note;
@@ -171,8 +173,17 @@ public:
 	void setMaxVolume(uint8 dosMusicMode);
 	bool isPlaying() const;
 	bool hasCurrentTune() const { return _currentTuneWord != 0; }
+	uint16 currentTuneWord() const { return _currentTuneWord; }
+	const byte *currentScriptBase() const { return _script ? _script->base() : 0; }
+	uint16 currentBeat() const { return _tune ? _tune->beatId() : 0xffff; }
+	uint32 currentBeatTicks() const { return _tune ? _tune->beatTicks() : 0; }
+	uint8 driverCommandByte() const { return _driverCommandByte; }
+	uint8 driverModeFlag() const { return _driverModeFlag; }
 	bool isActive() const { return _active; }
 	void setActive(bool active) { _active = active; }
+	void restoreSavedState(const byte *script, uint16 currentTuneWord, uint8 active,
+	                       uint8 driverCommandByte, uint8 driverModeFlag,
+	                       uint16 beat, uint32 beatTicks);
 
 	friend class Note;
 	friend class MusicCommand;

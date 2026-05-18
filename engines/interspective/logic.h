@@ -69,6 +69,7 @@ public:
 		  _forceRoomRestart(false),
 		  _paused(false),
 		  _stepPending(false),
+		  _autoCloseTimer(0),
 		  _noStep(false),
 		  _breakInner(false),
 			  _menuStashA(0),
@@ -152,6 +153,7 @@ public:
 	bool stepPending() const { return _stepPending; }
 	void setStepPending(bool v) { _stepPending = v; }
 	void cycleCursorModeByRightClickLikeDos();
+	uint16 updateAutoCloseTimerSpriteLikeDos();
 	// DOS g_flag_no_step (DS:0x6747). Dispatch-table opcode 0x96 sets it to
 	// lock player input during cutscenes. Opcode 0x95 clears both _noStep
 	// and _stepPending.
@@ -1012,6 +1014,7 @@ public:
 	bool restoreActorSpeechSlot(Actor *actor, const Common::String &text);
 	void recycleStaleSpeechSlotsLikeDos();
 	void paintSpeechSlots(Graphics *g);
+	void paintDirtyObjectPlacementsLikeDos(Graphics *g, int16 layer);
 
 	bool canSkipCutscene() const { return !_skipPoint.isEmpty(); }
 	void setSkipPoint(const CodePointer &);
@@ -1204,10 +1207,12 @@ private:
 	RoomBackup _roomBackup;
 
 	struct DirtyObjectPlacement {
-		DirtyObjectPlacement() : objId(0), x(0), yMinusHeight(0) {}
+		DirtyObjectPlacement() : objId(0), currentX(0), currentYMinusHeight(0), targetX(0), targetYMinusHeight(0) {}
 		uint16 objId;
-		int16 x;
-		int16 yMinusHeight;
+		int16 currentX;
+		int16 currentYMinusHeight;
+		int16 targetX;
+		int16 targetYMinusHeight;
 	};
 	DirtyObjectPlacement _dirtyObjectPlacements[5]; // DS:0x1945, five 10-byte placement slots
 
@@ -1224,6 +1229,7 @@ private:
 	bool _paused;           // DS:0x6743 — one-frame pause/repaint gate set by transition helpers
 	uint16 _currentPlace;   // DOS CS:[0x111] — savegame "place" id, set by Op_c9
 	bool _stepPending;      // DS:0x6748 — set by hotspot click, cleared on action
+	int16 _autoCloseTimer;  // DS:0x668a — status button one-shot/persistent overlay timer
 	bool _noStep;           // DS:0x6747 — true while control is locked (Op_95/Op_96)
 	bool _breakInner;       // DS:0x672f — set by protagonist walk dispatch inside scripts
 	Common::Array<Zone> _zones;            // mirrors g_zone[8], cleared by Op_da

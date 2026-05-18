@@ -89,6 +89,7 @@ public:
 	void willFadein(FadeFlags f = kFullFade);
 	bool fadeOut(FadeFlags f = kFullFade);
 	bool inFade() const { return _inFade; }
+	bool palettePendingLikeDos() const { return _willFadein || _inFade; }
 	void setInFade(bool v) { _inFade = v; }
 
 	void say(const byte *text, uint16, uint16 frames = 50);
@@ -193,6 +194,7 @@ private:
 	void paintInventoryObjectsLikeDos();
 	void paintInventoryCloseUpLikeDos();
 	void paintInterfaceOverlaySprites();
+	void paintAutoCloseTimerLikeDos();
 	void paintStatusOverlayText();
 	void paintStatusScreenTextLikeDos();
 

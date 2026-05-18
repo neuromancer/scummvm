@@ -30,6 +30,10 @@
 #include "common/scummsys.h"
 #include "audio/mixer.h"
 
+namespace Common {
+class Serializer;
+}
+
 namespace Interspective {
 
 class Engine;
@@ -121,6 +125,7 @@ public:
 	// Stop any currently-playing sample. DOS calls this through the
 	// driver-table dispatch when transitioning rooms or restarting.
 	void stopAll();
+	void synchronize(Common::Serializer &s);
 
 private:
 	struct SfxBankInfo {

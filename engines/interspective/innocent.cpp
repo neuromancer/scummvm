@@ -74,7 +74,7 @@ static const VerbButtonRegion kVerbButtonRegions[] = {
 };
 
 static bool applyVerbButtonClickLikeDos(Logic *logic, const Common::Point &pos) {
-	if (!logic || logic->inStatusMode() || logic->noStep() || logic->cursorMode() == 0x20)
+	if (!logic || logic->noStep() || logic->cursorMode() == 0x20)
 		return false;
 
 	for (uint i = 0; i < ARRAYSIZE(kVerbButtonRegions); ++i) {
@@ -91,6 +91,76 @@ static bool applyVerbButtonClickLikeDos(Logic *logic, const Common::Point &pos) 
 	}
 
 	return false;
+}
+
+struct MusicStateSyncResult {
+	MusicStateSyncResult() : disableAllSound(false), disableSfx(false), stopSfx(false) {}
+	bool disableAllSound;
+	bool disableSfx;
+	bool stopSfx;
+};
+
+static MusicStateSyncResult synchronizeMusicState(Common::Serializer &s, Resources *resources,
+		uint8 currentMusicMode, uint8 currentSfxMode) {
+	MusicStateSyncResult result;
+	uint8 active = Music.isActive() ? 1 : 0;
+	uint16 currentTune = Music.currentTuneWord();
+	uint16 scriptOffset = 0xffff;
+	uint16 beat = Music.currentBeat();
+	uint32 beatTicks = Music.currentBeatTicks();
+	uint8 commandByte = Music.driverCommandByte();
+	uint8 modeFlag = Music.driverModeFlag();
+	uint8 savedMusicMode = currentMusicMode;
+	uint8 savedSfxMode = currentSfxMode;
+
+	byte *mainBase = resources ? resources->mainBase() : 0;
+	const uint32 mainSize = (resources && resources->mainDat()) ? resources->mainDat()->dataSize() : 0;
+	const byte *scriptBase = Music.currentScriptBase();
+	if (scriptBase && mainBase) {
+		const uintptr mainAddr = reinterpret_cast<uintptr>(mainBase);
+		const uintptr scriptAddr = reinterpret_cast<uintptr>(scriptBase);
+		if (scriptAddr >= mainAddr && scriptAddr < mainAddr + mainSize)
+			scriptOffset = uint16(scriptAddr - mainAddr);
+	}
+
+	s.syncAsByte(active);
+	s.syncAsUint16LE(currentTune);
+	s.syncAsUint16LE(scriptOffset);
+	s.syncAsUint16LE(beat);
+	s.syncAsUint32LE(beatTicks);
+	s.syncAsByte(commandByte);
+	s.syncAsByte(modeFlag);
+	if (s.getVersion() >= 5) {
+		s.syncAsByte(savedMusicMode);
+		s.syncAsByte(savedSfxMode);
+	}
+
+	if (s.isLoading()) {
+		if (s.getVersion() >= 5 && savedSfxMode != currentSfxMode)
+			result.disableSfx = true;
+
+		if (currentMusicMode == 0) {
+			Music.stopMusic();
+			return result;
+		}
+
+		// RestoreMusicState @ 1000:5cd4 enters through Op_f8, so any
+		// currently playing sample is stopped before the music-driver image
+		// is validated/restored.
+		result.stopSfx = true;
+
+		if (s.getVersion() >= 5 && savedMusicMode != currentMusicMode) {
+			Music.stopMusic();
+			result.disableAllSound = true;
+			return result;
+		}
+
+		const byte *script = 0;
+		if (scriptOffset != 0xffff && mainBase && scriptOffset < mainSize)
+			script = mainBase + scriptOffset;
+		Music.restoreSavedState(script, currentTune, active, commandByte, modeFlag, beat, beatTicks);
+	}
+	return result;
 }
 
 } // End of anonymous namespace
@@ -139,7 +209,7 @@ bool Engine::canSaveGameStateCurrently(Common::U32String *msg) {
 
 Common::Error Engine::saveGameStream(Common::WriteStream *stream, bool isAutosave) {
 	enum {
-		kSaveVersion = 3
+		kSaveVersion = 6
 	};
 
 	if (!stream || !_logic || !_resources || !_resources->mainDat())
@@ -163,12 +233,15 @@ Common::Error Engine::saveGameStream(Common::WriteStream *stream, bool isAutosav
 		s.syncBytes(_logic->blockProgram()->base(), blockSize);
 
 	_logic->synchronize(s);
+	if (_sound)
+		_sound->synchronize(s);
+	synchronizeMusicState(s, _resources, _dosMusicEnabled, _dosSfxEnabled);
 	return s.err() ? Common::kWritingFailed : Common::kNoError;
 }
 
 Common::Error Engine::loadGameStream(Common::SeekableReadStream *stream) {
 	enum {
-		kSaveVersion = 3
+		kSaveVersion = 6
 	};
 
 	if (!stream || !_logic || !_resources || !_resources->mainDat())
@@ -198,6 +271,25 @@ Common::Error Engine::loadGameStream(Common::SeekableReadStream *stream) {
 	}
 
 	_logic->synchronize(s);
+	if (s.getVersion() >= 4 && _sound)
+		_sound->synchronize(s);
+	if (s.getVersion() >= 4) {
+		const MusicStateSyncResult musicResult =
+			synchronizeMusicState(s, _resources, _dosMusicEnabled, _dosSfxEnabled);
+		if (musicResult.stopSfx && _sound && _sound->isSfxPlaying())
+			_sound->stopAll();
+		if (musicResult.disableAllSound) {
+			if (_sound)
+				_sound->stopAll();
+			_dosMusicEnabled = 0;
+			_dosSfxEnabled = 0;
+			_logic->setGraphicSlot(4, 0);
+		} else if (musicResult.disableSfx) {
+			if (_sound)
+				_sound->stopAll();
+			_dosSfxEnabled = 0;
+		}
+	}
 
 	if (blockSize != 0) {
 		Program *block = _logic->blockProgram();

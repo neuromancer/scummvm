@@ -344,6 +344,7 @@ void Graphics::paintInterface() {
 	paintStatusOverlayText();
 	paintRoomCloseUpLikeDos();
 	paintInventoryCloseUpLikeDos();
+	paintAutoCloseTimerLikeDos();
 	markDirtyRect(Common::Rect(0, 152, 320, 200));
 }
 
@@ -520,6 +521,19 @@ void Graphics::paintInterfaceOverlaySprites() {
 		Common::ScopedPtr<Sprite> sprite(_resources->loadSprite(overlay.spriteId));
 		paint(sprite.get(), Common::Point(overlay.x, overlay.y), kPaintPositionIsTop | kPaintNoDirty);
 	}
+}
+
+void Graphics::paintAutoCloseTimerLikeDos() {
+	Logic *logic = _engine ? _engine->logic() : 0;
+	if (!logic || !_resources)
+		return;
+
+	const uint16 spriteId = logic->updateAutoCloseTimerSpriteLikeDos();
+	if (spriteId == 0xffff)
+		return;
+
+	Common::ScopedPtr<Sprite> sprite(_resources->loadSprite(spriteId));
+	paint(sprite.get(), Common::Point(0x40, 0xbe), kPaintPositionIsTop | kPaintNoDirty);
 }
 
 bool Graphics::setStatusOverlayTextLikeDos(const byte *text) {
@@ -784,6 +798,7 @@ void Graphics::paintAnimations() {
 		paintActorAnimationsForLayerLikeDos(this, animations, layer);
 		for (uint i = 0; i < deferred.size(); ++i)
 			paintDrawCommandLikeDos(this, logic, deferred[i]);
+		logic->paintDirtyObjectPlacementsLikeDos(this, layer);
 	}
 
 	paintAnimationsForLayerLikeDos(this, animations, -1, false);

@@ -27,6 +27,7 @@
 #include "common/debug.h"
 #include "common/endian.h"
 #include "common/file.h"
+#include "common/serializer.h"
 #include "common/str.h"
 #include "audio/audiostream.h"
 #include "audio/decoders/raw.h"
@@ -199,6 +200,41 @@ bool Sound::isSfxPlaying() const {
 		return false;
 	return g_system->getMixer()->isSoundHandleActive(_primaryHandle) ||
 	       g_system->getMixer()->isSoundHandleActive(_secondaryHandle);
+}
+
+void Sound::synchronize(Common::Serializer &s) {
+	uint8 active = _active ? 1 : 0;
+	uint16 state66fe = _state66fe;
+	uint16 state6700 = _state6700;
+	uint16 state6702 = _state6702;
+	uint16 state6704 = _state6704;
+	uint16 state6706 = _state6706;
+	uint16 state6708 = _state6708;
+	uint16 state670a = _state670a;
+	uint16 state670c = _state670c;
+
+	s.syncAsByte(active);
+	s.syncAsUint16LE(state66fe);
+	s.syncAsUint16LE(state6700);
+	s.syncAsUint16LE(state6702);
+	s.syncAsUint16LE(state6704);
+	s.syncAsUint16LE(state6706);
+	s.syncAsUint16LE(state6708);
+	s.syncAsUint16LE(state670a);
+	s.syncAsUint16LE(state670c);
+
+	if (s.isLoading()) {
+		stopAll();
+		_active = active != 0;
+		_state66fe = state66fe;
+		_state6700 = state6700;
+		_state6702 = state6702;
+		_state6704 = state6704;
+		_state6706 = state6706;
+		_state6708 = state6708;
+		_state670a = state670a;
+		_state670c = state670c;
+	}
 }
 
 void Sound::loadSfxMetadata() const {

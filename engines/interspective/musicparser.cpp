@@ -253,6 +253,31 @@ void MusicParser::requestStopCurrent() {
 	_driverCommandByte = 1;
 }
 
+void MusicParser::restoreSavedState(const byte *script, uint16 currentTuneWord, uint8 active,
+		uint8 driverCommandByte, uint8 driverModeFlag, uint16 beat, uint32 beatTicks) {
+	_active = active != 0;
+	_driverCommandByte = driverCommandByte;
+	_driverModeFlag = driverModeFlag;
+
+	if (!script || currentTuneWord == 0 || !_midiDriver) {
+		stopMusic();
+		_currentTuneWord = 0;
+		return;
+	}
+
+	stopMusic();
+	if (!loadMusic(script)) {
+		_currentTuneWord = 0;
+		return;
+	}
+
+	_currentTuneWord = currentTuneWord;
+	_driverCommandByte = driverCommandByte;
+	_driverModeFlag = driverModeFlag;
+	if (_tune)
+		_tune->restorePosition(beat, beatTicks);
+}
+
 bool MusicParser::restartCurrentLikeDos() {
 	if (!_midiDriver || !_active || !_script || !hasCurrentTune())
 		return false;
@@ -393,6 +418,17 @@ void Tune::setBeat(uint16 index) {
 	_currentBeat = index;
 	_beats[_currentBeat].reset();
 	_beatticks = 0;
+}
+
+void Tune::restorePosition(uint16 beat, uint32 beatTicks) {
+	if (beat >= _beats.size()) {
+		stop();
+		return;
+	}
+
+	_currentBeat = beat;
+	_beats[_currentBeat].reset();
+	_beatticks = beatTicks % 64;
 }
 
 void Tune::stop() {

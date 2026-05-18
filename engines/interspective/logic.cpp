@@ -381,10 +381,11 @@ bool Logic::speechWouldConsumeRightClickLikeDos() const {
 }
 
 void Logic::cycleCursorModeByRightClickLikeDos() {
-	// CheckDoubleClickReset @ 1000:b92c: when not in status mode, not
-	// no-step, not dragging, and the locked button byte is 2, cycle
-	// through the verb cursor modes and clear step-pending via SetCursorMode.
-	if (_inStatusMode || _noStep || _cursorMode == 0x20 || !_roomActive || canSkipCutscene())
+	// CheckDoubleClickReset @ 1000:b92c: when not no-step, not dragging,
+	// and the locked button byte is 2, cycle through the verb cursor modes
+	// and clear step-pending via SetCursorMode. RunStatusScreenLoop calls
+	// the same helper, so status mode keeps the lower verb UI active.
+	if (_noStep || _cursorMode == 0x20 || !_roomActive || canSkipCutscene())
 		return;
 	if (speechWouldConsumeRightClickLikeDos())
 		return;
@@ -416,6 +417,28 @@ void Logic::cycleCursorModeByRightClickLikeDos() {
 	debugC(2, kDebugLevelEvents, "right-click verb cycle: cursor mode 0x%02x -> 0x%02x",
 		_cursorMode, nextMode);
 	setCursorMode(nextMode);
+}
+
+uint16 Logic::updateAutoCloseTimerSpriteLikeDos() {
+	// UpdateAutoCloseTimer @ 1000:7a2b:
+	//   if room_active && g_auto_close_timer != 0, choose CS:[0xc9] for
+	//   positive values and the first negative tick, choose CS:[0xcb] for
+	//   the persistent -2 sentinel, then draw at (0x40,0xbe).
+	if (!_roomActive || _autoCloseTimer == 0 || !_resources || !_resources->mainDat())
+		return 0xffff;
+
+	bool statusModeSprite = false;
+	if (_autoCloseTimer < 0) {
+		statusModeSprite = true;
+		if (_autoCloseTimer != -2) {
+			--_autoCloseTimer;
+			statusModeSprite = false;
+		}
+	} else {
+		--_autoCloseTimer;
+	}
+
+	return _resources->mainDat()->getStatusButtonSpriteId(statusModeSprite);
 }
 
 
@@ -1106,24 +1129,29 @@ void Logic::doChangeRoom() {
 
 void Logic::queueDirtyObjectPlacementLikeDos(uint16 objId, int16 x, int16 y) {
 	const int16 height = int16(objectField(objId, 0x11));
+	const int16 currentX = getObjectPosX(objId);
+	const int16 currentYMinusHeight = int16(getObjectPosY(objId) - height);
+	const int16 targetYMinusHeight = int16(y - height);
 	for (uint i = 0; i < ARRAYSIZE(_dirtyObjectPlacements); ++i) {
 		DirtyObjectPlacement &slot = _dirtyObjectPlacements[i];
 		if (slot.objId != 0)
 			continue;
 		slot.objId = objId;
-		slot.x = x;
-		slot.yMinusHeight = int16(y - height);
+		slot.currentX = currentX;
+		slot.currentYMinusHeight = currentYMinusHeight;
+		slot.targetX = x;
+		slot.targetYMinusHeight = targetYMinusHeight;
 		debugC(2, kDebugLevelScript,
-			"queued dirty object placement slot %u: obj=%u x=%d yMinusHeight=%d",
-			i, objId, slot.x, slot.yMinusHeight);
+			"queued dirty object placement slot %u: obj=%u current=%d,%d target=%d,%d",
+			i, objId, slot.currentX, slot.currentYMinusHeight, slot.targetX, slot.targetYMinusHeight);
 		return;
 	}
 
-	// DOS falls back to a direct object-record write if the transient table
-	// is full. The active C++ record is already updated by the caller; keep
-	// this here for the observable dirty side effect and trace.
+	// DOS falls back to a direct object-record write if the transient table is full.
+	setObjectRoom(objId, uint16(_currentRoom));
+	setObjectPosition(objId, x, y);
 	debugC(1, kDebugLevelScript,
-		"dirty object placement table full; object %u remains directly placed", objId);
+		"dirty object placement table full; object %u placed directly", objId);
 	setLogicDirty();
 }
 
@@ -1133,14 +1161,60 @@ void Logic::flushDirtyObjectPlacementsLikeDos(uint16 room) {
 		if (slot.objId == 0)
 			continue;
 		const uint16 objId = slot.objId;
-		const int16 y = int16(slot.yMinusHeight + int16(objectField(objId, 0x11)));
+		const int16 y = int16(slot.targetYMinusHeight + int16(objectField(objId, 0x11)));
 		setObjectRoom(objId, room);
-		setObjectPosition(objId, slot.x, y);
+		setObjectPosition(objId, slot.targetX, y);
 		debugC(2, kDebugLevelScript,
 			"flushed dirty object placement slot %u: obj=%u room=%u x=%d y=%d",
-			i, objId, room, slot.x, y);
+			i, objId, room, slot.targetX, y);
 		slot = DirtyObjectPlacement();
 		setLogicDirty();
+	}
+}
+
+void Logic::paintDirtyObjectPlacementsLikeDos(Graphics *graphics, int16 layer) {
+	if (!graphics)
+		return;
+
+	for (uint i = 0; i < ARRAYSIZE(_dirtyObjectPlacements); ++i) {
+		DirtyObjectPlacement &slot = _dirtyObjectPlacements[i];
+		if (slot.objId == 0)
+			continue;
+
+		if (int8(objectField(slot.objId, 0x0e)) != layer)
+			continue;
+
+		const int16 targetX = slot.targetX;
+		if (targetX >= 0 && slot.currentX != targetX) {
+			if (slot.currentX < targetX)
+				slot.currentX = MIN<int16>(targetX, int16(slot.currentX + 2));
+			else
+				slot.currentX = MAX<int16>(targetX, int16(slot.currentX - 2));
+		}
+
+		if (slot.currentYMinusHeight != slot.targetYMinusHeight) {
+			if (slot.currentYMinusHeight < slot.targetYMinusHeight)
+				slot.currentYMinusHeight = MIN<int16>(slot.targetYMinusHeight, int16(slot.currentYMinusHeight + 8));
+			else
+				slot.currentYMinusHeight = MAX<int16>(slot.targetYMinusHeight, int16(slot.currentYMinusHeight - 8));
+		}
+
+		const uint16 spriteId = uint16(objectField(slot.objId, 6)) | (uint16(objectField(slot.objId, 7)) << 8);
+		if (spriteId != 0xffff) {
+			Common::ScopedPtr<Sprite> sprite(_resources->loadSprite(spriteId));
+			const int16 y = int16(slot.currentYMinusHeight + int16(objectField(slot.objId, 0x11)));
+			graphics->paint(sprite.get(), Common::Point(slot.currentX, y), Graphics::kPaintCameraRelative);
+		}
+
+		if ((targetX < 0 || slot.currentX == targetX) &&
+				slot.currentYMinusHeight == slot.targetYMinusHeight) {
+			const uint16 objId = slot.objId;
+			const int16 y = int16(slot.targetYMinusHeight + int16(objectField(objId, 0x11)));
+			setObjectRoom(objId, uint16(_currentRoom));
+			setObjectPosition(objId, slot.currentX, y);
+			slot = DirtyObjectPlacement();
+			setLogicDirty();
+		}
 	}
 }
 
@@ -1446,6 +1520,14 @@ void Logic::enterStatusScreenLoopLikeDos() {
 	// visible status/save/load surface until region 2 restores the backup.
 	if (_inStatusMode || _enteringStatusScreen)
 		return;
+	Graphics *graphics = _engine ? _engine->graphics() : 0;
+	if (_fullscreenGateActive || (graphics && graphics->palettePendingLikeDos())) {
+		debugC(2, kDebugLevelEvents,
+			"status screen entry ignored [DOS RunStatusScreenLoop gate: fullscreen=%d palette=%d]",
+			_fullscreenGateActive ? 1 : 0,
+			(graphics && graphics->palettePendingLikeDos()) ? 1 : 0);
+		return;
+	}
 
 	backupRoomForStatusLikeDos();
 	// The DOS status loop saves the deferred queue/room-script slots, then
@@ -1461,16 +1543,17 @@ void Logic::enterStatusScreenLoopLikeDos() {
 	_scrollChanged = false;
 	_zones.clear();
 	_inStatusMode = true;
+	_autoCloseTimer = -1;
 	_noStep = false;
 	_roomActive = true;
 	_logicDirty = true;
 	_enteringStatusScreen = true;
 	_nextRoom = 999;
 	_forceRoomRestart = true;
-	if (_engine && _engine->graphics()) {
-		_engine->graphics()->clearStatusScreenTextLikeDos();
-		_engine->graphics()->clearBackdropLikeDos();
-		_engine->graphics()->setFullscreen(false);
+	if (graphics) {
+		graphics->clearStatusScreenTextLikeDos();
+		graphics->clearBackdropLikeDos();
+		graphics->setFullscreen(false);
 	}
 }
 
@@ -1537,6 +1620,7 @@ void Logic::restoreRoomFromBackupLikeDos() {
 	resetQueuedRunMode(7);
 	resetQueuedRunMode(6);
 	_stepPending = false;
+	_autoCloseTimer = 1;
 	_logicDirty = true;
 	_inStatusMode = false;
 }
@@ -1605,13 +1689,18 @@ void Logic::runPostMoveCallbackIfReady() {
 	case PostMoveCallback::kPlaceObjectAfterHotspotMove:
 		// DOS @ 0xc408: place the dragged object after the protagonist
 		// reaches the hotspot approach frame. PlaceObjectInRoom fills a
-		// five-entry transient table that ApplyChangeRoomTransition flushes
-		// into the next location; keep the modeled object record current too
-		// so the existing render/hit-test path sees the same placement until
-		// a room transition happens.
-		setObjectRoom(cb.cellId, uint16(_currentRoom));
-		setObjectPosition(cb.cellId, int16(cb.arg0), int16(cb.arg1));
-		refreshObjectSpriteAndExitInfoLikeDos(cb.cellId);
+		// five-entry transient table and DrawDirtyRectInRoom commits the
+		// object record only after the short movement reaches its target.
+		{
+			const uint16 oldRoom = getObjectRoom(cb.cellId);
+			const int16 oldX = getObjectPosX(cb.cellId);
+			const int16 oldY = getObjectPosY(cb.cellId);
+			setObjectRoom(cb.cellId, uint16(_currentRoom));
+			setObjectPosition(cb.cellId, int16(cb.arg0), int16(cb.arg1));
+			refreshObjectSpriteAndExitInfoLikeDos(cb.cellId);
+			setObjectRoom(cb.cellId, oldRoom);
+			setObjectPosition(cb.cellId, oldX, oldY);
+		}
 		queueDirtyObjectPlacementLikeDos(cb.cellId, int16(cb.arg0), int16(cb.arg1));
 		setDragTarget(0);
 		setCursorMode(1);
@@ -2870,6 +2959,7 @@ void Logic::synchronize(Common::Serializer &s) {
 	uint16 menuStashA = _menuStashA;
 	uint16 menuStashB = _menuStashB;
 	uint8 menuStashConsumed = _menuStashConsumed ? 1 : 0;
+	int16 autoCloseTimer = _autoCloseTimer;
 
 	s.syncAsUint32LE(frameCounter);
 	s.syncAsUint16LE(gameState);
@@ -2917,6 +3007,8 @@ void Logic::synchronize(Common::Serializer &s) {
 	s.syncAsUint16LE(menuStashA);
 	s.syncAsUint16LE(menuStashB);
 	s.syncAsByte(menuStashConsumed);
+	if (s.getVersion() >= 6)
+		s.syncAsSint16LE(autoCloseTimer);
 
 	if (s.isLoading()) {
 		_frameCounter = frameCounter;
@@ -2965,6 +3057,7 @@ void Logic::synchronize(Common::Serializer &s) {
 		_menuStashA = menuStashA;
 		_menuStashB = menuStashB;
 		_menuStashConsumed = menuStashConsumed != 0;
+		_autoCloseTimer = (s.getVersion() >= 6) ? autoCloseTimer : 0;
 		if (!hasScreenMode && _engine && _engine->graphics())
 			_engine->graphics()->setFullscreen(!_roomActive);
 		_runningQueued = nullptr;
@@ -2987,6 +3080,19 @@ void Logic::synchronize(Common::Serializer &s) {
 
 	for (int i = 0; i < 7; ++i)
 		s.syncAsUint16LE(_graphicSlots[i]);
+
+	if (s.getVersion() >= 4) {
+		for (uint i = 0; i < ARRAYSIZE(_dirtyObjectPlacements); ++i) {
+			s.syncAsUint16LE(_dirtyObjectPlacements[i].objId);
+			s.syncAsSint16LE(_dirtyObjectPlacements[i].currentX);
+			s.syncAsSint16LE(_dirtyObjectPlacements[i].currentYMinusHeight);
+			s.syncAsSint16LE(_dirtyObjectPlacements[i].targetX);
+			s.syncAsSint16LE(_dirtyObjectPlacements[i].targetYMinusHeight);
+		}
+	} else if (s.isLoading()) {
+		for (uint i = 0; i < ARRAYSIZE(_dirtyObjectPlacements); ++i)
+			_dirtyObjectPlacements[i] = DirtyObjectPlacement();
+	}
 
 	uint16 actorCount = _resources->mainDat()->actorsCount();
 	if (_blockProgram)

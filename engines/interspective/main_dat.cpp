@@ -96,6 +96,12 @@ enum Offsets {
 	kInterfaceMapMarker3Offset = 0x66,
 	kInterfaceMapMarker7Offset = 0x68,
 
+	// UpdateAutoCloseTimer @ 1000:7a2b draws these footer sprites at
+	// (0x40,0xbe). The loaded footer begins at DOS CS:[0x5f], so
+	// CS:[0xc9]/[0xcb] are footer offsets 0x6a/0x6c.
+	kStatusButtonNormalOffset = 0x6a,
+	kStatusButtonStatusOffset = 0x6c,
+
 	kFrameTopLeftOffset = 0x76,
 	kFrameTopOffset = 0x7e,
 	kFrameTopRightOffset = 0x84,
@@ -532,6 +538,10 @@ uint16 MainDat::getInterfaceMapMarkerSpriteId(uint16 selector) const {
 	}
 
 	return READ_LE_UINT16(_footer + footerOffset);
+}
+
+uint16 MainDat::getStatusButtonSpriteId(bool statusMode) const {
+	return READ_LE_UINT16(_footer + (statusMode ? kStatusButtonStatusOffset : kStatusButtonNormalOffset));
 }
 
 uint16 MainDat::getFrameId(FramePart part) const {
