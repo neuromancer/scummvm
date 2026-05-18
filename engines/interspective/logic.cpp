@@ -421,6 +421,18 @@ bool Logic::setVerbModeFromHitRegionLikeDos(uint16 hitRegion) {
 	return true;
 }
 
+void Logic::activateStatusButtonHotkeyLikeDos() {
+	// CheckVerbHotkey @ 1000:b9bc maps Space to hit-region 2, and
+	// DispatchVerbAction @ 1000:b9a0 sends region 2 to RunStatusScreenLoop.
+	// In the status loop, the same region exits through RestoreRoomFromBackup.
+	if (_inStatusMode) {
+		_stepPending = true;
+		restoreRoomFromBackupLikeDos();
+	} else {
+		enterStatusScreenLoopLikeDos();
+	}
+}
+
 void Logic::cycleCursorModeByRightClickLikeDos() {
 	// CheckDoubleClickReset @ 1000:b92c: when not no-step, not dragging,
 	// and the locked button byte is 2, cycle through the verb cursor modes
@@ -535,6 +547,9 @@ void Logic::runPostAnimationScripts() {
 	// RunStatusScreenLoop is a separate modal loop: it services status-mode room
 	// scripts, but does not run the normal game post-move/global/room loops.
 	if (_inStatusMode) {
+		runStatusScreenScriptsLikeDos();
+		if (handleEscDuringScript())
+			return;
 		tickMotionText();
 		return;
 	}
@@ -3197,6 +3212,37 @@ void Logic::runItemRoomScriptSlotLikeDos() {
 	if (!_roomActive || _pendingError != 0)
 		return;
 	dispatchReadyActorRoomScriptWaitMode(kCodeItem);
+}
+
+void Logic::runStatusScreenScriptsLikeDos() {
+	// RunStatusScreenLoop @ 1000:7795..7848:
+	//   RunScriptByMode(7);
+	//   UpdateRoomAnimation();
+	//   ...
+	//   RunMissActScript(), whose raw body is RunScriptByMode(6) and,
+	//   if no slot is active, EnsureRoomLoaded + InterpretBytecode(mode 6)
+	//   at the current room handler. For room 999 this refreshes visible
+	//   status labels after save/load/audio/bubble-speed state changes.
+	if (!_roomActive || _pendingError != 0 || !_blockInterpreter || !_blockProgram)
+		return;
+
+	if (hasQueuedRunMode(kCodeStatusLoop))
+		dispatchReadyActorRoomScriptWaitMode(kCodeStatusLoop);
+
+	if (hasQueuedRunMode(kCodeStatusRefresh)) {
+		dispatchReadyActorRoomScriptWaitMode(kCodeStatusRefresh);
+		return;
+	}
+
+	const uint16 handler = _blockProgram->roomHandler(uint16(_currentRoom));
+	if (handler == 0)
+		return;
+
+	debugC(3, kDebugLevelScript | kDebugLevelFlow,
+		">>>running status refresh code for room %u", (uint)_currentRoom);
+	_blockInterpreter->run(handler, kCodeStatusRefresh);
+	debugC(3, kDebugLevelScript | kDebugLevelFlow,
+		"<<<finished status refresh code for room %u", (uint)_currentRoom);
 }
 
 void Logic::addAnimation(Animation *anim) {

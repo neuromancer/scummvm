@@ -339,16 +339,6 @@ const Sound::SfxBankInfo *Sound::sfxBankForLoadId(uint16 id) const {
 	return &_sfxBanks[id - 1];
 }
 
-const Sound::SfxBankInfo *Sound::sfxBankForSampleId(uint16 id) const {
-	loadSfxMetadata();
-	for (uint i = 0; i < _sfxBanks.size(); ++i) {
-		const SfxBankInfo &bank = _sfxBanks[i];
-		if (id > bank.low && id <= bank.high)
-			return &bank;
-	}
-	return nullptr;
-}
-
 bool Sound::resolveSfxSlot(uint16 id, uint32 baseBytes, uint16 &low, uint16 &high, uint32 &size) const {
 	if (!validateSfxBankId(id))
 		return false;
@@ -409,12 +399,9 @@ bool Sound::loadSfxSample(uint16 id, Common::Array<byte> &pcm, int &rate, bool &
 	return parseVocSfxBlocks(&raw[0], raw.size(), pcm, rate, loop);
 }
 
-bool Sound::loadRolandSfxNote(uint16 id, uint8 &channel, uint8 &note, uint8 &velocity, uint16 &durationTicks) const {
+bool Sound::loadRolandSfxTune(uint16 id, Common::Array<byte> &tune) const {
 	loadSfxMetadata();
-	channel = 9;
-	note = 0;
-	velocity = 0;
-	durationTicks = 0;
+	tune.clear();
 
 	if (id == 0 || id > _sfxSamples.size())
 		return false;
@@ -433,56 +420,14 @@ bool Sound::loadRolandSfxNote(uint16 id, uint8 &channel, uint8 &note, uint8 &vel
 	const uint32 bytes = sample.end - sample.offset;
 	if (bytes < 0x25)
 		return false;
-	Common::Array<byte> raw;
-	raw.resize(bytes);
+	tune.resize(bytes);
 	file.seek(sample.offset);
-	if (file.read(&raw[0], bytes) != bytes)
+	if (file.read(&tune[0], bytes) != bytes)
 		return false;
 
-	const uint16 beatCount = READ_LE_UINT16(&raw[0x21]);
-	const uint32 beatOffset = 0x25;
-	const uint32 channelBase = beatOffset + uint32(beatCount) * 8;
-	if (beatCount == 0 || channelBase >= raw.size())
-		return false;
-
-	for (uint16 beat = 0; beat < beatCount; ++beat) {
-		for (uint8 beatChannel = 0; beatChannel < 8; ++beatChannel) {
-			const uint8 channelIndex = raw[beatOffset + uint32(beat) * 8 + beatChannel];
-			if (channelIndex == 0)
-				continue;
-			const uint32 channelDef = channelBase + uint32(channelIndex) * 16;
-			if (channelDef + 16 > raw.size())
-				continue;
-
-			for (uint8 noteSlot = 0; noteSlot < 4; ++noteSlot) {
-				uint32 pos = READ_LE_UINT16(&raw[channelDef + noteSlot * 2]);
-				if (pos == 0 || pos + 1 >= raw.size())
-					continue;
-
-				bool foundNote = false;
-				uint16 duration = 0;
-				for (uint8 guard = 0; guard < 64 && pos + 1 < raw.size(); ++guard, pos += 2) {
-					const uint8 command = raw[pos];
-					const uint8 parameter = raw[pos + 1];
-					if (command < 0x80) {
-						channel = beatChannel + 2;
-						note = command;
-						velocity = parameter;
-						foundNote = true;
-					} else if (command == 0xfe && foundNote) {
-						duration = uint16(duration + parameter);
-					} else if (command == 0x8b && foundNote) {
-						break;
-					}
-				}
-				if (foundNote) {
-					durationTicks = duration ? duration : 32;
-					return true;
-				}
-			}
-		}
-	}
-	return false;
+	const uint16 beatCount = READ_LE_UINT16(&tune[0x21]);
+	const uint32 channelBase = 0x25 + uint32(beatCount) * 8;
+	return beatCount != 0 && channelBase < tune.size() && channelBase + 16 <= tune.size();
 }
 
 bool Sound::playSfxSample(uint16 id, Audio::SoundHandle &handle) {
@@ -493,12 +438,9 @@ bool Sound::playSfxSample(uint16 id, Audio::SoundHandle &handle) {
 	int rate = 0;
 	bool loop = false;
 	if (!loadSfxSample(id, pcm, rate, loop)) {
-		uint8 channel = 0;
-		uint8 note = 0;
-		uint8 velocity = 0;
-		uint16 durationTicks = 0;
-		if (loadRolandSfxNote(id, channel, note, velocity, durationTicks))
-			return Music.playSfxNote(channel, note, velocity, durationTicks);
+		Common::Array<byte> tune;
+		if (loadRolandSfxTune(id, tune))
+			return Music.playSfxTune(&tune[0], tune.size());
 		debugC(1, kDebugLevelSound, "Sound::playSfxSample(%u) — sample decode failed", id);
 		return false;
 	}

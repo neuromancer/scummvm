@@ -40,6 +40,8 @@ enum OpcodeMode {
 	kCodeRoomLoop = 2,
 	kCodeGlobalRoomLoop = 3,
 	kCodeItem = 4,
+	kCodeStatusRefresh = 6,
+	kCodeStatusLoop = 7,
 	kCodeNewBlock = 8
 };
 

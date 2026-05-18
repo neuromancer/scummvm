@@ -2924,17 +2924,22 @@ OPCODE(0xfc) {
 	// DOS Op_fc_handler @ 1000:5996:
 	//   Resolve arg0; arg0 != 0 -> ShutdownAndExit.
 	//   arg0 == 0 -> tail-jump to HandleSpecialKey's menu branch
-	//   (1000:b82d), which only opens RunModalLoop outside status mode.
+	//   (1000:b82d), which only opens RunModalLoop while
+	//   g_fullscreen_gate_active is clear. Status mode is not a blocker.
 	//   Menu choice 2 exits, choice 1 requests restart, otherwise it
 	//   returns normally.
+	// The room-999 status screen labels this action as "Quit"; route that
+	// control straight to engine shutdown instead of opening ScummVM's
+	// unrelated global menu.
 	const uint16 quitMode = uint16(a[0]);
-	if (quitMode != 0) {
-		debugC(2, kDebugLevelScript, "opcode 0xfc: quit unconditionally");
+	if (quitMode != 0 || Log.inStatusMode()) {
+		debugC(2, kDebugLevelScript, "opcode 0xfc: quit%s",
+			Log.inStatusMode() && quitMode == 0 ? " from status screen" : " unconditionally");
 		_engine->quitGame();
 		return kThxBye;
 	}
-	if (Log.inStatusMode()) {
-		debugC(2, kDebugLevelScript, "opcode 0xfc: menu request ignored in status mode");
+	if (Log.fullscreenGateActive()) {
+		debugC(2, kDebugLevelScript, "opcode 0xfc: menu request ignored while fullscreen gate is active");
 		return kThxBye;
 	}
 	debugC(2, kDebugLevelScript, "opcode 0xfc: open main menu");

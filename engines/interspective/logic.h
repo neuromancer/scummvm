@@ -156,6 +156,7 @@ public:
 	bool stepPending() const { return _stepPending; }
 	void setStepPending(bool v) { _stepPending = v; }
 	void cycleCursorModeByRightClickLikeDos();
+	void activateStatusButtonHotkeyLikeDos();
 	bool setVerbModeFromHitRegionLikeDos(uint16 hitRegion);
 	uint16 updateAutoCloseTimerSpriteLikeDos();
 	// DOS g_flag_no_step (DS:0x6747). Dispatch-table opcode 0x96 sets it to
@@ -1093,6 +1094,7 @@ private:
 	bool hasQueuedRunMode(uint16 mode) const;
 	bool dispatchReadyActorRoomScriptWaitMode(uint16 mode);
 	void runItemRoomScriptSlotLikeDos();
+	void runStatusScreenScriptsLikeDos();
 	void resetQueuedRunMode(uint16 mode);
 	void cancelDeferredScriptsForInterpreter(Interpreter *interpreter);
 	void cancelSpeechSlotCallbacksForInterpreter(Interpreter *interpreter);

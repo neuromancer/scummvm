@@ -56,9 +56,11 @@ static uint16 midiTuneIndexForScriptTune(uint16 tuneIdx) {
 
 MusicParser::MusicParser() : MidiParser(), _tune(0), _script(0), _musicType(MT_INVALID), _active(true),
 	_currentTuneWord(0), _driverCommandByte(0), _driverModeFlag(0),
-	_sfxNoteCount(0), _sfxNoteTicks(0), _time(0), _lastTick(0), _tick(0) {
-	memset(_sfxNoteChannels, 0, sizeof(_sfxNoteChannels));
-	memset(_sfxNotes, 0, sizeof(_sfxNotes));
+	_sfxDataSize(0), _sfxBeatCount(0), _sfxCurrentBeat(-1), _sfxBeatTicks(0),
+	_sfxTime(0), _sfxLastTick(0), _sfxPsecPerTick(500000 * 0x19 / 120), _sfxTick(0),
+	_sfxTunePlaying(false), _time(0), _lastTick(0), _tick(0) {
+	memset(_sfxData, 0, sizeof(_sfxData));
+	clearSfxState();
 	const uint32 devTypes = MDT_MIDI | MDT_ADLIB | MDT_PREFER_GM;
 	MidiDriver::DeviceHandle dev = MidiDriver::detectDevice(devTypes);
 	_musicType = MidiDriver::getMusicType(dev);
@@ -182,6 +184,15 @@ void MusicParser::tick() {
 	}
 
 	_time += _timerRate;
+	if (_sfxTunePlaying) {
+		_sfxTime += _timerRate;
+		if (!_sfxLastTick || _sfxTime >= _sfxLastTick + _sfxPsecPerTick) {
+			_sfxLastTick = _sfxTime;
+			tickSfxTune();
+			if (_sfxTunePlaying)
+				_sfxTick++;
+		}
+	}
 	if (_lastTick && _time < _lastTick + _psecPerTick)
 		return;
 
@@ -213,8 +224,6 @@ void MusicParser::tick() {
 			unloadMusic();
 		}
 	}
-	if (_sfxNoteTicks != 0 && --_sfxNoteTicks == 0)
-		stopSfxNotes();
 	_tick++;
 }
 
@@ -225,6 +234,21 @@ enum {
 	kMidiNoteOn = 		  0x90,
 	kMidiChannelControl = 0xb0,
 	kMidiSetProgram = 	  0xc0
+};
+
+enum {
+	kMidiCtrlExpression = 	0xb,
+	kMidiCtrlAllNotesOff = 0x7b
+};
+
+enum {
+	kSetTempo =		 0x81,
+	kSetProgram = 	 0x82,
+	kCmdSetBeat =	 0x85,
+	kSetExpression = 0x89,
+	kCmdNoteOff =	 0x8b,
+	kCmdCallScript = 0x8c,
+	kHangNote = 	 0xfe
 };
 
 void MusicParser::silence() {
@@ -242,35 +266,241 @@ void MusicParser::silence() {
 	memset(notes, 0, sizeof(notes));
 }
 
-bool MusicParser::playSfxNote(uint8 channel, uint8 note, uint8 velocity, uint16 durationTicks) {
-	if (!_driver || note == 0)
+bool MusicParser::playSfxTune(const byte *data, uint32 size) {
+	enum {
+		kTuneBeatCountOffset = 0x21,
+		kTuneHeaderSize = 0x25
+	};
+
+	if (!_driver || !data || size < kTuneHeaderSize || size > kSfxTuneBufferSize)
 		return false;
 
 	stopSfxNotes();
-	_driver->send(channel | kMidiNoteOn, note, velocity);
-	_sfxNoteChannels[0] = channel;
-	_sfxNotes[0] = note;
-	_sfxNoteCount = 1;
-	_sfxNoteTicks = durationTicks ? durationTicks : 32;
-	debugC(1, kDebugLevelSound, "Interspective music: Roland SFX note channel=%u note=%u velocity=%u duration=%u",
-		(uint)channel, (uint)note, (uint)velocity, (uint)_sfxNoteTicks);
+
+	const uint16 beatCount = READ_LE_UINT16(data + kTuneBeatCountOffset);
+	const uint32 channelBase = kTuneHeaderSize + uint32(beatCount) * 8;
+	if (beatCount == 0 || channelBase >= size || channelBase + 16 > size)
+		return false;
+
+	memcpy(_sfxData, data, size);
+	_sfxDataSize = size;
+	_sfxBeatCount = beatCount;
+	_sfxTime = 0;
+	_sfxLastTick = 0;
+	_sfxPsecPerTick = 500000 * 0x19 / 120;
+	_sfxTick = 0;
+	_sfxTunePlaying = true;
+	if (!setSfxBeat(0)) {
+		stopSfxNotes();
+		return false;
+	}
+
+	debugC(1, kDebugLevelSound, "Interspective music: Roland SFX tune bytes=%u beats=%u",
+		(uint)size, (uint)beatCount);
 	return true;
 }
 
 void MusicParser::stopSfxNotes() {
-	if (!_driver) {
-		_sfxNoteCount = 0;
-		_sfxNoteTicks = 0;
+	if (_driver) {
+		for (uint8 channel = 0; channel < ARRAYSIZE(_sfxChannels); ++channel) {
+			for (uint8 noteIndex = 0; noteIndex < ARRAYSIZE(_sfxChannels[channel].notes); ++noteIndex) {
+				SfxNote &note = _sfxChannels[channel].notes[noteIndex];
+				if (note.playing && note.note != 0)
+					_driver->send(_sfxChannels[channel].midiChannel | kMidiNoteOff, note.note, 0);
+			}
+		}
+	}
+	clearSfxState();
+}
+
+void MusicParser::clearSfxState() {
+	memset(_sfxChannels, 0, sizeof(_sfxChannels));
+	for (uint8 i = 0; i < ARRAYSIZE(_sfxChannels); ++i)
+		_sfxChannels[i].midiChannel = i + 2;
+	_sfxDataSize = 0;
+	_sfxBeatCount = 0;
+	_sfxCurrentBeat = -1;
+	_sfxBeatTicks = 0;
+	_sfxTime = 0;
+	_sfxLastTick = 0;
+	_sfxPsecPerTick = 500000 * 0x19 / 120;
+	_sfxTick = 0;
+	_sfxTunePlaying = false;
+}
+
+bool MusicParser::setSfxBeat(uint16 beat) {
+	enum {
+		kTuneHeaderSize = 0x25
+	};
+
+	if (!_sfxTunePlaying || beat >= _sfxBeatCount) {
+		stopSfxNotes();
+		return false;
+	}
+
+	uint8 heldNotes[8][4];
+	bool heldPlaying[8][4];
+	memset(heldNotes, 0, sizeof(heldNotes));
+	memset(heldPlaying, 0, sizeof(heldPlaying));
+	for (uint8 channel = 0; channel < ARRAYSIZE(_sfxChannels); ++channel) {
+		for (uint8 noteIndex = 0; noteIndex < ARRAYSIZE(_sfxChannels[channel].notes); ++noteIndex) {
+			const SfxNote &note = _sfxChannels[channel].notes[noteIndex];
+			heldNotes[channel][noteIndex] = note.note;
+			heldPlaying[channel][noteIndex] = note.playing;
+		}
+	}
+
+	memset(_sfxChannels, 0, sizeof(_sfxChannels));
+	for (uint8 i = 0; i < ARRAYSIZE(_sfxChannels); ++i) {
+		_sfxChannels[i].midiChannel = i + 2;
+		for (uint8 noteIndex = 0; noteIndex < ARRAYSIZE(_sfxChannels[i].notes); ++noteIndex) {
+			_sfxChannels[i].notes[noteIndex].note = heldNotes[i][noteIndex];
+			_sfxChannels[i].notes[noteIndex].playing = heldPlaying[i][noteIndex];
+		}
+	}
+
+	const uint32 beatOffset = kTuneHeaderSize + uint32(beat) * 8;
+	const uint32 channelBase = kTuneHeaderSize + uint32(_sfxBeatCount) * 8;
+	if (beatOffset + 8 > _sfxDataSize || channelBase >= _sfxDataSize) {
+		stopSfxNotes();
+		return false;
+	}
+
+	for (uint8 channel = 0; channel < ARRAYSIZE(_sfxChannels); ++channel) {
+		const uint8 channelIndex = _sfxData[beatOffset + channel];
+		if (channelIndex == 0)
+			continue;
+		const uint32 channelDef = channelBase + uint32(channelIndex) * 16;
+		if (channelDef + 16 > _sfxDataSize)
+			continue;
+
+		SfxChannel &state = _sfxChannels[channel];
+		state.active = true;
+		state.notInitialized = true;
+		state.midiChannel = channel + 2;
+		state.initPos = uint16(channelDef + 8);
+		for (uint8 noteIndex = 0; noteIndex < ARRAYSIZE(state.notes); ++noteIndex) {
+			const uint16 pos = READ_LE_UINT16(_sfxData + channelDef + noteIndex * 2);
+			if (pos != 0 && pos + 1 < _sfxDataSize) {
+				state.notes[noteIndex].pos = pos;
+				state.notes[noteIndex].tick = _sfxTick + 1;
+				state.notes[noteIndex].active = true;
+			}
+		}
+	}
+
+	_sfxCurrentBeat = beat;
+	_sfxBeatTicks = 0;
+	return true;
+}
+
+void MusicParser::tickSfxTune() {
+	if (!_sfxTunePlaying)
+		return;
+
+	for (uint8 channel = 0; channel < ARRAYSIZE(_sfxChannels); ++channel) {
+		SfxChannel &state = _sfxChannels[channel];
+		if (!state.active)
+			continue;
+
+		if (state.notInitialized) {
+			for (uint8 i = 0; i < 4; ++i) {
+				const uint16 pos = uint16(state.initPos + i * 2);
+				if (pos + 1 < _sfxDataSize)
+					execSfxCommand(_sfxData[pos], _sfxData[pos + 1], state.midiChannel, 0);
+			}
+			state.notInitialized = false;
+		}
+
+		for (uint8 noteIndex = 0; noteIndex < ARRAYSIZE(state.notes); ++noteIndex)
+			tickSfxNote(state.notes[noteIndex], state.midiChannel);
+	}
+
+	if (!_sfxTunePlaying)
+		return;
+
+	_sfxBeatTicks++;
+	if (_sfxBeatTicks == 64)
+		setSfxBeat(uint16(_sfxCurrentBeat + 1));
+	_sfxBeatTicks %= 64;
+}
+
+void MusicParser::tickSfxNote(SfxNote &note, uint8 channel) {
+	if (!note.active || note.tick != _sfxTick)
+		return;
+	if (note.pos + 1 >= _sfxDataSize) {
+		if (note.playing && note.note != 0)
+			_driver->send(channel | kMidiNoteOff, note.note, 0);
+		note = SfxNote();
 		return;
 	}
-	for (uint8 i = 0; i < _sfxNoteCount; ++i) {
-		if (_sfxNotes[i] != 0)
-			_driver->send(_sfxNoteChannels[i] | kMidiNoteOff, _sfxNotes[i], 0);
+
+	const uint8 command = _sfxData[note.pos];
+	const uint8 parameter = _sfxData[note.pos + 1];
+	note.pos += 2;
+
+	if (command == kHangNote) {
+		note.tick += parameter;
+		return;
 	}
-	_sfxNoteCount = 0;
-	_sfxNoteTicks = 0;
-	memset(_sfxNoteChannels, 0, sizeof(_sfxNoteChannels));
-	memset(_sfxNotes, 0, sizeof(_sfxNotes));
+	if (command == kCmdSetBeat) {
+		setSfxBeat(parameter);
+		return;
+	}
+
+	execSfxCommand(command, parameter, channel, &note);
+	note.tick++;
+}
+
+void MusicParser::execSfxCommand(uint8 command, uint8 parameter, uint8 channel, SfxNote *note) {
+	if (command == 0)
+		return;
+
+	switch (command) {
+	case kSetProgram:
+		_driver->send(channel | kMidiSetProgram, MidiDriver::_mt32ToGm[parameter], 0);
+		break;
+	case kSetExpression:
+		if (_musicType == MT_ADLIB)
+			_driver->send(channel | kMidiChannelControl, MidiDriver::MIDI_CONTROLLER_VOLUME, parameter / 2);
+		else
+			_driver->send(channel | kMidiChannelControl, kMidiCtrlExpression, parameter / 2);
+		break;
+	case kCmdNoteOff:
+		if (note && note->playing && note->note != 0)
+			_driver->send(channel | kMidiNoteOff, note->note, 0);
+		if (note) {
+			note->note = 0;
+			note->playing = false;
+		}
+		break;
+	case kCmdSetBeat:
+		setSfxBeat(parameter);
+		break;
+	case kSetTempo:
+		if (parameter != 0)
+			_sfxPsecPerTick = MAX<uint32>(1, (500000u * parameter) / 120u);
+		debugC(2, kDebugLevelSound, "Roland SFX tempo command %u psecPerTick=%u",
+			(uint)parameter, (uint)_sfxPsecPerTick);
+		break;
+	case kCmdCallScript:
+		// In the SFX records command 0x8c is embedded in the note stream,
+		// but there is no external music script attached to driver command
+		// 0x0e. The resident driver consumes it as part of the effect stream;
+		// keep it as a no-op here so the effect reaches its beat boundary.
+		break;
+	default:
+		if (command < 0x80 && note) {
+			if (note->playing && note->note != 0)
+				_driver->send(channel | kMidiNoteOff, note->note, 0);
+			_driver->send(channel | kMidiNoteOn, command, parameter);
+			note->note = command;
+			note->playing = true;
+		} else {
+			debugC(1, kDebugLevelSound, "Roland SFX unhandled command 0x%02x", (uint)command);
+		}
+		break;
+	}
 }
 
 bool MusicParser::isPlaying() const {
@@ -554,11 +784,6 @@ void Channel::reset() {
 		_notes[i].reset();
 }
 
-enum {
-	kMidiCtrlExpression = 	0xb,
-	kMidiCtrlAllNotesOff = 0x7b
-};
-
 void Channel::tick() {
 	unless (_active)
 		return;
@@ -593,16 +818,6 @@ void Note::reset() {
 	_tick = Music.getTick() + 1;
 	_data = _begin;
 }
-
-enum {
-	kSetTempo =		 0x81,
-	kSetProgram = 	 0x82,
-	kCmdSetBeat =	 0x85,
-	kSetExpression = 0x89,
-	kCmdNoteOff =	 0x8b,
-	kCmdCallScript = 0x8c,
-	kHangNote = 	 0xfe
-};
 
 void Note::tick(byte channel) {
 	_channel = channel;

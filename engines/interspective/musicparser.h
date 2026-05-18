@@ -184,15 +184,36 @@ public:
 	void restoreSavedState(const byte *script, uint16 currentTuneWord, uint8 active,
 	                       uint8 driverCommandByte, uint8 driverModeFlag,
 	                       uint16 beat, uint32 beatTicks);
-	bool playSfxNote(uint8 channel, uint8 note, uint8 velocity, uint16 durationTicks);
+	bool playSfxTune(const byte *data, uint32 size);
 	void stopSfxNotes();
-	bool isSfxNotePlaying() const { return _sfxNoteCount != 0; }
+	bool isSfxNotePlaying() const { return _sfxTunePlaying; }
 
 	friend class Note;
 	friend class MusicCommand;
 
 private:
+	struct SfxNote {
+		uint16 pos;
+		uint32 tick;
+		uint8 note;
+		bool active;
+		bool playing;
+	};
+	struct SfxChannel {
+		SfxNote notes[4];
+		uint16 initPos;
+		uint8 midiChannel;
+		bool active;
+		bool notInitialized;
+	};
+
 	void parseNextEvent(EventInfo &info) {  }
+	bool setSfxBeat(uint16 beat);
+	void tickSfxTune();
+	void tickSfxNote(SfxNote &note, uint8 channel);
+	void execSfxCommand(uint8 command, uint8 parameter, uint8 channel, SfxNote *note);
+	void clearSfxState();
+
 	Tune *_tune;
 	MidiDriver *_midiDriver;
 	MusicScript *_script;
@@ -201,10 +222,18 @@ private:
 	uint16 _currentTuneWord;
 	uint8 _driverCommandByte;
 	uint8 _driverModeFlag;
-	uint8 _sfxNoteChannels[4];
-	uint8 _sfxNotes[4];
-	uint8 _sfxNoteCount;
-	uint16 _sfxNoteTicks;
+	enum { kSfxTuneBufferSize = 0x320 };
+	byte _sfxData[kSfxTuneBufferSize];
+	uint32 _sfxDataSize;
+	SfxChannel _sfxChannels[8];
+	uint16 _sfxBeatCount;
+	int32 _sfxCurrentBeat;
+	uint32 _sfxBeatTicks;
+	uint32 _sfxTime;
+	uint32 _sfxLastTick;
+	uint32 _sfxPsecPerTick;
+	uint32 _sfxTick;
+	bool _sfxTunePlaying;
 
 	uint32 _time, _lastTick, _tick;
 };

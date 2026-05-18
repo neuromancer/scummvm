@@ -151,10 +151,9 @@ private:
 	uint16 maxSfxBankId() const;
 	bool validateSfxBankId(uint16 id) const;
 	const SfxBankInfo *sfxBankForLoadId(uint16 id) const;
-	const SfxBankInfo *sfxBankForSampleId(uint16 id) const;
 	bool resolveSfxSlot(uint16 id, uint32 baseBytes, uint16 &low, uint16 &high, uint32 &size) const;
 	bool loadSfxSample(uint16 id, Common::Array<byte> &pcm, int &rate, bool &loop) const;
-	bool loadRolandSfxNote(uint16 id, uint8 &channel, uint8 &note, uint8 &velocity, uint16 &durationTicks) const;
+	bool loadRolandSfxTune(uint16 id, Common::Array<byte> &tune) const;
 	bool playSfxSample(uint16 id, Audio::SoundHandle &handle);
 
 	Engine *_engine;

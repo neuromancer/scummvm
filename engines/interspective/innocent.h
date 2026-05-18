@@ -27,6 +27,7 @@
 #define INTERSPECTIVE_H
 
 #include "common/ptr.h"
+#include "common/keyboard.h"
 #include "common/random.h"
 #include "engines/engine.h"
 
@@ -89,6 +90,9 @@ public:
 
 private:
 	bool consumeEscapePress(const Common::Event &event) const;
+	bool applyKeyboardCursorButtonLikeDos(const Common::Event &event);
+	void updateKeyboardCursorDirectionLikeDos(Common::KeyCode keycode, bool pressed);
+	void applyKeyboardCursorMovementLikeDos();
 	void initDosSoundConfig();
 	void parseDosSoundSwitchString(const byte *data, uint32 length);
 	Common::Error loadStartupSaveSlot(int slot);
@@ -104,6 +108,9 @@ private:
 	Common::RandomSource *_rnd;
 	mutable int _lastTicks, _startRoom;
 	mutable bool _escapeHeld;
+	uint8 _keyboardCursorDirs;
+	uint8 _keyboardCursorDirsPrev;
+	uint8 _keyboardCursorRepeat;
 	uint8 _dosMusicEnabled;
 	uint8 _dosSfxEnabled;
 
