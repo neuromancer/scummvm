@@ -153,6 +153,7 @@ public:
 	bool stepPending() const { return _stepPending; }
 	void setStepPending(bool v) { _stepPending = v; }
 	void cycleCursorModeByRightClickLikeDos();
+	bool setVerbModeFromHitRegionLikeDos(uint16 hitRegion);
 	uint16 updateAutoCloseTimerSpriteLikeDos();
 	// DOS g_flag_no_step (DS:0x6747). Dispatch-table opcode 0x96 sets it to
 	// lock player input during cutscenes. Opcode 0x95 clears both _noStep

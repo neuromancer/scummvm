@@ -102,6 +102,18 @@ static int16 hitRegionAtPointLikeDos(const Common::Point &pos) {
 	//   0 = room, 1 = inventory strip, 2 = status button, 3..8 = verb buttons.
 	if (containsDosHalfOpen(0, 0, 320, 152, pos))
 		return 0;
+	if (containsDosHalfOpen(65, 153, 79, 169, pos))
+		return 3;
+	if (containsDosHalfOpen(83, 153, 99, 169, pos))
+		return 4;
+	if (containsDosHalfOpen(101, 153, 117, 169, pos))
+		return 5;
+	if (containsDosHalfOpen(65, 172, 81, 188, pos))
+		return 6;
+	if (containsDosHalfOpen(83, 172, 99, 188, pos))
+		return 7;
+	if (containsDosHalfOpen(101, 172, 117, 188, pos))
+		return 8;
 	if (containsDosHalfOpen(128, 160, 310, 191, pos))
 		return 1;
 	if (containsDosHalfOpen(64, 190, 118, 200, pos))
@@ -407,6 +419,11 @@ void EventManager::clicked(Common::Point pos) {
 			target.type, target.id, target.z);
 	if (logic.noStep())
 		return;
+	if (hitRegion >= 3 && hitRegion <= 8) {
+		logic.setStepPending(true);
+		logic.setVerbModeFromHitRegionLikeDos(hitRegion);
+		return;
+	}
 	if (hitRegion == 2) {
 		logic.setStepPending(true);
 		if (logic.inStatusMode()) {

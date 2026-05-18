@@ -84,6 +84,7 @@ void Graphics::setEngine(Engine *engine) {
 	_speechX = 0;
 	_speechY = 0;
 	_speechColor = 235;
+	_speechMaxLines = 0;
 	_speechBubble = false;
 	_speechBubbleMode = kSpeechBubbleType1;
 	_speechDoneCallbackMode = 0;
@@ -739,6 +740,7 @@ void Graphics::paintSpeech() {
 				_speechX = next.x;
 				_speechY = next.y;
 				_speechColor = next.color;
+				_speechMaxLines = next.maxLines;
 				_speechBubble = next.bubble;
 				_speechBubbleMode = next.bubbleMode;
 				_speechDoneCallback = next.cb;
@@ -747,7 +749,8 @@ void Graphics::paintSpeech() {
 				if (_speechBubble) {
 					Sprite bubble;
 					bubble._hotPoint = Common::Point(0, 0);
-					Common::Rect rect = paintSpeechInBubble(Common::Point(_speechX, _speechY), _speechColor, _speech, &bubble, _speechBubbleMode);
+					Common::Rect rect = paintSpeechInBubble(Common::Point(_speechX, _speechY), _speechColor,
+						_speech, &bubble, _speechBubbleMode, true, _speechMaxLines);
 					paint(&bubble, Common::Point(rect.left, rect.top), kPaintSemiTransparent | kPaintPositionIsTop);
 				} else {
 					Common::Rect rect = paintText(_speechX, _speechY, _speechColor, _speech, _framebuffer.get(), 0, 0, kPaintNoDirty);
@@ -758,7 +761,8 @@ void Graphics::paintSpeech() {
 			if (_speechBubble) {
 				Sprite bubble;
 				bubble._hotPoint = Common::Point(0, 0);
-				Common::Rect rect = paintSpeechInBubble(Common::Point(_speechX, _speechY), _speechColor, _speech, &bubble, _speechBubbleMode);
+				Common::Rect rect = paintSpeechInBubble(Common::Point(_speechX, _speechY), _speechColor,
+					_speech, &bubble, _speechBubbleMode, true, _speechMaxLines);
 				paint(&bubble, Common::Point(rect.left, rect.top), kPaintSemiTransparent | kPaintPositionIsTop);
 			} else {
 				Common::Rect rect = paintText(_speechX, _speechY, _speechColor, _speech, _framebuffer.get(), 0, 0, kPaintNoDirty);
@@ -1403,7 +1407,8 @@ uint16 Graphics::ask(uint16 left, uint16 top, byte width, byte height, byte *str
 }
 
 void Graphics::paintSpeechBubbleColumn(Sprite *top, Sprite *fill, Common::Point &point, uint8 fill_tiles, Surface *dest) {
-	paint(top, point, dest, kPaintPositionIsTop);
+	if (top)
+		paint(top, point, dest, kPaintPositionIsTop);
 	point.y += 24;
 	for (int i = 0; i < fill_tiles; i++) {
 		paint(fill, point, dest, kPaintPositionIsTop);
@@ -1412,7 +1417,7 @@ void Graphics::paintSpeechBubbleColumn(Sprite *top, Sprite *fill, Common::Point 
 }
 
 Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const byte *string, Surface *bubble,
-                                           SpeechBubbleMode mode, bool renderText) {
+                                           SpeechBubbleMode mode, bool renderText, uint16 forcedRows) {
 	int left = pos.x, top = pos.y;
 	debugC(1, kDebugLevelGraphics, "painting speech bubble \"%s\" at %d:%d", string, left, top);
 
@@ -1420,14 +1425,19 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const
 	for (const byte *p = string; p && *p; ++p)
 		normalized += char(*p == '\n' ? '\r' : *p);
 	Logic::FormattedBubble metrics = Log.formatBubbleText(reinterpret_cast<const byte *>(normalized.c_str()));
-	const uint16 rows = MAX<uint16>(1, metrics.rowCount);
+	const uint16 rows = forcedRows != 0 ? forcedRows : MAX<uint16>(1, metrics.rowCount);
 	const uint16 widthExtra = metrics.maxLineWidth;
 
 	Sprite * const *bubbles = _resources->bubbles();
 
+	const uint8 kNoBubblePart = 0xff;
 	uint8 bubble_indices[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8 };
 
 	uint8 wadj = 0;
+	uint8 frameOffsetX = 0;
+	uint8 frameOffsetY = 0;
+	uint8 topTailPart = kNoBubblePart;
+	int16 topTailX = 0;
 	const bool verbRawTopLeft = mode == kSpeechBubbleVerbTopLeft;
 	const bool verbRawBottomLeft = mode == kSpeechBubbleVerbBottomLeft;
 	const int frameHeight = (rows >= 3) ? (rows * kLineHeight + 16) : 60;
@@ -1490,7 +1500,12 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const
 			left = 0;
 		else
 			left -= MAX<uint16>(widthExtra, 4) + 0x45;
-		bubble_indices[kBubbleTopRight] = kBubbleTopRightPoint;
+		// RenderSpeechBubbleTopLeft skips the normal top-right corner
+		// (DS:0x668e = -1) and overlays CS:[0x105] at y - 7.
+		bubble_indices[kBubbleTopRight] = kNoBubblePart;
+		frameOffsetY = 7;
+		topTailPart = kBubbleTopRightPoint;
+		topTailX = int16(MAX<uint16>(4, uint16((widthExtra / 4) * 4)) + 0x21);
 		break;
 	case kDosRenderSpeechBubbleBottomRight:
 		// DOS RenderSpeechBubbleBottomRight @ 1000:9086: bubble grows up-right.
@@ -1508,7 +1523,13 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const
 		if (top < 0)
 			top = 0;
 		left += 4;
-		bubble_indices[kBubbleTopLeft] = kBubbleTopLeftPoint;
+		// RenderSpeechBubbleTopRight skips the normal top-left corner
+		// (DS:0x668c = -1) and overlays CS:[0x103] at x - 4, y - 7.
+		bubble_indices[kBubbleTopLeft] = kNoBubblePart;
+		frameOffsetX = 4;
+		frameOffsetY = 7;
+		topTailPart = kBubbleTopLeftPoint;
+		topTailX = 0;
 		break;
 	case kDosLayoutVerbBubbleTopLeft:
 		// DrawVerbBubble_DispatchByMode palette 2:
@@ -1545,24 +1566,35 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const
 
 	const uint16 horizontal_tiles = 1 + widthExtra / 4;
 
-	bubble->create(65 + wadj + 4 * horizontal_tiles, 54 + 6 * vertical_tiles);
+	bubble->create(frameOffsetX + 65 + wadj + 4 * horizontal_tiles,
+		frameOffsetY + 54 + 6 * vertical_tiles);
+	// DOS draws bubble frame pieces straight into the video buffer with
+	// palette index 0 transparent. The C++ path composes a temporary
+	// sprite first, so initialize its untouched pixels to that same
+	// transparent index before the final clipped blit.
+	bubble->fillRect(Common::Rect(0, 0, bubble->w, bubble->h), 0);
 
-	Common::Point position(wadj, 0);
-	paintSpeechBubbleColumn(bubbles[bubble_indices[kBubbleTopLeft]], bubbles[bubble_indices[kBubbleLeft]], position, vertical_tiles, bubble);
+	Common::Point position(frameOffsetX + wadj, frameOffsetY);
+	paintSpeechBubbleColumn(bubble_indices[kBubbleTopLeft] == kNoBubblePart ? 0 : bubbles[bubble_indices[kBubbleTopLeft]],
+		bubbles[bubble_indices[kBubbleLeft]], position, vertical_tiles, bubble);
 	position.x -= wadj;
 	paint(bubbles[bubble_indices[kBubbleBottomLeft]], position, bubble, kPaintPositionIsTop);
 
 	position.x += 33 + wadj;
 	for (int i = 0; i < horizontal_tiles; i++) {
-		position.y = 0;
+		position.y = frameOffsetY;
 		paintSpeechBubbleColumn(bubbles[bubble_indices[kBubbleTop]], bubbles[bubble_indices[kBubbleFill]], position, vertical_tiles, bubble);
 		paint(bubbles[bubble_indices[kBubbleBottom]], position, bubble, kPaintPositionIsTop);
 		position.x += 4;
 	}
 
-	position.y = 0;
-	paintSpeechBubbleColumn(bubbles[bubble_indices[kBubbleTopRight]], bubbles[bubble_indices[kBubbleRight]], position, vertical_tiles, bubble);
+	position.y = frameOffsetY;
+	paintSpeechBubbleColumn(bubble_indices[kBubbleTopRight] == kNoBubblePart ? 0 : bubbles[bubble_indices[kBubbleTopRight]],
+		bubbles[bubble_indices[kBubbleRight]], position, vertical_tiles, bubble);
 	paint(bubbles[bubble_indices[kBubbleBottomRight]], position, bubble, kPaintPositionIsTop);
+
+	if (topTailPart != kNoBubblePart)
+		paint(bubbles[topTailPart], Common::Point(topTailX, 0), bubble, kPaintPositionIsTop);
 
 	enum {
 		kSpeechTwoLinesShift = 8,
@@ -1580,8 +1612,8 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const
 			shift = kSpeechTwoLinesShift;
 
 		const uint16 roundedWidthExtra = widthExtra & ~uint16(3);
-		uint16 currentLeft = kSpeechLeftIndent + kSpeechFirstLineExtraIndent;
-		uint16 currentTop = kSpeechVMargin + shift;
+		uint16 currentLeft = uint16(frameOffsetX + kSpeechLeftIndent + kSpeechFirstLineExtraIndent);
+		uint16 currentTop = uint16(frameOffsetY + kSpeechVMargin + shift);
 		uint16 remainingRows = rows;
 		byte currentColour = colour;
 		const byte *p = reinterpret_cast<const byte *>(metrics.text.c_str());
@@ -1596,7 +1628,7 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const
 				// byte as a precomputed line width and centers within the
 				// bubble frame, not within the screen.
 				const uint16 centered = uint16(roundedWidthExtra + 0x41 - lineWidth);
-				currentLeft = centered >> 1;
+				currentLeft = uint16(frameOffsetX + (centered >> 1));
 				break;
 			}
 			case kStringAdvance:
@@ -1610,7 +1642,7 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const
 					stopText = true;
 					break;
 				}
-				currentLeft = kSpeechLeftIndent;
+				currentLeft = uint16(frameOffsetX + kSpeechLeftIndent);
 				if (remainingRows == 1)
 					currentLeft += kSpeechFirstLineExtraIndent;
 				currentTop += kLineHeight;
@@ -1643,7 +1675,8 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const
 	if (top < 0)
 		top = 0;
 
-	Common::Rect rect(left, top, left + bubble->w, top + bubble->h);
+	Common::Rect rect(left - frameOffsetX, top - frameOffsetY,
+		left - frameOffsetX + bubble->w, top - frameOffsetY + bubble->h);
 	return rect;
 }
 
@@ -2291,17 +2324,6 @@ static byte *copySpeechText(const Common::String &page) {
 	return buf;
 }
 
-static uint16 speechTicksForText(const Common::String &text) {
-	// DOS speech slots use the low byte of FormatBubbleText's height
-	// return as the countdown (AllocSpeechSlot @ 1000:9b1f,
-	// AllocSpeechSlot_NoFormatting @ 1000:9c7e).
-	Common::String normalized;
-	for (uint i = 0; i < text.size(); ++i)
-		normalized += char(text[i] == '\n' ? '\r' : text[i]);
-	Logic::FormattedBubble fb = Log.formatBubbleText(reinterpret_cast<const byte *>(normalized.c_str()));
-	return uint8(fb.totalHeight & 0xff);
-}
-
 void Graphics::sayAt(const byte *text, uint16 length, uint16 frames,
                      uint16 x, uint16 y, byte color, uint16 maxLines,
                      SpeechBubbleMode bubbleMode, bool forceBubble) {
@@ -2316,10 +2338,11 @@ void Graphics::sayAt(const byte *text, uint16 length, uint16 frames,
 		SpeechEntry e;
 		e.text = copySpeechText(pages[i]);
 		e.length = uint16(pages[i].size());
-		e.frames = (pages.size() == 1) ? frames : speechTicksForText(pages[i]);
+		e.frames = frames;
 		e.x = x;
 		e.y = y;
 		e.color = color;
+		e.maxLines = maxLines;
 		e.bubble = forceBubble || maxLines != 0 || x != 0 || y != 0;
 		e.bubbleMode = bubbleMode;
 
@@ -2338,6 +2361,7 @@ void Graphics::sayAt(const byte *text, uint16 length, uint16 frames,
 		_speechX = e.x;
 		_speechY = e.y;
 		_speechColor = e.color;
+		_speechMaxLines = e.maxLines;
 		_speechBubble = e.bubble;
 		_speechBubbleMode = e.bubbleMode;
 		started = true;
@@ -2354,6 +2378,7 @@ void Graphics::clearSpeech() {
 	_speechX = 0;
 	_speechY = 0;
 	_speechColor = 235;
+	_speechMaxLines = 0;
 	_speechBubble = false;
 	_speechBubbleMode = kSpeechBubbleType1;
 	_speechDoneCallback.reset();

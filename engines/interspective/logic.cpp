@@ -380,6 +380,41 @@ bool Logic::speechWouldConsumeRightClickLikeDos() const {
 	return false;
 }
 
+bool Logic::setVerbModeFromHitRegionLikeDos(uint16 hitRegion) {
+	if (_fullscreenGateActive || _cursorMode == 0x20)
+		return false;
+
+	uint16 cursorMode = 0;
+	switch (hitRegion) {
+	case 3:
+		cursorMode = 0x01;
+		break;
+	case 4:
+		cursorMode = 0x02;
+		break;
+	case 5:
+		cursorMode = 0x10;
+		break;
+	case 6:
+		cursorMode = 0x04;
+		break;
+	case 7:
+		cursorMode = 0x80;
+		break;
+	case 8:
+		cursorMode = 0x08;
+		break;
+	default:
+		return false;
+	}
+
+	debugC(1, kDebugLevelEvents,
+		"verb hit region=%u -> cursor mode 0x%02x [DOS SetVerbModeFromHotkey]",
+		hitRegion, cursorMode);
+	setCursorMode(cursorMode);
+	return true;
+}
+
 void Logic::cycleCursorModeByRightClickLikeDos() {
 	// CheckDoubleClickReset @ 1000:b92c: when not no-step, not dragging,
 	// and the locked button byte is 2, cycle through the verb cursor modes
@@ -3258,13 +3293,13 @@ void Logic::startSpeechSlotPage(SpeechSlot &slot, uint page) {
 
 	slot.pageIndex = page;
 	slot.text = slot.pages[page];
-	slot.framesTotal = uint8(logicSpeechTicksForText(slot.text, slot.maxLines) & 0xff);
 	slot.framesLeft = slot.framesTotal;
 	slot.active = 1;
 }
 
 bool Logic::initSpeechSlot(SpeechSlot &slot, const Common::String &text, uint16 maxLines) {
 	slot.maxLines = maxLines;
+	slot.framesTotal = uint8(logicSpeechTicksForText(text, maxLines) & 0xff);
 	slot.pages = logicPaginateSpeechText(text, maxLines);
 	if (slot.pages.empty())
 		return false;
@@ -3503,7 +3538,7 @@ void Logic::paintSpeechSlots(Graphics *g) {
 			Sprite bubble;
 			bubble._hotPoint = Common::Point(0, 0);
 			Common::Rect rect = g->paintSpeechInBubble(Common::Point(left, top), slot.color,
-				reinterpret_cast<const byte *>(slot.text.c_str()), &bubble, mode);
+				reinterpret_cast<const byte *>(slot.text.c_str()), &bubble, mode, true, slot.maxLines);
 			g->paint(&bubble, Common::Point(rect.left, rect.top),
 				Graphics::kPaintSemiTransparent | Graphics::kPaintPositionIsTop);
 		}
