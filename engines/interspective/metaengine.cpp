@@ -20,9 +20,11 @@
  */
 
 #include "common/system.h"
+#include "graphics/surface.h"
 
 #include "interspective/innocent.h"
 #include "interspective/detection.h"
+#include "interspective/logic.h"
 
 namespace Interspective {
 
@@ -35,6 +37,21 @@ public:
 	Common::Error createInstance(OSystem *syst, ::Engine **engine, const ADGameDescription *gd) const override {
 		*engine = new Interspective::Engine(syst);
 		return Common::kNoError;
+	}
+
+	bool hasFeature(MetaEngineFeature f) const override {
+		return checkExtendedSaves(f) || f == kSupportsLoadingDuringStartup;
+	}
+
+	void getSavegameThumbnail(::Graphics::Surface &thumb) override {
+		Engine *engine = static_cast<Engine *>(g_engine);
+		if (engine && engine->logic() && engine->logic()->inStatusMode()
+				&& engine->statusSaveThumbnail()) {
+			thumb.copyFrom(*engine->statusSaveThumbnail());
+			return;
+		}
+
+		MetaEngine::getSavegameThumbnail(thumb);
 	}
 };
 

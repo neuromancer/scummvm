@@ -365,6 +365,9 @@ void Logic::setEngine(Engine *e) {
 	_postMoveTargetFrameMirror = 0;
 	_speechSkipInput = false;
 	_loadedBackdropId = 0;
+	_roomBackup = RoomBackup();
+	_statusSaveShadow = RoomBackup();
+	_statusSaveOverrideActive = false;
 	for (uint i = 0; i < ARRAYSIZE(_dirtyObjectPlacements); ++i)
 		_dirtyObjectPlacements[i] = DirtyObjectPlacement();
 }
@@ -1515,41 +1518,120 @@ CodePointer Logic::restoreSceneFrame() {
 	return frame.resumePC;
 }
 
+void Logic::captureRoomStateForStatusSaveLikeDos(RoomBackup &dst) const {
+	dst.valid = true;
+	dst.currentBlock = _currentBlock;
+	dst.currentRoom = _currentRoom;
+	dst.loadedBackdropId = _loadedBackdropId;
+	dst.blockProgram = _blockProgram;
+	dst.blockInterpreter = _blockInterpreter;
+	dst.room = _room;
+	dst.animations = _animations;
+	dst.castTable = _castTable;
+	dst.queued = _queued;
+	dst.cameraX = _cameraX;
+	dst.cameraY = _cameraY;
+	dst.scrollChanged = _scrollChanged;
+	dst.cursorMode = _cursorMode;
+	dst.fullscreen = _engine && _engine->graphics()
+		? _engine->graphics()->screenHeight() == 200
+		: !_roomActive;
+	dst.roomActive = _roomActive;
+	dst.noStep = _noStep;
+	dst.zones = _zones;
+	dst.collisionZones = _collisionZones;
+	dst.zonesB = _zonesB;
+	dst.walkboxes = _walkboxes;
+	dst.actorFrameZero = _actorFrameZero;
+	dst.actorFrameTable = _actorFrameTable;
+	dst.actorFrameCount = _actorFrameCount;
+	dst.overlayQueue = _overlayQueue;
+	dst.animList = _animList;
+	dst.drawCommands = _drawCommands;
+	dst.drawCommandCount = _drawCommandCount;
+	dst.postMoveCallback = _postMoveCallback;
+	dst.postMoveTargetFrameMirror = _postMoveTargetFrameMirror;
+	dst.nextRoom = _nextRoom;
+	dst.forceRoomRestart = _forceRoomRestart;
+	dst.inStatusMode = _inStatusMode;
+	dst.enteringStatusScreen = _enteringStatusScreen;
+	dst.stepPending = _stepPending;
+	dst.logicDirty = _logicDirty;
+	dst.autoCloseTimer = _autoCloseTimer;
+}
+
+void Logic::applyRoomStateForStatusSaveLikeDos(const RoomBackup &src) {
+	_currentBlock = src.currentBlock;
+	_currentRoom = src.currentRoom;
+	_loadedBackdropId = src.loadedBackdropId;
+	_blockProgram = src.blockProgram;
+	_blockInterpreter = src.blockInterpreter;
+	_room = src.room;
+	_animations = src.animations;
+	_castTable = src.castTable;
+	_queued = src.queued;
+	_cameraX = src.cameraX;
+	_cameraY = src.cameraY;
+	_scrollChanged = src.scrollChanged;
+	_cursorMode = src.cursorMode;
+	_roomActive = src.roomActive;
+	_noStep = src.noStep;
+	_zones = src.zones;
+	_collisionZones = src.collisionZones;
+	_zonesB = src.zonesB;
+	_walkboxes = src.walkboxes;
+	_actorFrameZero = src.actorFrameZero;
+	_actorFrameTable = src.actorFrameTable;
+	_actorFrameCount = src.actorFrameCount;
+	_overlayQueue = src.overlayQueue;
+	_animList = src.animList;
+	_drawCommands = src.drawCommands;
+	_drawCommandCount = src.drawCommandCount;
+	_postMoveCallback = src.postMoveCallback;
+	_postMoveTargetFrameMirror = src.postMoveTargetFrameMirror;
+	_nextRoom = src.nextRoom;
+	_forceRoomRestart = src.forceRoomRestart;
+	_inStatusMode = src.inStatusMode;
+	_enteringStatusScreen = src.enteringStatusScreen;
+	_stepPending = src.stepPending;
+	_logicDirty = src.logicDirty;
+	_autoCloseTimer = src.autoCloseTimer;
+	if (_engine && _engine->graphics())
+		_engine->graphics()->setFullscreen(src.fullscreen);
+}
+
 void Logic::backupRoomForStatusLikeDos() {
 	// RunStatusScreenLoop @ 1000:7695 saves these fields into DS:0x5ed5..0x5ee8,
 	// then snapshots cast, actor, and script state before switching to room 999.
-	_roomBackup.valid = true;
-	_roomBackup.currentBlock = _currentBlock;
-	_roomBackup.currentRoom = _currentRoom;
-	_roomBackup.loadedBackdropId = _loadedBackdropId;
-	_roomBackup.blockProgram = _blockProgram;
-	_roomBackup.blockInterpreter = _blockInterpreter;
-	_roomBackup.room = _room;
-	_roomBackup.animations = _animations;
-	_roomBackup.castTable = _castTable;
-	_roomBackup.queued = _queued;
-	_roomBackup.cameraX = _cameraX;
-	_roomBackup.cameraY = _cameraY;
-	_roomBackup.scrollChanged = _scrollChanged;
-	_roomBackup.cursorMode = _cursorMode;
-	_roomBackup.fullscreen = _engine && _engine->graphics()
-		? _engine->graphics()->screenHeight() == 200
-		: !_roomActive;
-	_roomBackup.roomActive = _roomActive;
-	_roomBackup.noStep = _noStep;
-	_roomBackup.zones = _zones;
-	_roomBackup.collisionZones = _collisionZones;
-	_roomBackup.zonesB = _zonesB;
-	_roomBackup.walkboxes = _walkboxes;
-	_roomBackup.actorFrameZero = _actorFrameZero;
-	_roomBackup.actorFrameTable = _actorFrameTable;
-	_roomBackup.actorFrameCount = _actorFrameCount;
-	_roomBackup.overlayQueue = _overlayQueue;
-	_roomBackup.animList = _animList;
-	_roomBackup.drawCommands = _drawCommands;
-	_roomBackup.drawCommandCount = _drawCommandCount;
-	_roomBackup.postMoveCallback = _postMoveCallback;
-	_roomBackup.postMoveTargetFrameMirror = _postMoveTargetFrameMirror;
+	captureRoomStateForStatusSaveLikeDos(_roomBackup);
+}
+
+bool Logic::beginStatusSaveSnapshotLikeDos() {
+	if (_statusSaveOverrideActive || !_inStatusMode || !_roomBackup.valid)
+		return false;
+
+	captureRoomStateForStatusSaveLikeDos(_statusSaveShadow);
+	applyRoomStateForStatusSaveLikeDos(_roomBackup);
+	_nextRoom = 0;
+	_forceRoomRestart = false;
+	_enteringStatusScreen = false;
+	_inStatusMode = false;
+	_stepPending = false;
+	_autoCloseTimer = 1;
+	_logicDirty = true;
+	_statusSaveOverrideActive = true;
+	debugC(2, kDebugLevelFlow,
+		"saving status screen through backed-up gameplay room %u",
+		(uint)_currentRoom);
+	return true;
+}
+
+void Logic::endStatusSaveSnapshotLikeDos() {
+	if (!_statusSaveOverrideActive)
+		return;
+	applyRoomStateForStatusSaveLikeDos(_statusSaveShadow);
+	_statusSaveShadow = RoomBackup();
+	_statusSaveOverrideActive = false;
 }
 
 void Logic::enterStatusScreenLoopLikeDos() {
@@ -1568,6 +1650,8 @@ void Logic::enterStatusScreenLoopLikeDos() {
 		return;
 	}
 
+	if (_engine)
+		_engine->captureStatusSaveThumbnail();
 	backupRoomForStatusLikeDos();
 	// The DOS status loop saves the deferred queue/room-script slots, then
 	// services only status-room mode 7 until RestoreScriptStateBackup. Keep the
@@ -2947,6 +3031,8 @@ void Logic::synchronize(Common::Serializer &s) {
 		_skipPoint.reset();
 		_roomLoop.reset();
 		_savedScene.reset();
+		_roomBackup = RoomBackup();
+		_enteringStatusScreen = false;
 		_currentRoom = 0xffff;
 		_nextRoom = 0;
 		_currentPlace = currentPlace;

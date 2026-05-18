@@ -1590,7 +1590,7 @@ OPCODE(0x55) {
 		prepared.c_str(), colour, left, top);
 	if (Log.inStatusMode())
 		_graphics->rememberStatusScreenTextLikeDos(left, top, colour, prepared);
-	_graphics->paintText(left, top, colour,
+	_graphics->paintTextOneDirtyLikeDos(left, top, colour,
 		reinterpret_cast<const byte *>(prepared.c_str()));
 	if (truncated)
 		Log.setPendingError(0x19);

@@ -124,6 +124,7 @@ public:
 		return paintText(left, top, 235, string, 0, lines, 0, 0);
 	}
 	Common::Rect paintText(uint16 left, uint16 top, byte colour, const byte *string, Surface *s, uint16 *lines = 0, uint8 firstLineExtraIndent = 0, int flags = 0);
+	Common::Rect paintTextOneDirtyLikeDos(uint16 left, uint16 top, byte colour, const byte *string);
 	void clearStatusScreenTextLikeDos();
 	void rememberStatusScreenTextLikeDos(uint16 left, uint16 top, byte colour, const Common::String &text);
 	void paintMotionText(const byte *stream, uint16 length);

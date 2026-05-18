@@ -2055,6 +2055,12 @@ Common::Rect Graphics::paintText(uint16 left, uint16 top, byte colour, const byt
 	return Common::Rect(left, top, max_left, current_top + kLineHeight);
 }
 
+Common::Rect Graphics::paintTextOneDirtyLikeDos(uint16 left, uint16 top, byte colour, const byte *string) {
+	Common::Rect rect = paintText(left, top, colour, string, _framebuffer.get(), 0, 0, kPaintNoDirty);
+	markDirtyRect(rect);
+	return rect;
+}
+
 void Graphics::clearStatusScreenTextLikeDos() {
 	_statusScreenText.clear();
 }

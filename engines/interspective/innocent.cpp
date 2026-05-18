@@ -31,11 +31,14 @@
 #include "common/debug-channels.h"
 #include "common/error.h"
 #include "common/file.h"
+#include "common/savefile.h"
 #include "common/serializer.h"
 #include "common/scummsys.h"
 #include "common/system.h"
 #include "common/events.h"
+#include "engines/metaengine.h"
 #include "engines/util.h"
+#include "graphics/thumbnail.h"
 
 #include "interspective/debug.h"
 #include "interspective/debugger.h"
@@ -169,6 +172,7 @@ Engine::Engine(OSystem *syst) :
 	_logic = &Logic::instance();
 	_logic->setEngine(this);
 	_sound = new Sound(this);
+	_statusSaveThumbnail = nullptr;
 	_copyProtection = false;
 	me = this;
 	_lastTicks = 0;
@@ -186,6 +190,10 @@ Engine::Engine(OSystem *syst) :
 
 Engine::~Engine() {
 	MusicParser::destroy();
+	if (_statusSaveThumbnail) {
+		_statusSaveThumbnail->free();
+		delete _statusSaveThumbnail;
+	}
 	delete _sound;
 	delete _rnd;
 }
@@ -202,6 +210,21 @@ bool Engine::canSaveGameStateCurrently(Common::U32String *msg) {
 	return _logic != nullptr && _resources != nullptr && _resources->mainDat() != nullptr;
 }
 
+void Engine::captureStatusSaveThumbnail() {
+	if (_statusSaveThumbnail) {
+		_statusSaveThumbnail->free();
+		delete _statusSaveThumbnail;
+		_statusSaveThumbnail = nullptr;
+	}
+
+	_statusSaveThumbnail = new ::Graphics::Surface;
+	if (!::Graphics::createThumbnail(*_statusSaveThumbnail)) {
+		_statusSaveThumbnail->free();
+		delete _statusSaveThumbnail;
+		_statusSaveThumbnail = nullptr;
+	}
+}
+
 Common::Error Engine::saveGameStream(Common::WriteStream *stream, bool isAutosave) {
 	enum {
 		kSaveVersion = 6
@@ -210,28 +233,35 @@ Common::Error Engine::saveGameStream(Common::WriteStream *stream, bool isAutosav
 	if (!stream || !_logic || !_resources || !_resources->mainDat())
 		return Common::kWritingFailed;
 
+	const bool statusSaveSnapshot = _logic->beginStatusSaveSnapshotLikeDos();
+	Common::Error result = Common::kNoError;
 	Common::Serializer s(nullptr, stream);
-	if (!s.matchBytes("IUCS", 4))
-		return Common::kWritingFailed;
-	s.syncVersion(kSaveVersion);
+	if (!s.matchBytes("IUCS", 4)) {
+		result = Common::kWritingFailed;
+	} else {
+		s.syncVersion(kSaveVersion);
 
-	MainDat *main = _resources->mainDat();
-	uint16 mainSize = main->dataSize();
-	s.syncAsUint16LE(mainSize);
-	s.syncBytes(main->_data, mainSize);
+		MainDat *main = _resources->mainDat();
+		uint16 mainSize = main->dataSize();
+		s.syncAsUint16LE(mainSize);
+		s.syncBytes(main->_data, mainSize);
 
-	uint16 blockId = _logic->currentBlock();
-	uint16 blockSize = _logic->blockProgram() ? _logic->blockProgram()->codeSize() : 0;
-	s.syncAsUint16LE(blockId);
-	s.syncAsUint16LE(blockSize);
-	if (blockSize != 0)
-		s.syncBytes(_logic->blockProgram()->base(), blockSize);
+		uint16 blockId = _logic->currentBlock();
+		uint16 blockSize = _logic->blockProgram() ? _logic->blockProgram()->codeSize() : 0;
+		s.syncAsUint16LE(blockId);
+		s.syncAsUint16LE(blockSize);
+		if (blockSize != 0)
+			s.syncBytes(_logic->blockProgram()->base(), blockSize);
 
-	_logic->synchronize(s);
-	if (_sound)
-		_sound->synchronize(s);
-	synchronizeMusicState(s, _resources, _dosMusicEnabled, _dosSfxEnabled);
-	return s.err() ? Common::kWritingFailed : Common::kNoError;
+		_logic->synchronize(s);
+		if (_sound)
+			_sound->synchronize(s);
+		synchronizeMusicState(s, _resources, _dosMusicEnabled, _dosSfxEnabled);
+		result = s.err() ? Common::kWritingFailed : Common::kNoError;
+	}
+	if (statusSaveSnapshot)
+		_logic->endStatusSaveSnapshotLikeDos();
+	return result;
 }
 
 Common::Error Engine::loadGameStream(Common::SeekableReadStream *stream) {
@@ -300,6 +330,23 @@ Common::Error Engine::loadGameStream(Common::SeekableReadStream *stream) {
 	return s.err() ? Common::kReadingFailed : Common::kNoError;
 }
 
+Common::Error Engine::loadStartupSaveSlot(int slot) {
+	Common::InSaveFile *saveFile = _saveFileMan->openForLoading(getSaveStateName(slot));
+	if (!saveFile)
+		return Common::kReadingFailed;
+
+	Common::Error result = loadGameStream(saveFile);
+	if (result.getCode() == Common::kNoError) {
+		ExtendedSavegameHeader header;
+		if (MetaEngine::readSavegameHeader(saveFile, &header))
+			setTotalPlayTime(header.playtime);
+		_logic->restoreRoomFromBackupLikeDos();
+	}
+
+	delete saveFile;
+	return result;
+}
+
 Common::Error Engine::run() {
 	initGraphics(320, 200);
 
@@ -314,7 +361,20 @@ Common::Error Engine::run() {
 	_logic->init();
 
 	_resources->loadActors();
-	_logic->initCode();
+	bool loadedStartupSave = false;
+	const int startupSaveSlot = ConfMan.getInt("save_slot");
+	if (startupSaveSlot >= 0) {
+		const Common::Error loadError = loadStartupSaveSlot(startupSaveSlot);
+		if (loadError.getCode() == Common::kNoError) {
+			loadedStartupSave = true;
+			debugC(1, kDebugLevelFlow, "loaded startup save slot %d", startupSaveSlot);
+		} else {
+			warning("Interspective: failed to load startup save slot %d (%s); starting a new game",
+				startupSaveSlot, loadError.getDesc().c_str());
+		}
+	}
+	if (!loadedStartupSave)
+		_logic->initCode();
 	_graphics->hideCursor();
 	while(!shouldQuit()) {
 		handleEvents();

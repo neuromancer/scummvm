@@ -112,7 +112,8 @@ public:
 		  _inputEnabled(true),
 		  _speechSkipInput(false),
 		  _uiTextSpeechSlot(0xffff),
-		  _loadedBackdropId(0) {
+		  _loadedBackdropId(0),
+		  _statusSaveOverrideActive(false) {
 		_protagonist = nullptr;
 		_protagonistId = 0;
 		for (int i = 0; i < 7; ++i) _graphicSlots[i] = 0;
@@ -1063,6 +1064,8 @@ public:
 	void backupRoomForStatusLikeDos();
 	void restoreRoomFromBackupLikeDos();
 	void enterStatusScreenLoopLikeDos();
+	bool beginStatusSaveSnapshotLikeDos();
+	void endStatusSaveSnapshotLikeDos();
 
 	friend class Debugger;
 private:
@@ -1173,7 +1176,9 @@ private:
 		RoomBackup() : valid(false), currentBlock(0), currentRoom(0), loadedBackdropId(0), cameraX(0), cameraY(0),
 		               scrollChanged(false), cursorMode(0), fullscreen(false),
 		               roomActive(true), noStep(false), actorFrameCount(0), drawCommandCount(0),
-		               postMoveTargetFrameMirror(0) {}
+		               postMoveTargetFrameMirror(0), nextRoom(0), forceRoomRestart(false),
+		               inStatusMode(false), enteringStatusScreen(false), stepPending(false),
+		               logicDirty(false), autoCloseTimer(0) {}
 		bool valid;
 		uint16 currentBlock;
 		uint32 currentRoom;
@@ -1204,8 +1209,19 @@ private:
 		uint16 drawCommandCount;
 		PostMoveCallback postMoveCallback;
 		uint8 postMoveTargetFrameMirror;
+		uint32 nextRoom;
+		bool forceRoomRestart;
+		bool inStatusMode;
+		bool enteringStatusScreen;
+		bool stepPending;
+		bool logicDirty;
+		int16 autoCloseTimer;
 	};
+	void captureRoomStateForStatusSaveLikeDos(RoomBackup &dst) const;
+	void applyRoomStateForStatusSaveLikeDos(const RoomBackup &src);
 	RoomBackup _roomBackup;
+	RoomBackup _statusSaveShadow;
+	bool _statusSaveOverrideActive;
 
 	struct DirtyObjectPlacement {
 		DirtyObjectPlacement() : objId(0), currentX(0), currentYMinusHeight(0), targetX(0), targetYMinusHeight(0) {}

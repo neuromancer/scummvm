@@ -39,6 +39,10 @@ class EventManager;
 
 }
 
+namespace Graphics {
+struct Surface;
+}
+
 namespace Interspective {
 
 class Console;
@@ -68,6 +72,8 @@ public:
 	Sound *sound() { return _sound; }
 	Debugger *debugger() { return _debugger; }
 	Common::EventManager *eventMan() { return _eventMan; }
+	void captureStatusSaveThumbnail();
+	const ::Graphics::Surface *statusSaveThumbnail() const { return _statusSaveThumbnail; }
 	MidiDriver *musicDriver() const { return _musicDriver.get(); }
 	uint16 dosSoundDeviceMask() const { return uint16(_dosMusicEnabled | _dosSfxEnabled); }
 	uint8 dosMusicEnabled() const { return _dosMusicEnabled; }
@@ -85,12 +91,14 @@ private:
 	bool consumeEscapePress(const Common::Event &event) const;
 	void initDosSoundConfig();
 	void parseDosSoundSwitchString(const byte *data, uint32 length);
+	Common::Error loadStartupSaveSlot(int slot);
 
 	Logic *_logic;
 	Resources *_resources;
 	Graphics *_graphics;
 	Sound *_sound;
 	Debugger *_debugger;
+	::Graphics::Surface *_statusSaveThumbnail;
 	Common::SharedPtr<MidiDriver> _musicDriver;
 
 	Common::RandomSource *_rnd;
