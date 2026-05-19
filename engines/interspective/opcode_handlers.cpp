@@ -594,7 +594,7 @@ static bool sendActorToEntityByTypeLikeDos(Actor *actor, uint16 targetId, uint16
 		break;
 	}
 	default: {
-		const Common::Point cursor = Log.engine()->graphics()->cursorPosition();
+		const Common::Point cursor = Log.lockedCursorPositionLikeDos();
 		targetX = int16(cursor.x + Log.cameraX());
 		targetY = int16(cursor.y + Log.cameraY());
 		break;
@@ -749,18 +749,35 @@ static uint16 modalChoiceLineWidth(const Common::String &text) {
 	return width;
 }
 
+struct RawModalChoiceLikeDos {
+	Common::Array<byte> line;
+	uint16 target;
+	bool terminal;
+
+	RawModalChoiceLikeDos() : target(0xffff), terminal(false) {}
+};
+
+static bool runFormattedChoiceModalLikeDos(const Logic::FormattedBubble &fb,
+		uint16 rows, uint16 *selectedIndex, uint16 &target);
+static void seedFormattedModalState(Logic::ModalState &ms,
+		const Logic::FormattedBubble &fb, uint16 menuValue, uint16 rows,
+		uint8 paletteMode, uint8 stashFlag);
+
 static bool appendRawModalChoicesLikeDos(const byte *src, Common::Array<byte> &encoded,
-		uint16 &choiceCount, uint16 &maxTextWidth) {
+		Common::Array<RawModalChoiceLikeDos> &rawChoices, uint16 &choiceCount,
+		uint16 &maxTextWidth) {
 	// LayoutVerbBubbleText_Right/Left @ 1000:8cb0/8d1e read a raw list
 	// of entries: one optional condition marker, NUL-terminated text, then
-	// a 16-bit branch target. 0xff terminates the list. Visible rows get
-	// hit rectangles and their target is copied into g_text_active_indices.
+	// a 16-bit branch target. 0xff terminates the list. HandleVerbButton_
+	// Submenu @ 1000:8b27 treats rows starting with 0x04 as terminal;
+	// otherwise it re-formats the selected row as the next mode-3 bubble.
 	if (!src)
 		return false;
 
 	Resources *res = Log.resources();
 	const byte *p = src;
 	const byte * const limit = src + 4096;
+	rawChoices.clear();
 	choiceCount = 0;
 	maxTextWidth = 0;
 	bool sawTerminator = false;
@@ -809,13 +826,19 @@ static bool appendRawModalChoicesLikeDos(const byte *src, Common::Array<byte> &e
 			encoded.push_back('\r');
 		encoded.push_back(kStringMenuOption);
 		Common::String label;
+		RawModalChoiceLikeDos rawChoice;
+		rawChoice.target = target;
+		rawChoice.terminal = lineLen != 0 && line[0] == 0x04;
 		for (uint i = 0; i < lineLen; ++i) {
 			label += char(line[i]);
 			encoded.push_back(line[i]);
+			rawChoice.line.push_back(line[i]);
 		}
+		rawChoice.line.push_back(0);
 		encoded.push_back(0);
 		encoded.push_back(byte(target & 0xff));
 		encoded.push_back(byte(target >> 8));
+		rawChoices.push_back(rawChoice);
 		maxTextWidth = MAX<uint16>(maxTextWidth, modalChoiceLineWidth(label));
 		++choiceCount;
 	}
@@ -837,12 +860,54 @@ static uint16 runEncodedChoiceModalLikeDos(const byte *encoded,
 
 static bool runRawChoiceListModalLikeDos(const byte *src, uint16 *selectedIndex, uint16 &target) {
 	Common::Array<byte> encoded;
+	Common::Array<RawModalChoiceLikeDos> rawChoices;
 	uint16 choiceCount = 0;
 	uint16 maxTextWidth = 0;
-	if (!appendRawModalChoicesLikeDos(src, encoded, choiceCount, maxTextWidth))
+	if (!appendRawModalChoicesLikeDos(src, encoded, rawChoices, choiceCount, maxTextWidth))
 		return false;
 
 	target = runEncodedChoiceModalLikeDos(&encoded[0], choiceCount, maxTextWidth, selectedIndex);
+	if (!selectedIndex || *selectedIndex == 0xffff || *selectedIndex >= rawChoices.size()) {
+		debugC(1, kDebugLevelScript, "raw modal choice cancelled");
+		target = 0xffff;
+		return true;
+	}
+
+	const uint16 rawSelectedIndex = *selectedIndex;
+	const RawModalChoiceLikeDos &choice = rawChoices[rawSelectedIndex];
+	if (choice.terminal) {
+		target = choice.target;
+		debugC(1, kDebugLevelScript, "raw modal terminal choice selected index=%u target=0x%04x",
+		       rawSelectedIndex, target);
+		return true;
+	}
+
+	// DOS HandleVerbButton_Submenu stores the raw row target first, then
+	// changes the active modal registers to a freshly formatted mode-3
+	// bubble unless the row starts with 0x04. Preserve that fallback target
+	// when the continuation has no nested selection.
+	Logic::FormattedBubble fb = Log.formatBubbleText(choice.line.empty() ? nullptr : &choice.line[0]);
+	Logic::ModalState &ms = Log.modalState();
+	seedFormattedModalState(ms, fb, fb.totalHeight, fb.rowCount, 3, ms.stashFlag);
+
+	uint16 nestedIndex = 0xffff;
+	uint16 nestedTarget = 0xffff;
+	if (runFormattedChoiceModalLikeDos(fb, fb.rowCount, &nestedIndex, nestedTarget)) {
+		*selectedIndex = (nestedIndex == 0xffff) ? rawSelectedIndex : nestedIndex;
+		target = (nestedTarget == 0xffff) ? choice.target : nestedTarget;
+		if (fb.truncated)
+			Log.setPendingError(0x11);
+		debugC(1, kDebugLevelScript,
+		       "raw modal submenu selected raw=%u nested=%u target=0x%04x fallback=0x%04x",
+		       rawSelectedIndex, nestedIndex, target, choice.target);
+		return true;
+	}
+
+	showFormattedModalTextAndWait(fb, fb.totalHeight, CodePointer());
+	*selectedIndex = rawSelectedIndex;
+	target = choice.target;
+	if (fb.truncated)
+		Log.setPendingError(0x11);
 	debugC(1, kDebugLevelScript, "raw modal choice selected index=%u target=0x%04x",
 	       selectedIndex ? *selectedIndex : 0xffff, target);
 	return true;
@@ -879,6 +944,7 @@ static void finishVerbModalLoopState(Logic::ModalState &ms) {
 	ms.paletteMode = 0;
 	ms.textContinuationPtr = 0;
 	ms.menuDone = false;
+	Log.lockCursorAndButtonsLikeDos(Log.lockedCursorPositionLikeDos(), 0);
 	Log.setLogicDirty();
 }
 
@@ -2518,7 +2584,7 @@ OPCODE(0xc2) {
 	// offset), current ES (script segment), and locked cursor x/y as
 	// initial position. C++ mirrors this in Logic::_castTable; the cast
 	// renderer state bytes are initialized by castTableRegister.
-	const Common::Point p = _graphics->cursorPosition();
+	const Common::Point p = Log.lockedCursorPositionLikeDos();
 	const uint16 id = uint16(a[0]);
 	debugC(2, kDebugLevelScript, "opcode 0xc2: RegisterCastEntry id=%u at cursor (%d,%d)",
 		id, p.x, p.y);
@@ -4782,7 +4848,6 @@ static bool handleHotspotInteractionLikeDos(uint16 id, Common::Point point) {
 	if (inventoryRegionContainsLikeDos(point)) {
 		if (!Log.placeObjectInInventoryAtDosPoint(id, point))
 			return false;
-		Log.setHitTarget(id);
 		return true;
 	}
 
@@ -4792,7 +4857,6 @@ static bool handleHotspotInteractionLikeDos(uint16 id, Common::Point point) {
 		return false;
 
 	if (Log.drawCommandCount() > 0x18 || Log.objectField(id, 0x0d) == 1) {
-		Log.setHitTarget(id);
 		return false;
 	}
 
@@ -4822,7 +4886,6 @@ static bool handleHotspotInteractionLikeDos(uint16 id, Common::Point point) {
 	const int16 placeY = int16(targetY + 5);
 	Log.setPostMoveCallback(Logic::PostMoveCallback::kPlaceObjectAfterHotspotMove,
 		id, uint16(placeX), uint16(placeY));
-	Log.setHitTarget(id);
 	return true;
 }
 
@@ -4946,7 +5009,7 @@ OPCODE(0x86) {
 		//   DI = g_drag_target; RetEmpty; HandleHotspotInteraction;
 		//   if AX != 0 PauseAndLockCursor else pending-error 0x25.
 		const uint16 id = Log.dragTarget();
-		const Common::Point cursor = _graphics->cursorPosition();
+		const Common::Point cursor = Log.lockedCursorPositionLikeDos();
 		if (!handleHotspotInteractionLikeDos(id, cursor)) {
 			Log.setPendingError(0x25);
 			return kThxBye;
@@ -4977,7 +5040,7 @@ OPCODE(0x88) {
 			return kThxBye;
 		}
 	}
-	const Common::Point cursor = _graphics->cursorPosition();
+	const Common::Point cursor = Log.lockedCursorPositionLikeDos();
 	if (!handleHotspotInteractionLikeDos(id, cursor)) {
 		Log.setPendingError(0x25);
 		debugC(2, kDebugLevelScript, "opcode 0x88: hotspot interaction object %u → not registered (pending 0x25)", id);
@@ -5021,7 +5084,7 @@ OPCODE(0x8a) {
 			return kThxBye;
 		}
 	} else {
-		point = _graphics->cursorPosition();
+		point = Log.lockedCursorPositionLikeDos();
 	}
 	if (!handleHotspotInteractionLikeDos(id, point)) {
 		Log.setPendingError(0x25);
@@ -5598,7 +5661,7 @@ OPCODE(0xa8) {
 		targetX = int16(target->position().x);
 		targetY = int16(target->position().y);
 	} else {
-		const Common::Point cursor = Log.engine()->graphics()->cursorPosition();
+		const Common::Point cursor = Log.lockedCursorPositionLikeDos();
 		targetX = int16(cursor.x + Log.cameraX());
 		targetY = int16(cursor.y + Log.cameraY());
 	}
@@ -5652,7 +5715,7 @@ OPCODE(0xa9) {
 		targetX = int16(target->position().x);
 		targetY = int16(target->position().y);
 	} else {
-		const Common::Point cursor = Log.engine()->graphics()->cursorPosition();
+		const Common::Point cursor = Log.lockedCursorPositionLikeDos();
 		targetX = int16(cursor.x + Log.cameraX());
 		targetY = int16(cursor.y + Log.cameraY());
 	}

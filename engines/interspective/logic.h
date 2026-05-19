@@ -110,6 +110,9 @@ public:
 		  _scrollDx(0), _scrollDy(0),
 		  _scrollChanged(false),
 		  _inputEnabled(true),
+		  _cursorLockedPos(160, 100),
+		  _buttonsLocked(0),
+		  _rightClickCycleCooldown(4),
 		  _speechSkipInput(false),
 		  _uiTextSpeechSlot(0xffff),
 		  _loadedBackdropId(0),
@@ -155,6 +158,10 @@ public:
 	void setPaused(bool v = true) { _paused = v; }
 	bool stepPending() const { return _stepPending; }
 	void setStepPending(bool v) { _stepPending = v; }
+	void tickRightClickCycleCooldownLikeDos() {
+		if (!_fullscreenGateActive && !_noStep && _rightClickCycleCooldown != 0)
+			--_rightClickCycleCooldown;
+	}
 	void cycleCursorModeByRightClickLikeDos();
 	void activateStatusButtonHotkeyLikeDos();
 	bool setVerbModeFromHitRegionLikeDos(uint16 hitRegion);
@@ -607,6 +614,8 @@ public:
 	// g_main_character_id directly, not this implicit actor.
 	Actor *implicitActor() const { return _implicitActor; }
 	void setImplicitActor(Actor *ac) { _implicitActor = ac; }
+	// DOS g_current_hit_region (DS:0x6672): 0 = playfield, 1 = inventory,
+	// 2 = status, 3..8 = verb buttons, 0xffff = no current region.
 	uint16 hitTarget() const { return _hitTarget; }
 	void setHitTarget(uint16 v) { _hitTarget = v; }
 	uint16 switchValue() const { return _switchValue; }
@@ -659,7 +668,11 @@ public:
 		int16 layer;  // signed extension of DOS CL in AddDrawCommand
 	};
 	uint16 drawCommandCount() const { return _drawCommandCount; }
-	void clearDrawCommands() { _drawCommands.clear(); _drawCommandCount = 0; }
+	void clearDrawCommands() {
+		_drawCommands.clear();
+		_drawCommandCount = 0;
+		_visibleNoSpriteExits.clear();
+	}
 	bool addDrawCommand(uint8 type, uint16 id, int16 layer) {
 		if (_drawCommands.size() >= 0x1f) {
 			setPendingError(0x28);
@@ -670,6 +683,15 @@ public:
 		return true;
 	}
 	const Common::Array<DrawCommand> &drawCommands() const { return _drawCommands; }
+	bool addVisibleNoSpriteExitLikeDos(uint16 id) {
+		if (_visibleNoSpriteExits.size() >= 0x23) {
+			setPendingError(0x29);
+			return false;
+		}
+		_visibleNoSpriteExits.push_back(id);
+		return true;
+	}
+	const Common::Array<uint16> &visibleNoSpriteExitsLikeDos() const { return _visibleNoSpriteExits; }
 
 	// Anim-list (DOS DS:0x3f2d..., counter at `g_anim_list_count`,
 	// 8-entry cap). Op_e4 appends an entry; Op_e5 clears. Each entry
@@ -828,6 +850,15 @@ public:
 	bool scrollChanged() const { return _scrollChanged; }
 	bool inputEnabled() const { return _inputEnabled; }
 	void setInputEnabled(bool e) { _inputEnabled = e; }
+	// DOS copies live cursor/buttons to locked globals before dispatch.
+	// RetEmpty @ 1000:bb58 reads these locked coordinates, so click-time
+	// object placement and movement must not resample the later live cursor.
+	void lockCursorAndButtonsLikeDos(Common::Point pos, uint8 buttons) {
+		_cursorLockedPos = pos;
+		_buttonsLocked = buttons;
+	}
+	Common::Point lockedCursorPositionLikeDos() const { return _cursorLockedPos; }
+	uint8 buttonsLockedLikeDos() const { return _buttonsLocked; }
 	void setLoadedBackdropId(uint16 id) { _loadedBackdropId = id; }
 	uint16 loadedBackdropId() const { return _loadedBackdropId; }
 	void resetMovieGraphicSlotsLikeDos() {
@@ -1227,6 +1258,7 @@ private:
 		Common::Array<OverlayEntry> overlayQueue;
 		Common::Array<AnimListEntry> animList;
 		Common::Array<DrawCommand> drawCommands;
+		Common::Array<uint16> visibleNoSpriteExits;
 		uint16 drawCommandCount;
 		PostMoveCallback postMoveCallback;
 		uint8 postMoveTargetFrameMirror;
@@ -1284,6 +1316,7 @@ private:
 	Common::HashMap<uint32, uint8> _exitFields;   // (exitId<<8)|fieldOffset → byte, for Op_66 unknown offsets
 	Common::Array<uint16> _objectExitList;        // dynamic object exits registered through AddExitToList-style paths
 	Common::Array<DrawCommand> _drawCommands;
+	Common::Array<uint16> _visibleNoSpriteExits; // DOS DS:0x04fb no-sprite exit side list, count at DS:0x661f
 	Common::HashMap<uint32, uint8> _cellBits;    // (room<<16)|entity -> DOS cell byte
 	Common::HashMap<uint16, uint8> _actorFlag70; // Actor.field_0x70 (Op_49)
 	uint16 _menuStashA, _menuStashB;             // pbRam00023206/8 (Op_4d)
@@ -1294,7 +1327,7 @@ private:
 	uint16 _dragTarget;     // current drag-source object id
 	uint16 _dragTargetMode40; // DS:0x667e — written by Op_76, read by Op_0b
 	Actor *_implicitActor;  // SI register's last-resolved actor
-	uint16 _hitTarget;      // last-hit hotspot id (mirrors g_current_hit_region)
+	uint16 _hitTarget;      // DOS g_current_hit_region (DS:0x6672), not entity id
 	uint16 _switchValue;    // last value pushed for case dispatch (sign of active switch)
 	uint16 _switchTarget;   // bytecode offset to jump to on case match
 	uint16 _branchState;    // DS:0x671c — saved PC for switch-loop reentry
@@ -1312,6 +1345,9 @@ private:
 	int16 _scrollDx, _scrollDy; // DS:0x662b/0x662d, persistent UpdateScrollPosition deltas
 	bool _scrollChanged; // DS:0x662f, set by UpdateScrollPosition
 	bool _inputEnabled;
+	Common::Point _cursorLockedPos; // DOS DS:0x6752/0x6754
+	uint8 _buttonsLocked; // DOS DS:0x665f
+	uint8 _rightClickCycleCooldown; // DS:0x674a — CheckDoubleClickReset four-tick right-button cycle guard
 	bool _speechSkipInput; // DOS g_buttons_locked == 2 path in UpdateSpeechBubbles
 	uint16 _loadedBackdropId; // DS:0x666a — written by SetBackdropImage
 	Common::Array<AnimListEntry> _animList;

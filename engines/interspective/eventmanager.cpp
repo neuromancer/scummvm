@@ -97,10 +97,6 @@ static bool containsDosHalfOpen(int16 left, int16 top, int16 right, int16 bottom
 	return p.x >= left && p.x < right && p.y >= top && p.y < bottom;
 }
 
-static bool exitIsNoSpriteLikeDos(const Logic &logic, uint16 id) {
-	return logic.dosRecordField(1, id, 0x0a, 1) != 0;
-}
-
 static int16 hitRegionAtPointLikeDos(const Common::Point &pos) {
 	// iuc_main.dat hit-region table (footer +0x5a):
 	//   0 = room, 1 = inventory strip, 2 = status button, 3..8 = verb buttons.
@@ -181,27 +177,32 @@ static HitTarget hitNoSpriteExitAtPointLikeDos(Logic &logic, Common::Point world
 	HitTarget best;
 	best.z = 0x0c;
 	Program *program = logic.blockProgram();
-	if (program) {
-		for (uint16 id = 1; id <= program->exitsCount(); ++id) {
-			Exit *exit = program->getExit(id);
-			if (!exit || logic.dosRecordField(1, id, 0, 2) != logic.currentRoom()
-					|| !logic.cellBit(id, 0) || !exitIsNoSpriteLikeDos(logic, id))
-				continue;
+	if (!program)
+		return best;
 
-			const int16 left = int16(recordWord(logic, 1, id, 2));
-			const int16 top = int16(recordWord(logic, 1, id, 4));
-			const int16 right = int16(left + int16(logic.dosRecordField(1, id, 6, 1)));
-			const int16 bottom = int16(top + int16(logic.dosRecordField(1, id, 7, 1)));
-			const Common::Rect area(left, top, right, bottom);
-			const int16 z = int16(int8(logic.dosRecordField(1, id, 0x0b, 1)));
-			if (containsDosInclusive(area, world) && z < best.z) {
-				best.type = 1;
-				best.id = id;
-				best.z = z;
-				best.y = 0;
-				best.exitPtr = exit;
-				debugC(2, kDebugLevelEvents, "click hit candidate type=1 id=%u z=%d", id, z);
-			}
+	// FindObjectAtCursor @ 1000:bd0f scans the side list built by
+	// CollectObjectsForRoom from back to front. Equal z values therefore
+	// keep the later visible entry, not the lowest exit id.
+	const Common::Array<uint16> &visible = logic.visibleNoSpriteExitsLikeDos();
+	for (int i = int(visible.size()) - 1; i >= 0; --i) {
+		const uint16 id = visible[i];
+		Exit *exit = program->getExit(id);
+		if (!exit)
+			continue;
+
+		const int16 left = int16(recordWord(logic, 1, id, 2));
+		const int16 top = int16(recordWord(logic, 1, id, 4));
+		const int16 right = int16(left + int16(logic.dosRecordField(1, id, 6, 1)));
+		const int16 bottom = int16(top + int16(logic.dosRecordField(1, id, 7, 1)));
+		const Common::Rect area(left, top, right, bottom);
+		const int16 z = int16(int8(logic.dosRecordField(1, id, 0x0b, 1)));
+		if (containsDosInclusive(area, world) && z < best.z) {
+			best.type = 1;
+			best.id = id;
+			best.z = z;
+			best.y = 0;
+			best.exitPtr = exit;
+			debugC(2, kDebugLevelEvents, "click hit candidate type=1 id=%u z=%d", id, z);
 		}
 	}
 	return best;
@@ -378,6 +379,51 @@ static bool runEntityScriptLikeDos(Logic &logic, const HitTarget &target, Opcode
 	return true;
 }
 
+static bool handleMinimapExitClickLikeDos(Logic &logic, Common::Point screen) {
+	if (logic.cursorMode() == 0x80 || logic.dialogClickGate() == 0 || logic.inStatusMode())
+		return false;
+
+	const Common::Array<Logic::AnimListEntry> &entries = logic.animList();
+	for (uint i = 0; i < entries.size(); ++i) {
+		const Logic::AnimListEntry &entry = entries[i];
+		if (!containsDosHalfOpen(int16(entry.x0), int16(entry.y0),
+				int16(entry.x1), int16(entry.y1), screen))
+			continue;
+
+		logic.setStepPending(true);
+		logic.setGameState(1);
+		logic.setCurrentEntityId(entry.arg3);
+		debugC(1, kDebugLevelEvents,
+			"minimap exit click pos=(%d,%d) entry=%u exit=%u marker=%u cursor=0x%02x [DOS HandleClick]",
+			screen.x, screen.y, i, entry.arg3, entry.arg2, logic.cursorMode());
+
+		if (!logic.cellBit(entry.arg3, 0))
+			return true;
+
+		const uint16 currentRoom = logic.currentRoom();
+		HitTarget target;
+		target.type = 1;
+		target.id = entry.arg3;
+		target.z = int16(i);
+		target.exitPtr = logic.blockProgram() ? logic.blockProgram()->getExit(entry.arg3) : 0;
+		if (!runEntityScriptLikeDos(logic, target, kCodeItem))
+			return true;
+
+		if (logic.roomChangePending() || logic.currentRoom() != currentRoom || logic.breakInner())
+			return true;
+
+		if (logic.cursorMode() != 0x04) {
+			Actor *protag = logic.protagonist();
+			const Logic::PostMoveCallback savedCallback = logic.postMoveCallback();
+			logic.sendActorToCurrentEntity(protag);
+			logic.setPostMoveCallback(savedCallback);
+			logic.resetRoomScriptSlotLikeDos(kCodeItem);
+		}
+		return true;
+	}
+	return false;
+}
+
 static void handleSecondaryClickLikeDos(Logic &logic, int16 hitRegion, Common::Point screen) {
 	if (logic.cursorMode() != 1)
 		return;
@@ -428,9 +474,17 @@ void EventManager::clicked(Common::Point pos) {
 	if (!logic.roomActive() || logic.canSkipCutscene())
 		return;
 
-	const int16 hitRegion = hitRegionAtPointLikeDos(pos);
-	if (hitRegion < 0)
+	logic.lockCursorAndButtonsLikeDos(pos, 1);
+
+	if (handleMinimapExitClickLikeDos(logic, pos))
 		return;
+
+	const int16 hitRegion = hitRegionAtPointLikeDos(pos);
+	if (hitRegion < 0) {
+		logic.setHitTarget(0xffff);
+		return;
+	}
+	logic.setHitTarget(uint16(hitRegion));
 
 	Common::Point world(pos.x + logic.cameraX(), pos.y + logic.cameraY());
 	HitTarget target = findHitTargetForRegionLikeDos(logic, hitRegion, pos);

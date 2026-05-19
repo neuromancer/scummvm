@@ -358,7 +358,10 @@ void Logic::setEngine(Engine *e) {
 	_currentPlace = 0;
 	_defaultCursorMode = 0x10;
 	_cursorStepIndex = 0;
+	_rightClickCycleCooldown = 4;
 	setCursorMode(_defaultCursorMode);
+	_cursorLockedPos = Common::Point(160, 100);
+	_buttonsLocked = 0;
 	_actorFrameTable.clear();
 	_actorFrameCount = 0;
 	_walkSpeedFlag = 0;
@@ -417,6 +420,7 @@ bool Logic::setVerbModeFromHitRegionLikeDos(uint16 hitRegion) {
 	debugC(1, kDebugLevelEvents,
 		"verb hit region=%u -> cursor mode 0x%02x [DOS SetVerbModeFromHotkey]",
 		hitRegion, cursorMode);
+	_hitTarget = hitRegion;
 	setCursorMode(cursorMode);
 	return true;
 }
@@ -425,6 +429,7 @@ void Logic::activateStatusButtonHotkeyLikeDos() {
 	// CheckVerbHotkey @ 1000:b9bc maps Space to hit-region 2, and
 	// DispatchVerbAction @ 1000:b9a0 sends region 2 to RunStatusScreenLoop.
 	// In the status loop, the same region exits through RestoreRoomFromBackup.
+	_hitTarget = 2;
 	if (_inStatusMode) {
 		_stepPending = true;
 		restoreRoomFromBackupLikeDos();
@@ -439,6 +444,8 @@ void Logic::cycleCursorModeByRightClickLikeDos() {
 	// and clear step-pending via SetCursorMode. RunStatusScreenLoop calls
 	// the same helper, so status mode keeps the lower verb UI active.
 	if (_noStep || _cursorMode == 0x20 || !_roomActive || canSkipCutscene())
+		return;
+	if (_rightClickCycleCooldown != 0)
 		return;
 	if (speechWouldConsumeRightClickLikeDos())
 		return;
@@ -470,6 +477,7 @@ void Logic::cycleCursorModeByRightClickLikeDos() {
 	debugC(2, kDebugLevelEvents, "right-click verb cycle: cursor mode 0x%02x -> 0x%02x",
 		_cursorMode, nextMode);
 	setCursorMode(nextMode);
+	_rightClickCycleCooldown = 4;
 }
 
 uint16 Logic::updateAutoCloseTimerSpriteLikeDos() {
@@ -507,6 +515,7 @@ void Logic::initCode() {
 
 void Logic::tick() {
 	++_frameCounter;
+	tickRightClickCycleCooldownLikeDos();
 
 	if (_nextRoom)
 		doChangeRoom();
@@ -1144,6 +1153,7 @@ void Logic::doChangeRoom() {
 	_dialogCursor0 = _dialogCursor1 = _dialogClickGate = 0;
 	_noStep = false;
 	_stepPending = false;
+	_rightClickCycleCooldown = 4;
 	_roomActive = true;
 	_hitTarget = 0;
 	_inStatusMode = enteringStatusScreen;
@@ -1765,6 +1775,7 @@ void Logic::captureRoomStateForStatusSaveLikeDos(RoomBackup &dst) const {
 	dst.overlayQueue = _overlayQueue;
 	dst.animList = _animList;
 	dst.drawCommands = _drawCommands;
+	dst.visibleNoSpriteExits = _visibleNoSpriteExits;
 	dst.drawCommandCount = _drawCommandCount;
 	dst.postMoveCallback = _postMoveCallback;
 	dst.postMoveTargetFrameMirror = _postMoveTargetFrameMirror;
@@ -1804,6 +1815,7 @@ void Logic::applyRoomStateForStatusSaveLikeDos(const RoomBackup &src) {
 	_overlayQueue = src.overlayQueue;
 	_animList = src.animList;
 	_drawCommands = src.drawCommands;
+	_visibleNoSpriteExits = src.visibleNoSpriteExits;
 	_drawCommandCount = src.drawCommandCount;
 	_postMoveCallback = src.postMoveCallback;
 	_postMoveTargetFrameMirror = src.postMoveTargetFrameMirror;
@@ -1939,6 +1951,7 @@ void Logic::restoreRoomFromBackupLikeDos() {
 		_overlayQueue = _roomBackup.overlayQueue;
 		_animList = _roomBackup.animList;
 		_drawCommands = _roomBackup.drawCommands;
+		_visibleNoSpriteExits = _roomBackup.visibleNoSpriteExits;
 		_drawCommandCount = _roomBackup.drawCommandCount;
 		_postMoveCallback = _roomBackup.postMoveCallback;
 		_postMoveTargetFrameMirror = _roomBackup.postMoveTargetFrameMirror;
@@ -2112,7 +2125,7 @@ void Logic::movePersonToActor(uint16 id) {
 	// to the locked cursor plus camera origin, matching RetEmpty.
 	const uint16 objRoom = getObjectRoom(id);
 	if (objRoom != _currentRoom && objRoom != 0xffff) {
-		const Common::Point cursor = _engine->graphics()->cursorPosition();
+		const Common::Point cursor = lockedCursorPositionLikeDos();
 		setObjectPosition(id, int16(cursor.x + _cameraX), int16(cursor.y + _cameraY));
 	}
 
@@ -2369,9 +2382,7 @@ bool Logic::sendActorToEntityByType(Actor *walker, uint16 targetId, uint16 entit
 		break;
 	}
 	default: {
-		if (!_engine || !_engine->graphics())
-			return false;
-		const Common::Point cursor = _engine->graphics()->cursorPosition();
+		const Common::Point cursor = lockedCursorPositionLikeDos();
 		targetX = int16(cursor.x + _cameraX);
 		targetY = int16(cursor.y + _cameraY);
 		break;

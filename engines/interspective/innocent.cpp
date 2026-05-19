@@ -85,6 +85,7 @@ static bool applyVerbButtonClickLikeDos(Logic *logic, const Common::Point &pos) 
 			continue;
 
 		logic->setVerbModeFromHitRegionLikeDos(r.region);
+		logic->setHitTarget(r.region);
 		return true;
 	}
 
@@ -510,11 +511,13 @@ bool Engine::applyKeyboardCursorButtonLikeDos(const Common::Event &event) {
 
 	const Common::Point pos = _graphics->cursorPosition();
 	if (bit == 0x10) {
+		_logic->lockCursorAndButtonsLikeDos(pos, 1);
 		if (!applyVerbButtonClickLikeDos(_logic, pos))
 			EventManager::instance().clicked(pos);
 		return true;
 	}
 
+	_logic->lockCursorAndButtonsLikeDos(pos, 2);
 	_logic->setSpeechSkipInput(true);
 	_logic->cycleCursorModeByRightClickLikeDos();
 	return true;
@@ -603,9 +606,15 @@ void Engine::handleEvents() {
 			_graphics->setCursorPosition(event.mouse);
 			if (_logic && (event.type == Common::EVENT_RBUTTONDOWN || event.type == Common::EVENT_RBUTTONUP))
 				_logic->setSpeechSkipInput(event.type == Common::EVENT_RBUTTONDOWN);
-			if (_logic && event.type == Common::EVENT_RBUTTONDOWN)
+			if (_logic && event.type == Common::EVENT_RBUTTONDOWN) {
+				_logic->lockCursorAndButtonsLikeDos(event.mouse, 2);
 				_logic->cycleCursorModeByRightClickLikeDos();
+			} else if (_logic && (event.type == Common::EVENT_LBUTTONUP || event.type == Common::EVENT_RBUTTONUP)) {
+				_logic->lockCursorAndButtonsLikeDos(event.mouse, 0);
+			}
 			if (event.type == Common::EVENT_LBUTTONDOWN) {
+				if (_logic)
+					_logic->lockCursorAndButtonsLikeDos(event.mouse, 1);
 				if (applyVerbButtonClickLikeDos(_logic, event.mouse))
 					break;
 				EventManager::instance().clicked(event.mouse);

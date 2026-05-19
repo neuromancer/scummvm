@@ -252,10 +252,13 @@ static void rebuildDrawCommandsLikeDos(Graphics *graphics, Logic *logic) {
 	for (uint16 id = 1; id <= program->exitsCount(); ++id) {
 		if (logic->dosRecordField(1, id, 0, 2) != logic->currentRoom())
 			continue;
-		if (exitIsNoSpriteLikeDos(logic, id))
-			continue;
 		if (!logic->cellBit(id, 0))
 			continue;
+		if (exitIsNoSpriteLikeDos(logic, id)) {
+			if (!logic->addVisibleNoSpriteExitLikeDos(id))
+				return;
+			continue;
+		}
 		if (!logic->addDrawCommand(1, id, int8(logic->dosRecordField(1, id, 0x0b, 1))))
 			return;
 	}
@@ -1405,6 +1408,8 @@ uint16 Graphics::askVerbBubbleLikeDos(byte paletteMode, byte *string, uint16 *se
 					done = true;
 				break;
 			case Common::EVENT_RBUTTONDOWN:
+				setCursorPosition(event.mouse);
+				break;
 			case Common::EVENT_RBUTTONUP:
 				setCursorPosition(event.mouse);
 				break;
@@ -1505,6 +1510,8 @@ uint16 Graphics::askVerbBubbleTextLikeDos(byte paletteMode, const byte *string, 
 					done = true;
 				break;
 			case Common::EVENT_RBUTTONDOWN:
+				setCursorPosition(event.mouse);
+				break;
 			case Common::EVENT_RBUTTONUP:
 				setCursorPosition(event.mouse);
 				break;
@@ -1599,15 +1606,23 @@ void Graphics::showVerbBubbleTextLikeDos(byte paletteMode, const byte *string, u
 				if (event.kbd.keycode == Common::KEYCODE_ESCAPE)
 					done = true;
 				break;
-			case Common::EVENT_LBUTTONDOWN:
 			case Common::EVENT_RBUTTONDOWN:
-				done = true;
+				setCursorPosition(event.mouse);
+				if (i >= 2)
+					done = true;
+				break;
+			case Common::EVENT_RBUTTONUP:
+				setCursorPosition(event.mouse);
 				break;
 			default:
 				break;
 			}
 			if (done)
 				break;
+		}
+		if (!done && i >= 2 && (_engine->eventMan()->getButtonState() & 2)) {
+			setCursorPosition(_engine->eventMan()->getMousePos());
+			done = true;
 		}
 		if (done)
 			break;
@@ -1622,6 +1637,32 @@ void Graphics::showVerbBubbleTextLikeDos(byte paletteMode, const byte *string, u
 uint16 Graphics::ask(uint16 left, uint16 top, byte width, byte height, byte *string, uint16 *selectedIndex) {
 	if (selectedIndex)
 		*selectedIndex = 0xffff;
+
+	// PlaceCursorMenu @ 1000:7f87 stores the menu origin, clamps it to
+	// the DOS menu area, then positions the cursor near the menu center.
+	const uint8 rawWidth = width;
+	const uint8 rawHeight = height;
+	const int16 dosWidth = int16(uint16(rawWidth) * 0x10 + 0x17);
+	const int16 dosHeight = int16(uint16(rawHeight) * 0x0c + 0x13);
+	int16 menuLeft = int16(left);
+	int16 menuTop = int16(top);
+	if (menuLeft + dosWidth >= 0x137)
+		menuLeft = int16(0x11f - dosWidth);
+	if (menuLeft < 0) {
+		Log.setPendingError(0x3e);
+		return 0xffff;
+	}
+	if (menuTop + dosHeight >= 0xbf)
+		menuTop = int16(0xab - dosHeight);
+	if (menuTop < 0) {
+		Log.setPendingError(0x3e);
+		return 0xffff;
+	}
+	left = uint16(menuLeft);
+	top = uint16(menuTop);
+	setCursorPosition(Common::Point(
+		int16(menuLeft + 1 + dosWidth / 2),
+		int16(menuTop + 1 + dosHeight / 2 + 10)));
 
 	width += 2;
 	height += 2;
