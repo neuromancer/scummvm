@@ -614,10 +614,14 @@ void Engine::handleEvents() {
 				break;
 			}
 			if (consumeEscapePress(event) && _logic) {
-				if (_logic->canSkipCutscene())
-					_logic->requestSkipCutscene();
-				else
-					_logic->activateStatusButtonHotkeyLikeDos();
+				// DOS: ESC (0x1b) is NOT a verb/status hotkey — CheckVerbHotkey
+				// @1000:b9bc maps only Space→status (region 2) and H/U/M/L/S/T
+				// to verbs; ESC maps to no region. ESC's ONLY job is to skip a
+				// cutscene when an escape break point is armed (Op_3d /
+				// HandleEscDuringScript @1000:2bd9). When nothing is armed DOS
+				// does nothing — it must NOT open the status menu (that is
+				// Space's role, handled via applyVerbHotkeyLikeDos below).
+				_logic->requestSkipCutscene();
 			} else if (applyKeyboardCursorButtonLikeDos(event)) {
 				// Consumed as a DOS keyboard-button event.
 			} else {

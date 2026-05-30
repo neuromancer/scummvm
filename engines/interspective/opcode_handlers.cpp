@@ -817,7 +817,14 @@ static bool appendRawModalChoicesLikeDos(const byte *src, Common::Array<byte> &e
 		const uint16 target = READ_LE_UINT16(p);
 		p += 2;
 
-		if (!visible || lineLen == 0)
+		// DOS LayoutVerbBubbleText_Left/Right (1000:8d1e/8cb0) only skips a row
+		// on the 0xff terminator or a failed condition marker — it does NOT
+		// skip empty-text rows: the emit block @8e3a stores the (zero-width)
+		// rect, the branch target, and bumps the slot counter regardless. So
+		// an empty-label row still consumes one of the 7 slots and carries its
+		// target. (The loop below already tolerates lineLen==0, and the
+		// rawChoice.terminal guard already protects the line[0] read.)
+		if (!visible)
 			continue;
 		if (choiceCount >= 7)
 			continue;

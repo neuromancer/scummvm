@@ -986,6 +986,17 @@ static Common::Array<byte> normalizeBubbleInputLikeDos(const byte *string) {
 
 	const byte *p = string;
 	for (uint guard = 0; guard < 4096; ++guard) {
+		// This rendering pre-pass converts a literal newline 0x0a to the CR
+		// (0x0d) row break that formatBubbleText expects. Actor/narrator speech
+		// text uses 0x0a AS a newline (see speechTicksForText in actor.cpp,
+		// which does the same translation), and live 0x0a/0x0b *conditional
+		// markers* never reach this function: the verb-menu opcode path calls
+		// formatBubbleText directly on raw script data, and the inline-choice
+		// path feeds already-formatted text with markers stripped. Do NOT
+		// "classify by raw value to preserve 0x0a markers" here -- that mistakes
+		// the byte after a speech newline for a 2-byte global-var offset and
+		// over-reads the byte table (ASan heap-buffer-overflow in
+		// formatBubbleText's globalByte; getGlobalByteVariable is unchecked).
 		byte ch = *p++;
 		if (ch == '\n')
 			ch = '\r';
@@ -1088,6 +1099,21 @@ static int verbBubbleRowShift(uint16 rows) {
 	return shift;
 }
 
+// The formatted/inline renderer uses a DIFFERENT 2-row top shift than the raw
+// builder: DOS @1000:9193 loads AX=8 for rows==2 (vs the raw path @1000:8d8d
+// which uses 6). paintSpeechInBubble already draws formatted 2-line text at
+// shift 8 (kSpeechTwoLinesShift), so positionInlineVerbBubbleChoices must match
+// that — using verbBubbleRowShift (6) here left the hit-rects/hover 2px above
+// the rendered text.
+static int verbBubbleRowShiftFormatted(uint16 rows) {
+	int shift = 0;
+	if (rows == 1)
+		shift = 0x0c;
+	else if (rows == 2)
+		shift = 8;
+	return shift;
+}
+
 static int16 verbBubbleRowLeft(const Common::Rect &bubbleRect, uint16 rows, uint row) {
 	const uint16 remainingRows = uint16(rows - row);
 	const int16 indent = (row == 0 || remainingRows == 1) ? 0x19 : 0x0f;
@@ -1124,7 +1150,7 @@ static void positionInlineVerbBubbleChoices(Graphics *graphics, const Common::Re
 	const uint16 rows = MAX<uint16>(1, metrics.rowCount);
 	const uint16 roundedWidthExtra = metrics.maxLineWidth & ~uint16(3);
 	uint16 currentLeft = uint16(bubbleRect.left + 15 + 10);
-	uint16 currentTop = uint16(bubbleRect.top + 8 + verbBubbleRowShift(rows));
+	uint16 currentTop = uint16(bubbleRect.top + 8 + verbBubbleRowShiftFormatted(rows));
 	uint16 remainingRows = rows;
 	const byte *p = reinterpret_cast<const byte *>(metrics.text.c_str());
 
@@ -1163,6 +1189,13 @@ static void positionInlineVerbBubbleChoices(Graphics *graphics, const Common::Re
 			while (*p) {
 				const byte lit = *p++;
 				choice.label += char(lit);
+				// DOS render loop @1000:928c (CMP AL,0x4 / JZ) skips 0x04
+				// entirely — no glyph, no cursor advance — and the stored
+				// hit-rect uses that same cursor. Keep 0x04 in the label
+				// (paintPlainTextLine skips it when drawing) but do not let
+				// it widen the rect, or the highlight and click target drift.
+				if (lit == 0x04)
+					continue;
 				currentLeft += graphics->getGlyphWidth(lit);
 			}
 			++p;
@@ -1424,7 +1457,14 @@ uint16 Graphics::askVerbBubbleLikeDos(byte paletteMode, byte *string, uint16 *se
 					done = true;
 				break;
 			case Common::EVENT_RBUTTONDOWN:
+				// DOS RunVerbMenuModalLoop @1000:879e cancels the menu on a
+				// right-click (g_buttons_locked==2), returning no selection.
+				// Gate on the same debounce the left-click selection uses.
 				setCursorPosition(event.mouse);
+				if (clickDelay == 0) {
+					result = 0xffff;
+					done = true;
+				}
 				break;
 			case Common::EVENT_RBUTTONUP:
 				setCursorPosition(event.mouse);
@@ -1526,7 +1566,14 @@ uint16 Graphics::askVerbBubbleTextLikeDos(byte paletteMode, const byte *string, 
 					done = true;
 				break;
 			case Common::EVENT_RBUTTONDOWN:
+				// DOS RunVerbMenuModalLoop @1000:879e cancels the menu on a
+				// right-click (g_buttons_locked==2), returning no selection.
+				// Gate on the same debounce the left-click selection uses.
 				setCursorPosition(event.mouse);
+				if (clickDelay == 0) {
+					result = 0xffff;
+					done = true;
+				}
 				break;
 			case Common::EVENT_RBUTTONUP:
 				setCursorPosition(event.mouse);

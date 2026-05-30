@@ -27,6 +27,7 @@
 #define INTERSPECTIVE_MUSIC_H
 
 #include "common/array.h"
+#include "common/mutex.h"
 #include "common/noncopyable.h"
 #include "common/queue.h"
 #include "common/singleton.h"
@@ -213,6 +214,18 @@ private:
 	void tickSfxNote(SfxNote &note, uint8 channel);
 	void execSfxCommand(uint8 command, uint8 parameter, uint8 channel, SfxNote *note);
 	void clearSfxState();
+
+	// Serializes the MIDI timer thread (tick() -> _tune->tick() / tickSfxTune())
+	// against main-thread state mutators (loadMusic/stopMusic/playSfxTune/etc.)
+	// that free or rebuild _tune/_script/_sfxChannels. SDL-backed Common::Mutex
+	// is recursive, so the in-tick re-entrant calls (stopMusic via the deferred
+	// command byte, setBeat/stopMusic via script callbacks) are deadlock-safe.
+	Common::Mutex _mutex;
+	// Deferred SFX beat switch: setSfxBeat() rebuilds _sfxChannels, so it must
+	// never run mid-iteration of tickSfxTune(). In-stream kCmdSetBeat and the
+	// 64-tick auto-advance record the target here; tickSfxTune() applies it at
+	// the top of the next tick (-1 = none).
+	int32 _sfxPendingBeat;
 
 	Tune *_tune;
 	MidiDriver *_midiDriver;

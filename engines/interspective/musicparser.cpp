@@ -67,7 +67,7 @@ static uint16 midiTuneIndexForScriptTune(uint16 tuneIdx) {
 	return tuneIdx + rolandBase;
 }
 
-MusicParser::MusicParser() : MidiParser(), _tune(0), _script(0), _musicType(MT_INVALID), _active(true),
+MusicParser::MusicParser() : MidiParser(), _sfxPendingBeat(-1), _tune(0), _script(0), _musicType(MT_INVALID), _active(true),
 	_currentTuneWord(0), _driverCommandByte(0), _driverModeFlag(0),
 	_sfxDataSize(0), _sfxBeatCount(0), _sfxCurrentBeat(-1), _sfxBeatTicks(0),
 	_sfxTime(0), _sfxLastTick(0), _sfxPsecPerTick(500000 * 0x19 / 120), _sfxTick(0),
@@ -126,13 +126,20 @@ MusicParser::MusicParser() : MidiParser(), _tune(0), _script(0), _musicType(MT_I
 }
 
 MusicParser::~MusicParser() {
+	// Quiesce the MIDI timer callback BEFORE freeing _tune/_script: the timer
+	// thread runs tick() -> _tune->tick(), so freeing _tune while the callback
+	// is still registered can fire the timer on freed memory during shutdown.
+	if (_midiDriver)
+		_midiDriver->setTimerCallback(0, 0);
+	// Timer is unregistered; take the lock to wait out any tick() already in
+	// flight on the audio thread before we free _tune/_script.
+	Common::StackLock lock(_mutex);
 	stopSfxNotes();
 	silence();
 	unloadMusic();
 	delete _tune; _tune = 0;
 	delete _script; _script = 0;
 	if (_midiDriver) {
-		_midiDriver->setTimerCallback(0, 0);
 		_midiDriver->close();
 		setMidiDriver(0);
 		delete _midiDriver;
@@ -140,6 +147,7 @@ MusicParser::~MusicParser() {
 }
 
 bool MusicParser::loadMusic(const byte *data, uint32 size) {
+	Common::StackLock lock(_mutex);
 	if (!_midiDriver) {
 		warning("Interspective music: loadMusic skipped — no MIDI driver");
 		return false;
@@ -191,6 +199,7 @@ bool MusicParser::loadMusic(const byte *data, uint32 size) {
 }
 
 void MusicParser::tick() {
+	Common::StackLock lock(_mutex);
 	if (_driverCommandByte == 1) {
 		stopMusic();
 		return;
@@ -280,6 +289,7 @@ void MusicParser::silence() {
 }
 
 bool MusicParser::playSfxTune(const byte *data, uint32 size) {
+	Common::StackLock lock(_mutex);
 	enum {
 		kTuneBeatCountOffset = 0x21,
 		kTuneHeaderSize = 0x25
@@ -314,6 +324,7 @@ bool MusicParser::playSfxTune(const byte *data, uint32 size) {
 }
 
 void MusicParser::stopSfxNotes() {
+	Common::StackLock lock(_mutex);
 	if (_driver) {
 		for (uint8 channel = 0; channel < ARRAYSIZE(_sfxChannels); ++channel) {
 			for (uint8 noteIndex = 0; noteIndex < ARRAYSIZE(_sfxChannels[channel].notes); ++noteIndex) {
@@ -333,6 +344,7 @@ void MusicParser::clearSfxState() {
 	_sfxDataSize = 0;
 	_sfxBeatCount = 0;
 	_sfxCurrentBeat = -1;
+	_sfxPendingBeat = -1;
 	_sfxBeatTicks = 0;
 	_sfxTime = 0;
 	_sfxLastTick = 0;
@@ -411,6 +423,19 @@ void MusicParser::tickSfxTune() {
 	if (!_sfxTunePlaying)
 		return;
 
+	// Apply any beat switch requested on the previous tick (in-stream
+	// kCmdSetBeat or the 64-tick auto-advance). setSfxBeat() rebuilds
+	// _sfxChannels, so it must run HERE — before the channel/note iteration —
+	// never from inside it (the old code called it mid-loop, memset-ing the
+	// array the loop was still walking, and started the new beat at beatTicks 1
+	// instead of 0, a ~1/64 timing skew).
+	if (_sfxPendingBeat >= 0) {
+		const uint16 b = uint16(_sfxPendingBeat);
+		_sfxPendingBeat = -1;
+		if (!setSfxBeat(b))
+			return;
+	}
+
 	for (uint8 channel = 0; channel < ARRAYSIZE(_sfxChannels); ++channel) {
 		SfxChannel &state = _sfxChannels[channel];
 		if (!state.active)
@@ -433,9 +458,13 @@ void MusicParser::tickSfxTune() {
 		return;
 
 	_sfxBeatTicks++;
-	if (_sfxBeatTicks == 64)
-		setSfxBeat(uint16(_sfxCurrentBeat + 1));
-	_sfxBeatTicks %= 64;
+	if (_sfxBeatTicks == 64) {
+		// Defer to the next tick's top (see above). Don't clobber an explicit
+		// in-stream kCmdSetBeat already queued this tick — it takes precedence.
+		if (_sfxPendingBeat < 0)
+			_sfxPendingBeat = _sfxCurrentBeat + 1;
+		_sfxBeatTicks = 0;
+	}
 }
 
 void MusicParser::tickSfxNote(SfxNote &note, uint8 channel) {
@@ -457,7 +486,8 @@ void MusicParser::tickSfxNote(SfxNote &note, uint8 channel) {
 		return;
 	}
 	if (command == kCmdSetBeat) {
-		setSfxBeat(parameter);
+		// Defer: setSfxBeat() rebuilds _sfxChannels and we are iterating it.
+		_sfxPendingBeat = parameter;
 		return;
 	}
 
@@ -488,7 +518,8 @@ void MusicParser::execSfxCommand(uint8 command, uint8 parameter, uint8 channel, 
 		}
 		break;
 	case kCmdSetBeat:
-		setSfxBeat(parameter);
+		// Defer: never rebuild _sfxChannels from inside tickSfxTune's loop.
+		_sfxPendingBeat = parameter;
 		break;
 	case kSetTempo:
 		if (parameter != 0)
@@ -521,6 +552,7 @@ bool MusicParser::isPlaying() const {
 }
 
 void MusicParser::stopMusic() {
+	Common::StackLock lock(_mutex);
 	_currentTuneWord = 0;
 	_driverCommandByte = 0;
 	silence();
@@ -530,11 +562,13 @@ void MusicParser::stopMusic() {
 }
 
 void MusicParser::requestStopCurrent() {
+	Common::StackLock lock(_mutex);
 	_driverCommandByte = 1;
 }
 
 void MusicParser::restoreSavedState(const byte *script, uint16 currentTuneWord, uint8 active,
 		uint8 driverCommandByte, uint8 driverModeFlag, uint16 beat, uint32 beatTicks) {
+	Common::StackLock lock(_mutex);
 	_active = active != 0;
 	_driverCommandByte = driverCommandByte;
 	_driverModeFlag = driverModeFlag;
@@ -559,6 +593,7 @@ void MusicParser::restoreSavedState(const byte *script, uint16 currentTuneWord, 
 }
 
 bool MusicParser::restartCurrentLikeDos() {
+	Common::StackLock lock(_mutex);
 	if (!_midiDriver || !_active || !_script || !hasCurrentTune())
 		return false;
 
@@ -572,6 +607,7 @@ bool MusicParser::restartCurrentLikeDos() {
 }
 
 void MusicParser::setMaxVolume(uint8 dosMusicMode) {
+	Common::StackLock lock(_mutex);
 	debugC(2, kDebugLevelMusic, "setting music channel volume to maximum");
 	_driverCommandByte = 0xff;
 	_driverModeFlag = (dosMusicMode == 4) ? 0 : 0x3f;
@@ -594,12 +630,21 @@ enum {
 };
 
 void MusicScript::tick() {
-	while (true) {
+	// Bounded: only kJump continues the loop; every other opcode returns. A
+	// cyclic/self-referential jump (in malformed data) would otherwise spin
+	// forever on the MIDI timer thread. Cap the chain and bail to stopMusic.
+	for (int guard = 0; guard < 256; ++guard) {
 		switch (_code[_offset]) {
 
 		case kJump: {
 			uint16 target = READ_LE_UINT16(_code + _offset + 2);
 			debugC(2, kDebugLevelMusic, "will jump to music script at 0x%x", target);
+			if (target == _offset) {
+				warning("Interspective music: script kJump to self at offset 0x%x — stopping music",
+					(uint)_offset);
+				Music.stopMusic();
+				return;
+			}
 			_offset = target;
 			break;
 		}
@@ -631,6 +676,12 @@ void MusicScript::tick() {
 		}
 		}
 	}
+
+	// Fell through 256 jumps without a terminating opcode — malformed/cyclic
+	// script. Stop rather than risk spinning the timer thread.
+	warning("Interspective music: script exceeded 256 jumps at offset 0x%x — stopping music",
+		(uint)_offset);
+	Music.stopMusic();
 }
 
 Tune::Tune() : _currentBeat(-1) {}
@@ -883,7 +934,14 @@ void MusicCommand::exec(byte channel, Note *note) {
 	case kCmdNoteOff:
 		debugC(2, kDebugLevelMusic, "turn off note %d on channel %d", _parameter, channel);
 
-		assert(note);
+		// note is null for a channel's 4 init-slot commands (Channel::tick runs
+		// _init[i].exec(_chanidx) with the default note=0). A note-off there is
+		// unexpected data; skip it rather than null-deref in release (NDEBUG)
+		// builds — matches execSfxCommand's null-safe handling.
+		if (!note) {
+			warning("Interspective music: note-off opcode in channel %d init slot ignored", channel);
+			break;
+		}
 		Music._driver->send(channel | kMidiNoteOff, note->note(), 0);
 		note->setNote(0);
 		break;
@@ -905,7 +963,13 @@ void MusicCommand::exec(byte channel, Note *note) {
 
 	default:
 		if (_command < 0x80) {
-			assert (note);
+			// As above: a note-on in a channel init slot has note==0. Skip
+			// instead of dereferencing null in release builds.
+			if (!note) {
+				warning("Interspective music: note-on opcode 0x%02x in channel %d init slot ignored",
+					_command, channel);
+				break;
+			}
 			debugC(2, kDebugLevelMusic, "play note %d at volume %d on %d", _command, _parameter, channel);
 
 			static bool reportedFirstNote = false;
