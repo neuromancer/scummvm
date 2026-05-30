@@ -188,7 +188,7 @@ public:
 	};
 
 private:
-	static byte clampChar(byte ch);
+	byte clampChar(byte ch) const;
 	uint16 calculateLineWidth(const byte *string) const;
 	Sprite *getGlyph(byte ch) const;
 	void prepareConversationPaletteLikeDos();
@@ -261,6 +261,10 @@ private:
 	uint16 _inventoryCloseUpObjectId;
 	bool _conversationPaletteRestorePending;
 	byte _conversationSavedPalette[0x300];
+	// True for the multilingual accented builds (Spanish/French/German/Italian),
+	// whose font repurposes glyph codes 0x7c..0x9e for accents and whose text is
+	// CP437-encoded — see clampChar / translateExtendedLatin.
+	bool _extendedLatinFont;
 
 	// Active speech bubble. _speech is the text being painted; when
 	// _speechFramesLeft hits 0 the painter invokes _speechDoneCallback (if

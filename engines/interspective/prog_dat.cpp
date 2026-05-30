@@ -30,6 +30,7 @@
 
 #include "interspective/resources.h"
 #include "interspective/main_dat.h"
+#include "interspective/innocent.h"
 #include "interspective/program.h"
 
 using namespace Common;
@@ -37,6 +38,10 @@ using namespace Common;
 namespace Interspective {
 
 ProgDat::ProgDat(Resources *res) : Datafile(res), _data(0) {}
+
+const char *ProgDat::filename() const {
+	return Engine::instance().progDatFilename().c_str();
+}
 
 ProgDat::~ProgDat() {
 	if (_data)

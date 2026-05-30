@@ -23,6 +23,7 @@
 #include "interspective/debug.h"
 
 #include "base/plugins.h"
+#include "common/language.h"
 #include "engines/advancedDetector.h"
 
 namespace Interspective {
@@ -61,6 +62,21 @@ const ADGameDescription gameDescriptions[] = {
 		ADGF_TESTING | ADGF_NO_FLAGS,
 		GUIO0()
 	},
+	{
+		// Multilingual CD release: the per-language data ships as
+		// IUC_MAIN.<ext> / IUC_PROG.<ext> (ENG, DTL=German, FRN, ESP, ITL)
+		// instead of the single-language iuc_main.dat / iuc_prog.dat. Detected
+		// as UNK_LANG so the launcher offers a Language dropdown (see
+		// toDetectedGame below); the engine maps the chosen language to the
+		// file extension at load time (Engine::resolveDataFilenames).
+		"innocent",
+		"Multilingual",
+		AD_ENTRY1s("IUC_MAIN.ENG", nullptr, AD_NO_SIZE),
+		Common::UNK_LANG,
+		Common::kPlatformDOS,
+		ADGF_TESTING | ADGF_NO_FLAGS,
+		GUIO0()
+	},
 	AD_TABLE_END_MARKER
 };
 
@@ -86,6 +102,26 @@ public:
 	const DebugChannelDef *getDebugChannels() const override {
 		return Interspective::debugFlagList;
 	}
+
+	DetectedGame toDetectedGame(const ADDetectedGame &adGame, ADDetectedGameExtraInfo *extraInfo) const override;
 };
+
+DetectedGame InterspectiveMetaEngineDetection::toDetectedGame(const ADDetectedGame &adGame, ADDetectedGameExtraInfo *extraInfo) const {
+	DetectedGame game = AdvancedMetaEngineDetection::toDetectedGame(adGame);
+
+	// The AdvancedDetector model only allows one language per entry, but the
+	// multilingual CD ships English/German/French/Spanish/Italian data side by
+	// side. Advertise all of them on the UNK_LANG entry so the launcher shows a
+	// Language dropdown and the user picks (like Freescape's Castle Master). The
+	// engine reads the choice from ConfMan "language".
+	if (game.gameId == "innocent" && game.language == Common::UNK_LANG) {
+		game.appendGUIOptions(Common::getGameGUIOptionsDescriptionLanguage(Common::EN_ANY));
+		game.appendGUIOptions(Common::getGameGUIOptionsDescriptionLanguage(Common::DE_DEU));
+		game.appendGUIOptions(Common::getGameGUIOptionsDescriptionLanguage(Common::FR_FRA));
+		game.appendGUIOptions(Common::getGameGUIOptionsDescriptionLanguage(Common::ES_ESP));
+		game.appendGUIOptions(Common::getGameGUIOptionsDescriptionLanguage(Common::IT_ITA));
+	}
+	return game;
+}
 
 REGISTER_PLUGIN_STATIC(INTERSPECTIVE_DETECTION, PLUGIN_TYPE_ENGINE_DETECTION, InterspectiveMetaEngineDetection);

@@ -27,6 +27,7 @@
 
 #include "audio/mididrv.h"
 #include "common/config-manager.h"
+#include "common/language.h"
 #include "common/debug.h"
 #include "common/debug-channels.h"
 #include "common/error.h"
@@ -268,6 +269,11 @@ Engine::Engine(OSystem *syst) :
 	_keyboardCursorRepeat = 0;
 	_dosMusicEnabled = 0;
 	_dosSfxEnabled = 0;
+	// Single-language defaults; resolveDataFilenames() (in run(), once the game
+	// path is in SearchMan) overrides these for the multilingual CD.
+	_language = Common::UNK_LANG;
+	_mainDatName = "iuc_main.dat";
+	_progDatName = "iuc_prog.dat";
 
 	// Debug channels are now registered via the MetaEngine
 	// (InterspectiveMetaEngineDetection::getDebugChannels) so that
@@ -442,6 +448,7 @@ Common::Error Engine::run() {
 	_debugger = &Debug;
 	Debug.setEngine(this);
 	initDosSoundConfig();
+	resolveDataFilenames();
 	_resources->init();
 	_graphics->init();
 	// music is initialized in the singleton
@@ -712,6 +719,53 @@ void Engine::initDosSoundConfig() {
 
 	debugC(1, kDebugLevelMusic, "DOS sound config: music=%u sfx=%u mask=0x%02x (ScummVM-managed; innocent.ini ignored)",
 		_dosMusicEnabled, _dosSfxEnabled, dosSoundDeviceMask());
+}
+
+// Maps a ScummVM language to the multilingual CD's IUC_MAIN/IUC_PROG file
+// extension. From IUC.BAT: english->ENG, german->DTL (set_dtl), french->FRN,
+// spanish->ESP, italian->ITL. English is the fallback for UNK/unknown.
+static const char *langExtForLanguage(Common::Language lang) {
+	switch (lang) {
+	case Common::DE_DEU:
+		return "DTL";
+	case Common::FR_FRA:
+		return "FRN";
+	case Common::ES_ESP:
+		return "ESP";
+	case Common::IT_ITA:
+		return "ITL";
+	default:
+		return "ENG";
+	}
+}
+
+void Engine::resolveDataFilenames() {
+	// The single-language release ships lowercase iuc_main.dat / iuc_prog.dat.
+	// The multilingual CD ships per-language IUC_MAIN.<ext> / IUC_PROG.<ext>
+	// (ENG, DTL=German, FRN, ESP, ITL); the data is detected as UNK_LANG so the
+	// launcher offers a Language dropdown (detection.cpp), and the choice
+	// arrives here through ConfMan "language". Map it to the extension, falling
+	// back to English when the chosen language's files are absent, and finally
+	// to the single-language .dat names. Called from run() once the game path
+	// is in SearchMan, so Common::File::exists() is reliable.
+	_language = Common::parseLanguage(ConfMan.get("language"));
+
+	const Common::String mainMulti = Common::String::format("IUC_MAIN.%s", langExtForLanguage(_language));
+	if (Common::File::exists(Common::Path(mainMulti))) {
+		_mainDatName = mainMulti;
+		_progDatName = Common::String::format("IUC_PROG.%s", langExtForLanguage(_language));
+	} else if (Common::File::exists(Common::Path("IUC_MAIN.ENG"))) {
+		// Multilingual set present but the chosen language's data is missing:
+		// fall back to English rather than the (absent) single-language files.
+		_mainDatName = "IUC_MAIN.ENG";
+		_progDatName = "IUC_PROG.ENG";
+	} else {
+		_mainDatName = "iuc_main.dat";
+		_progDatName = "iuc_prog.dat";
+	}
+
+	debugC(1, kDebugLevelFiles, "Interspective data files: main=%s prog=%s (language=%s)",
+		_mainDatName.c_str(), _progDatName.c_str(), Common::getLanguageCode(_language));
 }
 
 uint16 Engine::getRandom(uint16 max) const {

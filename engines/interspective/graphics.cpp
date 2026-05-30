@@ -138,11 +138,20 @@ void Graphics::setEngine(Engine *engine) {
 	_speechDoneCallbackHasMode = false;
 	_fullscreen = false;
 	_fullRedrawPending = true;
+	_extendedLatinFont = false;
 }
 
 void Graphics::init() {
 	_resources = _engine->resources();
 	_system = _engine->_system;
+	// The multilingual accented releases (Spanish/French/German/Italian) ship an
+	// extended font (glyph codes 0x7c..0x9e = accents) and CP437-encoded text;
+	// their EXEs translate it via LookupCharSprite's helper (DOS @c77a). The
+	// English/single-language build has no such glyphs, so keep its plain
+	// 0x20..0x7e font there.
+	const Common::Language lang = _engine ? _engine->language() : Common::UNK_LANG;
+	_extendedLatinFont = (lang == Common::DE_DEU || lang == Common::FR_FRA
+	                   || lang == Common::ES_ESP || lang == Common::IT_ITA);
 	loadInterface();
 }
 
@@ -2284,12 +2293,46 @@ Common::Rect Graphics::paintPlainTextLine(uint16 left, uint16 top, byte colour, 
 	return Common::Rect(left, top, current_left, top + kLineHeight);
 }
 
-byte Graphics::clampChar(byte ch) {
+// CP437 high-ASCII -> sequential glyph-code translation for the multilingual
+// accented builds. Extracted verbatim from SPANISH/FRENCH/GERMAN/ITALIAN.EXE
+// (identical 37-entry table; DOS LookupCharSprite helper @ 1000:c77a). Entry i
+// maps its CP437 text byte to glyph code 0x7c + i, which IUC_MAIN.<ext>'s
+// charmap (footer +0x48) then resolves to the accent glyph sprite. The 0x41/
+// 0x45 ('A'/'E') entries are unreachable via this path (those bytes are < 0x7c
+// and render directly) — they are kept so the indices match the DOS table.
+static const byte kExtendedLatinChars[] = {
+	0x84, 0x89, 0x8b, 0x94, 0x81, 0x8e, 0x45, 0xa0, 0x82, 0xa1,
+	0xa2, 0xa3, 0x41, 0x90, 0x85, 0x8a, 0x8d, 0x95, 0x97, 0x41,
+	0x45, 0x83, 0x88, 0x8c, 0x93, 0x96, 0x41, 0x45, 0xe1, 0x80,
+	0x87, 0xa5, 0xa4, 0xa8, 0xad, 0x99, 0x9a
+};
+
+static byte translateExtendedLatin(byte ch) {
+	for (uint i = 0; i < ARRAYSIZE(kExtendedLatinChars); ++i)
+		if (kExtendedLatinChars[i] == ch)
+			return byte(0x7c + i);  // DOS helper @c77a: BL counts up from 0x7c
+	return 0;                       // not in the font -> caller substitutes '?'
+}
+
+byte Graphics::clampChar(byte ch) const {
 	if (ch == '#')
 		return '!';
-	if (ch < ' ' || ch > '~')
+	if (ch < ' ')
 		return '?';
-	return ch;
+	if (ch <= 0x7b)
+		return ch;
+	// 0x7c..0xff. DOS LookupCharSprite routes ch > 0x7b through the per-build
+	// font table. The accented multilingual builds repurpose 0x7c..0x9e as
+	// accent glyphs and map CP437 text bytes onto them; everything not in the
+	// table becomes '?'. The English/single-language build has no extended
+	// glyphs, so '|','}','~' stay literal and the rest is '?'.
+	if (_extendedLatinFont) {
+		const byte code = translateExtendedLatin(ch);
+		return code ? code : '?';
+	}
+	if (ch <= '~')
+		return ch;
+	return '?';
 }
 
 uint16 Graphics::calculateLineWidth(const byte *string) const {

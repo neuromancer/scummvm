@@ -43,7 +43,9 @@ public:
 
 	void load();
 
-	const char *filename() const { return "iuc_prog.dat"; }
+	// Resolved by the engine from the selected language: "iuc_prog.dat" for the
+	// single-language release, or IUC_PROG.<ext> for the multilingual CD.
+	const char *filename() const;
 	void readFile(Common::SeekableReadStream &stream);
 
 	Program *getScript(uint16 id);

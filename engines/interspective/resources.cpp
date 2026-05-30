@@ -370,7 +370,11 @@ Surface *Resources::loadBackdrop(uint16 index, byte *palette) {
 }
 
 Sprite *Resources::getGlyph(byte ch) const {
-	if (ch <= ' ' || ch > '~')
+	// ch is already a charmap code from Graphics::clampChar. The base font is
+	// 0x20..0x7e; the multilingual accented font extends the charmap to 0x9e
+	// (glyph codes 0x7c..0x9e). Non-extended builds never produce a code above
+	// 0x7e (clampChar maps those to '?'), so the wider bound is harmless there.
+	if (ch <= ' ' || ch > 0x9e)
 		return 0;
 	uint16 id = _main.get()->getGlyphSpriteId(ch);
 	Sprite *s = loadSprite(id);

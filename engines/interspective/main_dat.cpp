@@ -29,6 +29,7 @@
 #include "common/util.h"
 
 #include "interspective/actor.h"
+#include "interspective/innocent.h"
 #include "interspective/logic.h"
 #include "interspective/resources.h"
 #include "interspective/util.h"
@@ -39,6 +40,10 @@ using namespace std;
 namespace Interspective {
 
 MainDat::MainDat(Resources *res) : Datafile(res), _data(0), _actors(0) {}
+
+const char *MainDat::filename() const {
+	return Engine::instance().mainDatFilename().c_str();
+}
 
 MainDat::~MainDat() {
 	if (_data)

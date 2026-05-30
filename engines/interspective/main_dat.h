@@ -47,7 +47,9 @@ public:
 	MainDat(Resources *resources);
 	~MainDat();
 
-	const char *filename() const { return "iuc_main.dat"; }
+	// Resolved by the engine from the selected language: "iuc_main.dat" for the
+	// single-language release, or IUC_MAIN.<ext> for the multilingual CD.
+	const char *filename() const;
 	void readFile(Common::SeekableReadStream &stream);
 
 	uint16 imagesCount() const;

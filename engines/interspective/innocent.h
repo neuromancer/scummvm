@@ -28,7 +28,9 @@
 
 #include "common/ptr.h"
 #include "common/keyboard.h"
+#include "common/language.h"
 #include "common/random.h"
+#include "common/str.h"
 #include "engines/engine.h"
 
 class MidiDriver;
@@ -80,6 +82,13 @@ public:
 	uint8 dosMusicEnabled() const { return _dosMusicEnabled; }
 	uint8 dosSfxEnabled() const { return _dosSfxEnabled; }
 
+	// Resolved main/prog data filenames: the single-language release uses
+	// iuc_main.dat / iuc_prog.dat; the multilingual CD uses the per-language
+	// IUC_MAIN.<ext> / IUC_PROG.<ext> chosen from ConfMan "language".
+	const Common::String &mainDatFilename() const { return _mainDatName; }
+	const Common::String &progDatFilename() const { return _progDatName; }
+	Common::Language language() const { return _language; }
+
 	uint16 getRandom(uint16 max) const;
 
 	friend class Interpreter;
@@ -94,6 +103,7 @@ private:
 	void updateKeyboardCursorDirectionLikeDos(Common::KeyCode keycode, bool pressed);
 	void applyKeyboardCursorMovementLikeDos();
 	void initDosSoundConfig();
+	void resolveDataFilenames();
 	Common::Error loadStartupSaveSlot(int slot);
 
 	Logic *_logic;
@@ -112,6 +122,9 @@ private:
 	uint8 _keyboardCursorRepeat;
 	uint8 _dosMusicEnabled;
 	uint8 _dosSfxEnabled;
+	Common::Language _language;
+	Common::String _mainDatName;
+	Common::String _progDatName;
 
 	void handleEvents();
 	static Engine *me;
