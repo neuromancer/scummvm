@@ -5635,31 +5635,40 @@ OPCODE(0xa8) {
 	int16 targetX = 0;
 	int16 targetY = 0;
 	if (entityType == 1) {
-		Exit *exit = Log.blockProgram() ? Log.blockProgram()->getExit(targetId) : 0;
-		if (!exit) {
+		// DOS GetExitOffset @ 0xc31c: lower bound ONLY (id<=0 -> err 0x14),
+		// NO upper bound. The a8/a9 caller (0x4dae) does NOT early-return on
+		// the error -- it reads the exit-table base coords and falls through
+		// to the actor-ready / direction-marker tail. (Re-audit 2026-05-30.)
+		uint16 exitId = targetId;
+		if (dosIdIsNonPositive(targetId)) {
 			Log.setPendingError(0x14);
-			return kThxBye;
+			exitId = 1;  // DOS leaves SI at the exit-table base = record 1
 		}
-		targetX = int16(exit->position().x);
-		targetY = int16(exit->position().y);
+		Exit *exit = Log.blockProgram() ? Log.blockProgram()->getExit(exitId) : 0;
+		targetX = exit ? int16(exit->position().x) : 0;
+		targetY = exit ? int16(exit->position().y) : 0;
 	} else if (entityType == 2) {
-		const uint16 personsCount = _logic->resources()->mainDat()->personsCount();
-		if (dosPositiveIdExceedsMax(targetId, personsCount) || dosIdIsNonPositive(targetId)) {
+		// DOS GetObjectOffset @ 0xc301: lower bound ONLY (id<=0 -> err 0x16),
+		// NO upper bound (Op_62/Op_80 add `cmp ax,[cs:0x6b]` themselves; the
+		// a8/a9 tail does not). The caller falls through, no early return.
+		uint16 objId = targetId;
+		if (dosIdIsNonPositive(targetId)) {
 			Log.setPendingError(0x16);
-			return kThxBye;
+			objId = 1;  // DOS leaves SI at the object-table base = record 1
 		}
-		targetX = Log.getObjectPosX(targetId);
-		targetY = Log.getObjectPosY(targetId);
+		targetX = Log.getObjectPosX(objId);
+		targetY = Log.getObjectPosY(objId);
 	} else if (entityType == 3) {
 		if (actorId == targetId)
-			return kThxBye;
+			return kThxBye;  // DOS cmp cx,ax; jz -> faithful self-target return
+		// DOS GetActorOffset @ 0xc337 has a real two-tier id bound (err 0x17
+		// @ 0x507d), but on failure it errs+RETs and the caller still falls
+		// through to the marker tail instead of aborting the opcode.
 		Actor *target = Log.getActor(targetId);
-		if (!target) {
+		if (!target)
 			Log.setPendingError(0x17);
-			return kThxBye;
-		}
-		targetX = int16(target->position().x);
-		targetY = int16(target->position().y);
+		targetX = target ? int16(target->position().x) : 0;
+		targetY = target ? int16(target->position().y) : 0;
 	} else {
 		const Common::Point cursor = Log.lockedCursorPositionLikeDos();
 		targetX = int16(cursor.x + Log.cameraX());
@@ -5689,31 +5698,40 @@ OPCODE(0xa9) {
 	int16 targetX = 0;
 	int16 targetY = 0;
 	if (entityType == 1) {
-		Exit *exit = Log.blockProgram() ? Log.blockProgram()->getExit(targetId) : 0;
-		if (!exit) {
+		// DOS GetExitOffset @ 0xc31c: lower bound ONLY (id<=0 -> err 0x14),
+		// NO upper bound. The a8/a9 caller (0x4dae) does NOT early-return on
+		// the error -- it reads the exit-table base coords and falls through
+		// to the actor-ready / direction-marker tail. (Re-audit 2026-05-30.)
+		uint16 exitId = targetId;
+		if (dosIdIsNonPositive(targetId)) {
 			Log.setPendingError(0x14);
-			return kThxBye;
+			exitId = 1;  // DOS leaves SI at the exit-table base = record 1
 		}
-		targetX = int16(exit->position().x);
-		targetY = int16(exit->position().y);
+		Exit *exit = Log.blockProgram() ? Log.blockProgram()->getExit(exitId) : 0;
+		targetX = exit ? int16(exit->position().x) : 0;
+		targetY = exit ? int16(exit->position().y) : 0;
 	} else if (entityType == 2) {
-		const uint16 personsCount = _logic->resources()->mainDat()->personsCount();
-		if (dosPositiveIdExceedsMax(targetId, personsCount) || dosIdIsNonPositive(targetId)) {
+		// DOS GetObjectOffset @ 0xc301: lower bound ONLY (id<=0 -> err 0x16),
+		// NO upper bound (Op_62/Op_80 add `cmp ax,[cs:0x6b]` themselves; the
+		// a8/a9 tail does not). The caller falls through, no early return.
+		uint16 objId = targetId;
+		if (dosIdIsNonPositive(targetId)) {
 			Log.setPendingError(0x16);
-			return kThxBye;
+			objId = 1;  // DOS leaves SI at the object-table base = record 1
 		}
-		targetX = Log.getObjectPosX(targetId);
-		targetY = Log.getObjectPosY(targetId);
+		targetX = Log.getObjectPosX(objId);
+		targetY = Log.getObjectPosY(objId);
 	} else if (entityType == 3) {
 		if (actorId == targetId)
-			return kThxBye;
+			return kThxBye;  // DOS cmp cx,ax; jz -> faithful self-target return
+		// DOS GetActorOffset @ 0xc337 has a real two-tier id bound (err 0x17
+		// @ 0x507d), but on failure it errs+RETs and the caller still falls
+		// through to the marker tail instead of aborting the opcode.
 		Actor *target = Log.getActor(targetId);
-		if (!target) {
+		if (!target)
 			Log.setPendingError(0x17);
-			return kThxBye;
-		}
-		targetX = int16(target->position().x);
-		targetY = int16(target->position().y);
+		targetX = target ? int16(target->position().x) : 0;
+		targetY = target ? int16(target->position().y) : 0;
 	} else {
 		const Common::Point cursor = Log.lockedCursorPositionLikeDos();
 		targetX = int16(cursor.x + Log.cameraX());
