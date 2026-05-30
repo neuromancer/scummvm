@@ -39,6 +39,7 @@
 #include "engines/metaengine.h"
 #include "engines/util.h"
 #include "graphics/thumbnail.h"
+#include "gui/message.h"
 
 #include "interspective/debug.h"
 #include "interspective/debugger.h"
@@ -391,17 +392,13 @@ Common::Error Engine::loadGameStream(Common::SeekableReadStream *stream) {
 		synchronizeMusicState(s, _resources, _dosMusicEnabled, _dosSfxEnabled);
 	if (musicResult.stopSfx && _sound && _sound->isSfxPlaying())
 		_sound->stopAll();
-	if (musicResult.disableAllSound) {
-		if (_sound)
-			_sound->stopAll();
-		_dosMusicEnabled = 0;
-		_dosSfxEnabled = 0;
-		_logic->setGraphicSlot(4, 0);
-	} else if (musicResult.disableSfx) {
-		if (_sound)
-			_sound->stopAll();
-		_dosSfxEnabled = 0;
-	}
+	// NOTE: DOS RestoreMusicState @ 1000:5cd4 disabled audio (and showed
+	// "Unable to restore sound.") when a save's stored device byte no longer
+	// matched the .ini-selected device. We no longer model that device byte —
+	// audio is ScummVM-managed and always advertises MIDI music + digital SFX
+	// (see initDosSoundConfig). So we deliberately ignore musicResult's
+	// disableAllSound/disableSfx flags; honoring them would re-silence digital
+	// SFX after loading an older save. The music tune itself is restored above.
 
 	if (blockSize != 0) {
 		// LoadGame_ReadFromDisk copies the saved resource-segment image
@@ -575,7 +572,47 @@ void Engine::handleEvents() {
 	while (_eventMan->pollEvent(event)) {
 		switch(event.type) {
 
-		case Common::EVENT_KEYDOWN:
+		case Common::EVENT_KEYDOWN: {
+			// DOS HandleSpecialKey @ 1000:b7d4. Alt+letter and Fn keys reach
+			// the DOS code as 0x100|scancode; Ctrl combos as ASCII control
+			// codes. These hidden hotkeys are live every tick in normal play,
+			// on the status screen, and inside verb modals.
+			const Common::KeyCode kc = event.kbd.keycode;
+			const byte mods = event.kbd.flags & (Common::KBD_CTRL | Common::KBD_ALT);
+			if (!event.kbdRepeat && kc == Common::KEYCODE_v && (mods & Common::KBD_ALT)) {
+				// Hidden Alt-V version/credits screen (DOS @ 1000:b87b,
+				// RunModalLoop with the credits text at DS:0x8889; ungated).
+				GUI::MessageDialog dlg(
+					Common::U32String(
+						"INNOCENT - until caught\n\n"
+						"English\n"
+						"Interspective PC System\n\n"
+						"(c) 1993 Divide By Zero"));
+				dlg.runModal();
+				break;
+			}
+			if (!event.kbdRepeat && kc == Common::KEYCODE_F1) {
+				// F1 "Game paused" overlay (DOS @ 1000:b862, RunModalLoop with
+				// the pause text at DS:0x884e, no menu items; ungated). The
+				// blocking modal is the pause itself.
+				GUI::MessageDialog dlg(
+					Common::U32String("Game paused.\n\nPress a button or ENTER to continue."));
+				dlg.runModal();
+				break;
+			}
+			const bool menuKey = kc == Common::KEYCODE_F8 ||
+				((mods & Common::KBD_CTRL) && (kc == Common::KEYCODE_c || kc == Common::KEYCODE_q)) ||
+				((mods & Common::KBD_ALT) && (kc == Common::KEYCODE_q || kc == Common::KEYCODE_x));
+			if (!event.kbdRepeat && menuKey) {
+				// F8 / Ctrl-C / Ctrl-Q / Alt-Q / Alt-X open the Continue/
+				// Restart/Exit system menu (DOS @ 1000:b82d), but only while
+				// the fullscreen gate is clear. Routed to the same host menu
+				// as Op_fc (openMainMenuDialog); a faithful in-engine 3-item
+				// Continue/Restart/Exit modal honoring restart is a follow-up.
+				if (!_logic || !_logic->fullscreenGateActive())
+					openMainMenuDialog();
+				break;
+			}
 			if (consumeEscapePress(event) && _logic) {
 				if (_logic->canSkipCutscene())
 					_logic->requestSkipCutscene();
@@ -588,6 +625,7 @@ void Engine::handleEvents() {
 			}
 			updateKeyboardCursorDirectionLikeDos(event.kbd.keycode, true);
 			break;
+		}
 
 		case Common::EVENT_KEYUP:
 			consumeEscapePress(event);
@@ -651,86 +689,25 @@ bool Engine::escapePressed() const {
 }
 
 void Engine::initDosSoundConfig() {
-	_dosMusicEnabled = 0;
-	_dosSfxEnabled = 0;
+	// The DOS game read a single device switch from innocent.ini (/r Roland,
+	// /a Adlib, /b SoundBlaster) and could drive only ONE audio device at a
+	// time — so e.g. the bundled "/a+" config gave Adlib music with NO digital
+	// sound effects. ScummVM owns the audio device selection plus the
+	// music/sfx volume and mute controls through its own options, so we do NOT
+	// model the .ini here.
+	//
+	// Instead we expose both audio paths at once: the MIDI music path
+	// (dosMusic==1, the Adlib-config tune-bank mapping the music code expects)
+	// and the digital SFX path (dosSfx==2, the SoundBlaster sample banks). This
+	// lets MIDI music and digital sound effects play simultaneously — something
+	// the original game could not do. These bytes only advertise "device
+	// present" to the script logic and the SFX gate; actual audibility (volume
+	// and muting) is handled entirely by ScummVM's mixer.
+	_dosMusicEnabled = 1;
+	_dosSfxEnabled = 2;
 
-	Common::File config;
-	if (!config.open(Common::Path("innocent.ini"))) {
-		debugC(1, kDebugLevelMusic, "DOS sound config: innocent.ini missing; music/sfx mask defaults to 0");
-		return;
-	}
-
-	const int32 size = config.size();
-	if (size <= 0)
-		return;
-
-	byte *data = new byte[size];
-	config.read(data, size);
-	parseDosSoundSwitchString(data, size);
-	delete[] data;
-
-	debugC(1, kDebugLevelMusic, "DOS sound config: music=%u sfx=%u mask=0x%02x",
+	debugC(1, kDebugLevelMusic, "DOS sound config: music=%u sfx=%u mask=0x%02x (ScummVM-managed; innocent.ini ignored)",
 		_dosMusicEnabled, _dosSfxEnabled, dosSoundDeviceMask());
-}
-
-void Engine::parseDosSoundSwitchString(const byte *data, uint32 length) {
-	// Mirrors ParseSwitchString @ 1000:1492 for the two CS sound bytes
-	// consumed by Op_12. Mouse, joystick, XMS, and port switches do not
-	// affect the sound-device mask and are intentionally ignored here.
-	uint32 pos = 0;
-	while (pos < length) {
-		while (pos < length && data[pos] != '/')
-			++pos;
-		if (pos >= length)
-			return;
-		++pos;
-		if (pos >= length)
-			return;
-
-		const byte option = data[pos++];
-		bool enabled = true;
-		if (pos < length && data[pos] == '-') {
-			enabled = false;
-			++pos;
-		}
-
-		switch (option) {
-		case 'r':
-		case 'R':
-			if (enabled) {
-				_dosMusicEnabled = 4;
-				if (_dosSfxEnabled == 0)
-					_dosSfxEnabled = 4;
-			} else {
-				_dosMusicEnabled = 0;
-				_dosSfxEnabled = 0;
-			}
-			break;
-		case 'a':
-		case 'A':
-			if (enabled) {
-				_dosMusicEnabled = 1;
-				_dosSfxEnabled = 0;
-			} else {
-				_dosMusicEnabled = 0;
-				_dosSfxEnabled = 0;
-			}
-			break;
-		case 'b':
-		case 'B':
-			if (enabled) {
-				_dosSfxEnabled = 2;
-				if (_dosMusicEnabled == 0)
-					_dosMusicEnabled = 1;
-			} else {
-				_dosMusicEnabled = 0;
-				_dosSfxEnabled = 0;
-			}
-			break;
-		default:
-			break;
-		}
-	}
 }
 
 uint16 Engine::getRandom(uint16 max) const {

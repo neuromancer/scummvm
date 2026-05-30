@@ -94,7 +94,6 @@ private:
 	void updateKeyboardCursorDirectionLikeDos(Common::KeyCode keycode, bool pressed);
 	void applyKeyboardCursorMovementLikeDos();
 	void initDosSoundConfig();
-	void parseDosSoundSwitchString(const byte *data, uint32 length);
 	Common::Error loadStartupSaveSlot(int slot);
 
 	Logic *_logic;

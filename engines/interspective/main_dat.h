@@ -119,7 +119,9 @@ public:
 	uint16 spriteCount() const;
 
 	uint16 getCursorSpriteId() const;
-	bool nextCursorSprite(uint16 mode, uint16 &stepIndex, bool &stepPending, uint16 &spriteId) const;
+	// tableFooterOffset selects the cursor sprite table: kCursors (0x54) for
+	// normal modes, kMenuCursors (0x58) for the Op_76 drag cursor (mode 0x40).
+	bool nextCursorSprite(uint16 mode, uint16 &stepIndex, bool &stepPending, uint16 &spriteId, uint16 tableFooterOffset) const;
 	bool cycleCursorOverlayAnimation(uint16 maskBit, uint16 &spriteId, uint16 &x, uint16 &y);
 	uint16 getInterfaceMapMarkerSpriteId(uint16 selector) const;
 	uint16 getStatusButtonSpriteId(bool statusMode) const;

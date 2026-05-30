@@ -716,7 +716,15 @@ void Graphics::paintCursorSprite() {
 	uint16 stepIndex = logic->cursorStepIndex();
 	bool stepPending = logic->stepPending();
 	uint16 spriteId = 0xffff;
-	if (!_resources->mainDat()->nextCursorSprite(logic->cursorMode(), stepIndex, stepPending, spriteId)) {
+	// DOS DrawCursorSprite @ 1000:ba8d: cursor mode 0x40 (the Op_76 drag-with-
+	// target cursor) walks the kMenuCursors table (footer 0x58) keyed by
+	// g_drag_target_mode40 (DS:0x667e); every other mode walks the kCursors
+	// table (footer 0x54) keyed by the cursor mode itself.
+	const uint16 cursorMode = logic->cursorMode();
+	const bool menuCursor = cursorMode == 0x40;
+	const uint16 cursorKey = menuCursor ? logic->dragTargetMode40() : cursorMode;
+	const uint16 cursorFooter = menuCursor ? 0x58 /*kMenuCursors*/ : 0x54 /*kCursors*/;
+	if (!_resources->mainDat()->nextCursorSprite(cursorKey, stepIndex, stepPending, spriteId, cursorFooter)) {
 		logic->setPendingError(0x26);
 		return;
 	}
@@ -1039,6 +1047,14 @@ static bool parseVerbBubbleChoices(byte *string, Common::Array<VerbBubbleChoice>
 		p += 2;
 		if (label.empty())
 			continue;
+
+		// DOS FlushSpeechBubbleLine @ 1000:92ba caps the formatted (mode-1)
+		// choice list at 10 entries and raises pending error 0x12 on overflow,
+		// emitting neither the text nor a hit-rect for the 11th+ entry.
+		if (choices.size() >= 10) {
+			Log.setPendingError(0x12);
+			break;
+		}
 
 		if (!displayText.empty())
 			displayText += '\r';

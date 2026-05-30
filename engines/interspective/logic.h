@@ -86,6 +86,7 @@ public:
 		  _switchTarget(0),
 		  _branchState(0),
 		  _pendingError(0),
+		  _lastErrorCode(0),
 		  _gameScore(0),
 		  _maxGameScore(100),  // overwritten from iuc_main.dat during resource load
 		  _currentEntityId(0),
@@ -958,12 +959,32 @@ public:
 	}
 
 	// `g_pendingErrorCode` (1000:0003) — error code raised by ~95 DOS
-	// sites. DOS's MainGameLoop reads it and halts. C++ equivalent:
-	// the interpreter dispatch checks at the end of each opcode and
-	// terminates with `error()` when set. 0 = no error.
+	// sites. DOS's MainGameLoop calls DisplayIllError (1000:35cd) each
+	// frame: it shows a one-shot "ILL Error <code> (<mode>)" overlay,
+	// clears the code, and *continues* (sets g_flag_room_loaded=1) — DOS
+	// errors are RECOVERABLE, not fatal. C++ mirrors the one-shot dedup
+	// via `_lastErrorCode` and reports-then-continues instead of aborting.
 	uint8 pendingError() const { return _pendingError; }
 	void setPendingError(uint8 code) { _pendingError = code; }
 	void clearPendingError() { _pendingError = 0; }
+	// DOS g_lastErrorCode (CS:0x5) one-shot dedup so the same error is
+	// reported only once until a different code is raised.
+	uint8 lastErrorCode() const { return _lastErrorCode; }
+	void setLastErrorCode(uint8 code) { _lastErrorCode = code; }
+	// DOS DisplayIllError opcode-mode-name table (g_opcode_mode index).
+	const char *opcodeModeName() const {
+		switch (_opcodeMode) {
+		case 0: return "(Initial)";
+		case 1: return "(New room)";
+		case 2: return "(Room loop)";
+		case 3: return "(Game loop)";
+		case 4: return "(Item)";
+		case 5: return "(Scan)";
+		case 6: case 7: return "(Status)";
+		case 8: return "(New block)";
+		default: return "(Miss/Act)";
+		}
+	}
 	// `g_skip_counter_b` (DS:0x65e? = call-stack depth, max 8 per
 	// DOS Op_36/Op_37). C++ uses native recursion for the actual
 	// frame management; this counter only enforces the same limit
@@ -1332,6 +1353,7 @@ private:
 	uint16 _switchTarget;   // bytecode offset to jump to on case match
 	uint16 _branchState;    // DS:0x671c — saved PC for switch-loop reentry
 	uint8 _pendingError;    // 1000:0003 — DOS pending-error code (0 = none)
+	uint8 _lastErrorCode;   // CS:0x5 — DOS g_lastErrorCode one-shot dedup
 	uint16 _gameScore;      // DS:0x6670
 	uint16 _maxGameScore;   // CS:[0x91]
 	Common::HashMap<uint16, bool> _scoreEventClaimed;

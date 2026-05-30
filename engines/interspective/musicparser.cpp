@@ -43,6 +43,19 @@ namespace Interspective {
 
 static uint16 midiTuneIndexForScriptTune(uint16 tuneIdx) {
 	MainDat *main = Res.mainDat();
+	// The iuc_main tunes directory is ordered Adlib-first: physical tune
+	// indices 1..count/2 are the Adlib tunes (iuc_a*.dat, type 1) and
+	// count/2+1..count are the Roland tunes (iuc_r*.dat, type 4). Script tune
+	// words use the low (Adlib-half) indices. IMPORTANT: this is NOT a simple
+	// "match the bank to the DOS device byte" — the C++ plays tunes through
+	// ScummVM's MIDI device, so which physical tune sounds correct depends on
+	// that device, not on the DOS hardware. The +rolandBase remap is applied
+	// in Adlib-config mode (dosMusicEnabled==1): this is the empirically tuned
+	// behavior from commit "music sound correctly in adlib mode" (43f0391e4d8)
+	// and is the configuration used by the SoundBlaster/Adlib default and by
+	// the MIDI-music + digital-SFX coexistence path (which both run with
+	// dosMusicEnabled==1). Do NOT flip this to ==4 without re-verifying actual
+	// audio — doing so regresses music in those default/coexistence setups.
 	if (!main || Engine::instance().dosMusicEnabled() != 1)
 		return tuneIdx;
 

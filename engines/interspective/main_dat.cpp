@@ -480,8 +480,8 @@ uint16 MainDat::getCursorSpriteId() const {
 	return sprite;
 }
 
-bool MainDat::nextCursorSprite(uint16 mode, uint16 &stepIndex, bool &stepPending, uint16 &spriteId) const {
-	byte *table = _data + READ_LE_UINT16(_footer + kCursors);
+bool MainDat::nextCursorSprite(uint16 mode, uint16 &stepIndex, bool &stepPending, uint16 &spriteId, uint16 tableFooterOffset) const {
+	byte *table = _data + READ_LE_UINT16(_footer + tableFooterOffset);
 
 	for (;;) {
 		const int16 tableMode = int16(READ_LE_UINT16(table));

@@ -1872,6 +1872,11 @@ void Logic::enterStatusScreenLoopLikeDos() {
 	if (_inStatusMode || _enteringStatusScreen)
 		return;
 	Graphics *graphics = _engine ? _engine->graphics() : 0;
+	// DOS RunStatusScreenLoop @ 1000:7695 refuses to enter only while the
+	// fullscreen gate is set or a palette fade is pending. The original game
+	// DOES allow SPACE to open the status menu during a cutscene (confirmed by
+	// play-testing the DOS build), so do NOT gate on canSkipCutscene/_roomActive
+	// here — that would diverge from the original.
 	if (_fullscreenGateActive || (graphics && graphics->palettePendingLikeDos())) {
 		debugC(2, kDebugLevelEvents,
 			"status screen entry ignored [DOS RunStatusScreenLoop gate: fullscreen=%d palette=%d]",

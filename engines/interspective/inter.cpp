@@ -193,14 +193,21 @@ Status Interpreter::run(uint16 offset, int ifDepth) {
 			;
 		}
 
-		// DOS MainGameLoop (1000:050d, 0x587) reads g_pendingErrorCode
-		// after each script tick and halts on non-zero. Mirror that:
-		// any opcode that raised a pending error terminates the
-		// interpreter loop with a fatal error.
-		if (Logic::instance().pendingError() != 0) {
-			const uint8 pendingCode = Logic::instance().pendingError();
-			Logic::instance().clearPendingError();
-			error("Interspective: pending error 0x%02x raised by opcode 0x%02x — halting", pendingCode, opcode);
+		// DOS MainGameLoop (1000:050d) calls DisplayIllError (1000:35cd)
+		// each frame: it shows a one-shot "ILL Error <code> (<mode>)"
+		// overlay, clears the code, and CONTINUES (g_flag_room_loaded=1).
+		// DOS errors are recoverable — they do NOT halt the program. So
+		// report once per distinct code (DOS g_lastErrorCode dedup) and
+		// keep running, instead of aborting the whole engine.
+		Logic &log = Logic::instance();
+		if (log.pendingError() != 0) {
+			const uint8 pendingCode = log.pendingError();
+			log.clearPendingError();
+			if (pendingCode != log.lastErrorCode()) {
+				log.setLastErrorCode(pendingCode);
+				warning("Interspective ILL Error 0x%02x %s [opcode 0x%02x] — recovering (DOS DisplayIllError)",
+					pendingCode, log.opcodeModeName(), opcode);
+			}
 		}
 	}
 
