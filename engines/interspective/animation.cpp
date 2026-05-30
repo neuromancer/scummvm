@@ -902,15 +902,30 @@ OPCODE(0x16) {
 
 OPCODE(0x17) {
 	// DOS Op_18 BranchIfMoodEquals @ 1000:6b29:
-	//   if (ES:[SI+0x63] == embedded): BP = ES:[BP+DI+0x2] (jump);
+	//   if (ES:[SI+0x63] == embedded):
+	//       AX = ES:[BP+DI+0x2];  DI = AX;  ES:[SI+0x2] = AX;  BP = 0;
 	//   else ADD BP, 4.
+	// On match DOS *rebases* the block: DI (block base) = jump target,
+	// field+0x2 (code offset) = jump target, BP (running PC) = 0 — so the
+	// next opcode is at ES:[jump target]. This is NOT the DI-relative
+	// running-PC jump used by Op_10/Op_13/Op_17 (those keep DI and set BP).
+	// The base Animation here drives cast-entry scripts whose `_baseOffset`
+	// is the cast id's code offset (Logic::castTableRegister → CodePointer(id))
+	// and is generally non-zero, so a plain `_offset = target` would land at
+	// `_base + _baseOffset + target` instead of the segment-absolute target.
+	// Mirror Actor::setActorCodeOffset's rebase exactly.
 	const byte val = embeddedByte();
 	const uint16 jumpTarget = shift();
 	const uint8 mood = animationDosField(0x63);
 	if (mood == val) {
-		_offset = jumpTarget;
+		if (_base) {
+			byte *segmentBase = _base - _baseOffset;
+			_base = segmentBase + jumpTarget;
+			_baseOffset = jumpTarget;
+		}
+		_offset = 0;
 		setAnimationDosFieldWord(0x02, jumpTarget);
-		debugC(3, kDebugLevelAnimation, "anim opcode 0x17: BranchIfMoodEquals mood=%u val=%u -> jump 0x%04x",
+		debugC(3, kDebugLevelAnimation, "anim opcode 0x17: BranchIfMoodEquals mood=%u val=%u -> rebase to 0x%04x",
 			mood, val, jumpTarget);
 	} else {
 		debugC(3, kDebugLevelAnimation,
