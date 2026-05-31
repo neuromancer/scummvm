@@ -582,6 +582,8 @@ void DgdsEngine::pumpMessages() {
 				|| ev.type == Common::EVENT_MOUSEMOVE) {
 			_lastMouseEvent = ev.type;
 			_lastMouse = ev.mouse;
+			if (_chinaTank && ev.type == Common::EVENT_MOUSEMOVE)
+				_chinaTank->onMouseMove(ev.mouse.x, ev.mouse.y);
 			// We can keep going if there were multiple moves or a move then a button, but
 			// stop if there was a button event to process it now.
 			if (_lastMouseEvent != Common::EVENT_MOUSEMOVE)
@@ -591,11 +593,15 @@ void DgdsEngine::pumpMessages() {
 				_dragonArcade->onKeyDown(ev.kbd);
 			if (_chinaTrain)
 				_chinaTrain->onKeyDown(ev.kbd);
+			if (_chinaTank)
+				_chinaTank->onKeyDown(ev.kbd);
 		} else if (ev.type == Common::EVENT_KEYUP) {
 			if (_dragonArcade)
 				_dragonArcade->onKeyUp(ev.kbd);
 			if (_chinaTrain)
 				_chinaTrain->onKeyUp(ev.kbd);
+			if (_chinaTank)
+				_chinaTank->onKeyUp(ev.kbd);
 		}
 	}
 }
@@ -625,7 +631,7 @@ void DgdsEngine::updateThisFrameMillis() {
 }
 
 Common::Error DgdsEngine::runChinaTankTestMode() {
-	warning("DGDS: forcing Heart of China tank minigame test mode");
+	debug(1, "DGDS: forcing Heart of China tank minigame test mode");
 
 	_isLoading = false;
 	CursorMan.showMouse(false);

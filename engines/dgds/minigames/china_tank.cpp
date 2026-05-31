@@ -50,14 +50,21 @@ const int kTankViewTop = 21;
 const int kTankViewRight = 256;
 const int kTankViewBottom = 105;
 const int kTankLowSpeed = 480;
+const int kTankHighSpeed = kTankLowSpeed + kTankLowSpeed;
+const int kTankAccelSpeed = 40;
+const int kTankTurnSpeed = 1024;
 const int kTankInitialFuel = 34000;
+const int kTankGZero = 9600;
+const int kTankInitialX = 9412;
+const int kTankInitialY = -60783;
+const int kTankInitialZ = 23400 + kTankGZero;
+const uint16 kTankInitialHeading = 0x4400;
 const char *const kTankCockpitScreen = "ftank3s.scr";
 const char *const kTankDevCockpitScreen = "tankcp.scr";
 const char *const kTankCockpitShapes = "cpit.bmp";
 const float kTankWorldScale = 1.0f / 1000.0f;
 const float kTankMouseSensitivity = 0.006f;
 const float kTankMaxPitch = 1.45f;
-const float kTankFlySpeed = 4.0f;
 
 enum TankCellTag {
 	kTankCellGroup = 0,
@@ -72,6 +79,12 @@ enum TankPolygonVisibility {
 	kTankPolygonNever = 2
 };
 
+enum TankGearPosition {
+	kTankGearNeutral = 0,
+	kTankGearLow = 1,
+	kTankGearHigh = 2
+};
+
 int16 readSint16(const byte *data) {
 	return (int16)READ_LE_UINT16(data);
 }
@@ -80,25 +93,24 @@ int32 readSint32(const byte *data) {
 	return (int32)READ_LE_UINT32(data);
 }
 
-float tankAngleToRadians(int16 angle) {
-	return (float)((double)(uint16)angle * 2.0 * M_PI / 65536.0);
+float tankAngleToRadians(uint16 angle) {
+	return (float)((double)angle * 2.0 * M_PI / 65536.0);
 }
 
-uint16 tankRadiansToAngle(float radians) {
-	double scaled = fmod((double)radians * 65536.0 / (2.0 * M_PI), 65536.0);
-	if (scaled < 0.0)
-		scaled += 65536.0;
+uint16 tankWrapAngle(int angle) {
+	return (uint16)((uint32)angle & 0xffff);
+}
 
-	const uint32 angle = (uint32)floor(scaled);
-	return (uint16)(angle & 0xffff);
+int tankMouseDeltaToAngle(int delta) {
+	return (int)((double)delta * kTankMouseSensitivity * 65536.0 / (2.0 * M_PI));
 }
 
 int tankDialCos(uint16 angle) {
-	return (int)(cosf(tankAngleToRadians((int16)angle)) * 16.0f);
+	return (int)(cosf(tankAngleToRadians(angle)) * 16.0f);
 }
 
 int tankDialSin(uint16 angle) {
-	return (int)(sinf(tankAngleToRadians((int16)angle)) * 16.0f);
+	return (int)(sinf(tankAngleToRadians(angle)) * 16.0f);
 }
 
 Common::Rect getTankViewport() {
@@ -167,36 +179,33 @@ struct ChinaTank::TankScene {
 	Graphics::ManagedSurface _cockpitBackground;
 	bool _loaded;
 	bool _cockpitBackgroundLoaded;
-	float _cameraX;
-	float _cameraY;
-	float _cameraZ;
-	float _yaw;
+	TankVec3 _tankLoc;
+	uint16 _tankHeading;
 	float _pitch;
 	int _tankSpeed;
 	int _fuel;
-	bool _moveForward;
-	bool _moveBackward;
-	bool _moveLeft;
-	bool _moveRight;
-	bool _moveUp;
-	bool _moveDown;
+	TankGearPosition _gearPosition;
+	bool _turnLeft;
+	bool _turnRight;
+	bool _gearUpPressed;
+	bool _gearDownPressed;
 
 	TankScene() : _loaded(false),
 		_cockpitBackgroundLoaded(false),
-		_cameraX(9412.0f * kTankWorldScale),
-		_cameraY((23400.0f + 9600.0f) * kTankWorldScale),
-		_cameraZ(-60783.0f * kTankWorldScale),
-		_yaw(tankAngleToRadians((int16)0x4400)),
+		_tankHeading(kTankInitialHeading),
 		_pitch(0.0f),
-		_tankSpeed(kTankLowSpeed),
+		_tankSpeed(0),
 		_fuel(kTankInitialFuel),
-		_moveForward(false),
-		_moveBackward(false),
-		_moveLeft(false),
-		_moveRight(false),
-		_moveUp(false),
-		_moveDown(false)
-	{}
+		_gearPosition(kTankGearNeutral),
+		_turnLeft(false),
+		_turnRight(false),
+		_gearUpPressed(false),
+		_gearDownPressed(false)
+	{
+		_tankLoc.x = kTankInitialX;
+		_tankLoc.y = kTankInitialY;
+		_tankLoc.z = kTankInitialZ;
+	}
 
 	bool load(ResourceManager *resource, Decompressor *decompressor) {
 		Common::Array<byte> tbl = readResourceBytes(resource, "tank.tbl");
@@ -251,7 +260,7 @@ struct ChinaTank::TankScene {
 	}
 
 	void turnCamera(int dx, int dy) {
-		_yaw += dx * kTankMouseSensitivity;
+		_tankHeading = tankWrapAngle(_tankHeading + tankMouseDeltaToAngle(dx));
 		_pitch += dy * kTankMouseSensitivity;
 
 		if (_pitch < -kTankMaxPitch)
@@ -262,48 +271,112 @@ struct ChinaTank::TankScene {
 
 	void setMoveKey(Common::KeyCode keycode, bool pressed) {
 		switch (keycode) {
+		case Common::KEYCODE_KP7:
+			setGearUpPressed(pressed);
+			_turnLeft = pressed;
+			break;
+		case Common::KEYCODE_KP9:
+			setGearUpPressed(pressed);
+			_turnRight = pressed;
+			break;
+		case Common::KEYCODE_KP1:
+			setGearDownPressed(pressed);
+			_turnLeft = pressed;
+			break;
+		case Common::KEYCODE_KP3:
+			setGearDownPressed(pressed);
+			_turnRight = pressed;
+			break;
 		case Common::KEYCODE_w:
 		case Common::KEYCODE_UP:
-			_moveForward = pressed;
+		case Common::KEYCODE_KP8:
+			setGearUpPressed(pressed);
 			break;
 		case Common::KEYCODE_s:
 		case Common::KEYCODE_DOWN:
-			_moveBackward = pressed;
-			break;
-		case Common::KEYCODE_a:
-		case Common::KEYCODE_LEFT:
-			_moveLeft = pressed;
+		case Common::KEYCODE_KP2:
+			setGearDownPressed(pressed);
 			break;
 		case Common::KEYCODE_d:
 		case Common::KEYCODE_RIGHT:
-			_moveRight = pressed;
+		case Common::KEYCODE_KP6:
+			_turnRight = pressed;
 			break;
-		case Common::KEYCODE_q:
-			_moveDown = pressed;
+		case Common::KEYCODE_a:
+		case Common::KEYCODE_LEFT:
+		case Common::KEYCODE_KP4:
+			_turnLeft = pressed;
 			break;
-		case Common::KEYCODE_e:
-			_moveUp = pressed;
+		case Common::KEYCODE_RETURN:
+		case Common::KEYCODE_KP5:
+		case Common::KEYCODE_KP_ENTER:
+			if (pressed)
+				_gearPosition = kTankGearNeutral;
 			break;
 		default:
 			break;
 		}
 	}
 
-	void updateCameraMovement() {
-		const float forward = (_moveForward ? 1.0f : 0.0f) - (_moveBackward ? 1.0f : 0.0f);
-		const float strafe = (_moveRight ? 1.0f : 0.0f) - (_moveLeft ? 1.0f : 0.0f);
-		const float vertical = (_moveUp ? 1.0f : 0.0f) - (_moveDown ? 1.0f : 0.0f);
-		if (forward == 0.0f && strafe == 0.0f && vertical == 0.0f)
+	void setGearUpPressed(bool pressed) {
+		if (pressed && !_gearUpPressed && _gearPosition != kTankGearHigh)
+			_gearPosition = (TankGearPosition)(_gearPosition + 1);
+		_gearUpPressed = pressed;
+	}
+
+	void setGearDownPressed(bool pressed) {
+		if (pressed && !_gearDownPressed && _gearPosition != kTankGearNeutral)
+			_gearPosition = (TankGearPosition)(_gearPosition - 1);
+		_gearDownPressed = pressed;
+	}
+
+	void updatePlayerMovement() {
+		if (_fuel <= 0)
+			_gearPosition = kTankGearNeutral;
+
+		if (_turnLeft)
+			_tankHeading = tankWrapAngle(_tankHeading + kTankTurnSpeed);
+		else if (_turnRight)
+			_tankHeading = tankWrapAngle(_tankHeading - kTankTurnSpeed);
+
+		updateTankSpeed();
+		movePlayerTank();
+		updateFuel();
+	}
+
+	void updateTankSpeed() {
+		if (_gearPosition == kTankGearHigh) {
+			if (_tankSpeed < kTankHighSpeed)
+				_tankSpeed += kTankAccelSpeed;
+		} else if (_gearPosition == kTankGearLow) {
+			if (_tankSpeed < kTankLowSpeed)
+				_tankSpeed += kTankAccelSpeed;
+			else if (_tankSpeed > kTankLowSpeed)
+				_tankSpeed -= kTankAccelSpeed;
+		} else {
+			for (int i = 0; i < 3 && _tankSpeed > 0; i++)
+				_tankSpeed -= kTankAccelSpeed;
+			if (_tankSpeed < 0)
+				_tankSpeed = 0;
+		}
+	}
+
+	void movePlayerTank() {
+		if (_tankSpeed == 0)
 			return;
 
-		const float forwardX = -sinf(_yaw);
-		const float forwardZ = cosf(_yaw);
-		const float rightX = cosf(_yaw);
-		const float rightZ = sinf(_yaw);
+		const float angle = tankAngleToRadians(_tankHeading);
+		_tankLoc.x += (int32)(-_tankSpeed * sinf(angle));
+		_tankLoc.y += (int32)(_tankSpeed * cosf(angle));
+	}
 
-		_cameraX += (forwardX * forward + rightX * strafe) * kTankFlySpeed;
-		_cameraY += vertical * kTankFlySpeed;
-		_cameraZ += (forwardZ * forward + rightZ * strafe) * kTankFlySpeed;
+	void updateFuel() {
+		if (_fuel < 0)
+			return;
+
+		_fuel -= 2 + (_tankSpeed >> 6);
+		if (_fuel < 0)
+			_gearPosition = kTankGearNeutral;
 	}
 
 	void loadCockpit(ResourceManager *resource, Decompressor *decompressor) {
@@ -486,7 +559,7 @@ struct ChinaTank::TankScene {
 		if (!_loaded || !ChinaTankTinyGLRenderer::isAvailable())
 			return;
 
-		updateCameraMovement();
+		updatePlayerMovement();
 
 		const Common::Rect viewport = getTankViewport();
 		drawCockpitBackground(dst);
@@ -523,15 +596,20 @@ struct ChinaTank::TankScene {
 	}
 
 	Math::Vector3d cameraPosition() const {
-		return Math::Vector3d(_cameraX, _cameraY, _cameraZ);
+		return Math::Vector3d(
+			_tankLoc.x * kTankWorldScale,
+			_tankLoc.z * kTankWorldScale,
+			_tankLoc.y * kTankWorldScale
+		);
 	}
 
 	Math::Vector3d cameraInterest() const {
+		const float yaw = tankAngleToRadians(_tankHeading);
 		const float pitchScale = cosf(_pitch);
 		return Math::Vector3d(
-			_cameraX + -sinf(_yaw) * pitchScale * 100.0f,
-			_cameraY + sinf(_pitch) * 100.0f,
-			_cameraZ + cosf(_yaw) * pitchScale * 100.0f
+			_tankLoc.x * kTankWorldScale + -sinf(yaw) * pitchScale * 100.0f,
+			_tankLoc.z * kTankWorldScale + sinf(_pitch) * 100.0f,
+			_tankLoc.y * kTankWorldScale + cosf(yaw) * pitchScale * 100.0f
 		);
 	}
 
@@ -577,7 +655,7 @@ struct ChinaTank::TankScene {
 	}
 
 	void drawHeadingDial(Graphics::ManagedSurface &dst) {
-		const uint16 angle = tankRadiansToAngle(_yaw) + 0x4000;
+		const uint16 angle = _tankHeading + 0x4000;
 		const int newX = tankDialCos(angle);
 		const int newY = tankDialSin(angle);
 		drawDial(dst, 319, 166, newX, -newY);
@@ -635,7 +713,7 @@ struct ChinaTank::TankScene {
 		float z = (float)point.z * shapeScale;
 
 		if (object.rotX) {
-			float angle = tankAngleToRadians(object.rotX);
+			float angle = tankAngleToRadians((uint16)object.rotX);
 			float c = cosf(angle);
 			float s = sinf(angle);
 			float yy = y * c - z * s;
@@ -645,7 +723,7 @@ struct ChinaTank::TankScene {
 		}
 
 		if (object.rotY) {
-			float angle = tankAngleToRadians(object.rotY);
+			float angle = tankAngleToRadians((uint16)object.rotY);
 			float c = cosf(angle);
 			float s = sinf(angle);
 			float xx = x * c + z * s;
@@ -655,7 +733,7 @@ struct ChinaTank::TankScene {
 		}
 
 		if (object.rotZ) {
-			float angle = tankAngleToRadians(object.rotZ);
+			float angle = tankAngleToRadians((uint16)object.rotZ);
 			float c = cosf(angle);
 			float s = sinf(angle);
 			float xx = x * c - y * s;
@@ -711,6 +789,7 @@ void ChinaTank::init() {
 		engine->getGamePals()->selectPalNum(_oldPalette);
 		warning("Tank minigame geometry could not be initialized");
 	} else {
+		engine->disableKeymapper();
 		g_system->warpMouse(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2);
 	}
 }
@@ -764,6 +843,8 @@ void ChinaTank::end() {
 
 	if (restorePalette)
 		DgdsEngine::getInstance()->getGamePals()->selectPalNum(_oldPalette);
+	if (restorePalette)
+		DgdsEngine::getInstance()->enableKeymapper();
 }
 
 } // end namespace Dgds

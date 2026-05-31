@@ -184,7 +184,9 @@ uint32 LzwDecompressor::getCode(uint32 totalBits, Common::SeekableReadStream &in
 		if (useBits > _bitsSize)
 			useBits = _bitsSize;
 
-		result |= (_bitsData & bitMasks[useBits]) << (totalBits - numBits);
+		const uint32 shift = totalBits - numBits;
+		if (shift < 32)
+			result |= (_bitsData & bitMasks[useBits]) << shift;
 
 		numBits -= useBits;
 		_bitsSize -= useBits;
@@ -235,4 +237,3 @@ byte *Decompressor::decompress(Common::SeekableReadStream *input, int size, uint
 }
 
 } // End of namespace Dgds
-
