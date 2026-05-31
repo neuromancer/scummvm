@@ -247,8 +247,12 @@ struct TankDynamicObject {
 	int job;
 	int jobWork;
 	TankProjection projection;
+	bool explosionAnchored;
+	int explosionX;
+	int explosionY;
 
-	TankDynamicObject() : visible(false), target(true), job(kTankJobAttack), jobWork(0) {
+	TankDynamicObject() : visible(false), target(true), job(kTankJobAttack), jobWork(0),
+			explosionAnchored(false), explosionX(0), explosionY(0) {
 		object.shape = 0;
 		object.rotX = 0;
 		object.rotY = 0;
@@ -504,9 +508,13 @@ struct ChinaTank::TankScene {
 			object.job = kTankJobAttack;
 			object.jobWork = 0;
 			object.projection = TankProjection();
+			object.explosionAnchored = false;
+			object.explosionX = 0;
+			object.explosionY = 0;
 		}
 
 		_dynamicObjects[kTankDynamicMyTank].visible = true;
+		_dynamicObjects[kTankDynamicAmbushTank].visible = true;
 		_dynamicObjects[kTankDynamicTrickyTank].visible = true;
 		_dynamicObjects[kTankDynamicMobileObject].target = false;
 		_dynamicObjects[kTankDynamicAmbushTank].job = kTankJobAmbush;
@@ -520,6 +528,9 @@ struct ChinaTank::TankScene {
 		object.visible = true;
 		object.job = job;
 		object.jobWork = jobWork;
+		object.explosionAnchored = false;
+		object.explosionX = 0;
+		object.explosionY = 0;
 	}
 
 	void turnCamera(int dx, int dy) {
@@ -1446,7 +1457,12 @@ struct ChinaTank::TankScene {
 	void drawDynamicObjectOverlays(Graphics::ManagedSurface &dst, const Common::Rect &viewport) {
 		for (uint i = 0; i < _dynamicObjects.size(); i++) {
 			TankDynamicObject &dynamicObject = _dynamicObjects[i];
-			if (!dynamicObject.visible || !dynamicObject.projection.valid)
+			if (!dynamicObject.visible)
+				continue;
+
+			const bool canTriggerFallingExplosion = i == kTankDynamicMyTank &&
+					dynamicObject.job == kTankJobFalling && !dynamicObject.jobWork && _tankDone;
+			if (!dynamicObject.projection.valid && !dynamicObject.explosionAnchored && !canTriggerFallingExplosion)
 				continue;
 
 			if (dynamicObject.object.shape == kTankShapeTruck)
@@ -1458,18 +1474,34 @@ struct ChinaTank::TankScene {
 
 	void afterTank(uint index, TankDynamicObject &dynamicObject, Graphics::ManagedSurface &dst, const Common::Rect &viewport) {
 		const int workVal = dynamicObject.jobWork;
-		if (dynamicObject.job == kTankJobFalling && !workVal && dynamicObject.projection.y > kTankFallingExplosionStartY) {
+		if (dynamicObject.job == kTankJobFalling && !workVal) {
+			const bool reachedOriginalTrigger = dynamicObject.projection.valid &&
+					dynamicObject.projection.y > kTankFallingExplosionStartY;
+			const bool playerFallComplete = index == kTankDynamicMyTank && _tankDone;
+			if (!reachedOriginalTrigger && !playerFallComplete)
+				return;
+
 			dynamicObject.jobWork = 1;
 			dynamicObject.target = false;
-			dynamicObject.projection.y = kTankFallingExplosionY;
+			dynamicObject.explosionAnchored = true;
+			dynamicObject.explosionX = dynamicObject.projection.valid ?
+					dynamicObject.projection.x : viewport.left + viewport.width() / 2;
+			dynamicObject.explosionY = kTankFallingExplosionY;
+			if (dynamicObject.explosionY >= viewport.bottom)
+				dynamicObject.explosionY = viewport.bottom - 1;
+			if (dynamicObject.explosionY < viewport.top)
+				dynamicObject.explosionY = viewport.top;
 		}
 
+		const int explosionX = dynamicObject.explosionAnchored ? dynamicObject.explosionX : dynamicObject.projection.x;
+		const int explosionY = dynamicObject.explosionAnchored ? dynamicObject.explosionY : dynamicObject.projection.y;
+
 		if (dynamicObject.job == kTankJobFiring && workVal <= 6)
-			drawExplosionFrame(dst, viewport, workVal + 5, dynamicObject.projection.x, dynamicObject.projection.y, true);
+			drawExplosionFrame(dst, viewport, workVal + 5, explosionX, explosionY, true);
 
 		if (workVal >= 6 && workVal <= 11 &&
 				(dynamicObject.job == kTankJobBoom || dynamicObject.job == kTankJobCliffBoom || dynamicObject.job == kTankJobFalling)) {
-			drawExplosionFrame(dst, viewport, workVal - 6, dynamicObject.projection.x, dynamicObject.projection.y, false);
+			drawExplosionFrame(dst, viewport, workVal - 6, explosionX, explosionY, false);
 			if (workVal == 9)
 				dynamicObject.object.shape = kTankShapeTankHulk;
 		}
@@ -1494,8 +1526,20 @@ struct ChinaTank::TankScene {
 
 		const int frameWidth = _explosionShapes->width(frame);
 		const int frameHeight = _explosionShapes->height(frame);
-		const int drawX = x - (frameWidth >> 1);
-		const int drawY = centered ? y - (frameHeight >> 1) : y - frameHeight;
+		int drawX = x - (frameWidth >> 1);
+		int drawY = centered ? y - (frameHeight >> 1) : y - frameHeight;
+		if (drawX < viewport.left)
+			drawX = viewport.left;
+		if (drawY < viewport.top)
+			drawY = viewport.top;
+		if (drawX + frameWidth > viewport.right) {
+			const int maxDrawX = viewport.right - frameWidth;
+			drawX = maxDrawX > viewport.left ? maxDrawX : viewport.left;
+		}
+		if (drawY + frameHeight > viewport.bottom) {
+			const int maxDrawY = viewport.bottom - frameHeight;
+			drawY = maxDrawY > viewport.top ? maxDrawY : viewport.top;
+		}
 		_explosionShapes->drawBitmap(frame, drawX, drawY, viewport, dst);
 	}
 
