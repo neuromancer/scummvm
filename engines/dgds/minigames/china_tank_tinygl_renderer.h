@@ -47,6 +47,7 @@ public:
 	void beginFrame(const Common::Rect &viewport, const DgdsPal &palette, byte clearColor, const Math::Vector3d &camera,
 			const Math::Vector3d &interest, float fov, float nearClip, float farClip);
 	void drawPolygon(const Common::Array<Math::Vector3d> &vertices, byte color, const DgdsPal &palette);
+	void drawPolyline(const Common::Array<Math::Vector3d> &vertices, byte color, const DgdsPal &palette, bool closed);
 	void endFrame(Graphics::ManagedSurface &dst, const Common::Rect &viewport, const DgdsPal &palette);
 
 private:

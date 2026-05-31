@@ -90,6 +90,22 @@ void ChinaTankTinyGLRenderer::drawPolygon(const Common::Array<Math::Vector3d> &v
 #endif
 }
 
+void ChinaTankTinyGLRenderer::drawPolyline(const Common::Array<Math::Vector3d> &vertices, byte color, const DgdsPal &palette, bool closed) {
+#if defined(USE_TINYGL)
+	if (vertices.size() < 2)
+		return;
+
+	byte r, g, b;
+	palette.get(color, r, g, b);
+	tglColor4ub(r, g, b, 255);
+
+	tglBegin(closed ? TGL_LINE_LOOP : TGL_LINE_STRIP);
+	for (const Math::Vector3d &vertex : vertices)
+		tglVertex3f(vertex.x(), vertex.y(), vertex.z());
+	tglEnd();
+#endif
+}
+
 void ChinaTankTinyGLRenderer::endFrame(Graphics::ManagedSurface &dst, const Common::Rect &viewport, const DgdsPal &palette) {
 #if defined(USE_TINYGL)
 	copyTinyGLToSurface(dst, viewport, palette);

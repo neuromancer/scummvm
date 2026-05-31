@@ -74,6 +74,7 @@ const char *const kTankExplosionShapes = "exp.bmp";
 const int kTankExplosionFrameCount = 12;
 const int kTankFallingExplosionStartY = 210;
 const int kTankFallingExplosionY = 204;
+const byte kTankPolygonFill = 0x80;
 const float kTankWorldScale = 1.0f / 1000.0f;
 const float kTankMouseSensitivity = 0.006f;
 const float kTankMaxPitch = 1.45f;
@@ -205,7 +206,8 @@ struct TankVec3 {
 
 struct TankPolygon {
 	byte flags;
-	byte color;
+	byte lineColor;
+	byte fillColor;
 	byte normal;
 	Common::Array<byte> vertices;
 };
@@ -1222,7 +1224,8 @@ struct ChinaTank::TankScene {
 			uint32 polyPos = pos + i * 8;
 			TankPolygon poly;
 			poly.flags = tbl[polyPos];
-			poly.color = tbl[polyPos + 2];
+			poly.lineColor = tbl[polyPos + 1];
+			poly.fillColor = tbl[polyPos + 2];
 			poly.normal = tbl[polyPos + 5];
 			if ((poly.flags & 0x03) == kTankPolygonNormal && poly.normal >= part.points.size()) {
 				warning("Tank polygon references normal %d outside %d points", poly.normal, (int)part.points.size());
@@ -1256,7 +1259,7 @@ struct ChinaTank::TankScene {
 				return false;
 			}
 
-			if (poly.vertices.size() >= 3)
+			if (poly.vertices.size() >= 2)
 				part.polygons.push_back(poly);
 		}
 
@@ -1354,7 +1357,10 @@ struct ChinaTank::TankScene {
 					const TankVec3 &point = part.points[vertexIndex];
 					vertices.push_back(transformPoint(point, object, shape.scale));
 				}
-				_renderer.drawPolygon(vertices, polygon.color, palette);
+				if ((polygon.flags & kTankPolygonFill) && vertices.size() >= 3)
+					_renderer.drawPolygon(vertices, polygon.fillColor, palette);
+				else
+					_renderer.drawPolyline(vertices, polygon.lineColor, palette, vertices.size() > 2);
 			}
 		}
 	}
