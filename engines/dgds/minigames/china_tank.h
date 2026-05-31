@@ -38,14 +38,21 @@ public:
 	void onMouseMove(int x, int y);
 	void onKeyDown(const Common::KeyState &kbd);
 	void onKeyUp(const Common::KeyState &kbd);
+	void setMenuResult(bool retry);
 
 private:
 	struct TankScene;
+
+	bool tankArcade();
+	void lost();
 
 	TankScene *_tankScene;
 	bool _initialized;
 	bool _loadFailed;
 	int _oldPalette;
+	int16 _arcadeFlag;
+	int16 _lastMaskedArcadeFlag;
+	int _failCounter;
 
 };
 

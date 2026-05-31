@@ -35,6 +35,7 @@
 #include "dgds/request.h"
 #include "dgds/scene.h"
 #include "dgds/sound.h"
+#include "dgds/minigames/china_tank.h"
 #include "dgds/minigames/china_train.h"
 
 namespace Dgds {
@@ -736,6 +737,7 @@ bool Menu::handleClick(const Common::Point &mouse) {
 			dragonGlobals->setArcadeState(clickedMenuItem == kMenuReplayArcadeYes ? 20 : 10);
 		} else if (engine->getGameId() == GID_HOC) {
 			engine->getChinaTrain()->setMenuResult(clickedMenuItem == kMenuReplayArcadeYes);
+			engine->getChinaTank()->setMenuResult(clickedMenuItem == kMenuReplayArcadeYes);
 		}
 		hideMenu();
 		break;
@@ -748,6 +750,7 @@ bool Menu::handleClick(const Common::Point &mouse) {
 			dragonGlobals->setArcadeState(clickedMenuItem == kMenuFrustratedArcadeWin ? 6 : 20);
 		} else if (engine->getGameId() == GID_HOC) {
 			engine->getChinaTrain()->setMenuResult(clickedMenuItem == kMenuFrustratedArcadeKeepTrying);
+			engine->getChinaTank()->setMenuResult(clickedMenuItem == kMenuFrustratedArcadeKeepTrying);
 		}
 		hideMenu();
 		break;

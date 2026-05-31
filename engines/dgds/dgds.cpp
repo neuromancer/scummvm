@@ -649,28 +649,85 @@ Common::Error DgdsEngine::runChinaTankTestMode() {
 	uint32 startMillis = g_system->getMillis();
 	uint32 frameCount = 0;
 
+	auto handleTankTestEvent = [this](const Common::Event &ev) {
+		if (_menu->menuShown()) {
+			switch (ev.type) {
+			case Common::EVENT_LBUTTONUP:
+				_menu->onMouseLUp(ev.mouse);
+				break;
+			case Common::EVENT_LBUTTONDOWN:
+				_menu->onMouseLDown(ev.mouse);
+				break;
+			case Common::EVENT_MOUSEMOVE:
+				_menu->onMouseMove(ev.mouse);
+				break;
+			case Common::EVENT_KEYDOWN:
+				switch (ev.kbd.keycode) {
+				case Common::KEYCODE_TAB:
+				case Common::KEYCODE_DOWN:
+				case Common::KEYCODE_RIGHT:
+					_menu->nextChoice();
+					break;
+				case Common::KEYCODE_UP:
+				case Common::KEYCODE_LEFT:
+					_menu->prevChoice();
+					break;
+				case Common::KEYCODE_RETURN:
+				case Common::KEYCODE_KP_ENTER:
+				case Common::KEYCODE_SPACE:
+					_menu->activateChoice();
+					break;
+				default:
+					break;
+				}
+				break;
+			default:
+				break;
+			}
+			return;
+		}
+
+		if (ev.type == Common::EVENT_KEYDOWN) {
+			if (ev.kbd.keycode == Common::KEYCODE_ESCAPE)
+				quitGame();
+			else
+				_chinaTank->onKeyDown(ev.kbd);
+		} else if (ev.type == Common::EVENT_KEYUP) {
+			_chinaTank->onKeyUp(ev.kbd);
+		} else if (ev.type == Common::EVENT_MOUSEMOVE) {
+			_chinaTank->onMouseMove(ev.mouse.x, ev.mouse.y);
+		}
+	};
+
 	while (!shouldQuit()) {
 		updateThisFrameMillis();
 
 		Common::Event ev;
-		while (_eventMan->pollEvent(ev)) {
-			if (ev.type == Common::EVENT_KEYDOWN) {
-				if (ev.kbd.keycode == Common::KEYCODE_ESCAPE)
-					quitGame();
-				else
-					_chinaTank->onKeyDown(ev.kbd);
-			} else if (ev.type == Common::EVENT_KEYUP) {
-				_chinaTank->onKeyUp(ev.kbd);
-			} else if (ev.type == Common::EVENT_MOUSEMOVE) {
-				_chinaTank->onMouseMove(ev.mouse.x, ev.mouse.y);
+		while (_eventMan->pollEvent(ev))
+			handleTankTestEvent(ev);
+
+		if (_menuToTrigger != kMenuNone) {
+			if (!_menu->menuShown()) {
+				_menu->setScreenBuffer();
+				CursorMan.showMouse(true);
+				setMouseCursor(kDgdsMouseGameDefault);
+				_menu->drawMenu(_menuToTrigger);
+			} else {
+				_menu->hideMenu();
 			}
+			_menuToTrigger = kMenuNone;
 		}
 
-		_compositionBuffer.fillRect(screenRect, 0);
-		_chinaTank->tick();
+		if (_menu->menuShown()) {
+			_menu->onTick();
+			g_system->updateScreen();
+		} else {
+			_compositionBuffer.fillRect(screenRect, 0);
+			_chinaTank->tick();
 
-		g_system->copyRectToScreen(_compositionBuffer.getPixels(), SCREEN_WIDTH, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
-		g_system->updateScreen();
+			g_system->copyRectToScreen(_compositionBuffer.getPixels(), SCREEN_WIDTH, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+			g_system->updateScreen();
+		}
 
 		static const int framesPerSecond = 15;
 		frameCount++;
@@ -680,18 +737,8 @@ Common::Error DgdsEngine::runChinaTankTestMode() {
 		const uint32 targetMillis = (frameCount * 1000 / framesPerSecond);
 		if (targetMillis > elapsedMillis) {
 			while (!shouldQuit() && targetMillis > elapsedMillis) {
-				while (_eventMan->pollEvent(ev)) {
-					if (ev.type == Common::EVENT_KEYDOWN) {
-						if (ev.kbd.keycode == Common::KEYCODE_ESCAPE)
-							quitGame();
-						else
-							_chinaTank->onKeyDown(ev.kbd);
-					} else if (ev.type == Common::EVENT_KEYUP) {
-						_chinaTank->onKeyUp(ev.kbd);
-					} else if (ev.type == Common::EVENT_MOUSEMOVE) {
-						_chinaTank->onMouseMove(ev.mouse.x, ev.mouse.y);
-					}
-				}
+				while (_eventMan->pollEvent(ev))
+					handleTankTestEvent(ev);
 
 				g_system->updateScreen();
 				g_system->delayMillis(5);

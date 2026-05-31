@@ -29,6 +29,7 @@
 
 #include "dgds/dgds.h"
 #include "dgds/game_palettes.h"
+#include "dgds/globals.h"
 #include "dgds/image.h"
 #include "dgds/includes.h"
 #include "dgds/minigames/china_tank.h"
@@ -70,6 +71,7 @@ const int kTankFlat3 = 9600 + kTankGZero;
 const int kTankFallCameraDistance = 32000;
 const int16 kTankFallCameraRotX = 0x0a00;
 const uint16 kTankFallCameraHeading = 0x7000;
+const uint16 kTankWaterDeathRotX = 0xd000;
 const int kTankInitialX = 9412;
 const int kTankInitialY = -60783;
 const int kTankInitialZ = 23400 + kTankGZero;
@@ -91,6 +93,11 @@ const byte kTankPolygonFill = 0x80;
 const float kTankWorldScale = 1.0f / 1000.0f;
 const float kTankMouseSensitivity = 0.006f;
 const float kTankMaxPitch = 1.45f;
+const int16 kTankArcadeRetry = 0x100;
+const int16 kTankArcadeFrustrated = 0x200;
+const int16 kTankArcadeVcr = 0x400;
+const int kTankFrustratedFailureCount = 5;
+const uint16 kHocTankStateGlobal = 0x30;
 
 enum TankTerrainCode {
 	kTankTerrainHill = 1,
@@ -148,6 +155,10 @@ int32 readSint32(const byte *data) {
 }
 
 float tankAngleToRadians(uint16 angle) {
+	return (float)((double)angle * 2.0 * M_PI / 65536.0);
+}
+
+float tankSignedAngleToRadians(int16 angle) {
 	return (float)((double)angle * 2.0 * M_PI / 65536.0);
 }
 
@@ -376,6 +387,7 @@ Common::Array<byte> readResourceBytes(ResourceManager *resource, const Common::S
 struct ChinaTank::TankScene {
 	Common::Array<TankShape> _shapes;
 	Common::Array<TankObject> _objects;
+	Common::Array<TankObject> _initialObjects;
 	Common::Array<TankDynamicObject> _dynamicObjects;
 	Common::Array<TankTerrainInfo> _terrainInfos;
 	ChinaTankTinyGLRenderer _renderer;
@@ -502,11 +514,50 @@ struct ChinaTank::TankScene {
 			_objects.push_back(obj);
 		}
 
-		initDynamicObjects();
-		adjustPlayerTank();
+		_initialObjects = _objects;
+		restartMinigame();
 		_loaded = true;
 		loadCockpit(resource, decompressor);
 		return true;
+	}
+
+	void restartMinigame() {
+		if (!_initialObjects.empty())
+			_objects = _initialObjects;
+
+		_tankLoc.x = kTankInitialX;
+		_tankLoc.y = kTankInitialY;
+		_tankLoc.z = kTankInitialZ;
+		_tankRotX = 0;
+		_tankRotY = 0;
+		_tankHeading = kTankInitialHeading;
+		_pitch = 0.0f;
+		_tankSpeed = 0;
+		_fuel = kTankInitialFuel;
+		_gearPosition = kTankGearNeutral;
+		_turnLeft = false;
+		_turnRight = false;
+		_gearUpPressed = false;
+		_gearDownPressed = false;
+		_groundInfo.clear();
+		_terrainType = 0;
+		_oldBaseHeight = 0;
+		_inGap = false;
+		_fallDeltaLoc.x = 0;
+		_fallDeltaLoc.y = 0;
+		_fallDeltaLoc.z = 0;
+		_fallDeltaRotX = 0;
+		_fallDeltaRotY = 0;
+		_fallDeltaHeading = 0;
+		_externalCameraLoc = _tankLoc;
+		_externalCameraTarget = _tankLoc;
+		_falling = false;
+		_intoWater = false;
+		_tankDone = false;
+
+		initDynamicObjects();
+		adjustPlayerTank();
+		savePlayerState();
 	}
 
 	void initDynamicObjects() {
@@ -548,10 +599,22 @@ struct ChinaTank::TankScene {
 		object.explosionAnchored = false;
 		object.explosionX = 0;
 		object.explosionY = 0;
+
+		if (index == kTankDynamicMyTank && (job == kTankJobBoom || job == kTankJobCliffBoom)) {
+			_tankSpeed = 0;
+			_gearPosition = kTankGearNeutral;
+			_turnLeft = false;
+			_turnRight = false;
+			_pitch = 0.0f;
+			_falling = false;
+			_intoWater = false;
+			_tankDone = false;
+			positionExternalCameraForFall();
+		}
 	}
 
 	void turnCamera(int dx, int dy) {
-		if (_falling || _tankDone)
+		if (_falling || _tankDone || isPlayerDestructionJob())
 			return;
 
 		_tankHeading = tankWrapAngle(_tankHeading + tankMouseDeltaToAngle(dx));
@@ -625,7 +688,7 @@ struct ChinaTank::TankScene {
 	}
 
 	void updatePlayerMovement() {
-		if (_tankDone)
+		if (_tankDone || isPlayerDestructionJob())
 			return;
 
 		if (_falling) {
@@ -906,12 +969,13 @@ struct ChinaTank::TankScene {
 		_falling = true;
 		_tankDone = false;
 		_intoWater = _terrainType == kTankTerrainRiver;
-		startDynamicJob(kTankDynamicMyTank, kTankJobFalling, 0);
+		_pitch = 0.0f;
 
 		if (_intoWater) {
 			_fallDeltaRotX = 0x1000;
 			_tankRotX = tankWrapSint16(0xf800);
 		} else {
+			startDynamicJob(kTankDynamicMyTank, kTankJobFalling, 0);
 			_fallDeltaRotX = tankWrapSint16((int32)_oldState.rotX - _tankRotX);
 		}
 
@@ -933,8 +997,12 @@ struct ChinaTank::TankScene {
 		_tankRotY = tankWrapSint16((int32)_tankRotY - tankArithmeticShiftRight(_fallDeltaRotY, 2));
 		_tankHeading = tankWrapAngle((int)_tankHeading - tankArithmeticShiftRight(_fallDeltaHeading, 2));
 
-		if (!_intoWater && _tankLoc.z < 0)
+		if (_intoWater) {
+			if ((uint16)_tankRotX == kTankWaterDeathRotX)
+				_tankDone = true;
+		} else if (_tankLoc.z < 0) {
 			_tankDone = true;
+		}
 	}
 
 	void positionExternalCameraForFall() {
@@ -1417,10 +1485,11 @@ struct ChinaTank::TankScene {
 			return tankPointToTinyGL(_externalCameraTarget);
 
 		const float yaw = tankAngleToRadians(_tankHeading);
-		const float pitchScale = cosf(_pitch);
+		const float pitch = (_falling && _intoWater) ? tankSignedAngleToRadians(_tankRotX) : _pitch;
+		const float pitchScale = cosf(pitch);
 		return Math::Vector3d(
 			_tankLoc.x * kTankWorldScale + -sinf(yaw) * pitchScale * 100.0f,
-			_tankLoc.z * kTankWorldScale + sinf(_pitch) * 100.0f,
+			_tankLoc.z * kTankWorldScale + sinf(pitch) * 100.0f,
 			_tankLoc.y * kTankWorldScale + cosf(yaw) * pitchScale * 100.0f
 		);
 	}
@@ -1430,7 +1499,15 @@ struct ChinaTank::TankScene {
 	}
 
 	bool useExternalCamera() const {
-		return _falling && !_intoWater;
+		return (_falling && !_intoWater) || isPlayerDestructionJob();
+	}
+
+	bool isPlayerDestructionJob() const {
+		if (_dynamicObjects.size() <= kTankDynamicMyTank)
+			return false;
+
+		const TankDynamicObject &player = _dynamicObjects[kTankDynamicMyTank];
+		return (player.job == kTankJobBoom || player.job == kTankJobCliffBoom) && player.jobWork > 0;
 	}
 
 	Common::Rect activeViewport() const {
@@ -1739,6 +1816,20 @@ struct ChinaTank::TankScene {
 			dynamicObject.jobWork++;
 	}
 
+	bool deathSequenceComplete() const {
+		if (!_tankDone)
+			return false;
+		if (_dynamicObjects.size() <= kTankDynamicMyTank)
+			return true;
+		if (_intoWater)
+			return true;
+
+		const TankDynamicObject &player = _dynamicObjects[kTankDynamicMyTank];
+		if (player.job == kTankJobFalling || player.job == kTankJobBoom || player.job == kTankJobCliffBoom)
+			return player.jobWork > 11;
+		return true;
+	}
+
 	void afterTruck(TankDynamicObject &dynamicObject, Graphics::ManagedSurface &dst, const Common::Rect &viewport) {
 		const int workVal = dynamicObject.jobWork;
 		if (dynamicObject.job == kTankJobTipOver && workVal >= 6 && workVal <= 11)
@@ -1917,7 +2008,8 @@ struct ChinaTank::TankScene {
 	}
 };
 
-ChinaTank::ChinaTank() : _tankScene(nullptr), _initialized(false), _loadFailed(false), _oldPalette(0) {
+ChinaTank::ChinaTank() : _tankScene(nullptr), _initialized(false), _loadFailed(false), _oldPalette(0),
+		_arcadeFlag(0), _lastMaskedArcadeFlag(0), _failCounter(0) {
 }
 
 ChinaTank::~ChinaTank() {
@@ -1946,6 +2038,10 @@ void ChinaTank::init() {
 		engine->getGamePals()->selectPalNum(_oldPalette);
 		warning("Tank minigame geometry could not be initialized");
 	} else {
+		_arcadeFlag = 0;
+		_lastMaskedArcadeFlag = 0;
+		_failCounter = 0;
+		engine->getGameGlobals()->setGlobal(kHocTankStateGlobal, 0);
 		engine->disableKeymapper();
 		g_system->warpMouse(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2);
 	}
@@ -1963,8 +2059,76 @@ void ChinaTank::tick() {
 		return;
 	}
 
+	if (!tankArcade())
+		return;
+
 	DgdsEngine *engine = DgdsEngine::getInstance();
 	_tankScene->render(engine->_compositionBuffer, engine->getGamePals()->getCurPal());
+	if (_tankScene->deathSequenceComplete())
+		lost();
+}
+
+bool ChinaTank::tankArcade() {
+	DgdsEngine *engine = DgdsEngine::getInstance();
+	Globals *globals = engine->getGameGlobals();
+	const int16 tankState = globals->getGlobal(kHocTankStateGlobal);
+
+	if (tankState > 1)
+		return false;
+
+	if (tankState == 0) {
+		globals->setGlobal(kHocTankStateGlobal, 1);
+		_lastMaskedArcadeFlag = 0;
+		_failCounter = 0;
+	}
+
+	if (_lastMaskedArcadeFlag == 0)
+		_lastMaskedArcadeFlag = _arcadeFlag & (kTankArcadeRetry | kTankArcadeFrustrated);
+
+	if (_lastMaskedArcadeFlag == 0)
+		return true;
+
+	if (!(_arcadeFlag & _lastMaskedArcadeFlag)) {
+		if (_arcadeFlag & kTankArcadeVcr) {
+			globals->setGlobal(kHocTankStateGlobal, 1);
+			if (_tankScene)
+				_tankScene->restartMinigame();
+			_arcadeFlag = 0;
+			_lastMaskedArcadeFlag = 0;
+			return true;
+		}
+
+		globals->setGlobal(kHocTankStateGlobal, (_lastMaskedArcadeFlag & kTankArcadeFrustrated) ? 4 : 3);
+		_arcadeFlag = 0;
+		_lastMaskedArcadeFlag = 0;
+		return false;
+	}
+
+	return false;
+}
+
+void ChinaTank::lost() {
+	if (_lastMaskedArcadeFlag)
+		return;
+
+	DgdsEngine *engine = DgdsEngine::getInstance();
+	_failCounter++;
+	if (_failCounter < kTankFrustratedFailureCount) {
+		engine->setMenuToTrigger(kMenuReplayArcade);
+		_arcadeFlag |= kTankArcadeRetry;
+	} else {
+		engine->setMenuToTrigger(kMenuArcadeFrustrated);
+		_arcadeFlag |= kTankArcadeFrustrated;
+	}
+
+	_lastMaskedArcadeFlag = _arcadeFlag & (kTankArcadeRetry | kTankArcadeFrustrated);
+}
+
+void ChinaTank::setMenuResult(bool retry) {
+	if (!_initialized || !_arcadeFlag)
+		return;
+
+	_arcadeFlag = retry ? kTankArcadeVcr : 0;
 }
 
 void ChinaTank::onMouseMove(int x, int y) {
@@ -1997,6 +2161,9 @@ void ChinaTank::end() {
 	_tankScene = nullptr;
 	_initialized = false;
 	_loadFailed = false;
+	_arcadeFlag = 0;
+	_lastMaskedArcadeFlag = 0;
+	_failCounter = 0;
 
 	if (restorePalette)
 		DgdsEngine::getInstance()->getGamePals()->selectPalNum(_oldPalette);
