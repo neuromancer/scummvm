@@ -54,7 +54,9 @@ const int kTankHighSpeed = kTankLowSpeed + kTankLowSpeed;
 const int kTankAccelSpeed = 40;
 const int kTankTurnSpeed = 1024;
 const int kTankInitialFuel = 34000;
+const int kTankTrigShift = 14;
 const int kTankGZero = 9600;
+const int kTankCockpitHeight = 1000;
 const int kTankInitialX = 9412;
 const int kTankInitialY = -60783;
 const int kTankInitialZ = 23400 + kTankGZero;
@@ -65,6 +67,14 @@ const char *const kTankCockpitShapes = "cpit.bmp";
 const float kTankWorldScale = 1.0f / 1000.0f;
 const float kTankMouseSensitivity = 0.006f;
 const float kTankMaxPitch = 1.45f;
+
+enum TankTerrainCode {
+	kTankTerrainHill = 1,
+	kTankTerrainRiver = 2,
+	kTankTerrainRollingHill = 3,
+	kTankTerrainRoadway = 4,
+	kTankTerrainField = 5
+};
 
 enum TankCellTag {
 	kTankCellGroup = 0,
@@ -113,6 +123,42 @@ int tankDialSin(uint16 angle) {
 	return (int)(sinf(tankAngleToRadians(angle)) * 16.0f);
 }
 
+int tankTrigSin(uint16 angle) {
+	return (int)(sinf(tankAngleToRadians(angle)) * (float)(1 << kTankTrigShift));
+}
+
+int tankTrigCos(uint16 angle) {
+	return (int)(cosf(tankAngleToRadians(angle)) * (float)(1 << kTankTrigShift));
+}
+
+int64 tankArithmeticShiftRight64(int64 value, byte shift) {
+	if (shift == 0)
+		return value;
+	if (shift >= 63)
+		return value < 0 ? -1 : 0;
+	if (value >= 0)
+		return value >> shift;
+
+	const int64 divisor = (int64)1 << shift;
+	return -((-value + divisor - 1) >> shift);
+}
+
+int32 tankArithmeticShiftRight(int32 value, byte shift) {
+	if (shift >= 31)
+		return value < 0 ? -1 : 0;
+	return (int32)tankArithmeticShiftRight64(value, shift);
+}
+
+int32 tankAbs32(int32 value) {
+	if (value == (-0x7fffffff - 1))
+		return 0x7fffffff;
+	return value < 0 ? -value : value;
+}
+
+uint32 tankFarDataOffset(uint16 segment, uint16 offset) {
+	return ((uint32)segment << 4) + offset;
+}
+
 Common::Rect getTankViewport() {
 	return Common::Rect(kTankViewLeft, kTankViewTop, kTankViewRight, kTankViewBottom);
 }
@@ -149,6 +195,64 @@ struct TankObject {
 	TankVec3 loc;
 };
 
+struct TankTerrainEdge {
+	int16 nxs;
+	int16 nys;
+	int16 x1;
+	int16 y1;
+};
+
+struct TankTerrainPolygonInfo {
+	int16 normalX;
+	int16 normalY;
+	int16 normalZ;
+	byte slope;
+	byte tiltAng;
+	byte upAng;
+	Common::Array<TankTerrainEdge> edges;
+	int16 baseHeight;
+	TankTerrainEdge baseEdge;
+};
+
+struct TankTerrainInfo {
+	bool present;
+	int16 horRad;
+	int16 verRad;
+	byte isRect;
+	byte priority;
+	byte apcode;
+	Common::Array<TankTerrainPolygonInfo> polygons;
+
+	TankTerrainInfo() : present(false), horRad(0), verRad(0), isRect(0), priority(0), apcode(0) {}
+};
+
+struct TankGroundInfo {
+	int terrainShape;
+	int objectIndex;
+	int polyNum;
+	int32 height;
+
+	TankGroundInfo() { clear(); }
+
+	void clear() {
+		terrainShape = -1;
+		objectIndex = -1;
+		polyNum = 0;
+		height = 0;
+	}
+
+	bool isValid() const { return terrainShape >= 0 && objectIndex >= 0; }
+};
+
+struct TankSavedState {
+	TankVec3 loc;
+	int16 rotX;
+	int16 rotY;
+	uint16 heading;
+	TankGroundInfo ground;
+	int terrainType;
+};
+
 Common::Array<byte> readResourceBytes(ResourceManager *resource, const Common::String &name) {
 	Common::ScopedPtr<Common::SeekableReadStream> stream(resource->getResource(name));
 	if (!stream)
@@ -174,12 +278,15 @@ Common::Array<byte> readResourceBytes(ResourceManager *resource, const Common::S
 struct ChinaTank::TankScene {
 	Common::Array<TankShape> _shapes;
 	Common::Array<TankObject> _objects;
+	Common::Array<TankTerrainInfo> _terrainInfos;
 	ChinaTankTinyGLRenderer _renderer;
 	Common::SharedPtr<Image> _cockpitShapes;
 	Graphics::ManagedSurface _cockpitBackground;
 	bool _loaded;
 	bool _cockpitBackgroundLoaded;
 	TankVec3 _tankLoc;
+	int16 _tankRotX;
+	int16 _tankRotY;
 	uint16 _tankHeading;
 	float _pitch;
 	int _tankSpeed;
@@ -189,9 +296,16 @@ struct ChinaTank::TankScene {
 	bool _turnRight;
 	bool _gearUpPressed;
 	bool _gearDownPressed;
+	TankGroundInfo _groundInfo;
+	TankSavedState _oldState;
+	int _terrainType;
+	int _oldBaseHeight;
+	bool _inGap;
 
 	TankScene() : _loaded(false),
 		_cockpitBackgroundLoaded(false),
+		_tankRotX(0),
+		_tankRotY(0),
 		_tankHeading(kTankInitialHeading),
 		_pitch(0.0f),
 		_tankSpeed(0),
@@ -200,17 +314,26 @@ struct ChinaTank::TankScene {
 		_turnLeft(false),
 		_turnRight(false),
 		_gearUpPressed(false),
-		_gearDownPressed(false)
+		_gearDownPressed(false),
+		_terrainType(0),
+		_oldBaseHeight(0),
+		_inGap(false)
 	{
 		_tankLoc.x = kTankInitialX;
 		_tankLoc.y = kTankInitialY;
 		_tankLoc.z = kTankInitialZ;
+		_oldState.loc = _tankLoc;
+		_oldState.rotX = _tankRotX;
+		_oldState.rotY = _tankRotY;
+		_oldState.heading = _tankHeading;
+		_oldState.terrainType = _terrainType;
 	}
 
 	bool load(ResourceManager *resource, Decompressor *decompressor) {
 		Common::Array<byte> tbl = readResourceBytes(resource, "tank.tbl");
 		Common::Array<byte> wld = readResourceBytes(resource, "tank.wld");
-		if (tbl.empty() || wld.empty()) {
+		Common::Array<byte> gi = readResourceBytes(resource, "tank.gi");
+		if (tbl.empty() || wld.empty() || gi.empty()) {
 			warning("Could not load tank 3space files");
 			return false;
 		}
@@ -231,6 +354,9 @@ struct ChinaTank::TankScene {
 			if (!loadShape(tbl, i, segment, offset))
 				return false;
 		}
+
+		if (!loadTerrainInfo(gi))
+			return false;
 
 		if (wld.size() % kTankWorldRecordSize) {
 			warning("Tank world file has invalid size %d", (int)wld.size());
@@ -254,6 +380,7 @@ struct ChinaTank::TankScene {
 			_objects.push_back(obj);
 		}
 
+		adjustPlayerTank();
 		_loaded = true;
 		loadCockpit(resource, decompressor);
 		return true;
@@ -342,6 +469,7 @@ struct ChinaTank::TankScene {
 		updateTankSpeed();
 		movePlayerTank();
 		updateFuel();
+		checkTerrainCollision();
 	}
 
 	void updateTankSpeed() {
@@ -362,12 +490,271 @@ struct ChinaTank::TankScene {
 	}
 
 	void movePlayerTank() {
-		if (_tankSpeed == 0)
-			return;
+		savePlayerState();
 
-		const float angle = tankAngleToRadians(_tankHeading);
-		_tankLoc.x += (int32)(-_tankSpeed * sinf(angle));
-		_tankLoc.y += (int32)(_tankSpeed * cosf(angle));
+		if (_tankSpeed != 0) {
+			if (_tankRotX || _tankRotY) {
+				int32 temp = _tankSpeed * -tankTrigCos((uint16)_tankRotX);
+				temp = (temp >> kTankTrigShift) * tankTrigSin(_tankHeading);
+				_tankLoc.x += temp >> kTankTrigShift;
+
+				temp = _tankSpeed * tankTrigCos((uint16)_tankRotX);
+				temp = (temp >> kTankTrigShift) * tankTrigCos(_tankHeading);
+				_tankLoc.y += temp >> kTankTrigShift;
+				_tankLoc.z += (_tankSpeed * tankTrigSin((uint16)_tankRotX)) >> kTankTrigShift;
+			} else if (_tankHeading) {
+				_tankLoc.x += (_tankSpeed * -tankTrigSin(_tankHeading)) >> kTankTrigShift;
+				_tankLoc.y += (_tankSpeed * tankTrigCos(_tankHeading)) >> kTankTrigShift;
+			} else {
+				_tankLoc.y += _tankSpeed;
+			}
+		}
+
+		adjustPlayerTank();
+	}
+
+	void savePlayerState() {
+		_oldState.loc = _tankLoc;
+		_oldState.rotX = _tankRotX;
+		_oldState.rotY = _tankRotY;
+		_oldState.heading = _tankHeading;
+		_oldState.ground = _groundInfo;
+		_oldState.terrainType = _terrainType;
+
+		const TankTerrainPolygonInfo *poly = currentTerrainPolygon();
+		_oldBaseHeight = poly ? poly->baseHeight : 0;
+	}
+
+	void adjustPlayerTank() {
+		_tankLoc.z = kTankCockpitHeight;
+		_tankRotX = 0;
+		_tankRotY = 0;
+
+		TankGroundInfo ground;
+		const bool hasGround = readGroundInfo(ground, _tankLoc);
+		_groundInfo.clear();
+		_terrainType = 0;
+
+		if (hasGround) {
+			_groundInfo = ground;
+			const TankTerrainInfo &terrain = _terrainInfos[ground.terrainShape];
+			_terrainType = terrain.apcode;
+
+			if (terrain.priority == 0) {
+				const TankTerrainPolygonInfo &poly = terrain.polygons[ground.polyNum];
+				byte xang = (byte)((poly.upAng - (byte)(_tankHeading >> 8)) & 0xff);
+				if (xang >= 128)
+					xang = 256 - xang;
+				xang = (byte)((poly.tiltAng * (64 - xang)) >> 6);
+
+				byte yang = (byte)((poly.upAng - (byte)(_tankHeading >> 8) - 64) & 0xff);
+				if (yang >= 128)
+					yang = 256 - yang;
+				yang = (byte)((poly.tiltAng * (64 - yang)) >> 6);
+
+				_tankLoc.z += ground.height;
+				if (terrain.apcode == kTankTerrainRollingHill) {
+					_tankLoc.z += 560;
+					if (ground.polyNum == 1 && poly.upAng == 192)
+						_tankLoc.z += 300;
+				}
+
+				_tankRotX = (int16)((uint16)xang << 8);
+				_tankRotY = (int16)((uint16)yang << 8);
+				return;
+			}
+		}
+
+		_tankLoc.z += kTankGZero;
+	}
+
+	bool readGroundInfo(TankGroundInfo &ground, const TankVec3 &loc) const {
+		if (_groundInfo.isValid()) {
+			const TankTerrainInfo &terrain = _terrainInfos[_groundInfo.terrainShape];
+			if (terrain.priority == 0 && tryGroundObject(_groundInfo.objectIndex, loc, true, ground))
+				return true;
+		}
+
+		ground.clear();
+		bool found = false;
+		byte foundPriority = 0;
+
+		for (uint i = 0; i < _objects.size(); i++) {
+			const TankObject &object = _objects[i];
+			if (object.shape < 0 || object.shape >= (int)_terrainInfos.size())
+				continue;
+
+			const TankTerrainInfo &terrain = _terrainInfos[object.shape];
+			if (!terrain.present || terrain.polygons.empty())
+				continue;
+			if (found && terrain.priority > foundPriority)
+				continue;
+
+			TankGroundInfo candidate;
+			if (!tryGroundObject(i, loc, false, candidate))
+				continue;
+
+			ground = candidate;
+			found = true;
+			foundPriority = terrain.priority;
+			if (terrain.priority == 0)
+				return true;
+		}
+
+		return found;
+	}
+
+	bool tryGroundObject(int objectIndex, const TankVec3 &loc, bool exactPoly, TankGroundInfo &ground) const {
+		if (objectIndex < 0 || objectIndex >= (int)_objects.size())
+			return false;
+
+		const TankObject &object = _objects[objectIndex];
+		if (object.shape < 0 || object.shape >= (int)_terrainInfos.size() || object.shape >= (int)_shapes.size())
+			return false;
+
+		const TankTerrainInfo &terrain = _terrainInfos[object.shape];
+		if (!terrain.present || terrain.polygons.empty())
+			return false;
+
+		const byte scale = _shapes[object.shape].scale;
+		const int32 localX32 = tankArithmeticShiftRight(loc.x - object.loc.x, scale);
+		const int32 localY32 = tankArithmeticShiftRight(loc.y - object.loc.y, scale);
+		if (tankAbs32(localX32) > terrain.horRad || tankAbs32(localY32) > terrain.verRad)
+			return false;
+
+		const int16 localX = (int16)localX32;
+		const int16 localY = (int16)localY32;
+		int polyNum = 0;
+
+		if (!terrain.isRect) {
+			if (exactPoly && _groundInfo.polyNum >= 0 && _groundInfo.polyNum < (int)terrain.polygons.size()) {
+				polyNum = _groundInfo.polyNum;
+				if (!boundTerrainPolygon(terrain.polygons[polyNum], localX, localY))
+					polyNum = -1;
+			} else {
+				polyNum = -1;
+			}
+
+			if (polyNum < 0) {
+				for (uint i = 0; i < terrain.polygons.size(); i++) {
+					if (boundTerrainPolygon(terrain.polygons[i], localX, localY)) {
+						polyNum = i;
+						break;
+					}
+				}
+			}
+
+			if (polyNum < 0)
+				return false;
+		}
+
+		ground.terrainShape = object.shape;
+		ground.objectIndex = objectIndex;
+		ground.polyNum = polyNum;
+		if (terrain.priority == 0) {
+			const int32 localHeight = getTerrainHeightAt(terrain.polygons[polyNum], localX, localY);
+			ground.height = (int32)((int64)localHeight * ((int64)1 << scale)) + object.loc.z;
+		} else {
+			ground.height = 0;
+		}
+		return true;
+	}
+
+	bool boundTerrainPolygon(const TankTerrainPolygonInfo &poly, int16 x, int16 y) const {
+		for (const TankTerrainEdge &edge : poly.edges) {
+			const int64 value = (int64)edge.nys * (y - edge.y1) + (int64)edge.nxs * (x - edge.x1);
+			if (value > 0)
+				return false;
+		}
+		return true;
+	}
+
+	int32 getTerrainHeightAt(const TankTerrainPolygonInfo &poly, int16 x, int16 y) const {
+		int64 workHeight = 0;
+		if (poly.baseEdge.nxs)
+			workHeight += (int64)poly.baseEdge.nxs * (poly.baseEdge.x1 - x);
+		if (poly.baseEdge.nys)
+			workHeight += (int64)poly.baseEdge.nys * (poly.baseEdge.y1 - y);
+
+		int32 height = poly.baseHeight;
+		if (workHeight)
+			height += (int32)tankArithmeticShiftRight64(workHeight * poly.slope, 16);
+		return height;
+	}
+
+	const TankTerrainPolygonInfo *currentTerrainPolygon() const {
+		if (!_groundInfo.isValid())
+			return nullptr;
+		if (_groundInfo.terrainShape < 0 || _groundInfo.terrainShape >= (int)_terrainInfos.size())
+			return nullptr;
+
+		const TankTerrainInfo &terrain = _terrainInfos[_groundInfo.terrainShape];
+		if (_groundInfo.polyNum < 0 || _groundInfo.polyNum >= (int)terrain.polygons.size())
+			return nullptr;
+		return &terrain.polygons[_groundInfo.polyNum];
+	}
+
+	void checkTerrainCollision() {
+		if (_terrainType == kTankTerrainHill || _terrainType == kTankTerrainRiver) {
+			checkForTooSteep();
+		} else if (_terrainType != kTankTerrainRollingHill) {
+			checkGap();
+			checkBushes();
+		}
+	}
+
+	void checkForTooSteep() {
+		const TankTerrainPolygonInfo *poly = currentTerrainPolygon();
+		if (poly && poly->slope > 14)
+			oldPosition();
+	}
+
+	void checkGap() {
+		if ((_tankLoc.y < -330000L) && (_tankLoc.y > -388000L) &&
+				(_tankLoc.x > -344000L)) {
+			if (_tankLoc.x > -164000L) {
+				oldPosition();
+			} else {
+				if (_tankLoc.x < -310000L) {
+					if (_tankLoc.y > -375000L)
+						oldPosition();
+				} else {
+					if (_tankLoc.x < -206000L) {
+						if (_tankLoc.y > -366000L) {
+							oldPosition();
+						} else if (_inGap) {
+							_inGap = false;
+						}
+					} else {
+						_inGap = true;
+						if (_tankLoc.y < -378000L)
+							oldPosition();
+					}
+				}
+			}
+		}
+	}
+
+	void checkBushes() {
+		if ((_tankLoc.y > -110000L) && !_terrainType) {
+			if ((_tankLoc.y < 130000L) || (_tankLoc.x > -320000L))
+				oldPosition();
+		} else if (_terrainType != kTankTerrainField) {
+			if ((_tankLoc.x > 70000L) ||
+					((_tankLoc.y < -565816L) && (_tankLoc.y > -648030L)))
+				oldPosition();
+		}
+	}
+
+	void oldPosition() {
+		_tankSpeed = 0;
+		_gearPosition = kTankGearNeutral;
+		_tankLoc = _oldState.loc;
+		_tankRotX = _oldState.rotX;
+		_tankRotY = _oldState.rotY;
+		_tankHeading = _oldState.heading;
+		_groundInfo = _oldState.ground;
+		_terrainType = _oldState.terrainType;
 	}
 
 	void updateFuel() {
@@ -409,6 +796,85 @@ struct ChinaTank::TankScene {
 			_cockpitShapes.reset();
 			return;
 		}
+	}
+
+	bool loadTerrainInfo(const Common::Array<byte> &gi) {
+		if (gi.size() < kTankShapeCount * 4) {
+			warning("Tank terrain table is too small");
+			return false;
+		}
+
+		_terrainInfos.clear();
+		_terrainInfos.resize(kTankShapeCount);
+
+		for (int i = 0; i < kTankShapeCount; i++) {
+			const uint16 offset = READ_LE_UINT16(&gi[i * 4]);
+			const uint16 segment = READ_LE_UINT16(&gi[i * 4 + 2]);
+			if (!offset && !segment)
+				continue;
+
+			const uint32 pos = tankFarDataOffset(segment, offset);
+			if (!checkRange(gi, pos, 10, "terrain info"))
+				return false;
+
+			TankTerrainInfo info;
+			info.present = true;
+			info.horRad = readSint16(&gi[pos]);
+			info.verRad = readSint16(&gi[pos + 2]);
+			info.isRect = gi[pos + 4];
+			info.priority = gi[pos + 5];
+			info.apcode = gi[pos + 6];
+			const byte numPolys = gi[pos + 7];
+			const uint16 polyOffset = READ_LE_UINT16(&gi[pos + 8]);
+
+			if (numPolys) {
+				const uint32 polyBase = tankFarDataOffset(segment, polyOffset);
+				if (!checkRange(gi, polyBase, numPolys * 16, "terrain polygons"))
+					return false;
+
+				for (int j = 0; j < numPolys; j++) {
+					TankTerrainPolygonInfo poly;
+					const uint32 polyPos = polyBase + j * 16;
+					poly.normalX = readSint16(&gi[polyPos]);
+					poly.normalY = readSint16(&gi[polyPos + 2]);
+					poly.normalZ = readSint16(&gi[polyPos + 4]);
+					poly.slope = gi[polyPos + 6];
+					poly.tiltAng = gi[polyPos + 7];
+					poly.upAng = gi[polyPos + 8];
+					const byte numEdges = gi[polyPos + 9];
+					const uint16 edgeOffset = READ_LE_UINT16(&gi[polyPos + 10]);
+					poly.baseHeight = readSint16(&gi[polyPos + 12]);
+					const uint16 baseEdgeOffset = READ_LE_UINT16(&gi[polyPos + 14]);
+
+					if (numEdges) {
+						const uint32 edgeBase = tankFarDataOffset(segment, edgeOffset);
+						if (!checkRange(gi, edgeBase, numEdges * 8, "terrain edges"))
+							return false;
+						for (int k = 0; k < numEdges; k++)
+							poly.edges.push_back(readTerrainEdge(gi, edgeBase + k * 8));
+					}
+
+					const uint32 baseEdgePos = tankFarDataOffset(segment, baseEdgeOffset);
+					if (!checkRange(gi, baseEdgePos, 8, "terrain base edge"))
+						return false;
+					poly.baseEdge = readTerrainEdge(gi, baseEdgePos);
+					info.polygons.push_back(poly);
+				}
+			}
+
+			_terrainInfos[i] = info;
+		}
+
+		return true;
+	}
+
+	TankTerrainEdge readTerrainEdge(const Common::Array<byte> &gi, uint32 pos) const {
+		TankTerrainEdge edge;
+		edge.nxs = readSint16(&gi[pos]);
+		edge.nys = readSint16(&gi[pos + 2]);
+		edge.x1 = readSint16(&gi[pos + 4]);
+		edge.y1 = readSint16(&gi[pos + 6]);
+		return edge;
 	}
 
 	bool loadShape(const Common::Array<byte> &tbl, int shapeIndex, uint16 segment, uint16 offset) {
@@ -613,6 +1079,10 @@ struct ChinaTank::TankScene {
 		);
 	}
 
+	Math::Vector3d cullingCameraPosition() const {
+		return cameraPosition();
+	}
+
 	void drawCockpitBackground(Graphics::ManagedSurface &dst) {
 		if (_cockpitBackgroundLoaded) {
 			dst.blitFrom(_cockpitBackground);
@@ -702,7 +1172,7 @@ struct ChinaTank::TankScene {
 			object.loc.z * kTankWorldScale,
 			object.loc.y * kTankWorldScale
 		);
-		const Math::Vector3d view = cameraPosition() - objectCenter;
+		const Math::Vector3d view = cullingCameraPosition() - objectCenter;
 		return Math::Vector3d::dotProduct(normal, view) > 0.0f;
 	}
 

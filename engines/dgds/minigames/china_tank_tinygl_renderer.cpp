@@ -41,7 +41,7 @@ namespace Dgds {
 
 namespace {
 
-const bool kTankFlipTinyGLCopyY = true;
+const bool kTankFlipTinyGLCopyY = false;
 
 } // End of anonymous namespace
 
@@ -131,6 +131,9 @@ void ChinaTankTinyGLRenderer::updateProjectionMatrix(const Common::Rect &viewpor
 	tglMatrixMode(TGL_PROJECTION);
 	tglLoadIdentity();
 	tglFrustum(-xmax, xmax, -ymax, ymax, nearClip, farClip);
+	// TinyGL's render target is bottom-left oriented. Flip the projection once
+	// here so the copy path can stay a straight viewport blit.
+	tglScalef(-1.0f, 1.0f, 1.0f);
 #endif
 }
 
