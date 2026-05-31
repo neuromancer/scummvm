@@ -45,6 +45,8 @@ namespace {
 
 const int kTankShapeCount = 77;
 const int kTankShapeTank = 74;
+const int kTankShapeTruck = 75;
+const int kTankShapeTankHulk = 76;
 const int kTankWorldRecordSize = 20;
 const int kTankViewLeft = 64;
 const int kTankViewTop = 21;
@@ -68,6 +70,10 @@ const uint16 kTankInitialHeading = 0x4400;
 const char *const kTankCockpitScreen = "ftank3s.scr";
 const char *const kTankDevCockpitScreen = "tankcp.scr";
 const char *const kTankCockpitShapes = "cpit.bmp";
+const char *const kTankExplosionShapes = "exp.bmp";
+const int kTankExplosionFrameCount = 12;
+const int kTankFallingExplosionStartY = 210;
+const int kTankFallingExplosionY = 204;
 const float kTankWorldScale = 1.0f / 1000.0f;
 const float kTankMouseSensitivity = 0.006f;
 const float kTankMaxPitch = 1.45f;
@@ -97,6 +103,26 @@ enum TankGearPosition {
 	kTankGearNeutral = 0,
 	kTankGearLow = 1,
 	kTankGearHigh = 2
+};
+
+enum TankDynamicObjectIndex {
+	kTankDynamicMyTank = 0,
+	kTankDynamicAmbushTank = 1,
+	kTankDynamicTrickyTank = 2,
+	kTankDynamicCowTank = 3,
+	kTankDynamicFastTruck = 4,
+	kTankDynamicMobileObject = 5,
+	kTankDynamicCount = 6
+};
+
+enum TankDynamicJob {
+	kTankJobAttack = 0,
+	kTankJobCliffBoom = 1,
+	kTankJobBoom = 2,
+	kTankJobTipOver = 3,
+	kTankJobFalling = 4,
+	kTankJobAmbush = 5,
+	kTankJobFiring = 6
 };
 
 int16 readSint16(const byte *data) {
@@ -203,6 +229,51 @@ struct TankObject {
 	TankVec3 loc;
 };
 
+struct TankProjection {
+	bool valid;
+	bool onScreen;
+	int x;
+	int y;
+	int size;
+	float depth;
+
+	TankProjection() : valid(false), onScreen(false), x(0), y(0), size(0), depth(0.0f) {}
+};
+
+struct TankDynamicObject {
+	TankObject object;
+	bool visible;
+	bool target;
+	int job;
+	int jobWork;
+	TankProjection projection;
+
+	TankDynamicObject() : visible(false), target(true), job(kTankJobAttack), jobWork(0) {
+		object.shape = 0;
+		object.rotX = 0;
+		object.rotY = 0;
+		object.rotZ = 0;
+		object.loc.x = 0;
+		object.loc.y = 0;
+		object.loc.z = 0;
+	}
+};
+
+struct TankDynamicInit {
+	int16 shape;
+	TankVec3 loc;
+	uint16 heading;
+};
+
+const TankDynamicInit kTankDynamicInitialObjects[kTankDynamicCount] = {
+	{ kTankShapeTank,  {   9412,  -60783, 23400 + kTankGZero }, 0x4400 },
+	{ kTankShapeTank,  {  12921,  -79136, 12812 + kTankGZero }, 0x4400 },
+	{ kTankShapeTank,  {  24786,  -59794, 26100 + kTankGZero }, 0x4400 },
+	{ kTankShapeTank,  {-363000, -340000, kTankCockpitHeight + kTankGZero }, 0x9400 },
+	{ kTankShapeTruck, {-334065, -390198,     0 + kTankGZero }, 0x94a0 },
+	{ kTankShapeTank,  {      0,       0,     0 + kTankGZero }, 0x0000 }
+};
+
 struct TankTerrainEdge {
 	int16 nxs;
 	int16 nys;
@@ -286,9 +357,11 @@ Common::Array<byte> readResourceBytes(ResourceManager *resource, const Common::S
 struct ChinaTank::TankScene {
 	Common::Array<TankShape> _shapes;
 	Common::Array<TankObject> _objects;
+	Common::Array<TankDynamicObject> _dynamicObjects;
 	Common::Array<TankTerrainInfo> _terrainInfos;
 	ChinaTankTinyGLRenderer _renderer;
 	Common::SharedPtr<Image> _cockpitShapes;
+	Common::SharedPtr<Image> _explosionShapes;
 	Graphics::ManagedSurface _cockpitBackground;
 	bool _loaded;
 	bool _cockpitBackgroundLoaded;
@@ -408,10 +481,45 @@ struct ChinaTank::TankScene {
 			_objects.push_back(obj);
 		}
 
+		initDynamicObjects();
 		adjustPlayerTank();
 		_loaded = true;
 		loadCockpit(resource, decompressor);
 		return true;
+	}
+
+	void initDynamicObjects() {
+		_dynamicObjects.clear();
+		_dynamicObjects.resize(kTankDynamicCount);
+
+		for (int i = 0; i < kTankDynamicCount; i++) {
+			TankDynamicObject &object = _dynamicObjects[i];
+			object.object.shape = kTankDynamicInitialObjects[i].shape;
+			object.object.rotX = 0;
+			object.object.rotY = 0;
+			object.object.rotZ = tankWrapSint16(kTankDynamicInitialObjects[i].heading);
+			object.object.loc = kTankDynamicInitialObjects[i].loc;
+			object.visible = false;
+			object.target = true;
+			object.job = kTankJobAttack;
+			object.jobWork = 0;
+			object.projection = TankProjection();
+		}
+
+		_dynamicObjects[kTankDynamicMyTank].visible = true;
+		_dynamicObjects[kTankDynamicTrickyTank].visible = true;
+		_dynamicObjects[kTankDynamicMobileObject].target = false;
+		_dynamicObjects[kTankDynamicAmbushTank].job = kTankJobAmbush;
+	}
+
+	void startDynamicJob(TankDynamicObjectIndex index, int job, int jobWork) {
+		if (_dynamicObjects.size() <= (uint)index)
+			return;
+
+		TankDynamicObject &object = _dynamicObjects[index];
+		object.visible = true;
+		object.job = job;
+		object.jobWork = jobWork;
 	}
 
 	void turnCamera(int dx, int dy) {
@@ -770,6 +878,7 @@ struct ChinaTank::TankScene {
 		_falling = true;
 		_tankDone = false;
 		_intoWater = _terrainType == kTankTerrainRiver;
+		startDynamicJob(kTankDynamicMyTank, kTankJobFalling, 0);
 
 		if (_intoWater) {
 			_fallDeltaRotX = 0x1000;
@@ -892,14 +1001,30 @@ struct ChinaTank::TankScene {
 			_cockpitBackgroundLoaded = true;
 		}
 
-		if (!hasCockpitShapes)
+		if (hasCockpitShapes) {
+			_cockpitShapes.reset(new Image(resource, decompressor));
+			_cockpitShapes->loadBitmap(kTankCockpitShapes);
+			if (_cockpitShapes->loadedFrameCount() < 4) {
+				warning("Tank cockpit expected at least 4 %s frames, got %d", kTankCockpitShapes, _cockpitShapes->loadedFrameCount());
+				_cockpitShapes.reset();
+			}
+		}
+
+		loadExplosionShapes(resource, decompressor);
+	}
+
+	void loadExplosionShapes(ResourceManager *resource, Decompressor *decompressor) {
+		if (!resource->hasResource(kTankExplosionShapes)) {
+			warning("Tank explosion UI resource missing: %s", kTankExplosionShapes);
 			return;
-		_cockpitShapes.reset(new Image(resource, decompressor));
-		_cockpitShapes->loadBitmap(kTankCockpitShapes);
-		if (_cockpitShapes->loadedFrameCount() < 4) {
-			warning("Tank cockpit expected at least 4 %s frames, got %d", kTankCockpitShapes, _cockpitShapes->loadedFrameCount());
-			_cockpitShapes.reset();
-			return;
+		}
+
+		_explosionShapes.reset(new Image(resource, decompressor));
+		_explosionShapes->loadBitmap(kTankExplosionShapes);
+		if (_explosionShapes->loadedFrameCount() < kTankExplosionFrameCount) {
+			warning("Tank explosion expected at least %d %s frames, got %d", kTankExplosionFrameCount,
+					kTankExplosionShapes, _explosionShapes->loadedFrameCount());
+			_explosionShapes.reset();
 		}
 	}
 
@@ -1140,6 +1265,7 @@ struct ChinaTank::TankScene {
 			return;
 
 		updatePlayerMovement();
+		syncPlayerDynamicObject();
 
 		const bool externalCamera = useExternalCamera();
 		const Common::Rect viewport = activeViewport();
@@ -1149,12 +1275,23 @@ struct ChinaTank::TankScene {
 
 		for (const TankObject &object : _objects)
 			renderObject(object, palette);
-		if (externalCamera)
-			renderObject(playerTankObject(), palette);
+		for (uint i = 0; i < _dynamicObjects.size(); i++)
+			renderDynamicObject(i, externalCamera, viewport, palette);
 
 		_renderer.endFrame(dst, viewport, palette);
+		drawDynamicObjectOverlays(dst, viewport);
 		if (!externalCamera)
 			drawCockpit(dst);
+	}
+
+	void syncPlayerDynamicObject() {
+		if (_dynamicObjects.size() <= kTankDynamicMyTank)
+			return;
+
+		TankDynamicObject &player = _dynamicObjects[kTankDynamicMyTank];
+		const int16 shape = player.object.shape == kTankShapeTankHulk ? kTankShapeTankHulk : kTankShapeTank;
+		player.object = playerTankObject();
+		player.object.shape = shape;
 	}
 
 	TankObject playerTankObject() const {
@@ -1165,6 +1302,27 @@ struct ChinaTank::TankScene {
 		object.rotZ = tankWrapSint16((int32)_tankHeading);
 		object.loc = _tankLoc;
 		return object;
+	}
+
+	void renderDynamicObject(uint index, bool externalCamera, const Common::Rect &viewport, const DgdsPal &palette) {
+		TankDynamicObject &dynamicObject = _dynamicObjects[index];
+		dynamicObject.projection = TankProjection();
+		if (!shouldRenderDynamicObject(index, externalCamera))
+			return;
+
+		dynamicObject.projection = projectObject(dynamicObject.object, viewport);
+		renderObject(dynamicObject.object, palette);
+	}
+
+	bool shouldRenderDynamicObject(uint index, bool externalCamera) const {
+		const TankDynamicObject &dynamicObject = _dynamicObjects[index];
+		if (!dynamicObject.visible)
+			return false;
+		if (index == kTankDynamicMyTank && !externalCamera)
+			return false;
+		if (index == kTankDynamicMobileObject && externalCamera)
+			return false;
+		return true;
 	}
 
 	void renderObject(const TankObject &object, const DgdsPal &palette) {
@@ -1230,6 +1388,115 @@ struct ChinaTank::TankScene {
 		if (useExternalCamera())
 			return Common::Rect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
 		return getTankViewport();
+	}
+
+	TankProjection projectObject(const TankObject &object, const Common::Rect &viewport) const {
+		TankProjection projection;
+		if (object.shape < 0 || object.shape >= (int)_shapes.size())
+			return projection;
+
+		const TankShape &shape = _shapes[object.shape];
+		const int32 scaledRadius = (int32)shape.radius * ((int32)1 << shape.scale);
+		return projectPoint(object.loc, scaledRadius, viewport);
+	}
+
+	TankProjection projectPoint(const TankVec3 &loc, int32 radius, const Common::Rect &viewport) const {
+		TankProjection projection;
+		const Math::Vector3d camera = cameraPosition();
+		const Math::Vector3d interest = cameraInterest();
+		Math::Vector3d forward = interest - camera;
+		if (forward.getMagnitude() <= 0.0001f)
+			return projection;
+		forward.normalize();
+
+		Math::Vector3d worldUp(0.0f, 1.0f, 0.0f);
+		if (fabsf(Math::Vector3d::dotProduct(forward, worldUp)) > 0.98f)
+			worldUp = Math::Vector3d(0.0f, 0.0f, 1.0f);
+
+		Math::Vector3d right = Math::Vector3d::crossProduct(worldUp, forward);
+		if (right.getMagnitude() <= 0.0001f)
+			return projection;
+		right.normalize();
+		Math::Vector3d up = Math::Vector3d::crossProduct(forward, right);
+		up.normalize();
+
+		const Math::Vector3d rel = tankPointToTinyGL(loc) - camera;
+		const float depth = Math::Vector3d::dotProduct(rel, forward);
+		if (depth <= 0.10f)
+			return projection;
+
+		const float camX = Math::Vector3d::dotProduct(rel, right);
+		const float camY = Math::Vector3d::dotProduct(rel, up);
+		const float tanY = tanf((float)(70.0 * M_PI / 360.0));
+		const float aspect = (float)viewport.width() / (float)viewport.height();
+		const float tanX = tanY * aspect;
+		const float ndcX = camX / (depth * tanX);
+		const float ndcY = camY / (depth * tanY);
+
+		projection.valid = true;
+		projection.depth = depth;
+		projection.x = viewport.left + viewport.width() / 2 - (int)(ndcX * viewport.width() * 0.5f);
+		projection.y = viewport.top + viewport.height() / 2 - (int)(ndcY * viewport.height() * 0.5f);
+		projection.size = MAX(1, (int)((float)tankAbs32(radius) * kTankWorldScale / (depth * tanY) * viewport.height() * 0.5f));
+		projection.onScreen = projection.x >= viewport.left && projection.x <= viewport.right &&
+				projection.y >= viewport.top && projection.y <= viewport.bottom;
+		return projection;
+	}
+
+	void drawDynamicObjectOverlays(Graphics::ManagedSurface &dst, const Common::Rect &viewport) {
+		for (uint i = 0; i < _dynamicObjects.size(); i++) {
+			TankDynamicObject &dynamicObject = _dynamicObjects[i];
+			if (!dynamicObject.visible || !dynamicObject.projection.valid)
+				continue;
+
+			if (dynamicObject.object.shape == kTankShapeTruck)
+				afterTruck(dynamicObject, dst, viewport);
+			else
+				afterTank(i, dynamicObject, dst, viewport);
+		}
+	}
+
+	void afterTank(uint index, TankDynamicObject &dynamicObject, Graphics::ManagedSurface &dst, const Common::Rect &viewport) {
+		const int workVal = dynamicObject.jobWork;
+		if (dynamicObject.job == kTankJobFalling && !workVal && dynamicObject.projection.y > kTankFallingExplosionStartY) {
+			dynamicObject.jobWork = 1;
+			dynamicObject.target = false;
+			dynamicObject.projection.y = kTankFallingExplosionY;
+		}
+
+		if (dynamicObject.job == kTankJobFiring && workVal <= 6)
+			drawExplosionFrame(dst, viewport, workVal + 5, dynamicObject.projection.x, dynamicObject.projection.y, true);
+
+		if (workVal >= 6 && workVal <= 11 &&
+				(dynamicObject.job == kTankJobBoom || dynamicObject.job == kTankJobCliffBoom || dynamicObject.job == kTankJobFalling)) {
+			drawExplosionFrame(dst, viewport, workVal - 6, dynamicObject.projection.x, dynamicObject.projection.y, false);
+			if (workVal == 9)
+				dynamicObject.object.shape = kTankShapeTankHulk;
+		}
+
+		if (workVal == 11 && index == kTankDynamicMyTank)
+			_tankDone = true;
+		if (workVal)
+			dynamicObject.jobWork++;
+	}
+
+	void afterTruck(TankDynamicObject &dynamicObject, Graphics::ManagedSurface &dst, const Common::Rect &viewport) {
+		const int workVal = dynamicObject.jobWork;
+		if (dynamicObject.job == kTankJobTipOver && workVal >= 6 && workVal <= 11)
+			drawExplosionFrame(dst, viewport, workVal - 6, dynamicObject.projection.x, dynamicObject.projection.y, false);
+		if (workVal)
+			dynamicObject.jobWork++;
+	}
+
+	void drawExplosionFrame(Graphics::ManagedSurface &dst, const Common::Rect &viewport, int frame, int x, int y, bool centered) const {
+		if (!_explosionShapes || frame < 0 || frame >= _explosionShapes->loadedFrameCount())
+			return;
+
+		const int frameWidth = _explosionShapes->width(frame);
+		const int frameHeight = _explosionShapes->height(frame);
+		const int drawX = x - (frameWidth >> 1);
+		const int drawY = centered ? y - (frameHeight >> 1) : y - frameHeight;
+		_explosionShapes->drawBitmap(frame, drawX, drawY, viewport, dst);
 	}
 
 	void drawCockpitBackground(Graphics::ManagedSurface &dst) {
