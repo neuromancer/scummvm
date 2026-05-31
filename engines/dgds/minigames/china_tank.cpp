@@ -59,6 +59,12 @@ enum TankCellTag {
 	kTankCellCenteredBitmap = 3
 };
 
+enum TankPolygonVisibility {
+	kTankPolygonAlways = 0,
+	kTankPolygonNormal = 1,
+	kTankPolygonNever = 2
+};
+
 int16 readSint16(const byte *data) {
 	return (int16)READ_LE_UINT16(data);
 }
@@ -367,6 +373,10 @@ struct ChinaTank::TankScene {
 			poly.flags = tbl[polyPos];
 			poly.color = tbl[polyPos + 2];
 			poly.normal = tbl[polyPos + 5];
+			if ((poly.flags & 0x03) == kTankPolygonNormal && poly.normal >= part.points.size()) {
+				warning("Tank polygon references normal %d outside %d points", poly.normal, (int)part.points.size());
+				return false;
+			}
 
 			uint16 vlistOffset = READ_LE_UINT16(&tbl[polyPos + 6]);
 			uint32 vlistPos = base + vlistOffset;
@@ -434,6 +444,9 @@ struct ChinaTank::TankScene {
 
 		for (const TankPart &part : shape.parts) {
 			for (const TankPolygon &polygon : part.polygons) {
+				if (!isPolygonVisible(part, polygon, object, shape.scale))
+					continue;
+
 				Common::Array<Math::Vector3d> vertices;
 				for (byte vertexIndex : polygon.vertices) {
 					const TankVec3 &point = part.points[vertexIndex];
@@ -457,7 +470,29 @@ struct ChinaTank::TankScene {
 		);
 	}
 
-	Math::Vector3d transformPoint(const TankVec3 &point, const TankObject &object, byte scale) const {
+	bool isPolygonVisible(const TankPart &part, const TankPolygon &polygon, const TankObject &object, byte scale) const {
+		switch (polygon.flags & 0x03) {
+		case kTankPolygonAlways:
+			return true;
+		case kTankPolygonNever:
+			return false;
+		case kTankPolygonNormal:
+			break;
+		default:
+			return true;
+		}
+
+		const Math::Vector3d normal = transformVector(part.points[polygon.normal], object, scale);
+		const Math::Vector3d objectCenter(
+			object.loc.x * kTankWorldScale,
+			object.loc.z * kTankWorldScale,
+			object.loc.y * kTankWorldScale
+		);
+		const Math::Vector3d view = cameraPosition() - objectCenter;
+		return Math::Vector3d::dotProduct(normal, view) > 0.0f;
+	}
+
+	Math::Vector3d transformVector(const TankVec3 &point, const TankObject &object, byte scale) const {
 		const float shapeScale = (float)(1 << scale);
 		float x = (float)point.x * shapeScale;
 		float y = (float)point.y * shapeScale;
@@ -495,9 +530,18 @@ struct ChinaTank::TankScene {
 
 		// TinyGL uses Y as the vertical axis here. The original tank data uses Z.
 		return Math::Vector3d(
-			(object.loc.x + x) * kTankWorldScale,
-			(object.loc.z + z) * kTankWorldScale,
-			(object.loc.y + y) * kTankWorldScale
+			x * kTankWorldScale,
+			z * kTankWorldScale,
+			y * kTankWorldScale
+		);
+	}
+
+	Math::Vector3d transformPoint(const TankVec3 &point, const TankObject &object, byte scale) const {
+		const Math::Vector3d vector = transformVector(point, object, scale);
+		return Math::Vector3d(
+			object.loc.x * kTankWorldScale + vector.x(),
+			object.loc.z * kTankWorldScale + vector.y(),
+			object.loc.y * kTankWorldScale + vector.z()
 		);
 	}
 };
