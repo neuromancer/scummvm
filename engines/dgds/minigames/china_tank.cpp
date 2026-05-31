@@ -44,6 +44,12 @@ namespace Dgds {
 namespace {
 
 const int kTankShapeCount = 77;
+const int kTankShapeBush = 2;
+const int kTankShapeBush1 = 3;
+const int kTankShapeBush2 = 70;
+const int kTankShapeBush3 = 71;
+const int kTankShapeBush4 = 72;
+const int kTankShapeBush5 = 73;
 const int kTankShapeTank = 74;
 const int kTankShapeTruck = 75;
 const int kTankShapeTankHulk = 76;
@@ -71,9 +77,12 @@ const char *const kTankCockpitScreen = "ftank3s.scr";
 const char *const kTankDevCockpitScreen = "tankcp.scr";
 const char *const kTankCockpitShapes = "cpit.bmp";
 const char *const kTankExplosionShapes = "exp.bmp";
+const char *const kTankBushShapes = "tankbush.bmp";
 const int kTankExplosionFrameCount = 12;
 const int kTankFallingExplosionStartY = 210;
 const int kTankFallingExplosionY = 204;
+const int kTankBushZOffset = 800;
+const int kTankBushMaxHeight = 212;
 const byte kTankPolygonFill = 0x80;
 const float kTankWorldScale = 1.0f / 1000.0f;
 const float kTankMouseSensitivity = 0.006f;
@@ -368,7 +377,9 @@ struct ChinaTank::TankScene {
 	ChinaTankTinyGLRenderer _renderer;
 	Common::SharedPtr<Image> _cockpitShapes;
 	Common::SharedPtr<Image> _explosionShapes;
+	Common::SharedPtr<Image> _bushShapes;
 	Graphics::ManagedSurface _cockpitBackground;
+	Graphics::ManagedSurface _bushTextureSurface;
 	bool _loaded;
 	bool _cockpitBackgroundLoaded;
 	TankVec3 _tankLoc;
@@ -1024,6 +1035,7 @@ struct ChinaTank::TankScene {
 		}
 
 		loadExplosionShapes(resource, decompressor);
+		loadBushShapes(resource, decompressor);
 	}
 
 	void loadExplosionShapes(ResourceManager *resource, Decompressor *decompressor) {
@@ -1038,6 +1050,20 @@ struct ChinaTank::TankScene {
 			warning("Tank explosion expected at least %d %s frames, got %d", kTankExplosionFrameCount,
 					kTankExplosionShapes, _explosionShapes->loadedFrameCount());
 			_explosionShapes.reset();
+		}
+	}
+
+	void loadBushShapes(ResourceManager *resource, Decompressor *decompressor) {
+		if (!resource->hasResource(kTankBushShapes)) {
+			warning("Tank bush sprite resource missing: %s", kTankBushShapes);
+			return;
+		}
+
+		_bushShapes.reset(new Image(resource, decompressor));
+		_bushShapes->loadBitmap(kTankBushShapes);
+		if (_bushShapes->loadedFrameCount() < 1) {
+			warning("Tank bush sprite expected at least one %s frame", kTankBushShapes);
+			_bushShapes.reset();
 		}
 	}
 
@@ -1291,6 +1317,7 @@ struct ChinaTank::TankScene {
 			renderObject(object, palette);
 		for (uint i = 0; i < _dynamicObjects.size(); i++)
 			renderDynamicObject(i, externalCamera, viewport, palette);
+		drawBushBillboards(palette, viewport);
 
 		_renderer.endFrame(dst, viewport, palette);
 		drawDynamicObjectOverlays(dst, viewport);
@@ -1458,6 +1485,86 @@ struct ChinaTank::TankScene {
 		projection.onScreen = projection.x >= viewport.left && projection.x <= viewport.right &&
 				projection.y >= viewport.top && projection.y <= viewport.bottom;
 		return projection;
+	}
+
+	void drawBushBillboards(const DgdsPal &palette, const Common::Rect &viewport) {
+		if (!prepareBushTexture(palette))
+			return;
+
+		Common::Array<ChinaTankBillboard> billboards;
+		for (const TankObject &object : _objects) {
+			if (!isBushShape(object.shape))
+				continue;
+
+			ChinaTankBillboard billboard;
+			if (makeBushBillboard(object, viewport, billboard))
+				billboards.push_back(billboard);
+		}
+
+		if (!billboards.empty())
+			_renderer.drawBillboards(billboards, _bushTextureSurface.rawSurface());
+	}
+
+	bool prepareBushTexture(const DgdsPal &palette) {
+		if (!_bushShapes || !_bushShapes->isLoaded())
+			return false;
+
+		const Common::SharedPtr<Graphics::ManagedSurface> src = _bushShapes->getSurface(0);
+		if (!src || src->empty())
+			return false;
+
+		const Graphics::PixelFormat rgba = Graphics::PixelFormat::createFormatRGBA32();
+		if (_bushTextureSurface.empty() || _bushTextureSurface.w != src->w ||
+				_bushTextureSurface.h != src->h || _bushTextureSurface.format != rgba)
+			_bushTextureSurface.create(src->w, src->h, rgba);
+
+		for (int y = 0; y < src->h; y++) {
+			const byte *srcRow = (const byte *)src->getBasePtr(0, y);
+			uint32 *dstRow = (uint32 *)_bushTextureSurface.getBasePtr(0, y);
+			for (int x = 0; x < src->w; x++) {
+				const byte color = srcRow[x];
+				if (!color) {
+					dstRow[x] = rgba.ARGBToColor(0, 0, 0, 0);
+					continue;
+				}
+
+				byte r, g, b;
+				palette.get(color, r, g, b);
+				dstRow[x] = rgba.ARGBToColor(255, r, g, b);
+			}
+		}
+
+		return true;
+	}
+
+	bool makeBushBillboard(const TankObject &object, const Common::Rect &viewport, ChinaTankBillboard &billboard) const {
+		TankObject bushObject = object;
+		bushObject.loc.z -= kTankBushZOffset;
+
+		const TankProjection projection = projectObject(bushObject, viewport);
+		if (!projection.valid)
+			return false;
+
+		int drawHeight = projection.size << 1;
+		if (drawHeight > kTankBushMaxHeight)
+			drawHeight = kTankBushMaxHeight;
+		if (drawHeight <= 0)
+			return false;
+
+		const int halfWidth = drawHeight + (drawHeight >> 2);
+		const float tanY = tanf((float)(70.0 * M_PI / 360.0));
+		const float worldUnitsPerPixel = projection.depth * tanY * 2.0f / (float)viewport.height();
+		billboard.position = tankPointToTinyGL(bushObject.loc);
+		billboard.width = (float)((halfWidth << 1) + 4) * worldUnitsPerPixel;
+		billboard.height = (float)(drawHeight + 1) * worldUnitsPerPixel;
+
+		return billboard.width > 0.0f && billboard.height > 0.0f;
+	}
+
+	bool isBushShape(int16 shape) const {
+		return shape == kTankShapeBush || shape == kTankShapeBush1 ||
+				shape == kTankShapeBush2 || shape == kTankShapeBush3 ||
+				shape == kTankShapeBush4 || shape == kTankShapeBush5;
 	}
 
 	void drawDynamicObjectOverlays(Graphics::ManagedSurface &dst, const Common::Rect &viewport) {

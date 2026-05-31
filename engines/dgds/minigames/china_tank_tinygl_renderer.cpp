@@ -26,6 +26,7 @@
 
 #include "graphics/managed_surface.h"
 #include "graphics/pixelformat.h"
+#include "graphics/surface.h"
 
 #include "dgds/dgds.h"
 #include "dgds/game_palettes.h"
@@ -106,6 +107,41 @@ void ChinaTankTinyGLRenderer::drawPolyline(const Common::Array<Math::Vector3d> &
 #endif
 }
 
+void ChinaTankTinyGLRenderer::drawBillboards(const Common::Array<ChinaTankBillboard> &billboards, const Graphics::Surface &texture) {
+#if defined(USE_TINYGL)
+	if (billboards.empty() || !texture.getPixels())
+		return;
+	if (texture.format != Graphics::PixelFormat::createFormatRGBA32()) {
+		warning("Tank tinygl billboard expected an RGBA32 texture");
+		return;
+	}
+
+	TGLuint textureId = 0;
+	tglGenTextures(1, &textureId);
+	tglBindTexture(TGL_TEXTURE_2D, textureId);
+	tglTexImage2D(TGL_TEXTURE_2D, 0, TGL_RGBA, texture.w, texture.h, 0, TGL_RGBA, TGL_UNSIGNED_BYTE, texture.getPixels());
+	tglTexParameteri(TGL_TEXTURE_2D, TGL_TEXTURE_MIN_FILTER, TGL_NEAREST);
+	tglTexParameteri(TGL_TEXTURE_2D, TGL_TEXTURE_MAG_FILTER, TGL_NEAREST);
+	tglTexParameteri(TGL_TEXTURE_2D, TGL_TEXTURE_WRAP_S, TGL_CLAMP_TO_EDGE);
+	tglTexParameteri(TGL_TEXTURE_2D, TGL_TEXTURE_WRAP_T, TGL_CLAMP_TO_EDGE);
+
+	tglEnable(TGL_TEXTURE_2D);
+	tglTexEnvi(TGL_TEXTURE_ENV, TGL_TEXTURE_ENV_MODE, TGL_REPLACE);
+	tglEnable(TGL_ALPHA_TEST);
+	tglAlphaFunc(TGL_GREATER, 0.0f);
+	tglColor4ub(255, 255, 255, 255);
+
+	for (const ChinaTankBillboard &billboard : billboards)
+		drawBillboardGeometry(billboard);
+
+	tglDisable(TGL_ALPHA_TEST);
+	tglTexEnvi(TGL_TEXTURE_ENV, TGL_TEXTURE_ENV_MODE, TGL_MODULATE);
+	tglBindTexture(TGL_TEXTURE_2D, 0);
+	tglDisable(TGL_TEXTURE_2D);
+	tglDeleteTextures(1, &textureId);
+#endif
+}
+
 void ChinaTankTinyGLRenderer::endFrame(Graphics::ManagedSurface &dst, const Common::Rect &viewport, const DgdsPal &palette) {
 #if defined(USE_TINYGL)
 	copyTinyGLToSurface(dst, viewport, palette);
@@ -170,6 +206,35 @@ void ChinaTankTinyGLRenderer::positionCamera(const Math::Vector3d &camera, const
 	Math::Matrix4 lookMatrix = Math::makeLookAtMatrix(camera, interest, Math::Vector3d(0.0f, 1.0f, 0.0f));
 	tglMultMatrixf(lookMatrix.getData());
 	tglTranslatef(-camera.x(), -camera.y(), -camera.z());
+#endif
+}
+
+void ChinaTankTinyGLRenderer::drawBillboardGeometry(const ChinaTankBillboard &billboard) {
+#if defined(USE_TINYGL)
+	if (billboard.width <= 0.0f || billboard.height <= 0.0f)
+		return;
+
+	tglMatrixMode(TGL_MODELVIEW);
+	tglPushMatrix();
+	tglTranslatef(billboard.position.x(), billboard.position.y(), billboard.position.z());
+
+	TGLfloat modelView[16];
+	tglGetFloatv(TGL_MODELVIEW_MATRIX, modelView);
+	for (int i = 0; i < 3; i++) {
+		for (int j = 0; j < 3; j++)
+			modelView[i * 4 + j] = (i == j) ? 1.0f : 0.0f;
+	}
+	tglLoadMatrixf(modelView);
+
+	const float halfWidth = billboard.width * 0.5f;
+	tglBegin(TGL_QUADS);
+		tglTexCoord2f(0.0f, 1.0f); tglVertex3f(-halfWidth, 0.0f, 0.0f);
+		tglTexCoord2f(1.0f, 1.0f); tglVertex3f( halfWidth, 0.0f, 0.0f);
+		tglTexCoord2f(1.0f, 0.0f); tglVertex3f( halfWidth, billboard.height, 0.0f);
+		tglTexCoord2f(0.0f, 0.0f); tglVertex3f(-halfWidth, billboard.height, 0.0f);
+	tglEnd();
+
+	tglPopMatrix();
 #endif
 }
 
