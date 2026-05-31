@@ -295,6 +295,7 @@ private:
 	void init(bool restarting);
 	void loadGameFiles();
 	void loadRestartFile();
+	Common::Error runChinaTankTestMode();
 	void pumpMessages();
 };
 

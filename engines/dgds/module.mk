@@ -30,6 +30,7 @@ MODULE_OBJS := \
 	sound_raw.o \
 	ttm.o \
 	minigames/china_tank.o \
+	minigames/china_tank_tinygl_renderer.o \
 	minigames/china_train.o \
 	minigames/dragon_arcade.o \
 	minigames/dragon_arcade_ttm.o \

@@ -22,19 +22,30 @@
 #ifndef DGDS_MINIGAMES_CHINA_TANK_H
 #define DGDS_MINIGAMES_CHINA_TANK_H
 
+#include "common/keyboard.h"
+
 namespace Dgds {
 
 /** Tank mini-game for Heart of China */
 class ChinaTank {
 public:
 	ChinaTank();
+	~ChinaTank();
 
 	void init();
 	void tick();
 	void end();
+	void onMouseMove(int x, int y);
+	void onKeyDown(const Common::KeyState &kbd);
+	void onKeyUp(const Common::KeyState &kbd);
 
 private:
-	// TODO add private members
+	struct TankScene;
+
+	TankScene *_tankScene;
+	bool _initialized;
+	bool _loadFailed;
+	int _oldPalette;
 
 };
 

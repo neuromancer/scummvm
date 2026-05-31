@@ -71,6 +71,12 @@
 
 namespace Dgds {
 
+namespace {
+
+const bool kDgdsForceHocTankTestMode = true;
+
+} // End of anonymous namespace
+
 /*static*/
 const byte DgdsEngine::HOC_CHAR_SWAP_ICONS[] = { 0, 20, 21, 22 };
 
@@ -477,7 +483,8 @@ void DgdsEngine::loadGameFiles() {
 		error("Unsupported game type in loadGameFiles");
 	}
 
-	_gdsScene->runStartGameOps();
+	if (!(getGameId() == GID_HOC && kDgdsForceHocTankTestMode))
+		_gdsScene->runStartGameOps();
 	loadIcons();
 	_gdsScene->initIconSizes();
 	setMouseCursor(kDgdsMouseGameDefault);
@@ -617,11 +624,93 @@ void DgdsEngine::updateThisFrameMillis() {
 	_thisFrameMs = getTotalPlayTime();
 }
 
+Common::Error DgdsEngine::runChinaTankTestMode() {
+	warning("DGDS: forcing Heart of China tank minigame test mode");
+
+	_isLoading = false;
+	CursorMan.showMouse(false);
+
+	const Common::Rect screenRect(SCREEN_WIDTH, SCREEN_HEIGHT);
+	_backgroundBuffer.fillRect(screenRect, 0);
+	_storedAreaBuffer.fillRect(screenRect, 0);
+	_compositionBuffer.fillRect(screenRect, 0);
+
+	if (!_chinaTank)
+		error("Heart of China tank test mode requested without a ChinaTank instance");
+
+	_chinaTank->init();
+
+	uint32 startMillis = g_system->getMillis();
+	uint32 frameCount = 0;
+
+	while (!shouldQuit()) {
+		updateThisFrameMillis();
+
+		Common::Event ev;
+		while (_eventMan->pollEvent(ev)) {
+			if (ev.type == Common::EVENT_KEYDOWN) {
+				if (ev.kbd.keycode == Common::KEYCODE_ESCAPE)
+					quitGame();
+				else
+					_chinaTank->onKeyDown(ev.kbd);
+			} else if (ev.type == Common::EVENT_KEYUP) {
+				_chinaTank->onKeyUp(ev.kbd);
+			} else if (ev.type == Common::EVENT_MOUSEMOVE) {
+				_chinaTank->onMouseMove(ev.mouse.x, ev.mouse.y);
+			}
+		}
+
+		_compositionBuffer.fillRect(screenRect, 0);
+		_chinaTank->tick();
+
+		g_system->copyRectToScreen(_compositionBuffer.getPixels(), SCREEN_WIDTH, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+		g_system->updateScreen();
+
+		static const int framesPerSecond = 15;
+		frameCount++;
+
+		uint32 thisFrameEndMillis = g_system->getMillis();
+		uint32 elapsedMillis = thisFrameEndMillis - startMillis;
+		const uint32 targetMillis = (frameCount * 1000 / framesPerSecond);
+		if (targetMillis > elapsedMillis) {
+			while (!shouldQuit() && targetMillis > elapsedMillis) {
+				while (_eventMan->pollEvent(ev)) {
+					if (ev.type == Common::EVENT_KEYDOWN) {
+						if (ev.kbd.keycode == Common::KEYCODE_ESCAPE)
+							quitGame();
+						else
+							_chinaTank->onKeyDown(ev.kbd);
+					} else if (ev.type == Common::EVENT_KEYUP) {
+						_chinaTank->onKeyUp(ev.kbd);
+					} else if (ev.type == Common::EVENT_MOUSEMOVE) {
+						_chinaTank->onMouseMove(ev.mouse.x, ev.mouse.y);
+					}
+				}
+
+				g_system->updateScreen();
+				g_system->delayMillis(5);
+				elapsedMillis = g_system->getMillis() - startMillis;
+			}
+		} else if (targetMillis < elapsedMillis) {
+			startMillis = thisFrameEndMillis;
+			frameCount = 0;
+		}
+	}
+
+	_chinaTank->end();
+	CursorMan.showMouse(true);
+
+	return Common::kNoError;
+}
+
 Common::Error DgdsEngine::run() {
 	syncSoundSettings();
 	_isLoading = true;
 	init(false);
 	loadGameFiles();
+
+	if (getGameId() == GID_HOC && kDgdsForceHocTankTestMode)
+		return runChinaTankTestMode();
 
 	// If a savegame was selected from the launcher, load it now.
 	int saveSlot = ConfMan.getInt("save_slot");
