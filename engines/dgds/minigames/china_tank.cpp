@@ -79,6 +79,8 @@ const char *const kTankDevCockpitScreen = "tankcp.scr";
 const char *const kTankCockpitShapes = "cpit.bmp";
 const char *const kTankExplosionShapes = "exp.bmp";
 const char *const kTankBushShapes = "tankbush.bmp";
+const byte kTankSkyColor = 248;
+const byte kTankGroundColor = 225;
 const int kTankExplosionFrameCount = 12;
 const int kTankFallingExplosionStartY = 210;
 const int kTankFallingExplosionY = 204;
@@ -1313,7 +1315,8 @@ struct ChinaTank::TankScene {
 		const Common::Rect viewport = activeViewport();
 		if (!externalCamera)
 			drawCockpitBackground(dst);
-		_renderer.beginFrame(viewport, palette, 248, cameraPosition(), cameraInterest(), 70.0f, 0.10f, 1200.0f);
+		_renderer.beginFrame(viewport, palette, kTankSkyColor, kTankGroundColor,
+				cameraPosition(), cameraInterest(), 70.0f, 0.10f, 1200.0f);
 
 		for (const TankObject &object : _objects)
 			renderObject(object, palette);
@@ -1776,7 +1779,7 @@ struct ChinaTank::TankScene {
 		const Common::Rect screen(SCREEN_WIDTH, SCREEN_HEIGHT);
 		const Common::Rect viewport = getTankViewport();
 		dst.fillRect(screen, 0);
-		dst.fillRect(Common::Rect(0, 0, SCREEN_WIDTH, viewport.top), 248);
+		dst.fillRect(Common::Rect(0, 0, SCREEN_WIDTH, viewport.top), kTankSkyColor);
 		dst.fillRect(Common::Rect(0, viewport.bottom, SCREEN_WIDTH, SCREEN_HEIGHT), 0);
 		dst.fillRect(Common::Rect(0, viewport.top, viewport.left, viewport.bottom), 0);
 		dst.fillRect(Common::Rect(viewport.right, viewport.top, SCREEN_WIDTH, viewport.bottom), 0);

@@ -46,7 +46,7 @@ const bool kTankFlipTinyGLCopyY = false;
 
 } // End of anonymous namespace
 
-ChinaTankTinyGLRenderer::ChinaTankTinyGLRenderer() : _initialized(false) {
+ChinaTankTinyGLRenderer::ChinaTankTinyGLRenderer() : _initialized(false), _skyColor(0), _groundColor(0), _horizonY(0) {
 }
 
 ChinaTankTinyGLRenderer::~ChinaTankTinyGLRenderer() {
@@ -64,13 +64,16 @@ bool ChinaTankTinyGLRenderer::isAvailable() {
 #endif
 }
 
-void ChinaTankTinyGLRenderer::beginFrame(const Common::Rect &viewport, const DgdsPal &palette, byte clearColor,
+void ChinaTankTinyGLRenderer::beginFrame(const Common::Rect &viewport, const DgdsPal &palette, byte skyColor, byte groundColor,
 		const Math::Vector3d &camera, const Math::Vector3d &interest, float fov, float nearClip, float farClip) {
 #if defined(USE_TINYGL)
 	init();
+	_skyColor = skyColor;
+	_groundColor = groundColor;
+	updateHorizon(viewport, camera, interest, fov);
 	setViewport(viewport);
 	updateProjectionMatrix(viewport, fov, nearClip, farClip);
-	clearViewport(palette, clearColor);
+	clearViewport(palette);
 	positionCamera(camera, interest);
 #endif
 }
@@ -189,10 +192,35 @@ void ChinaTankTinyGLRenderer::updateProjectionMatrix(const Common::Rect &viewpor
 #endif
 }
 
-void ChinaTankTinyGLRenderer::clearViewport(const DgdsPal &palette, byte color) {
+void ChinaTankTinyGLRenderer::updateHorizon(const Common::Rect &viewport, const Math::Vector3d &camera, const Math::Vector3d &interest, float fov) {
+	_horizonY = viewport.top + (viewport.height() >> 1);
+
+	const Math::Vector3d forward = interest - camera;
+	if (forward.getMagnitude() <= 0.0001f)
+		return;
+
+	const float horizontal = sqrtf(forward.x() * forward.x() + forward.z() * forward.z());
+	if (horizontal <= 0.0001f) {
+		_horizonY = forward.y() > 0.0f ? viewport.bottom : viewport.top;
+		return;
+	}
+
+	const float tanHalfFov = tanf((float)(fov * M_PI / 360.0));
+	if (tanHalfFov <= 0.0001f)
+		return;
+
+	_horizonY = viewport.top + (viewport.height() >> 1) +
+			(int)((forward.y() / horizontal) * (float)viewport.height() * 0.5f / tanHalfFov);
+	if (_horizonY < viewport.top)
+		_horizonY = viewport.top;
+	else if (_horizonY > viewport.bottom)
+		_horizonY = viewport.bottom;
+}
+
+void ChinaTankTinyGLRenderer::clearViewport(const DgdsPal &palette) {
 #if defined(USE_TINYGL)
 	byte r, g, b;
-	palette.get(color, r, g, b);
+	palette.get(_skyColor, r, g, b);
 	tglClearColor(r / 255.0f, g / 255.0f, b / 255.0f, 1.0f);
 	tglClear(TGL_COLOR_BUFFER_BIT | TGL_DEPTH_BUFFER_BIT | TGL_STENCIL_BUFFER_BIT);
 #endif
@@ -276,14 +304,22 @@ void ChinaTankTinyGLRenderer::copyTinyGLToSurface(Graphics::ManagedSurface &dst,
 	}
 
 	Common::HashMap<uint32, byte> paletteCache;
+	byte skyR, skyG, skyB;
+	palette.get(_skyColor, skyR, skyG, skyB);
+	const uint32 skyPixel = glBuffer.format.ARGBToColor(255, skyR, skyG, skyB);
 	for (int y = viewport.top; y < viewport.bottom; y++) {
 		byte *dstRow = (byte *)dst.getBasePtr(viewport.left, y);
 		const int srcY = kTankFlipTinyGLCopyY ? viewport.bottom - 1 - (y - viewport.top) : y;
 		for (int x = viewport.left; x < viewport.right; x++) {
 			const uint32 pixel = glBuffer.getPixel(x, srcY);
-			if (!paletteCache.contains(pixel))
+			if (y >= _horizonY && pixel == skyPixel) {
+				dstRow[x - viewport.left] = _groundColor;
+			} else if (!paletteCache.contains(pixel)) {
 				paletteCache[pixel] = mapTinyGLPixelToPalette(pixel, glBuffer.format, palette);
-			dstRow[x - viewport.left] = paletteCache[pixel];
+				dstRow[x - viewport.left] = paletteCache[pixel];
+			} else {
+				dstRow[x - viewport.left] = paletteCache[pixel];
+			}
 		}
 	}
 #endif

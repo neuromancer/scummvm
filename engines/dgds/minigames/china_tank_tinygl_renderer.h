@@ -53,7 +53,7 @@ public:
 
 	static bool isAvailable();
 
-	void beginFrame(const Common::Rect &viewport, const DgdsPal &palette, byte clearColor, const Math::Vector3d &camera,
+	void beginFrame(const Common::Rect &viewport, const DgdsPal &palette, byte skyColor, byte groundColor, const Math::Vector3d &camera,
 			const Math::Vector3d &interest, float fov, float nearClip, float farClip);
 	void drawPolygon(const Common::Array<Math::Vector3d> &vertices, byte color, const DgdsPal &palette);
 	void drawPolyline(const Common::Array<Math::Vector3d> &vertices, byte color, const DgdsPal &palette, bool closed);
@@ -62,11 +62,15 @@ public:
 
 private:
 	bool _initialized;
+	byte _skyColor;
+	byte _groundColor;
+	int _horizonY;
 
 	void init();
 	void setViewport(const Common::Rect &viewport);
 	void updateProjectionMatrix(const Common::Rect &viewport, float fov, float nearClip, float farClip);
-	void clearViewport(const DgdsPal &palette, byte color);
+	void updateHorizon(const Common::Rect &viewport, const Math::Vector3d &camera, const Math::Vector3d &interest, float fov);
+	void clearViewport(const DgdsPal &palette);
 	void positionCamera(const Math::Vector3d &camera, const Math::Vector3d &interest);
 	void drawBillboardGeometry(const ChinaTankBillboard &billboard);
 	byte mapTinyGLPixelToPalette(uint32 pixel, const Graphics::PixelFormat &format, const DgdsPal &palette) const;
