@@ -66,6 +66,7 @@ const int kTankInitialFuel = 34000;
 const int kTankTrigShift = 14;
 const int kTankGZero = 9600;
 const int kTankCockpitHeight = 1000;
+const int kTankFlat3 = 9600 + kTankGZero;
 const int kTankFallCameraDistance = 32000;
 const int16 kTankFallCameraRotX = 0x0a00;
 const uint16 kTankFallCameraHeading = 0x7000;
@@ -83,6 +84,7 @@ const int kTankFallingExplosionStartY = 210;
 const int kTankFallingExplosionY = 204;
 const int kTankBushZOffset = 800;
 const int kTankBushMaxHeight = 212;
+const int kTankClipTableSize = 14;
 const byte kTankPolygonFill = 0x80;
 const float kTankWorldScale = 1.0f / 1000.0f;
 const float kTankMouseSensitivity = 0.006f;
@@ -1491,13 +1493,16 @@ struct ChinaTank::TankScene {
 		if (!prepareBushTexture(palette))
 			return;
 
+		int32 clipTable[kTankClipTableSize];
+		buildClipTable(clipTable);
+
 		Common::Array<ChinaTankBillboard> billboards;
 		for (const TankObject &object : _objects) {
 			if (!isBushShape(object.shape))
 				continue;
 
 			ChinaTankBillboard billboard;
-			if (makeBushBillboard(object, viewport, billboard))
+			if (makeBushBillboard(object, viewport, clipTable, billboard))
 				billboards.push_back(billboard);
 		}
 
@@ -1537,9 +1542,11 @@ struct ChinaTank::TankScene {
 		return true;
 	}
 
-	bool makeBushBillboard(const TankObject &object, const Common::Rect &viewport, ChinaTankBillboard &billboard) const {
+	bool makeBushBillboard(const TankObject &object, const Common::Rect &viewport, const int32 *clipTable, ChinaTankBillboard &billboard) const {
 		TankObject bushObject = object;
 		bushObject.loc.z -= kTankBushZOffset;
+		if (!passesBushClipDistance(bushObject, clipTable))
+			return false;
 
 		const TankProjection projection = projectObject(bushObject, viewport);
 		if (!projection.valid)
@@ -1550,6 +1557,8 @@ struct ChinaTank::TankScene {
 			drawHeight = kTankBushMaxHeight;
 		if (drawHeight <= 0)
 			return false;
+		if (drawHeight <= 7 - tankDetailLevel())
+			return false;
 
 		const int halfWidth = drawHeight + (drawHeight >> 2);
 		const float tanY = tanf((float)(70.0 * M_PI / 360.0));
@@ -1559,6 +1568,108 @@ struct ChinaTank::TankScene {
 		billboard.height = (float)(drawHeight + 1) * worldUnitsPerPixel;
 
 		return billboard.width > 0.0f && billboard.height > 0.0f;
+	}
+
+	void buildClipTable(int32 *clipTable) const {
+		const bool cannedRunning = _falling;
+		for (int i = 0; i < kTankClipTableSize; i++)
+			clipTable[i] = (cannedRunning && i != 11) ? 0 : -1;
+
+		if (!cannedRunning) {
+			const TankVec3 clipLoc = clipReferenceLoc();
+			const int32 xLoc = clipLoc.x;
+			const int32 yLoc = clipLoc.y;
+			const int32 zLoc = clipLoc.z;
+
+			if (yLoc < 250000)
+				clipTable[0] = 300000;
+
+			if (_terrainType == kTankTerrainRiver) {
+				clipTable[1] = 400000;
+			} else if (xLoc < -260000 || yLoc > 100000) {
+				clipTable[1] = 300000;
+			} else {
+				clipTable[10] = 200000;
+			}
+
+			if (zLoc - kTankCockpitHeight > kTankFlat3) {
+				clipTable[8] = 300000;
+				clipTable[9] = 200000;
+				clipTable[10] = -1;
+			} else {
+				clipTable[2] = 600000;
+			}
+
+			if (_terrainType == kTankTerrainHill && zLoc - kTankCockpitHeight > kTankFlat3)
+				clipTable[3] = 300000;
+			else
+				clipTable[3] = 520000;
+
+			if (yLoc > -370000)
+				clipTable[4] = 600000;
+			if (yLoc < -250000)
+				clipTable[5] = 0;
+			if (yLoc < -610000)
+				clipTable[6] = 320000;
+			clipTable[7] = 0;
+
+			if (yLoc > -230000 && ((zLoc - kTankCockpitHeight < kTankFlat3) || _terrainType != kTankTerrainHill))
+				clipTable[12] = 180000;
+
+			if (_terrainType != kTankTerrainHill && xLoc > -28000 && yLoc < -108000 && yLoc > -344000)
+				clipTable[13] = 300000;
+		}
+
+		int workDetail = tankDetailLevel();
+		if (workDetail > 1)
+			workDetail -= 2;
+		else
+			workDetail = 0;
+
+		for (int i = 0; i < kTankClipTableSize; i++) {
+			if (clipTable[i] != -1)
+				clipTable[i] = (clipTable[i] * (workDetail + 1)) >> 2;
+		}
+	}
+
+	TankVec3 clipReferenceLoc() const {
+		if (useExternalCamera())
+			return _externalCameraLoc;
+		return _tankLoc;
+	}
+
+	bool passesBushClipDistance(const TankObject &object, const int32 *clipTable) const {
+		const int clipIndex = bushClipTableIndex(object.shape);
+		if (clipIndex < 0 || clipIndex >= kTankClipTableSize)
+			return false;
+
+		const int32 clipDist = clipTable[clipIndex];
+		if (clipDist == -1)
+			return false;
+		if (clipDist == 0)
+			return true;
+
+		const TankVec3 clipLoc = clipReferenceLoc();
+		return tankAbs32(clipLoc.x - object.loc.x) < clipDist &&
+				tankAbs32(clipLoc.y - object.loc.y) < clipDist &&
+				tankAbs32(clipLoc.z - object.loc.z) < clipDist;
+	}
+
+	int bushClipTableIndex(int16 shape) const {
+		if (shape == kTankShapeBush || shape == kTankShapeBush1)
+			return 0;
+		if (shape == kTankShapeBush2 || shape == kTankShapeBush3)
+			return 12;
+		if (shape == kTankShapeBush4 || shape == kTankShapeBush5)
+			return 13;
+		return -1;
+	}
+
+	int tankDetailLevel() const {
+		DgdsEngine *engine = DgdsEngine::getInstance();
+		if (!engine)
+			return 0;
+		return (int)engine->getDetailLevel();
 	}
 
 	bool isBushShape(int16 shape) const {
