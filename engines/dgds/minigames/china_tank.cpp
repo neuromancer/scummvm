@@ -44,6 +44,7 @@ namespace Dgds {
 namespace {
 
 const int kTankShapeCount = 77;
+const int kTankShapeTank = 74;
 const int kTankWorldRecordSize = 20;
 const int kTankViewLeft = 64;
 const int kTankViewTop = 21;
@@ -1004,10 +1005,19 @@ struct ChinaTank::TankScene {
 		if (!checkRange(tbl, detailPos, numDetails * 6, "details"))
 			return false;
 
-		// The first detail is the highest-detail representation used by the original
-		// unless distance-based shape sizing selects a cheaper one.
-		byte numParts = tbl[detailPos + 3];
-		uint16 partOffset = READ_LE_UINT16(&tbl[detailPos + 4]);
+		uint32 selectedDetailPos = detailPos;
+		int16 selectedDetailSize = readSint16(&tbl[selectedDetailPos]);
+		for (int i = 1; i < numDetails; i++) {
+			const uint32 candidateDetailPos = detailPos + i * 6;
+			const int16 candidateDetailSize = readSint16(&tbl[candidateDetailPos]);
+			if (candidateDetailSize > selectedDetailSize) {
+				selectedDetailPos = candidateDetailPos;
+				selectedDetailSize = candidateDetailSize;
+			}
+		}
+
+		byte numParts = tbl[selectedDetailPos + 3];
+		uint16 partOffset = READ_LE_UINT16(&tbl[selectedDetailPos + 4]);
 		uint32 partPos = base + partOffset;
 		if (!checkRange(tbl, partPos, numParts * 10, "parts"))
 			return false;
@@ -1139,10 +1149,22 @@ struct ChinaTank::TankScene {
 
 		for (const TankObject &object : _objects)
 			renderObject(object, palette);
+		if (externalCamera)
+			renderObject(playerTankObject(), palette);
 
 		_renderer.endFrame(dst, viewport, palette);
 		if (!externalCamera)
 			drawCockpit(dst);
+	}
+
+	TankObject playerTankObject() const {
+		TankObject object;
+		object.shape = kTankShapeTank;
+		object.rotX = _tankRotX;
+		object.rotY = _tankRotY;
+		object.rotZ = tankWrapSint16((int32)_tankHeading);
+		object.loc = _tankLoc;
+		return object;
 	}
 
 	void renderObject(const TankObject &object, const DgdsPal &palette) {
