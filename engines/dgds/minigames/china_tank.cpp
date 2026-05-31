@@ -57,6 +57,9 @@ const int kTankInitialFuel = 34000;
 const int kTankTrigShift = 14;
 const int kTankGZero = 9600;
 const int kTankCockpitHeight = 1000;
+const int kTankFallCameraDistance = 32000;
+const int16 kTankFallCameraRotX = 0x0a00;
+const uint16 kTankFallCameraHeading = 0x7000;
 const int kTankInitialX = 9412;
 const int kTankInitialY = -60783;
 const int kTankInitialZ = 23400 + kTankGZero;
@@ -153,6 +156,10 @@ int32 tankAbs32(int32 value) {
 	if (value == (-0x7fffffff - 1))
 		return 0x7fffffff;
 	return value < 0 ? -value : value;
+}
+
+int16 tankWrapSint16(int32 value) {
+	return (int16)(uint16)value;
 }
 
 uint32 tankFarDataOffset(uint16 segment, uint16 offset) {
@@ -301,6 +308,15 @@ struct ChinaTank::TankScene {
 	int _terrainType;
 	int _oldBaseHeight;
 	bool _inGap;
+	TankVec3 _fallDeltaLoc;
+	int16 _fallDeltaRotX;
+	int16 _fallDeltaRotY;
+	int16 _fallDeltaHeading;
+	TankVec3 _externalCameraLoc;
+	TankVec3 _externalCameraTarget;
+	bool _falling;
+	bool _intoWater;
+	bool _tankDone;
 
 	TankScene() : _loaded(false),
 		_cockpitBackgroundLoaded(false),
@@ -317,7 +333,13 @@ struct ChinaTank::TankScene {
 		_gearDownPressed(false),
 		_terrainType(0),
 		_oldBaseHeight(0),
-		_inGap(false)
+		_inGap(false),
+		_fallDeltaRotX(0),
+		_fallDeltaRotY(0),
+		_fallDeltaHeading(0),
+		_falling(false),
+		_intoWater(false),
+		_tankDone(false)
 	{
 		_tankLoc.x = kTankInitialX;
 		_tankLoc.y = kTankInitialY;
@@ -327,6 +349,11 @@ struct ChinaTank::TankScene {
 		_oldState.rotY = _tankRotY;
 		_oldState.heading = _tankHeading;
 		_oldState.terrainType = _terrainType;
+		_fallDeltaLoc.x = 0;
+		_fallDeltaLoc.y = 0;
+		_fallDeltaLoc.z = 0;
+		_externalCameraLoc = _tankLoc;
+		_externalCameraTarget = _tankLoc;
 	}
 
 	bool load(ResourceManager *resource, Decompressor *decompressor) {
@@ -387,6 +414,9 @@ struct ChinaTank::TankScene {
 	}
 
 	void turnCamera(int dx, int dy) {
+		if (_falling || _tankDone)
+			return;
+
 		_tankHeading = tankWrapAngle(_tankHeading + tankMouseDeltaToAngle(dx));
 		_pitch += dy * kTankMouseSensitivity;
 
@@ -458,6 +488,14 @@ struct ChinaTank::TankScene {
 	}
 
 	void updatePlayerMovement() {
+		if (_tankDone)
+			return;
+
+		if (_falling) {
+			fallPlayerTank();
+			return;
+		}
+
 		if (_fuel <= 0)
 			_gearPosition = kTankGearNeutral;
 
@@ -470,6 +508,8 @@ struct ChinaTank::TankScene {
 		movePlayerTank();
 		updateFuel();
 		checkTerrainCollision();
+		if (_falling && !_tankDone)
+			fallPlayerTank();
 	}
 
 	void updateTankSpeed() {
@@ -705,8 +745,72 @@ struct ChinaTank::TankScene {
 
 	void checkForTooSteep() {
 		const TankTerrainPolygonInfo *poly = currentTerrainPolygon();
-		if (poly && poly->slope > 14)
+		if (!poly || poly->slope <= 14)
+			return;
+
+		_tankSpeed = 0;
+		_gearPosition = kTankGearNeutral;
+		if (amIFalling(poly))
+			startFalling();
+		else
 			oldPosition();
+	}
+
+	bool amIFalling(const TankTerrainPolygonInfo *poly) const {
+		if (_terrainType == kTankTerrainRiver)
+			return true;
+		if (_oldState.terrainType != kTankTerrainHill)
+			return false;
+
+		return poly && poly->baseHeight + 35 < _oldBaseHeight;
+	}
+
+	void startFalling() {
+		_falling = true;
+		_tankDone = false;
+		_intoWater = _terrainType == kTankTerrainRiver;
+
+		if (_intoWater) {
+			_fallDeltaRotX = 0x1000;
+			_tankRotX = tankWrapSint16(0xf800);
+		} else {
+			_fallDeltaRotX = tankWrapSint16((int32)_oldState.rotX - _tankRotX);
+		}
+
+		_fallDeltaLoc.x = _oldState.loc.x - _tankLoc.x;
+		_fallDeltaLoc.y = _oldState.loc.y - _tankLoc.y;
+		_fallDeltaLoc.z = _oldState.loc.z - _tankLoc.z;
+		_fallDeltaRotY = tankWrapSint16((int32)_oldState.rotY - _tankRotY);
+		_fallDeltaHeading = tankWrapSint16((int32)(uint16)_oldState.heading - (int32)(uint16)_tankHeading);
+
+		positionExternalCameraForFall();
+	}
+
+	void fallPlayerTank() {
+		_fallDeltaLoc.z += 25;
+		_tankLoc.x -= _fallDeltaLoc.x;
+		_tankLoc.y -= _fallDeltaLoc.y;
+		_tankLoc.z -= _fallDeltaLoc.z;
+		_tankRotX = tankWrapSint16((int32)_tankRotX - tankArithmeticShiftRight(_fallDeltaRotX, 2));
+		_tankRotY = tankWrapSint16((int32)_tankRotY - tankArithmeticShiftRight(_fallDeltaRotY, 2));
+		_tankHeading = tankWrapAngle((int)_tankHeading - tankArithmeticShiftRight(_fallDeltaHeading, 2));
+
+		if (!_intoWater && _tankLoc.z < 0)
+			_tankDone = true;
+	}
+
+	void positionExternalCameraForFall() {
+		_externalCameraTarget = _tankLoc;
+		_externalCameraLoc = _tankLoc;
+
+		int32 temp = kTankFallCameraDistance * -tankTrigCos((uint16)kTankFallCameraRotX);
+		temp = (temp >> kTankTrigShift) * tankTrigSin(kTankFallCameraHeading);
+		_externalCameraLoc.x += temp >> kTankTrigShift;
+
+		temp = kTankFallCameraDistance * tankTrigCos((uint16)kTankFallCameraRotX);
+		temp = (temp >> kTankTrigShift) * tankTrigCos(kTankFallCameraHeading);
+		_externalCameraLoc.y += temp >> kTankTrigShift;
+		_externalCameraLoc.z += (kTankFallCameraDistance * tankTrigSin((uint16)kTankFallCameraRotX)) >> kTankTrigShift;
 	}
 
 	void checkGap() {
@@ -1027,15 +1131,18 @@ struct ChinaTank::TankScene {
 
 		updatePlayerMovement();
 
-		const Common::Rect viewport = getTankViewport();
-		drawCockpitBackground(dst);
+		const bool externalCamera = useExternalCamera();
+		const Common::Rect viewport = activeViewport();
+		if (!externalCamera)
+			drawCockpitBackground(dst);
 		_renderer.beginFrame(viewport, palette, 248, cameraPosition(), cameraInterest(), 70.0f, 0.10f, 1200.0f);
 
 		for (const TankObject &object : _objects)
 			renderObject(object, palette);
 
 		_renderer.endFrame(dst, viewport, palette);
-		drawCockpit(dst);
+		if (!externalCamera)
+			drawCockpit(dst);
 	}
 
 	void renderObject(const TankObject &object, const DgdsPal &palette) {
@@ -1062,14 +1169,24 @@ struct ChinaTank::TankScene {
 	}
 
 	Math::Vector3d cameraPosition() const {
+		if (useExternalCamera())
+			return tankPointToTinyGL(_externalCameraLoc);
+
+		return tankPointToTinyGL(_tankLoc);
+	}
+
+	Math::Vector3d tankPointToTinyGL(const TankVec3 &loc) const {
 		return Math::Vector3d(
-			_tankLoc.x * kTankWorldScale,
-			_tankLoc.z * kTankWorldScale,
-			_tankLoc.y * kTankWorldScale
+			loc.x * kTankWorldScale,
+			loc.z * kTankWorldScale,
+			loc.y * kTankWorldScale
 		);
 	}
 
 	Math::Vector3d cameraInterest() const {
+		if (useExternalCamera())
+			return tankPointToTinyGL(_externalCameraTarget);
+
 		const float yaw = tankAngleToRadians(_tankHeading);
 		const float pitchScale = cosf(_pitch);
 		return Math::Vector3d(
@@ -1081,6 +1198,16 @@ struct ChinaTank::TankScene {
 
 	Math::Vector3d cullingCameraPosition() const {
 		return cameraPosition();
+	}
+
+	bool useExternalCamera() const {
+		return _falling && !_intoWater;
+	}
+
+	Common::Rect activeViewport() const {
+		if (useExternalCamera())
+			return Common::Rect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+		return getTankViewport();
 	}
 
 	void drawCockpitBackground(Graphics::ManagedSurface &dst) {
