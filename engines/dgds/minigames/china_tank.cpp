@@ -29,10 +29,13 @@
 
 #include "dgds/dgds.h"
 #include "dgds/game_palettes.h"
+#include "dgds/image.h"
 #include "dgds/includes.h"
 #include "dgds/minigames/china_tank.h"
 #include "dgds/minigames/china_tank_tinygl_renderer.h"
 #include "dgds/resource.h"
+
+#include "graphics/managed_surface.h"
 
 #include "math/vector3d.h"
 
@@ -46,7 +49,11 @@ const int kTankViewLeft = 64;
 const int kTankViewTop = 21;
 const int kTankViewRight = 256;
 const int kTankViewBottom = 105;
-const bool kTankTestFullScreenViewport = true;
+const int kTankLowSpeed = 480;
+const int kTankInitialFuel = 34000;
+const char *const kTankCockpitScreen = "ftank3s.scr";
+const char *const kTankDevCockpitScreen = "tankcp.scr";
+const char *const kTankCockpitShapes = "cpit.bmp";
 const float kTankWorldScale = 1.0f / 1000.0f;
 const float kTankMouseSensitivity = 0.006f;
 const float kTankMaxPitch = 1.45f;
@@ -77,10 +84,24 @@ float tankAngleToRadians(int16 angle) {
 	return (float)((double)(uint16)angle * 2.0 * M_PI / 65536.0);
 }
 
-Common::Rect getTankViewport() {
-	if (kTankTestFullScreenViewport)
-		return Common::Rect(SCREEN_WIDTH, SCREEN_HEIGHT);
+uint16 tankRadiansToAngle(float radians) {
+	double scaled = fmod((double)radians * 65536.0 / (2.0 * M_PI), 65536.0);
+	if (scaled < 0.0)
+		scaled += 65536.0;
 
+	const uint32 angle = (uint32)floor(scaled);
+	return (uint16)(angle & 0xffff);
+}
+
+int tankDialCos(uint16 angle) {
+	return (int)(cosf(tankAngleToRadians((int16)angle)) * 16.0f);
+}
+
+int tankDialSin(uint16 angle) {
+	return (int)(sinf(tankAngleToRadians((int16)angle)) * 16.0f);
+}
+
+Common::Rect getTankViewport() {
 	return Common::Rect(kTankViewLeft, kTankViewTop, kTankViewRight, kTankViewBottom);
 }
 
@@ -142,12 +163,17 @@ struct ChinaTank::TankScene {
 	Common::Array<TankShape> _shapes;
 	Common::Array<TankObject> _objects;
 	ChinaTankTinyGLRenderer _renderer;
+	Common::SharedPtr<Image> _cockpitShapes;
+	Graphics::ManagedSurface _cockpitBackground;
 	bool _loaded;
+	bool _cockpitBackgroundLoaded;
 	float _cameraX;
 	float _cameraY;
 	float _cameraZ;
 	float _yaw;
 	float _pitch;
+	int _tankSpeed;
+	int _fuel;
 	bool _moveForward;
 	bool _moveBackward;
 	bool _moveLeft;
@@ -156,11 +182,14 @@ struct ChinaTank::TankScene {
 	bool _moveDown;
 
 	TankScene() : _loaded(false),
+		_cockpitBackgroundLoaded(false),
 		_cameraX(9412.0f * kTankWorldScale),
 		_cameraY((23400.0f + 9600.0f) * kTankWorldScale),
 		_cameraZ(-60783.0f * kTankWorldScale),
 		_yaw(tankAngleToRadians((int16)0x4400)),
 		_pitch(0.0f),
+		_tankSpeed(kTankLowSpeed),
+		_fuel(kTankInitialFuel),
 		_moveForward(false),
 		_moveBackward(false),
 		_moveLeft(false),
@@ -169,7 +198,7 @@ struct ChinaTank::TankScene {
 		_moveDown(false)
 	{}
 
-	bool load(ResourceManager *resource) {
+	bool load(ResourceManager *resource, Decompressor *decompressor) {
 		Common::Array<byte> tbl = readResourceBytes(resource, "tank.tbl");
 		Common::Array<byte> wld = readResourceBytes(resource, "tank.wld");
 		if (tbl.empty() || wld.empty()) {
@@ -217,6 +246,7 @@ struct ChinaTank::TankScene {
 		}
 
 		_loaded = true;
+		loadCockpit(resource, decompressor);
 		return true;
 	}
 
@@ -274,6 +304,38 @@ struct ChinaTank::TankScene {
 		_cameraX += (forwardX * forward + rightX * strafe) * kTankFlySpeed;
 		_cameraY += vertical * kTankFlySpeed;
 		_cameraZ += (forwardZ * forward + rightZ * strafe) * kTankFlySpeed;
+	}
+
+	void loadCockpit(ResourceManager *resource, Decompressor *decompressor) {
+		Common::String cockpitScreenName;
+		if (resource->hasResource(kTankCockpitScreen))
+			cockpitScreenName = kTankCockpitScreen;
+		else if (resource->hasResource(kTankDevCockpitScreen))
+			cockpitScreenName = kTankDevCockpitScreen;
+
+		const bool hasCockpitScreen = !cockpitScreenName.empty();
+		const bool hasCockpitShapes = resource->hasResource(kTankCockpitShapes);
+		if (!hasCockpitScreen)
+			warning("Tank cockpit UI resource missing: %s", kTankCockpitScreen);
+		if (!hasCockpitShapes)
+			warning("Tank cockpit UI resource missing: %s", kTankCockpitShapes);
+
+		if (hasCockpitScreen) {
+			Image cockpitScreen(resource, decompressor);
+			_cockpitBackground.create(SCREEN_WIDTH, SCREEN_HEIGHT, Graphics::PixelFormat::createFormatCLUT8());
+			cockpitScreen.drawScreen(cockpitScreenName, _cockpitBackground);
+			_cockpitBackgroundLoaded = true;
+		}
+
+		if (!hasCockpitShapes)
+			return;
+		_cockpitShapes.reset(new Image(resource, decompressor));
+		_cockpitShapes->loadBitmap(kTankCockpitShapes);
+		if (_cockpitShapes->loadedFrameCount() < 4) {
+			warning("Tank cockpit expected at least 4 %s frames, got %d", kTankCockpitShapes, _cockpitShapes->loadedFrameCount());
+			_cockpitShapes.reset();
+			return;
+		}
 	}
 
 	bool loadShape(const Common::Array<byte> &tbl, int shapeIndex, uint16 segment, uint16 offset) {
@@ -425,13 +487,16 @@ struct ChinaTank::TankScene {
 			return;
 
 		updateCameraMovement();
+
 		const Common::Rect viewport = getTankViewport();
+		drawCockpitBackground(dst);
 		_renderer.beginFrame(viewport, palette, 248, cameraPosition(), cameraInterest(), 70.0f, 0.10f, 1200.0f);
 
 		for (const TankObject &object : _objects)
 			renderObject(object, palette);
 
 		_renderer.endFrame(dst, viewport, palette);
+		drawCockpit(dst);
 	}
 
 	void renderObject(const TankObject &object, const DgdsPal &palette) {
@@ -468,6 +533,77 @@ struct ChinaTank::TankScene {
 			_cameraY + sinf(_pitch) * 100.0f,
 			_cameraZ + cosf(_yaw) * pitchScale * 100.0f
 		);
+	}
+
+	void drawCockpitBackground(Graphics::ManagedSurface &dst) {
+		if (_cockpitBackgroundLoaded) {
+			dst.blitFrom(_cockpitBackground);
+			return;
+		}
+
+		const Common::Rect screen(SCREEN_WIDTH, SCREEN_HEIGHT);
+		const Common::Rect viewport = getTankViewport();
+		dst.fillRect(screen, 0);
+		dst.fillRect(Common::Rect(0, 0, SCREEN_WIDTH, viewport.top), 248);
+		dst.fillRect(Common::Rect(0, viewport.bottom, SCREEN_WIDTH, SCREEN_HEIGHT), 0);
+		dst.fillRect(Common::Rect(0, viewport.top, viewport.left, viewport.bottom), 0);
+		dst.fillRect(Common::Rect(viewport.right, viewport.top, SCREEN_WIDTH, viewport.bottom), 0);
+	}
+
+	void drawCockpit(Graphics::ManagedSurface &dst) {
+		drawSpeedDial(dst);
+		drawHeadingDial(dst);
+		drawFuelDial(dst);
+		drawViewportBorder(dst);
+	}
+
+	void drawDial(Graphics::ManagedSurface &dst, int centerX, int centerY, int deltaX, int deltaY) {
+		dst.drawLine(centerX, centerY, centerX + deltaX, centerY + deltaY, 7);
+	}
+
+	void drawCockpitShape(Graphics::ManagedSurface &dst, uint frame, int x, int y) {
+		if (!_cockpitShapes)
+			return;
+
+		_cockpitShapes->drawBitmap(frame, x, y, Common::Rect(SCREEN_WIDTH, SCREEN_HEIGHT), dst);
+	}
+
+	void drawSpeedDial(Graphics::ManagedSurface &dst) {
+		uint16 angle = _tankSpeed <= 0 ? 0 : (uint16)(_tankSpeed * 24);
+		const int newX = tankDialCos(angle + 0x800);
+		const int newY = tankDialSin(angle + 0x800);
+		drawDial(dst, 118, 178, -newX, -newY);
+		drawCockpitShape(dst, 3, 101, 174);
+	}
+
+	void drawHeadingDial(Graphics::ManagedSurface &dst) {
+		const uint16 angle = tankRadiansToAngle(_yaw) + 0x4000;
+		const int newX = tankDialCos(angle);
+		const int newY = tankDialSin(angle);
+		drawDial(dst, 319, 166, newX, -newY);
+		drawCockpitShape(dst, 0, 316, 164);
+		drawCockpitShape(dst, 1, 303, 179);
+	}
+
+	void drawFuelDial(Graphics::ManagedSurface &dst) {
+		uint16 angle = (uint16)(_fuel + 200);
+		angle = (angle >> 3) + 0x1400;
+		const int newX = tankDialCos(angle);
+		const int newY = tankDialSin(angle);
+		drawDial(dst, 184, 178, -newX, -newY);
+		drawCockpitShape(dst, 2, 168, 174);
+	}
+
+	void drawViewportBorder(Graphics::ManagedSurface &dst) {
+		const Common::Rect viewport = getTankViewport();
+		const int left = viewport.left - 1;
+		const int top = viewport.top - 1;
+		const int right = viewport.right + 1;
+		const int bottom = viewport.bottom + 1;
+		dst.drawLine(left, top, right, top, 0);
+		dst.drawLine(right, top, right, bottom, 0);
+		dst.drawLine(right, bottom, left, bottom, 0);
+		dst.drawLine(left, bottom, left, top, 0);
 	}
 
 	bool isPolygonVisible(const TankPart &part, const TankPolygon &polygon, const TankObject &object, byte scale) const {
@@ -566,7 +702,7 @@ void ChinaTank::init() {
 		engine->getGamePals()->loadPalette("ftank3s.pal");
 
 	_tankScene = new TankScene();
-	_initialized = _tankScene->load(engine->getResourceManager());
+	_initialized = _tankScene->load(engine->getResourceManager(), engine->getDecompressor());
 
 	if (!_initialized) {
 		delete _tankScene;
