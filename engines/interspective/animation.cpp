@@ -189,11 +189,11 @@ Animation::Status Animation::tick() {
 	if (status == kFrameDone && !_ticksLeft && !_explicitFrameDelay) {
 		_ticksLeft = uint8(_interval);
 		if (_castTableRunner)
-			setAnimationFieldWord(0x0a, _ticksLeft);
+			setAnimationRecordTicksLeft(_ticksLeft);
 	}
 
 	if (ranScript && _castTableRunner) {
-		setAnimationFieldWord(0x0c, _offset);
+		setAnimationRecordScriptPc(_offset);
 		decrementAnimationTicksLeft();
 	}
 
@@ -228,7 +228,7 @@ void Animation::runOnNextFrame(const CodePointer &cp) {
 
 void Animation::setMainSprite(uint16 sprite) {
 	_mainSpriteId = sprite;
-	setAnimationFieldWord(0x08, sprite);
+	setAnimationRecordMainSprite(sprite);
 	// 0xffff is the DOS "no sprite" sentinel (initial value of
 	// actor.field+0x8). Loading it would index past the end of the
 	// spritemap and ASan-trip in SpriteInfo's spritemap += index *
@@ -242,7 +242,7 @@ void Animation::setMainSprite(uint16 sprite) {
 
 void Animation::clearMainSprite() {
 	_mainSpriteId = 0xffff;
-	setAnimationFieldWord(0x08, 0xffff);
+	setAnimationRecordMainSprite(0xffff);
 	_mainSprite.reset();
 }
 
@@ -314,14 +314,13 @@ static bool animationZoneContainsPoint(uint16 left, uint16 top, uint16 right, ui
 }
 
 void Animation::setPositionFromFrame(uint8 frame) {
-	setAnimationField(0x61, frame);
+	setAnimationRecordFrame(frame);
 	if (!Log.room())
 		return;
 
 	const Actor::Frame f = Log.room()->getFrame(frame);
 	_position = f.position();
-	setAnimationFieldWord(0x04, uint16(_position.x));
-	setAnimationFieldWord(0x06, uint16(_position.y));
+	setAnimationRecordPosition(_position);
 
 	uint8 bl = 0;
 	const Common::Array<Logic::CollisionZone> &collisionZones = Log.collisionZones();
@@ -343,8 +342,8 @@ void Animation::setPositionFromFrame(uint8 frame) {
 		break;
 	}
 
-	setAnimationField(0x12, bl);
-	setAnimationField(0x13, bh);
+	setAnimationRecordDrawLayer(bl);
+	setAnimationRecordSecondaryZone(bh);
 	_zIndex = int8(bl);
 }
 
@@ -352,14 +351,13 @@ void Animation::copyAnimationIntervalToTicks() {
 	const uint16 ticks = uint8(_interval);
 	_ticksLeft = ticks;
 	_explicitFrameDelay = true;
-	setAnimationFieldWord(0x0a, ticks);
+	setAnimationRecordTicksLeft(ticks);
 }
 
 void Animation::clearAnimationMoveSlots() {
 	_animationMoveSlots.clear();
 	for (uint i = 0; i < 8; ++i) {
-		const uint8 off = uint8(0x19 + i * 8);
-		setAnimationFieldWord(off, 0xffff);
+		clearAnimationRecordMoveSlot(i);
 	}
 }
 
@@ -369,11 +367,7 @@ bool Animation::queueAnimationMoveSlot(uint16 arg1, uint16 arg2, uint16 arg3, ui
 
 	const uint slot = _animationMoveSlots.size();
 	_animationMoveSlots.push_back(AnimationMoveSlot(arg3, arg1, arg2, mode));
-	const uint8 off = uint8(0x19 + slot * 8);
-	setAnimationFieldWord(off, arg3);
-	setAnimationFieldWord(uint8(off + 2), arg1);
-	setAnimationFieldWord(uint8(off + 4), arg2);
-	setAnimationFieldWord(uint8(off + 6), mode);
+	setAnimationRecordMoveSlot(slot, arg3, arg1, arg2, mode);
 	return true;
 }
 
@@ -382,7 +376,7 @@ void Animation::decrementAnimationTicksLeft() {
 	// after the optional RunActorScript call, even when the script just
 	// wrote a fresh delay through the common tail at 1000:6953.
 	_ticksLeft = uint16(_ticksLeft - 1);
-	setAnimationFieldWord(0x0a, _ticksLeft);
+	setAnimationRecordTicksLeft(_ticksLeft);
 }
 
 void Animation::paintMoveSlot(Graphics *g, uint16 spriteId, uint16 x, uint16 y, uint8 mode, const Common::Point &base) const {
@@ -449,8 +443,7 @@ OPCODE(0x02) {
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x02: move to %d:%d", left, top);
 
 	_position = Common::Point(left, top);
-	setAnimationFieldWord(0x04, left);
-	setAnimationFieldWord(0x06, top);
+	setAnimationRecordPosition(left, top);
 
 	return kOk;
 }
@@ -461,7 +454,7 @@ OPCODE(0x03) {
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x03: set interval to %d", interval);
 
 	_interval = interval;
-	setAnimationField(0x10, interval);
+	setAnimationRecordInterval(interval);
 
 	return kOk;
 }
@@ -473,7 +466,7 @@ OPCODE(0x04) {
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x04: set interval to %d (from var %d)", interval, offset / 2);
 
 	_interval = interval;
-	setAnimationField(0x10, interval);
+	setAnimationRecordInterval(interval);
 
 	return kOk;
 }
@@ -489,8 +482,7 @@ OPCODE(0x05) {
 
 	_position.x += xoff;
 	_position.y += yoff;
-	setAnimationFieldWord(0x04, uint16(_position.x));
-	setAnimationFieldWord(0x06, uint16(_position.y));
+	setAnimationRecordPosition(_position);
 	setMainSprite(sprite);
 
 	return kFrameDone;
@@ -524,8 +516,7 @@ OPCODE(0x08) {
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x08: move by %d:%d, frame done", left, top);
 
 	_position += Common::Point(left, top);
-	setAnimationFieldWord(0x04, uint16(_position.x));
-	setAnimationFieldWord(0x06, uint16(_position.y));
+	setAnimationRecordPosition(_position);
 
 	return kFrameDone;
 }
@@ -541,8 +532,7 @@ OPCODE(0x0a) {
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x0a: run sprite %d at %d:%d", sprite, left, top);
 
 	_position = Common::Point(left, top);
-	setAnimationFieldWord(0x04, left);
-	setAnimationFieldWord(0x06, top);
+	setAnimationRecordPosition(left, top);
 	setMainSprite(sprite);
 
 	return kFrameDone;
@@ -550,8 +540,8 @@ OPCODE(0x0a) {
 
 OPCODE(0x0d) {
 	const byte v = uint8(embeddedByte());
-	setAnimationField(0x11, v);
-	setAnimationFieldWord(0x0e, _offset);
+	setAnimationRecordSkipTimerCount(v);
+	setAnimationRecordSkipTimerResumePc(_offset);
 
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x0d: SetTimerAndSkip = %u, resume 0x%04x [DOS Op_0e]",
 		   v, _offset);
@@ -560,12 +550,12 @@ OPCODE(0x0d) {
 }
 
 OPCODE(0x0e) {
-	const uint8 cur = animationField(0x11);
+	const uint8 cur = animationRecordSkipTimerCount();
 	if (cur != 0) {
 		const uint8 next = uint8(cur - 1);
-		setAnimationField(0x11, next);
+		setAnimationRecordSkipTimerCount(next);
 		if (next != 0) {
-			const uint16 resume = animationFieldWord(0x0e);
+			const uint16 resume = animationRecordSkipTimerResumePc();
 			_offset = resume;
 			debugC(3, kDebugLevelAnimation,
 				   "anim opcode 0x0e: DecrementTimer %u → %u, loop 0x%04x [DOS Op_0f]",
@@ -648,7 +638,7 @@ OPCODE(0x19) {
 	clearMainSprite();
 	_ticksLeft = flags;
 	_explicitFrameDelay = true;
-	setAnimationFieldWord(0x0a, flags);
+	setAnimationRecordTicksLeft(flags);
 
 	return kFrameDone;
 }
@@ -661,8 +651,8 @@ OPCODE(0x1a) {
 
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x1a: SetField12ClearFlag16 = %d [DOS Op_1b]", v);
 
-	setAnimationField(0x12, v);
-	setAnimationField(0x16, 0);
+	setAnimationRecordDrawLayer(v);
+	setAnimationRecordAutoZoneLayerEnabled(false);
 	_zIndex = int8(v);
 
 	return kOk;
@@ -722,8 +712,7 @@ OPCODE(0x09) {
 	uint16 x = shift();
 	uint16 y = shift();
 	_position = Common::Point(int16(x), int16(y));
-	setAnimationFieldWord(0x04, x);
-	setAnimationFieldWord(0x06, y);
+	setAnimationRecordPosition(x, y);
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x09: WalkAbsolute → _position = (%d, %d)",
 		   int16(x), int16(y));
 	return kFrameDone;
@@ -745,8 +734,8 @@ OPCODE(0x0b) {
 	const byte face = uint8(embeddedByte());
 	uint16 spriteId = shift();
 	setPositionFromFrame(face);
-	setPositionFromFrame(animationField(0x62));
-	setAnimationFieldWord(0x08, spriteId);
+	setPositionFromFrame(animationRecordTargetFrame());
+	setAnimationRecordMainSprite(spriteId);
 	setMainSprite(spriteId);
 	copyAnimationIntervalToTicks();
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x0b: FaceAndWalkWithFrame → setMainSprite(%u) "
@@ -765,7 +754,7 @@ OPCODE(0x0c) {
 	// fallback follows LookupActorAndStartPath's not-found branch.
 	const byte face = uint8(embeddedByte());
 	setPositionFromFrame(face);
-	setPositionFromFrame(animationField(0x62));
+	setPositionFromFrame(animationRecordTargetFrame());
 	copyAnimationIntervalToTicks();
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x0c: FaceAndWalk "
 									"[base Animation models LookupActorAndStartPath not-found branch]");
@@ -794,7 +783,7 @@ OPCODE(0x15) {
 	//   if (cursor_mode != 0x80): actor.field+0x68 = 0;
 	//   else: cycle field+0x68 toward target pose from cursor.
 	if (Log.cursorMode() != 0x80) {
-		setAnimationField(0x68, 0);
+		setAnimationRecordFacingPose(0);
 		debugC(3, kDebugLevelAnimation,
 			   "anim opcode 0x15: PickAnimationSet cursor_mode=%u != 0x80 -> field+0x68 = 0",
 			   Log.cursorMode());
@@ -814,8 +803,8 @@ OPCODE(0x15) {
 
 	const int16 adjustedX = int16(_position.x) - spriteHotLeft;
 	const int16 adjustedY = int16(_position.y) + spriteHotTop;
-	const uint8 width = animationField(0x17);
-	const uint8 height = animationField(0x18);
+	const uint8 width = animationRecordVisibleSpriteWidth();
+	const uint8 height = animationRecordVisibleSpriteHeight();
 	const int16 leftX = adjustedX;
 	const int16 rightX = adjustedX + int16(width);
 	const int16 topY = adjustedY - int16(height);
@@ -845,9 +834,9 @@ OPCODE(0x15) {
 			target = 3;
 	}
 
-	const uint8 current = animationField(0x68);
+	const uint8 current = animationRecordFacingPose();
 	if (current == 0x63 || target == 0x63 || target == current) {
-		setAnimationField(0x68, target);
+		setAnimationRecordFacingPose(target);
 		debugC(3, kDebugLevelAnimation,
 			   "anim opcode 0x15: PickAnimationSet snap target=%u current=%u",
 			   target, current);
@@ -874,7 +863,7 @@ OPCODE(0x15) {
 		}
 	}
 
-	setAnimationField(0x68, next);
+	setAnimationRecordFacingPose(next);
 	debugC(3, kDebugLevelAnimation,
 		   "anim opcode 0x15: PickAnimationSet rect=(%d..%d,%d..%d) cursor=(%d,%d) target=%u current=%u -> %u (delta=%d)",
 		   leftX, rightX, topY, botY, cursorX, cursorY, target, current, next, int(delta));
@@ -888,7 +877,7 @@ OPCODE(0x16) {
 	//   else ADD BP, 4 (advance).
 	const byte val = embeddedByte();
 	const uint16 jumpTarget = shift();
-	const uint8 current = animationField(0x68);
+	const uint8 current = animationRecordFacingPose();
 	if (current == val) {
 		_offset = jumpTarget;
 		debugC(3, kDebugLevelAnimation, "anim opcode 0x16: BranchIfAnimSetEquals current=%u val=%u -> jump 0x%04x",
@@ -916,7 +905,7 @@ OPCODE(0x17) {
 	// Mirror Actor::setActorCodeOffset's rebase exactly.
 	const byte val = embeddedByte();
 	const uint16 jumpTarget = shift();
-	const uint8 mood = animationField(0x63);
+	const uint8 mood = animationRecordMood();
 	if (mood == val) {
 		if (_base) {
 			byte *segmentBase = _base - _baseOffset;
@@ -924,7 +913,7 @@ OPCODE(0x17) {
 			_baseOffset = jumpTarget;
 		}
 		_offset = 0;
-		setAnimationFieldWord(0x02, jumpTarget);
+		setAnimationRecordScriptBase(jumpTarget);
 		debugC(3, kDebugLevelAnimation, "anim opcode 0x17: BranchIfMoodEquals mood=%u val=%u -> rebase to 0x%04x",
 			   mood, val, jumpTarget);
 	} else {
@@ -938,7 +927,7 @@ OPCODE(0x18) {
 	// DOS Op_19 SetField6d @ 1000:6b43: 1 shift.
 	//   AX = ES:[BP+DI+0x2];  ES:[SI+0x6d] = AX (actually written as a word).
 	const uint16 val = shift();
-	setAnimationFieldWord(0x6d, val);
+	setAnimationRecordPendingReadyAnimation(val);
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x18: SetField6d = 0x%04x", val);
 	return kOk;
 }
@@ -990,8 +979,8 @@ OPCODE(0x20) {
 	//   ES:[SI+0x5d] = ES (callback segment);
 	//   ADD BP, 0xc (skip past 12-byte opcode = opcode + 1 pad + 10 inline body).
 	const uint16 callbackPC = _baseOffset + _offset;
-	setAnimationFieldWord(0x5f, callbackPC);
-	setAnimationFieldWord(0x5d, animationCodeSegmentTag(_base));
+	setAnimationRecordActorCallbackOffset(callbackPC);
+	setAnimationRecordActorCallbackSegment(animationCodeSegmentTag(_base));
 	(void)shift();
 	(void)shift();
 	(void)shift();
@@ -999,7 +988,7 @@ OPCODE(0x20) {
 	(void)shift();
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x20: SetCallbackPointer "
 									"cbSeg=0x%04x cbOff=0x%04x",
-		   animationFieldWord(0x5d), callbackPC);
+		   animationRecordActorCallbackSegment(), callbackPC);
 	return kOk;
 }
 
@@ -1012,17 +1001,17 @@ OPCODE(0x21) {
 	uint16 cbOff = 0;
 	if (off != 0)
 		cbOff = uint16(int32(_baseOffset) + int32(off));
-	setAnimationFieldWord(0x5f, cbOff);
-	setAnimationFieldWord(0x5d, animationCodeSegmentTag(_base));
+	setAnimationRecordActorCallbackOffset(cbOff);
+	setAnimationRecordActorCallbackSegment(animationCodeSegmentTag(_base));
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x21: SetCallbackRelative "
 									"off=%d cbSeg=0x%04x cbOff=0x%04x",
-		   off, animationFieldWord(0x5d), cbOff);
+		   off, animationRecordActorCallbackSegment(), cbOff);
 	return kOk;
 }
 
 OPCODE(0x22) {
 	// DOS Op_23 ClearCallback @ 1000:6c0a: ES:[SI+0x5d] = 0xffff.
-	setAnimationFieldWord(0x5d, 0xffff);
+	setAnimationRecordActorCallbackSegment(0xffff);
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x22: ClearCallback "
 									"[field+0x5d = 0xffff]");
 	return kOk;
@@ -1031,7 +1020,7 @@ OPCODE(0x22) {
 OPCODE(0x23) {
 	// DOS Op_24 SetMood @ 1000:6c13: ES:[SI+0x63] = embedded byte.
 	const byte mood = uint8(embeddedByte());
-	setAnimationField(0x63, mood);
+	setAnimationRecordMood(mood);
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x23: SetMood "
 									"[field+0x63 = %u]",
 		   mood);

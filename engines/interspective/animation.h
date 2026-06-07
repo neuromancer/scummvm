@@ -83,6 +83,31 @@ public:
 protected:
 	class Sprite;
 
+	enum AnimationRecordOffset {
+		kAnimationOffsetScriptBase = 0x02,
+		kAnimationOffsetLeft = 0x04,
+		kAnimationOffsetTop = 0x06,
+		kAnimationOffsetMainSprite = 0x08,
+		kAnimationOffsetTicksLeft = 0x0a,
+		kAnimationOffsetScriptPc = 0x0c,
+		kAnimationOffsetSkipTimerResumePc = 0x0e,
+		kAnimationOffsetInterval = 0x10,
+		kAnimationOffsetSkipTimerCount = 0x11,
+		kAnimationOffsetDrawLayer = 0x12,
+		kAnimationOffsetSecondaryZone = 0x13,
+		kAnimationOffsetAutoZoneLayer = 0x16,
+		kAnimationOffsetVisibleSpriteWidth = 0x17,
+		kAnimationOffsetVisibleSpriteHeight = 0x18,
+		kAnimationOffsetMoveSlots = 0x19,
+		kAnimationOffsetActorCallbackSegment = 0x5d,
+		kAnimationOffsetActorCallbackOffset = 0x5f,
+		kAnimationOffsetFrame = 0x61,
+		kAnimationOffsetTargetFrame = 0x62,
+		kAnimationOffsetMood = 0x63,
+		kAnimationOffsetFacingPose = 0x68,
+		kAnimationOffsetPendingReadyAnimation = 0x6d
+	};
+
 	uint16 shift();
 	int8 shiftByte();
 	int8 embeddedByte() const;
@@ -90,6 +115,46 @@ protected:
 	uint16 animationFieldWord(uint8 off) const;
 	void setAnimationField(uint8 off, uint8 v);
 	void setAnimationFieldWord(uint8 off, uint16 v);
+	void setAnimationRecordScriptBase(uint16 offset) { setAnimationFieldWord(kAnimationOffsetScriptBase, offset); }
+	void setAnimationRecordPosition(uint16 left, uint16 top) {
+		setAnimationFieldWord(kAnimationOffsetLeft, left);
+		setAnimationFieldWord(kAnimationOffsetTop, top);
+	}
+	void setAnimationRecordPosition(Common::Point p) { setAnimationRecordPosition(uint16(p.x), uint16(p.y)); }
+	void setAnimationRecordMainSprite(uint16 sprite) { setAnimationFieldWord(kAnimationOffsetMainSprite, sprite); }
+	void setAnimationRecordTicksLeft(uint16 ticks) { setAnimationFieldWord(kAnimationOffsetTicksLeft, ticks); }
+	void setAnimationRecordScriptPc(uint16 pc) { setAnimationFieldWord(kAnimationOffsetScriptPc, pc); }
+	void setAnimationRecordInterval(uint8 interval) { setAnimationField(kAnimationOffsetInterval, interval); }
+	uint8 animationRecordSkipTimerCount() const { return animationField(kAnimationOffsetSkipTimerCount); }
+	void setAnimationRecordSkipTimerCount(uint8 timer) { setAnimationField(kAnimationOffsetSkipTimerCount, timer); }
+	uint16 animationRecordSkipTimerResumePc() const { return animationFieldWord(kAnimationOffsetSkipTimerResumePc); }
+	void setAnimationRecordSkipTimerResumePc(uint16 pc) { setAnimationFieldWord(kAnimationOffsetSkipTimerResumePc, pc); }
+	void setAnimationRecordDrawLayer(uint8 drawLayer) { setAnimationField(kAnimationOffsetDrawLayer, drawLayer); }
+	void setAnimationRecordSecondaryZone(uint8 zone) { setAnimationField(kAnimationOffsetSecondaryZone, zone); }
+	void setAnimationRecordAutoZoneLayerEnabled(bool enabled) { setAnimationField(kAnimationOffsetAutoZoneLayer, enabled ? 1 : 0); }
+	void setAnimationRecordFrame(uint8 frame) { setAnimationField(kAnimationOffsetFrame, frame); }
+	uint8 animationRecordTargetFrame() const { return animationField(kAnimationOffsetTargetFrame); }
+	uint8 animationRecordVisibleSpriteWidth() const { return animationField(kAnimationOffsetVisibleSpriteWidth); }
+	uint8 animationRecordVisibleSpriteHeight() const { return animationField(kAnimationOffsetVisibleSpriteHeight); }
+	uint8 animationRecordFacingPose() const { return animationField(kAnimationOffsetFacingPose); }
+	void setAnimationRecordFacingPose(uint8 pose) { setAnimationField(kAnimationOffsetFacingPose, pose); }
+	uint8 animationRecordMood() const { return animationField(kAnimationOffsetMood); }
+	void setAnimationRecordMood(uint8 mood) { setAnimationField(kAnimationOffsetMood, mood); }
+	void setAnimationRecordPendingReadyAnimation(uint16 animation) { setAnimationFieldWord(kAnimationOffsetPendingReadyAnimation, animation); }
+	uint16 animationRecordActorCallbackSegment() const { return animationFieldWord(kAnimationOffsetActorCallbackSegment); }
+	void setAnimationRecordActorCallbackSegment(uint16 segment) { setAnimationFieldWord(kAnimationOffsetActorCallbackSegment, segment); }
+	void setAnimationRecordActorCallbackOffset(uint16 offset) { setAnimationFieldWord(kAnimationOffsetActorCallbackOffset, offset); }
+	void clearAnimationRecordMoveSlot(uint slot) {
+		const uint8 off = uint8(kAnimationOffsetMoveSlots + slot * 8);
+		setAnimationFieldWord(off, 0xffff);
+	}
+	void setAnimationRecordMoveSlot(uint slot, uint16 sprite, uint16 x, uint16 y, uint8 mode) {
+		const uint8 off = uint8(kAnimationOffsetMoveSlots + slot * 8);
+		setAnimationFieldWord(off, sprite);
+		setAnimationFieldWord(uint8(off + 2), x);
+		setAnimationFieldWord(uint8(off + 4), y);
+		setAnimationFieldWord(uint8(off + 6), mode);
+	}
 	void setPositionFromFrame(uint8 frame);
 	void copyAnimationIntervalToTicks();
 	void clearAnimationMoveSlots();
