@@ -121,7 +121,8 @@ Status Interpreter::run(uint16 offset) {
 }
 
 Status Interpreter::run(uint16 offset, int ifDepth) {
-	byte *last, *code;
+	byte *last;
+	byte *code;
 	last = code = _base + offset;
 
 	int if_depth = ifDepth;
@@ -358,7 +359,8 @@ ParametrizedString *Interpreter::readArgument<ParametrizedString>(byte *&code) {
 	byte ch;
 	byte *str = translateBuf;
 	byte *raw = code;
-	uint16 offset, value;
+	uint16 offset;
+	uint16 value;
 	bool rawTerminated = false;
 	while (!rawTerminated && (ch = *(code++))) {
 		assert(str - translateBuf < 500);

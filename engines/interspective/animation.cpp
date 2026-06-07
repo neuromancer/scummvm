@@ -531,7 +531,9 @@ OPCODE(0x08) {
 }
 
 OPCODE(0x0a) {
-	uint16 left, top, sprite;
+	uint16 left;
+	uint16 top;
+	uint16 sprite;
 	left = shift();
 	top = shift();
 	sprite = shift();

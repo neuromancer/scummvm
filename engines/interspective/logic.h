@@ -185,14 +185,24 @@ public:
 	// Op_da / Op_dc / Op_de / Op_e2. Pathfinding and hotspot dispatch will
 	// read these once implemented.
 	struct Zone {
-		uint16 a, b, c, d; // 4 raw uint16 args (typically a bbox)
+		uint16 a; // 4 raw uint16 args (typically a bbox)
+		uint16 b;
+		uint16 c;
+		uint16 d;
 	};
 	struct CollisionZone {
-		uint16 a, b, c, d;
+		uint16 a;
+		uint16 b;
+		uint16 c;
+		uint16 d;
 		int16 slot; // Op_db stores ReadVarBySlot_RHS() - 1
 	};
 	struct ZoneB {
-		uint16 a, b, c, d, var; // Op_dd writes 5 fields per entry
+		uint16 a; // Op_dd writes 5 fields per entry
+		uint16 b;
+		uint16 c;
+		uint16 d;
+		uint16 var;
 	};
 	void zonesClear() { _zones.clear(); }
 	void zonesAdd(const Zone &z) {
@@ -499,9 +509,10 @@ public:
 	// Op_01 pop restores. Room restart in `doChangeRoom` clears active/id
 	// fields (DOS MainGameLoop label @ 1000:063e calls ResetCastTable @ 1000:671d).
 	struct CastEntry {
-		uint16 active;            // wActive: 0 = free, non-zero = active
-		uint16 id;                // w_unk_02
-		int16 x, y;               // wX, wY
+		uint16 active; // wActive: 0 = free, non-zero = active
+		uint16 id;     // w_unk_02
+		int16 x;       // wX, wY
+		int16 y;
 		uint8 raw[81];            // raw[0/1]=bRect_w/h, raw[2+n]=p_data[n]
 		Interpreter *interpreter; // C++ mirror of wActive's caller code segment
 		Animation *animation;     // C++ runner for the cast-entry actor script
@@ -551,10 +562,14 @@ public:
 	//   textContinuationPtr  — DOS [0x6713]-related (g_text_continuation_ptr)
 	//   menuDone             — DOS g_menu_done flag (modal-loop exit)
 	struct ModalState {
-		uint16 activeDi, activeEs;
-		uint16 activeAx, activeBx;
-		uint16 savedDi, savedEs;
-		uint16 savedAx, savedBx;
+		uint16 activeDi;
+		uint16 activeEs;
+		uint16 activeAx;
+		uint16 activeBx;
+		uint16 savedDi;
+		uint16 savedEs;
+		uint16 savedAx;
+		uint16 savedBx;
 		uint16 menuChoiceCount;
 		uint16 menuMaxChoices;
 		uint8 paletteMode;
@@ -709,8 +724,12 @@ public:
 	// mirrors the seven words written by Op_e4: two direct args plus
 	// four derived rectangle/cursor bounds and a 0xffff sentinel.
 	struct AnimListEntry {
-		uint16 arg3, arg2;
-		uint16 x0, y0, x1, y1;
+		uint16 arg3;
+		uint16 arg2;
+		uint16 x0;
+		uint16 y0;
+		uint16 x1;
+		uint16 y1;
 		uint16 sentinel;
 	};
 	void animListClear() { _animList.clear(); }
@@ -1225,7 +1244,8 @@ private:
 
 	Engine *_engine;
 	Resources *_resources;
-	Common::SharedPtr<Interpreter> _toplevelInterpreter, _blockInterpreter;
+	Common::SharedPtr<Interpreter> _toplevelInterpreter;
+	Common::SharedPtr<Interpreter> _blockInterpreter;
 	Common::SharedPtr<Program> _sceneProgramKeepAlive;
 	Common::SharedPtr<Interpreter> _sceneInterpreterKeepAlive;
 	Actor *_protagonist;
@@ -1364,32 +1384,36 @@ private:
 	Common::Array<uint16> _visibleNoSpriteExits; // DOS DS:0x04fb no-sprite exit side list, count at DS:0x661f
 	Common::HashMap<uint32, uint8> _cellBits;    // (room<<16)|entity -> DOS cell byte
 	Common::HashMap<uint16, uint8> _actorFlag70; // Actor.field_0x70 (Op_49)
-	uint16 _menuStashA, _menuStashB;             // pbRam00023206/8 (Op_4d)
-	bool _menuStashConsumed;                     // uRam00023291 stash flag
-	uint16 _defaultCursorMode;                   // DS:0x667a — restored by ApplyChangeRoomTransition after Op_cc fullscreen gate
-	uint16 _cursorMode;                          // DS:0x6678 — g_cursor_mode: 0x04=walk, 0x20=drag, 0x40/0x80=verb-style
-	uint16 _cursorStepIndex;                     // DS:0x6680 — g_drag_step_idx, also used by the software cursor sequence
-	uint16 _dragTarget;                          // current drag-source object id
-	uint16 _dragTargetMode40;                    // DS:0x667e — written by Op_76, read by Op_0b
-	Actor *_implicitActor;                       // SI register's last-resolved actor
-	uint16 _hitTarget;                           // DOS g_current_hit_region (DS:0x6672), not entity id
-	uint16 _switchValue;                         // last value pushed for case dispatch (sign of active switch)
-	uint16 _switchTarget;                        // bytecode offset to jump to on case match
-	uint16 _branchState;                         // DS:0x671c — saved PC for switch-loop reentry
-	uint8 _pendingError;                         // CS:[0x0003] — DOS pending-error code (0 = none)
-	uint8 _lastErrorCode;                        // CS:[0x0005] — DOS g_lastErrorCode one-shot dedup
-	uint16 _gameScore;                           // DS:0x6670
-	uint16 _maxGameScore;                        // CS:[0x91]
+	uint16 _menuStashA;                          // pbRam00023206/8 (Op_4d)
+	uint16 _menuStashB;
+	bool _menuStashConsumed;   // uRam00023291 stash flag
+	uint16 _defaultCursorMode; // DS:0x667a — restored by ApplyChangeRoomTransition after Op_cc fullscreen gate
+	uint16 _cursorMode;        // DS:0x6678 — g_cursor_mode: 0x04=walk, 0x20=drag, 0x40/0x80=verb-style
+	uint16 _cursorStepIndex;   // DS:0x6680 — g_drag_step_idx, also used by the software cursor sequence
+	uint16 _dragTarget;        // current drag-source object id
+	uint16 _dragTargetMode40;  // DS:0x667e — written by Op_76, read by Op_0b
+	Actor *_implicitActor;     // SI register's last-resolved actor
+	uint16 _hitTarget;         // DOS g_current_hit_region (DS:0x6672), not entity id
+	uint16 _switchValue;       // last value pushed for case dispatch (sign of active switch)
+	uint16 _switchTarget;      // bytecode offset to jump to on case match
+	uint16 _branchState;       // DS:0x671c — saved PC for switch-loop reentry
+	uint8 _pendingError;       // CS:[0x0003] — DOS pending-error code (0 = none)
+	uint8 _lastErrorCode;      // CS:[0x0005] — DOS g_lastErrorCode one-shot dedup
+	uint16 _gameScore;         // DS:0x6670
+	uint16 _maxGameScore;      // CS:[0x91]
 	Common::HashMap<uint16, bool> _scoreEventClaimed;
 	uint16 _currentEntityId;  // DAT_1cb5_666c
 	uint16 _drawCommandCount; // DS:0x661b
 	Common::Array<OverlayEntry> _overlayQueue;
 	uint16 _graphicSlots[7]; // DS:0x676f..0x677b
 	uint8 _walkSpeedFlag;    // DS:0x674d
-	int16 _cameraX, _cameraY;
-	uint16 _cameraTargetX, _cameraTargetY;
-	int16 _scrollDx, _scrollDy; // DS:0x662b/0x662d, persistent UpdateScrollPosition deltas
-	bool _scrollChanged;        // DS:0x662f, set by UpdateScrollPosition
+	int16 _cameraX;
+	int16 _cameraY;
+	uint16 _cameraTargetX;
+	uint16 _cameraTargetY;
+	int16 _scrollDx; // DS:0x662b/0x662d, persistent UpdateScrollPosition deltas
+	int16 _scrollDy;
+	bool _scrollChanged; // DS:0x662f, set by UpdateScrollPosition
 	bool _inputEnabled;
 	Common::Point _cursorLockedPos; // DOS DS:0x6752/0x6754
 	uint8 _buttonsLocked;           // DOS DS:0x665f
@@ -1397,20 +1421,22 @@ private:
 	bool _speechSkipInput;          // DOS g_buttons_locked == 2 path in UpdateSpeechBubbles
 	uint16 _loadedBackdropId;       // DS:0x666a — written by SetBackdropImage
 	Common::Array<AnimListEntry> _animList;
-	uint16 _dialogCursor0, _dialogCursor1, _dialogClickGate; // DOS DS:0x6662, 0x6664, 0x6660
-	uint8 _postMoveTargetFrameMirror;                        // DOS DS:0x6609
-	PostMoveCallback _postMoveCallback;                      // DOS DS:0x65ab register-state slot
-	CutsceneBackup _cutsceneBackup;                          // DOS Op_97/Op_98 backup slot
-	Common::Array<CastEntry> _castTable;                     // DOS DS:0x1977 cast registry (18 slots)
-	Common::Array<SpeechSlot> _speechSlots;                  // DOS DS:0x4e63, 6 entries
-	uint16 _uiTextSpeechSlot;                                // DOS DS:0x669a pointer, modeled as a speech-slot index
-	ModalState _modalState;                                  // DOS DS:0x66ae..0x66c6 modal regs + 0x6741 stash
-	Common::Array<uint16> _menuItemIndices;                  // DOS DS:0x4f1b — Op_54 lookup for selected idx
-	uint16 _opcodeMode;                                      // DS:0x670e
-	uint16 _escBreakProc;                                    // DS:0x6726 (g_break_target_proc)
-	uint16 _escBreakSrcPC;                                   // legacy debug/save word; target segment lives in _skipPoint.interpreter()
-	bool _escBreakPending;                                   // ESC latched by fade/video code until HandleEscDuringScript.
-	uint16 _bubbleLineHeight;                                // DOS DAT_1000_885e, written by Op_fd and read by FormatBubbleText_Inner.
+	uint16 _dialogCursor0; // DOS DS:0x6662, 0x6664, 0x6660
+	uint16 _dialogCursor1;
+	uint16 _dialogClickGate;
+	uint8 _postMoveTargetFrameMirror;       // DOS DS:0x6609
+	PostMoveCallback _postMoveCallback;     // DOS DS:0x65ab register-state slot
+	CutsceneBackup _cutsceneBackup;         // DOS Op_97/Op_98 backup slot
+	Common::Array<CastEntry> _castTable;    // DOS DS:0x1977 cast registry (18 slots)
+	Common::Array<SpeechSlot> _speechSlots; // DOS DS:0x4e63, 6 entries
+	uint16 _uiTextSpeechSlot;               // DOS DS:0x669a pointer, modeled as a speech-slot index
+	ModalState _modalState;                 // DOS DS:0x66ae..0x66c6 modal regs + 0x6741 stash
+	Common::Array<uint16> _menuItemIndices; // DOS DS:0x4f1b — Op_54 lookup for selected idx
+	uint16 _opcodeMode;                     // DS:0x670e
+	uint16 _escBreakProc;                   // DS:0x6726 (g_break_target_proc)
+	uint16 _escBreakSrcPC;                  // legacy debug/save word; target segment lives in _skipPoint.interpreter()
+	bool _escBreakPending;                  // ESC latched by fade/video code until HandleEscDuringScript.
+	uint16 _bubbleLineHeight;               // DOS DAT_1000_885e, written by Op_fd and read by FormatBubbleText_Inner.
 	Common::String _parserBuffer;
 	uint8 _parserBufferCapacity;
 	uint8 _callDepth;                  // DOS call-stack depth (max 8)

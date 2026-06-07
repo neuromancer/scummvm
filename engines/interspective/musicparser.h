@@ -53,7 +53,8 @@ public:
 	void exec(byte channel, Note *note = 0);
 
 private:
-	byte _command, _parameter;
+	byte _command;
+	byte _parameter;
 };
 
 class Note {
@@ -90,8 +91,10 @@ public:
 private:
 	Note _notes[4];
 	MusicCommand _init[4];
-	bool _active, _not_initialized;
-	byte _initnote, _chanidx;
+	bool _active;
+	bool _not_initialized;
+	byte _initnote;
+	byte _chanidx;
 };
 
 class Beat {
@@ -246,7 +249,9 @@ private:
 	uint32 _sfxTick;
 	bool _sfxTunePlaying;
 
-	uint32 _time, _lastTick, _tick;
+	uint32 _time;
+	uint32 _lastTick;
+	uint32 _tick;
 };
 
 #define Music MusicParser::instance()

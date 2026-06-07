@@ -4627,7 +4627,8 @@ OPCODE(0x7e) {
 	const uint16 type = uint16(a[0]);
 	const uint16 id = uint16(a[1]);
 	uint16 sprite = 0;
-	int16 x = 0, y = 0;
+	int16 x = 0;
+	int16 y = 0;
 	switch (type) {
 	case 1: { // exit
 		uint16 recordId = id;

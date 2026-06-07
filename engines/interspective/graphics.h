@@ -212,7 +212,8 @@ private:
 	OSystem *_system;
 	Common::Point _cursorPosition;
 	bool _hostCursorShown;
-	Common::SharedPtr<Surface> _backdrop, _framebuffer;
+	Common::SharedPtr<Surface> _backdrop;
+	Common::SharedPtr<Surface> _framebuffer;
 
 	static const char _charwidths[];
 
@@ -267,8 +268,9 @@ private:
 	// set), then pops the next entry from _speechQueue. The queue is FIFO.
 	byte *_speech;
 	uint16 _speechFramesLeft;
-	uint16 _speechX, _speechY; // current narrator-bubble position
-	byte _speechColor;         // current narrator-bubble color
+	uint16 _speechX; // current narrator-bubble position
+	uint16 _speechY;
+	byte _speechColor; // current narrator-bubble color
 	uint16 _speechMaxLines;
 	bool _speechBubble;
 	SpeechBubbleMode _speechBubbleMode;
@@ -281,7 +283,8 @@ private:
 						cbMode(0), cbHasMode(false) {}
 		byte *text; // owned: caller transferred via say()
 		uint16 length;
-		uint16 x, y; // top-left coords (Op_47/0x48 narrator pos)
+		uint16 x; // top-left coords (Op_47/0x48 narrator pos)
+		uint16 y;
 		uint16 frames;
 		byte color; // text color (Op_47/0x48 color arg)
 		uint16 maxLines;

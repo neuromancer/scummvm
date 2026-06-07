@@ -81,7 +81,8 @@ void Surface::blit(const Surface *s, Common::Rect r, Common::Point srcOffset, in
 
 	const byte *src = reinterpret_cast<const byte *>(s->getBasePtr(srcOffset.x, srcOffset.y));
 	byte *dest = reinterpret_cast<byte *>(getBasePtr(r.left, r.top));
-	int rw = r.width(), rh = r.height();
+	int rw = r.width();
+	int rh = r.height();
 
 	if (transparent == -1 && !tinted) {
 		if (rw == s->pitch && rw == pitch && r.left == 0 && srcOffset.x == 0)

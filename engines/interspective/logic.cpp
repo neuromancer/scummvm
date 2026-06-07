@@ -168,7 +168,8 @@ static void syncHashMapUint16Uint16(Common::Serializer &s, Common::HashMap<uint1
 	if (s.isLoading()) {
 		map.clear();
 		for (uint16 i = 0; i < count; ++i) {
-			uint16 key = 0, value = 0;
+			uint16 key = 0;
+			uint16 value = 0;
 			s.syncAsUint16LE(key);
 			s.syncAsUint16LE(value);
 			map[key] = value;

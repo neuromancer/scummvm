@@ -1833,7 +1833,8 @@ void Graphics::paintSpeechBubbleColumn(Sprite *top, Sprite *fill, Common::Point 
 
 Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const byte *string, Surface *bubble,
 										   SpeechBubbleMode mode, bool renderText, uint16 forcedRows) {
-	int left = pos.x, top = pos.y;
+	int left = pos.x;
+	int top = pos.y;
 	debugC(1, kDebugLevelGraphics, "painting speech bubble \"%s\" at %d:%d", string, left, top);
 
 	Common::Array<byte> normalized = normalizeBubbleInput(string);

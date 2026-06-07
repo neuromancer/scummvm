@@ -137,7 +137,9 @@ protected:
 		AnimationMoveSlot() : a(0), b(0), c(0), mode(0) {}
 		AnimationMoveSlot(uint16 _a, uint16 _b, uint16 _c, uint8 _mode)
 			: a(_a), b(_b), c(_c), mode(_mode) {}
-		uint16 a, b, c;
+		uint16 a;
+		uint16 b;
+		uint16 c;
 		uint8 mode;
 	};
 	Common::Array<AnimationMoveSlot> _animationMoveSlots;

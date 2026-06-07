@@ -349,9 +349,11 @@ private:
 	uint16 _frame;
 	uint16 _nextFrame;
 	uint16 _room;
-	Direction _direction, _nextDirection;
+	Direction _direction;
+	Direction _nextDirection;
 	uint16 _nextAnimator; // to change to whenever possible
-	bool _attentionNeeded, _confused;
+	bool _attentionNeeded;
+	bool _confused;
 	Puppeteer _puppeteer;
 
 	// Sparse storage for DOS actor record fields not yet first-class C++
@@ -388,7 +390,9 @@ public:
 		MoveSlot() : a(0), b(0), c(0), mode(0) {}
 		MoveSlot(uint16 _a, uint16 _b, uint16 _c, uint8 _m)
 			: a(_a), b(_b), c(_c), mode(_m) {}
-		uint16 a, b, c;
+		uint16 a;
+		uint16 b;
+		uint16 c;
 		uint8 mode;
 	};
 	bool queueMoveSlot(const MoveSlot &slot) {
@@ -432,7 +436,8 @@ private:
 	uint16 _id; // 1-based DOS actor id
 	Common::HashMap<uint8, uint8> _recordFields;
 	Common::Array<MoveSlot> _moveSlots;
-	uint16 _actorCallbackSeg, _actorCallbackOff;
+	uint16 _actorCallbackSeg;
+	uint16 _actorCallbackOff;
 
 	struct ScriptCallback {
 		ScriptCallback() : runMode(0), hasRunMode(false) {}

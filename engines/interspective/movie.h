@@ -53,7 +53,8 @@ private:
 	void loadKeyFrame();
 	void loadIFrame();
 
-	int _delay, _iFrames;
+	int _delay;
+	int _iFrames;
 	Common::ReadStream *_f;
 };
 

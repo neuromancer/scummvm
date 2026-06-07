@@ -50,7 +50,8 @@ Exit::Exit(const CodePointer &c, uint16 id)
 		c.field(_sprite, kOffsetSprite);
 		_rect = Common::Rect(_sprite->w, _sprite->h);
 	} else {
-		byte w, h;
+		byte w;
+		byte h;
 		c.field(w, kOffsetWidth);
 		c.field(h, kOffsetHeight);
 		_spriteField = uint16(w) | (uint16(h) << 8);

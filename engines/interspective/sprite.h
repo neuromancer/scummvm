@@ -29,8 +29,13 @@ struct SpriteInfo {
 	// safe fallback when an out-of-range sprite index is requested.
 	SpriteInfo() : left(0), top(0), width(0), height(0), image(0), hotLeft(0), hotTop(0) {}
 	SpriteInfo(const byte *, uint16 index);
-	uint16 left, top, width, height, image;
-	int8 hotLeft, hotTop;
+	uint16 left;
+	uint16 top;
+	uint16 width;
+	uint16 height;
+	uint16 image;
+	int8 hotLeft;
+	int8 hotTop;
 };
 
 } // End of namespace Interspective

@@ -86,7 +86,8 @@ bool Movie::findKeyFrame() {
 void Movie::loadKeyFrame() {
 	(void)_f->readUint16LE(); // no idea what that is
 
-	uint16 w, h;
+	uint16 w;
+	uint16 h;
 	w = _f->readUint16LE();
 	h = _f->readUint16LE();
 	assert(w == 320 && h == 200);
@@ -101,7 +102,8 @@ void Movie::loadKeyFrame() {
 void Movie::loadIFrame() {
 	(void)_f->readUint16LE();
 
-	byte skipB, skipW;
+	byte skipB;
+	byte skipW;
 	skipB = _f->readByte();
 	skipW = _f->readByte();
 
