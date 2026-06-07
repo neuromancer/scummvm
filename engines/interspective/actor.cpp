@@ -749,7 +749,8 @@ Common::List<Actor::Frame> Actor::findPath(Actor::Frame from, uint16 to) {
 void Actor::moveTo(uint16 frame) {
 	Frame cur = Log.room()->getFrame(_frame);
 
-	// DOS MoveActorToRoom @ 1000:70e1, NOT-FOUND path (1000:7103-710b):
+	// DOS MoveActorToRoom @ 1000:70e1, NOT-FOUND path
+	// @ 1000:7103..1000:710b:
 	//   MOV ES:[SI+0x61], AL          ; actor.frame = target frame
 	//   CALL SetActorPosition         ; reads frame[N].pos → actor X/Y
 	//   STC; RET
@@ -848,7 +849,7 @@ void Actor::setRoom(uint16 r, uint16 frame, uint16 next_frame) {
 }
 
 void Actor::placeIn(uint16 r, uint16 frame, uint16 next_frame) {
-	// Mirrors DOS Op_7a's prelude (CS:0x4443):
+	// Mirrors DOS Op_7a_PlaceActorInRoomXY @ 1000:4443 prelude:
 	//   actor.field+0x59 = room
 	//   actor.field+0x61 = frame   (current)
 	//   actor.field+0x62 = nextFrame (target; same as frame for Op_79/protagonist seed)
@@ -1437,7 +1438,7 @@ void Actor::paint(Graphics *g) {
 	uint8 width = 0;
 	uint8 height = 0;
 	if (actorMainSpriteVisibleDimensions(_mainSprite.get(), _position, g->screenHeight(), width, height)) {
-		// DOS DrawActorAnimSlot @ 1000:6633/663b copies g_blit_last_w/h
+		// DOS DrawActorAnimSlot @ 1000:6633 / 1000:663b copies g_blit_last_w/h
 		// into actor fields +0x17/+0x18 after drawing the main sprite.
 		setDosField(0x17, width);
 		setDosField(0x18, height);
@@ -1513,7 +1514,7 @@ Animation::Status Actor::opcodeHandler<n>()
 // C++ state writes without porting the rest of the DOS walk driver.
 
 OPCODE(0x00) {
-	// DOS Op_01 ScriptEnd (CS:0x68d3) — actually a 1-based-naming
+	// DOS Op_01 ScriptEnd @ 1000:68d3 — actually a 1-based-naming
 	// confusion. C++ slot 0x00 corresponds to DOS Op_01 per the
 	// off-by-1 dispatcher mapping. DOS clears field0+field1 + sets
 	// g_actor_script_ended = 1 to break out of RunActorScript.
@@ -1527,7 +1528,7 @@ OPCODE(0x00) {
 }
 
 OPCODE(0x01) {
-	// DOS Op_02 UnregisterAndEnd (CS:0x68e3): UnregisterActor + clear
+	// DOS Op_02 UnregisterAndEnd @ 1000:68e3: UnregisterActor + clear
 	// field0/1 + sets g_actor_script_ended = 1. C++ slot 0x01 per the
 	// off-by-1 mapping. UnregisterActor only clears the script PC and the
 	// actor-table id slot; it does not reset sprite/timer/path fields.
@@ -1569,7 +1570,7 @@ OPCODE(0x15) {
 	// FULL-FIDELITY port (matches DOS bounding-rect classifier byte-
 	// for-byte; word-for-word step-toward state machine).
 	//
-	// Op_15 outer (1000:6c3e..0x6cc9):
+	// Op_15 outer @ 1000:6c3e..1000:6cc9:
 	//   PUSH ES, DI, BP, DS, SI                ; preserve regs
 	//   PUSH DS; PUSH ds; POP DS                ; (DS-restore dance)
 	//   CALL RetEmpty;                          ; CX=0, DX=0
@@ -1581,11 +1582,11 @@ OPCODE(0x15) {
 	//   MOV [SI+0x68], 0                         ; not verb mode → reset pose
 	//   JMP exit
 	//
-	//   verb_mode_path (1000:6c6b):
+	//   verb_mode_path @ 1000:6c6b:
 	//     PUSH DS, SI;                            ; protect actor record
 	//     MOV BH,0; MOV BL, [SI+0x18];            ; BX = actor.field+0x18
 	//                                              ; (rect-height portion)
-	//     CALL CalcSpriteOffsetIfPlaced @ 0x700f  ; → BP = target pose
+	//     CALL CalcSpriteOffsetIfPlaced @ 1000:700f ; → BP = target pose
 	//                                              ; (1..8 or 0x63 center)
 	//     POP SI, DS;                             ; restore actor record
 	//     MOV DX, BP                              ; DX = target
@@ -1671,7 +1672,7 @@ OPCODE(0x15) {
 	// 6/5/4. Within each row, left/middle/right partition by left_x and
 	// right_x.
 	//
-	// Step-toward semantics (1000:6c79..0x6cba):
+	// Step-toward semantics @ 1000:6c79..1000:6cba:
 	//   delta = target - current (signed byte arithmetic):
 	//     delta == 0 OR current==0x63 OR target==0x63 -> snap.
 	//     delta <= -6 -> INC current with wrap (short route via 8->1).
@@ -1753,7 +1754,7 @@ OPCODE(0x15) {
 			   target, current);
 		return kOk;
 	}
-	// Reproduces DOS 8-bit signed branches at 1000:6c79..0x6cba.
+	// Reproduces DOS 8-bit signed branches @ 1000:6c79..1000:6cba.
 	const int8 delta = int8(uint8(target - current));
 	uint8 next = 0x63;
 	if (delta < 0) {
@@ -1829,7 +1830,7 @@ OPCODE(0x17) {
 }
 
 OPCODE(0x18) {
-	// C++ slot 0x18 = DOS Op_19 SetField6d (CS:0x6b43). Reads 1 int16.
+	// C++ slot 0x18 = DOS Op_19 SetField6d @ 1000:6b43. Reads 1 int16.
 	// Stores the full word at actor.field+0x6d.
 	uint16 val = shift();
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x18: SetField6d = 0x%04x [DOS Op_19]", val);
@@ -1838,7 +1839,7 @@ OPCODE(0x18) {
 }
 
 OPCODE(0x19) {
-	// C++ slot 0x19 = DOS Op_1a SetWalkFlagsAndEnd (CS:0x6a48). Reads
+	// C++ slot 0x19 = DOS Op_1a SetWalkFlagsAndEnd @ 1000:6a48. Reads
 	// 1 int16, writes actor.field+0xa = arg and actor.field+0x8 = 0xffff,
 	// then ends script.
 	uint16 flags = shift();
@@ -1851,7 +1852,7 @@ OPCODE(0x19) {
 }
 
 OPCODE(0x1a) {
-	// C++ slot 0x1a = DOS Op_1b SetField12ClearFlag16 (CS:0x6b4e). Reads
+	// C++ slot 0x1a = DOS Op_1b SetField12ClearFlag16 @ 1000:6b4e. Reads
 	// embedded byte at +1 only. Animation::0x1a ("set z index") happens
 	// to use embeddedByte too. DOS stores the byte in actor field+0x12,
 	// and DrawAllRoomObjects uses that byte as the actor render layer.
@@ -1864,7 +1865,7 @@ OPCODE(0x1a) {
 }
 
 OPCODE(0x23) {
-	// C++ slot 0x23 = DOS Op_24 SetMood (CS:0x6c13). Reads byte at +1.
+	// C++ slot 0x23 = DOS Op_24 SetMood @ 1000:6c13. Reads byte at +1.
 	// Byte consumption matches. C++ uses this as "set _direction" — the
 	// load-bearing C++ walking heuristic. The bytecode emits this
 	// opcode with values 1..8 (compass values) which the C++ interprets
@@ -1915,7 +1916,7 @@ OPCODE(0x23) {
 }
 
 OPCODE(0x24) {
-	// C++ slot 0x24 = DOS Op_25 SetField65 (CS:0x6c1e). Reads byte at +1.
+	// C++ slot 0x24 = DOS Op_25 SetField65 @ 1000:6c1e. Reads byte at +1.
 	// Byte consumption matches. C++ uses this as "set _attentionNeeded"
 	// — the load-bearing C++ walking trigger. The bytecode emits this
 	// between walk frames so the next frame can advance. Do not remove
@@ -1940,14 +1941,14 @@ OPCODE(0x24) {
 // return kOk (continue with the next opcode this tick).
 //
 // Op_04/Op_05 (slots 0x03/0x04) are NOT SetCurrentFrame /
-// SetCurrentFrameFromGlobal. DOS @ 1000:6912 / 1000:691d both write to
+// SetCurrentFrameFromGlobal. DOS Op_04 @ 1000:6912 / Op_05 @ 1000:691d both write to
 // actor [SI+0x10] = kOffsetInterval (Animation::_interval), NOT
 // field+0x61 (_frame). The slot-0x03/0x04 overrides are kept explicit
 // for symmetry with the rest of the family.
 // ============================================================================
 
 OPCODE(0x02) {
-	// C++ slot 0x02 = DOS Op_03 SetPosition (1000:6900). 2 shifts.
+	// C++ slot 0x02 = DOS Op_03 SetPosition @ 1000:6900. 2 shifts.
 	// Writes actor.x = word, actor.y = word. Doesn't end script.
 	// Keep the override explicit so actor position writes remain grouped
 	// with the movement opcode family.
@@ -1959,7 +1960,7 @@ OPCODE(0x02) {
 }
 
 OPCODE(0x03) {
-	// C++ slot 0x03 = DOS Op_04 SetInterval (1000:6912). 1 shift.
+	// C++ slot 0x03 = DOS Op_04 SetInterval @ 1000:6912. 1 shift.
 	//   MOV AX, ES:[BP+DI+2]      ; arg word
 	//   MOV byte ptr [SI+0x10], AL ; field+0x10 = AL  (interval byte)
 	//   ADD BP, 4 / RET
@@ -1974,7 +1975,7 @@ OPCODE(0x03) {
 }
 
 OPCODE(0x04) {
-	// C++ slot 0x04 = DOS Op_05 SetIntervalFromGlobal (1000:691d). 1 shift.
+	// C++ slot 0x04 = DOS Op_05 SetIntervalFromGlobal @ 1000:691d. 1 shift.
 	//   reads global word var at index (arg/2)
 	//   writes its low byte to [SI+0x10] = Animation::_interval.
 	// Writes _interval per DOS; do not update _frame.
@@ -2044,7 +2045,7 @@ OPCODE(0x07) {
 }
 
 OPCODE(0x08) {
-	// C++ slot 0x08 = DOS Op_09 WalkRelative (1000:697c). Reads 2 signed
+	// C++ slot 0x08 = DOS Op_09 WalkRelative @ 1000:697c. Reads 2 signed
 	// bytes (dx, dy) only. Adds to actor.x/y, copies field+0x10 to +0x0a,
 	// and ends script. Animation::0x08 ("move by") happens to do the same
 	// _position update with the same byte consumption — the existing
@@ -2059,7 +2060,7 @@ OPCODE(0x08) {
 }
 
 OPCODE(0x09) {
-	// C++ slot 0x09 = DOS Op_0a WalkAbsolute (1000:6991). 2 shifts.
+	// C++ slot 0x09 = DOS Op_0a WalkAbsolute @ 1000:6991. 2 shifts.
 	// Writes actor.x/y = (word, word), copies field+0x10 to +0x0a, and
 	// ends script.
 	const uint16 x = shift();
@@ -2093,7 +2094,7 @@ OPCODE(0x0a) {
 }
 
 OPCODE(0x0d) {
-	// C++ slot 0x0d = DOS Op_0e SetTimerAndSkip (1000:6a5e). Reads embedded
+	// C++ slot 0x0d = DOS Op_0e SetTimerAndSkip @ 1000:6a5e. Reads embedded
 	// byte at +1 (skip-timer value), writes to actor.field+0x11. Also DOS
 	// stashes BP+2 (script PC after the opcode) into actor.field+0xe — a
 	// "resume point" used by the timer loop. Stash via the sparse
@@ -2111,7 +2112,7 @@ OPCODE(0x0d) {
 }
 
 OPCODE(0x0e) {
-	// C++ slot 0x0e = DOS Op_0f DecrementTimer (1000:6a6c). 0 args.
+	// C++ slot 0x0e = DOS Op_0f DecrementTimer @ 1000:6a6c. 0 args.
 	// DOS advances BP by 2, decrements actor.field+0x11 when nonzero,
 	// and if the post-decrement value is still nonzero jumps back to
 	// actor.field+0x0e.
@@ -2134,7 +2135,7 @@ OPCODE(0x0e) {
 }
 
 OPCODE(0x0f) {
-	// C++ slot 0x0f = DOS Op_10 (CS:0x6a7e). The Ghidra label says "NoOp"
+	// C++ slot 0x0f = DOS Op_10 @ 1000:6a7e. The Ghidra label says "NoOp"
 	// but the disassembly shows `MOV BP, ES:[BP+DI+2] / RET` — it's an
 	// UNCONDITIONAL JUMP to the word at script[+2..+3]. 4-byte opcode.
 	uint16 target = shift();
@@ -2159,8 +2160,8 @@ OPCODE(0x0f) {
 // ============================================================================
 
 OPCODE(0x10) {
-	// C++ slot 0x10 = DOS Op_11 SetGlobalByteFlag. Reads 1 int16 offset
-	// (1 shift = 2 bytes), writes 1 to global byte var.
+	// C++ slot 0x10 = DOS Op_11 SetGlobalByteFlag @ 1000:6a83. Reads
+	// 1 int16 offset (1 shift = 2 bytes), writes 1 to global byte var.
 	uint16 var = shift();
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x10: SetGlobalByteFlag var %d = 1 [DOS Op_11]", var);
 	*_resources->getGlobalByteVariable(var) = 1;
@@ -2168,8 +2169,8 @@ OPCODE(0x10) {
 }
 
 OPCODE(0x11) {
-	// C++ slot 0x11 = DOS Op_12 ClearGlobalByteFlag. Reads 1 int16 offset
-	// (1 shift), writes 0 to global byte var.
+	// C++ slot 0x11 = DOS Op_12 ClearGlobalByteFlag @ 1000:6a9d. Reads
+	// 1 int16 offset (1 shift), writes 0 to global byte var.
 	uint16 var = shift();
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x11: ClearGlobalByteFlag var %d = 0 [DOS Op_12]", var);
 	*_resources->getGlobalByteVariable(var) = 0;
@@ -2177,7 +2178,7 @@ OPCODE(0x11) {
 }
 
 OPCODE(0x12) {
-	// C++ slot 0x12 = DOS Op_13 (CS:0x6ab7). Ghidra labels it "NoOp" but
+	// C++ slot 0x12 = DOS Op_13 @ 1000:6ab7. Ghidra labels it "NoOp" but
 	// the disassembly is JumpIfByteVar: reads var index at script[+2..+3],
 	// reads jump target at script[+4..+5], if global byte var is non-zero
 	// jump to target, else ADD BP,6 (skip 6-byte opcode). 2 shifts total.
@@ -2191,7 +2192,7 @@ OPCODE(0x12) {
 }
 
 OPCODE(0x13) {
-	// C++ slot 0x13 = DOS Op_14 BranchIfRandomMatch (CS:0x6ad9). 6-byte
+	// C++ slot 0x13 = DOS Op_14 BranchIfRandomMatch @ 1000:6ad9. 6-byte
 	// opcode: reads value at script[+2..+3], calls GetRandomBitsBelow with
 	// that same value, and jumps to script[+4..+5] if returned BX equals
 	// the value. DOS random result is 1..value, so this is a 1/value
@@ -2212,28 +2213,28 @@ OPCODE(0x13) {
 //                 set     by C++ 0x1f (DOS Op_20 SetFlag15)
 
 OPCODE(0x1d) {
-	// C++ slot 0x1d = DOS Op_1e ClearFlag14. 0 args.
+	// C++ slot 0x1d = DOS Op_1e ClearFlag14 @ 1000:6bcd. 0 args.
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x1d: ClearFlag14 [DOS Op_1e]");
 	setDosField(0x14, 0);
 	return kOk;
 }
 
 OPCODE(0x1e) {
-	// C++ slot 0x1e = DOS Op_1f ClearFlag15. 0 args.
+	// C++ slot 0x1e = DOS Op_1f ClearFlag15 @ 1000:6bd5. 0 args.
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x1e: ClearFlag15 [DOS Op_1f]");
 	setDosField(0x15, 0);
 	return kOk;
 }
 
 OPCODE(0x1f) {
-	// C++ slot 0x1f = DOS Op_20 SetFlag15. 0 args.
+	// C++ slot 0x1f = DOS Op_20 SetFlag15 @ 1000:6bdd. 0 args.
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x1f: SetFlag15 [DOS Op_20]");
 	setDosField(0x15, 1);
 	return kOk;
 }
 
 OPCODE(0x20) {
-	// C++ slot 0x20 = DOS Op_21 SetCallbackPointer (1000:6be5). 12-BYTE
+	// C++ slot 0x20 = DOS Op_21 SetCallbackPointer @ 1000:6be5. 12-BYTE
 	// opcode (ADD BP, 0xc). DOS:
 	//   actor.field+0x5f = BP+DI+2  (callback offset = next opcode)
 	//   actor.field+0x5d = ES       (callback segment)
@@ -2252,7 +2253,7 @@ OPCODE(0x20) {
 }
 
 OPCODE(0x21) {
-	// C++ slot 0x21 = DOS Op_22 SetCallbackRelative (1000:6bf4). 1 shift
+	// C++ slot 0x21 = DOS Op_22 SetCallbackRelative @ 1000:6bf4. 1 shift
 	// (signed int16 offset). DOS:
 	//   if (arg != 0)  callback_off = DI + arg   (segment-relative)
 	//   else           callback_off = 0          (clear)
@@ -2268,7 +2269,7 @@ OPCODE(0x21) {
 }
 
 OPCODE(0x22) {
-	// C++ slot 0x22 = DOS Op_23 ClearCallback (1000:6c0a). 0 args.
+	// C++ slot 0x22 = DOS Op_23 ClearCallback @ 1000:6c0a. 0 args.
 	// Writes 0xffff to actor.field+0x5d (clears the callback segment;
 	// effectively cancels any callback set by Op_20/Op_21). DOS does not
 	// clear the offset word at +0x5f.
@@ -2300,7 +2301,7 @@ OPCODE(0x25) {
 // ============================================================================
 
 OPCODE(0x0b) {
-	// C++ slot 0x0b = DOS Op_0c FaceAndWalkWithFrame (1000:69cd). Embedded
+	// C++ slot 0x0b = DOS Op_0c FaceAndWalkWithFrame @ 1000:69cd. Embedded
 	// current-frame byte at +1, sprite/target word at +2..+3. DOS:
 	//   actor.currentFrame (field+0x61) = byte
 	//   SetActorPosition(); GetActorOffset(field+0x62)
@@ -2325,7 +2326,7 @@ OPCODE(0x0b) {
 }
 
 OPCODE(0x0c) {
-	// C++ slot 0x0c = DOS Op_0d FaceAndWalk (1000:6a0e). Embedded byte at
+	// C++ slot 0x0c = DOS Op_0d FaceAndWalk @ 1000:6a0e. Embedded byte at
 	// +1 only — same as 0x0b but no sprite field+8 write. Sets
 	// field+0x61, updates actor position, starts path toward field+0x62,
 	// copies field+0x10 to +0x0a, and ends script.
@@ -2340,7 +2341,7 @@ OPCODE(0x0c) {
 }
 
 OPCODE(0x1b) {
-	// C++ slot 0x1b = DOS Op_1c QueueMoveSlotMode0 (1000:6b5d). 3 shifts
+	// C++ slot 0x1b = DOS Op_1c QueueMoveSlotMode0 @ 1000:6b5d. 3 shifts
 	// (a, b, c). Finds first free slot in actor.field+0x19 (8 entries),
 	// writes (b, c, a, mode=0). DOS layout per disasm:
 	//   slot.field2 = arg1 (b)
@@ -2360,7 +2361,7 @@ OPCODE(0x1b) {
 }
 
 OPCODE(0x1c) {
-	// C++ slot 0x1c = DOS Op_1d QueueMoveSlotMode1 (1000:6b95). Same as
+	// C++ slot 0x1c = DOS Op_1d QueueMoveSlotMode1 @ 1000:6b95. Same as
 	// 0x1b but mode=1.
 	const uint16 arg1 = shift();
 	const uint16 arg2 = shift();

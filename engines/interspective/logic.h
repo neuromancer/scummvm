@@ -458,7 +458,7 @@ public:
 	// true on success, false on actor-id OOB.
 	bool walkActorAnim(uint16 actorId, int16 destX, int16 destY, bool slowSpeed);
 
-	// CheckActorIdle equivalent (DOS @ 1000:645e). Combines
+	// CheckActorIdle equivalent (DOS CheckActorIdle @ 1000:645e). Combines
 	// Actor::isMoving() and Actor::isSpeaking() into the
 	// "ready to receive a new command" predicate. Walk-family opcodes
 	// gate on this; if the actor is busy, the opcode yields by
@@ -497,7 +497,7 @@ public:
 	//
 	// The table is scene-scoped: Op_38 push captures it via SceneFrame;
 	// Op_01 pop restores. Room restart in `doChangeRoom` clears active/id
-	// fields (DOS MainGameLoop LAB_1000_063e calls ResetCastTable @ 1000:671d).
+	// fields (DOS MainGameLoop label @ 1000:063e calls ResetCastTable @ 1000:671d).
 	struct CastEntry {
 		uint16 active;            // wActive: 0 = free, non-zero = active
 		uint16 id;                // w_unk_02
@@ -759,7 +759,7 @@ public:
 	struct PostMoveCallback {
 		enum Kind {
 			kNone = 0,
-			// DOS trampoline @ 0x49df:
+			// DOS trampoline @ 1000:49df:
 			//   PUSH CX; PUSH BX; CALL DisableObjectFlag1(AX);
 			//   POP AX; CALL MovePersonToActor(AX);
 			//   POP AX; if (AX != 0) JMP EnableObjectFlag1.
@@ -767,7 +767,7 @@ public:
 			//   (arg1 != 0 ? setCellBit(arg1) : nothing).
 			// Used by Op_91/Op_92.
 			kDisableMoveOptionalEnable = 1,
-			// DOS trampoline @ 0x4a36:
+			// DOS trampoline @ 1000:4a36:
 			//   PUSH BX; CALL DisableObjectFlag1(AX);
 			//   POP BX; CALL EnableObjectFlag1(AX);  [BX is restored
 			//     but never moved back to AX, so AX is the value left by
@@ -776,22 +776,22 @@ public:
 			// = clearCellBit(cellId) + DOS AX-dependent EnableObjectFlag1 +
 			//   setCursorMode(1) + setDragTarget(0). Used by Op_93.
 			kDisableEnableUnregister = 2,
-			// DOS callback @ 0x4376:
+			// DOS callback @ 1000:4376:
 			//   if !status: protag.frame=arg0, protag.nextFrame=arg1,
 			//   protag.room=currentRoom=cellId, then SetActorPosition.
 			// Used by Op_29/Op_2a after walking to the current entity.
 			kPlaceProtagonistAfterMove = 3,
-			// DOS callback @ 0xc408 (`PlaceObjectInRoom`), armed by
-			// HandleHotspotInteraction @ 0x3353 after QueueExitTransition.
+			// DOS callback @ 1000:c408 (`PlaceObjectInRoom`), armed by
+			// HandleHotspotInteraction @ 1000:3353 after QueueExitTransition.
 			// C++ stores object id in cellId, adjusted X in arg0, and
 			// target-bottom Y in arg1.
 			kPlaceObjectAfterHotspotMove = 4,
-			// DOS callback @ 0x9be9, armed by Op_3f/0x40 after
+			// DOS callback @ 1000:9be9, armed by Op_3f/0x40 after
 			// allocating an inactive protagonist speech slot while the
 			// protagonist walks to the current entity.
 			kActivateProtagonistSpeechAfterMove = 5,
-			// DOS callback @ 0x3297 (`BeginDrag_AfterRemoveExit`),
-			// armed by HandleSecondaryClick @ 0x3258 after walking to a
+			// DOS callback @ 1000:3297 (`BeginDrag_AfterRemoveExit`),
+			// armed by HandleSecondaryClick @ 1000:3258 after walking to a
 			// room object with cursor mode 1.
 			kBeginDragAfterMove = 6,
 		};
@@ -974,8 +974,8 @@ public:
 			_parserBuffer.deleteLastChar();
 	}
 
-	// `g_pendingErrorCode` (1000:0003) — error code raised by ~95 DOS
-	// sites. DOS's MainGameLoop calls DisplayIllError (1000:35cd) each
+	// `g_pendingErrorCode` (CS:[0x0003]) — error code raised by ~95 DOS
+	// sites. DOS's MainGameLoop calls DisplayIllError @ 1000:35cd each
 	// frame: it shows a one-shot "ILL Error <code> (<mode>)" overlay,
 	// clears the code, and *continues* (sets g_flag_room_loaded=1) — DOS
 	// errors are RECOVERABLE, not fatal. C++ mirrors the one-shot dedup
@@ -983,7 +983,7 @@ public:
 	uint8 pendingError() const { return _pendingError; }
 	void setPendingError(uint8 code) { _pendingError = code; }
 	void clearPendingError() { _pendingError = 0; }
-	// DOS g_lastErrorCode (CS:0x5) one-shot dedup so the same error is
+	// DOS g_lastErrorCode (CS:[0x0005]) one-shot dedup so the same error is
 	// reported only once until a different code is raised.
 	uint8 lastErrorCode() const { return _lastErrorCode; }
 	void setLastErrorCode(uint8 code) { _lastErrorCode = code; }
@@ -1124,8 +1124,8 @@ public:
 	void setLoadBlockImageOverride(uint16 blockId, const Common::Array<byte> &data);
 	void synchronize(Common::Serializer &s);
 
-	// DOS scene-snapshot slot (`_g_block_pc_offset` @ 0x6718 et al.).
-	// Op_38 (1000:3c58) saves the current scene; Op_01 (1000:59a3)
+	// DOS scene-snapshot slot (`_g_block_pc_offset` @ DS:0x6718 et al.).
+	// Op_38 @ 1000:3c58 saves the current scene; Op_01 @ 1000:59a3
 	// restores it. DOS uses a single slot, not a stack.
 	// _animations is saved as a list snapshot so the sub-scene's
 	// loadActors-appended entries can be unwound on pop. The Program
@@ -1229,7 +1229,7 @@ private:
 	Common::SharedPtr<Program> _sceneProgramKeepAlive;
 	Common::SharedPtr<Interpreter> _sceneInterpreterKeepAlive;
 	Actor *_protagonist;
-	uint16 _protagonistId; // DOS CS:0x010f
+	uint16 _protagonistId; // DOS CS:[0x010f]
 	uint32 _nextRoom;
 	uint32 _currentRoom;
 	uint16 _currentBlock;
@@ -1376,8 +1376,8 @@ private:
 	uint16 _switchValue;                         // last value pushed for case dispatch (sign of active switch)
 	uint16 _switchTarget;                        // bytecode offset to jump to on case match
 	uint16 _branchState;                         // DS:0x671c — saved PC for switch-loop reentry
-	uint8 _pendingError;                         // 1000:0003 — DOS pending-error code (0 = none)
-	uint8 _lastErrorCode;                        // CS:0x5 — DOS g_lastErrorCode one-shot dedup
+	uint8 _pendingError;                         // CS:[0x0003] — DOS pending-error code (0 = none)
+	uint8 _lastErrorCode;                        // CS:[0x0005] — DOS g_lastErrorCode one-shot dedup
 	uint16 _gameScore;                           // DS:0x6670
 	uint16 _maxGameScore;                        // CS:[0x91]
 	Common::HashMap<uint16, bool> _scoreEventClaimed;

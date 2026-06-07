@@ -139,7 +139,7 @@ void Graphics::init() {
 	_system = _engine->_system;
 	// The multilingual accented releases (Spanish/French/German/Italian) ship an
 	// extended font (glyph codes 0x7c..0x9e = accents) and CP437-encoded text;
-	// their EXEs translate it via LookupCharSprite's helper (DOS @c77a). The
+	// their EXEs translate it via LookupCharSprite's helper @ 1000:c77a. The
 	// English/single-language build has no such glyphs, so keep its plain
 	// 0x20..0x7e font there.
 	const Common::Language lang = _engine ? _engine->language() : Common::UNK_LANG;
@@ -1089,7 +1089,7 @@ static int verbBubbleRowShift(uint16 rows) {
 }
 
 // The formatted/inline renderer uses a DIFFERENT 2-row top shift than the raw
-// builder: DOS @1000:9193 loads AX=8 for rows==2 (vs the raw path @1000:8d8d
+// builder: DOS helper @ 1000:9193 loads AX=8 for rows==2 (vs the raw path @ 1000:8d8d
 // which uses 6). paintSpeechInBubble already draws formatted 2-line text at
 // shift 8 (kSpeechTwoLinesShift), so positionInlineVerbBubbleChoices must match
 // that — using verbBubbleRowShift (6) here left the hit-rects/hover 2px above
@@ -1178,7 +1178,7 @@ static void positionInlineVerbBubbleChoices(Graphics *graphics, const Common::Re
 			while (*p) {
 				const byte lit = *p++;
 				choice.label += char(lit);
-				// DOS render loop @1000:928c (CMP AL,0x4 / JZ) skips 0x04
+				// DOS render loop @ 1000:928c (CMP AL,0x4 / JZ) skips 0x04
 				// entirely — no glyph, no cursor advance — and the stored
 				// hit-rect uses that same cursor. Keep 0x04 in the label
 				// (paintPlainTextLine skips it when drawing) but do not let
@@ -1447,7 +1447,7 @@ uint16 Graphics::askVerbBubble(byte paletteMode, byte *string, uint16 *selectedI
 					done = true;
 				break;
 			case Common::EVENT_RBUTTONDOWN:
-				// DOS RunVerbMenuModalLoop @1000:879e cancels the menu on a
+				// DOS RunVerbMenuModalLoop @ 1000:879e cancels the menu on a
 				// right-click (g_buttons_locked==2), returning no selection.
 				// Gate on the same debounce the left-click selection uses.
 				setCursorPosition(event.mouse);
@@ -1556,7 +1556,7 @@ uint16 Graphics::askVerbBubbleText(byte paletteMode, const byte *string, uint16 
 					done = true;
 				break;
 			case Common::EVENT_RBUTTONDOWN:
-				// DOS RunVerbMenuModalLoop @1000:879e cancels the menu on a
+				// DOS RunVerbMenuModalLoop @ 1000:879e cancels the menu on a
 				// right-click (g_buttons_locked==2), returning no selection.
 				// Gate on the same debounce the left-click selection uses.
 				setCursorPosition(event.mouse);

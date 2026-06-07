@@ -74,7 +74,7 @@ public:
 	Sound(Engine *engine);
 	~Sound();
 
-	// DOS Op_f0_load_sfx (1000:56d9):
+	// DOS Op_f0_load_sfx @ 1000:56d9:
 	//   if (sfx_enabled) {
 	//     if (arg0 != last_played) {
 	//       slot = PlaySfxSound(arg0);
@@ -85,7 +85,7 @@ public:
 	void playSfx(uint16 id);
 	void playSecondarySfx(uint16 id);
 
-	// DOS Op_f1_handler (1000:5725):
+	// DOS Op_f1_handler @ 1000:5725:
 	//   if (sfx_enabled) {
 	//     Op_f0(arg0);         // primary
 	//     if (arg1 != [0x6700]) {
@@ -95,7 +95,7 @@ public:
 	//   }
 	void playSfxPair(uint16 primaryId, uint16 secondaryId);
 
-	// DOS Op_f2_handler (1000:575a):
+	// DOS Op_f2_handler @ 1000:575a:
 	//   if (sfx_enabled) DispatchSfxRangeCheck(arg0).
 	// The range check decides whether to play, replay, or short-circuit
 	// based on slot bookkeeping at [0x6702..0x6708].

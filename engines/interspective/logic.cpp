@@ -2002,7 +2002,7 @@ void Logic::runPostMoveCallbackIfReady() {
 
 	switch (cb.kind) {
 	case PostMoveCallback::kDisableMoveOptionalEnable:
-		// DOS @ 0x49df: clearCellBit(cellId) + MovePersonToActor(arg0)
+		// DOS trampoline @ 1000:49df: clearCellBit(cellId) + MovePersonToActor(arg0)
 		// + (arg1 != 0 → EnableObjectFlag1 = setCellBit(arg1)).
 		disableObjectFlag1(cb.cellId);
 		movePersonToActor(cb.arg0);
@@ -2010,13 +2010,13 @@ void Logic::runPostMoveCallbackIfReady() {
 			enableObjectFlag1(cb.arg1);
 		break;
 	case PostMoveCallback::kDisableEnableUnregister:
-		// DOS @ 0x4a36: PUSH BX; DisableObjectFlag1(AX); POP BX;
+		// DOS trampoline @ 1000:4a36: PUSH BX; DisableObjectFlag1(AX); POP BX;
 		// EnableObjectFlag1(AX as left by DisableObjectFlag1); Op_8e.
 		enableObjectFlag1(disableObjectFlag1ReturnAx(cb.cellId));
 		clearDragInteractionLikeOp8e();
 		break;
 	case PostMoveCallback::kPlaceProtagonistAfterMove:
-		// DOS @ 0x4376: place the protagonist in the destination
+		// DOS callback @ 1000:4376: place the protagonist in the destination
 		// room/frame after the approach walk reaches the current entity,
 		// then sets restart-room/logic-dirty/paused flags unconditionally.
 		if (!_inStatusMode && _protagonist) {
@@ -2035,7 +2035,7 @@ void Logic::runPostMoveCallbackIfReady() {
 		setPaused();
 		break;
 	case PostMoveCallback::kPlaceObjectAfterHotspotMove:
-		// DOS @ 0xc408: place the dragged object after the protagonist
+		// DOS callback @ 1000:c408: place the dragged object after the protagonist
 		// reaches the hotspot approach frame. PlaceObjectInRoom fills a
 		// five-entry transient table and DrawDirtyRectInRoom commits the
 		// object record only after the short movement reaches its target.
@@ -2055,13 +2055,13 @@ void Logic::runPostMoveCallbackIfReady() {
 		setLogicDirty();
 		break;
 	case PostMoveCallback::kActivateProtagonistSpeechAfterMove:
-		// DOS @ 0x9be9: find the protagonist speech slot, mark slot+2
+		// DOS callback @ 1000:9be9: find the protagonist speech slot, mark slot+2
 		// active again, and recompute the bubble reference point from the
 		// actor's current sprite/size fields.
 		activateActorSpeechAfterPostMove(_protagonist);
 		break;
 	case PostMoveCallback::kBeginDragAfterMove:
-		// DOS @ 0x3297: BeginDrag_AfterRemoveExit with BX=0 after
+		// DOS callback @ 1000:3297: BeginDrag_AfterRemoveExit with BX=0 after
 		// HandleSecondaryClick walked the protagonist to a room object.
 		beginDragAfterRemoveExit(cb.arg0, false);
 		break;
@@ -2575,8 +2575,8 @@ void Logic::castTableClear(uint16 id) {
 	}
 }
 
-// DOS ActorOp_01/02 clear the first two words of the active record
-// (1000:68d3 and 1000:68e3). For cast-table records those are wActive
+// DOS ActorOp_01 @ 1000:68d3 / ActorOp_02 @ 1000:68e3 clear the first
+// two words of the active record. For cast-table records those are wActive
 // and w_unk_02/id; renderer bytes and position are intentionally left
 // intact, just as Op_c5 does.
 void Logic::castTableDeactivateAnimation(Animation *animation) {

@@ -219,7 +219,7 @@ enum MainSpeechTargetResult {
 static void setActorTargetMarker(Actor *actor) {
 	// DOS SetActorTarget @ 1000:7087 stores BP into actor.field+0x69 and
 	// writes marker 5 to field+0x67 only if the callback word is empty.
-	// The shared speech path seeds BP from CS:0x00bf, which has no writers
+	// The shared speech path seeds BP from CS:[0x00bf], which has no writers
 	// in the executable image and is zero, so preserving the zero word and
 	// marker write is the observable actor-record side effect.
 	if (actor && actor->dosFieldWord(0x69) == 0) {
@@ -770,7 +770,7 @@ static void seedFormattedModalState(Logic::ModalState &ms,
 static bool appendRawModalChoices(const byte *src, Common::Array<byte> &encoded,
 								  Common::Array<RawModalChoice> &rawChoices, uint16 &choiceCount,
 								  uint16 &maxTextWidth) {
-	// LayoutVerbBubbleText_Right/Left @ 1000:8cb0/8d1e read a raw list
+	// LayoutVerbBubbleText_Right/Left @ 1000:8cb0 / 1000:8d1e read a raw list
 	// of entries: one optional condition marker, NUL-terminated text, then
 	// a 16-bit branch target. 0xff terminates the list. HandleVerbButton_
 	// Submenu @ 1000:8b27 treats rows starting with 0x04 as terminal;
@@ -821,7 +821,7 @@ static bool appendRawModalChoices(const byte *src, Common::Array<byte> &encoded,
 		const uint16 target = READ_LE_UINT16(p);
 		p += 2;
 
-		// DOS LayoutVerbBubbleText_Left/Right (1000:8d1e/8cb0) only skips a row
+		// DOS LayoutVerbBubbleText_Left/Right @ 1000:8d1e / 1000:8cb0 only skips a row
 		// on the 0xff terminator or a failed condition marker — it does NOT
 		// skip empty-text rows: the emit block @8e3a stores the (zero-width)
 		// rect, the branch target, and bumps the slot counter regardless. So
@@ -1038,7 +1038,7 @@ OPCODE(0x03) {
 }
 
 OPCODE(0x04) {
-	// less than. DOS handler at CS:0x376c uses JL — *signed* comparison via JLE
+	// less than. DOS handler @ 1000:376c uses JL — *signed* comparison via JLE
 	// in the inverse: skip when (int)a[1] <= (int)a[0]. Body runs when a[0] < a[1]
 	// in signed two's-complement arithmetic. Value::operator< is unsigned so we
 	// can't use it here without misclassifying scripts that store signed deltas
@@ -1050,7 +1050,7 @@ OPCODE(0x04) {
 }
 
 OPCODE(0x05) {
-	// greater than (signed). DOS CS:0x377f uses JG inverse logic.
+	// greater than (signed). DOS Op_05_IfGreater @ 1000:377f uses JG inverse logic.
 	debugC(2, kDebugLevelScript, "opcode 0x05: if %s > %s (signed)", +a[0], +a[1]);
 	if (!(int16(uint16(a[0])) > int16(uint16(a[1]))))
 		return kFail;
@@ -1058,7 +1058,7 @@ OPCODE(0x05) {
 }
 
 OPCODE(0x06) {
-	// less or equal (signed). DOS CS:0x3792 uses JLE — sets skip when (int)a[1] <
+	// less or equal (signed). DOS Op_06_IfLessOrEqual @ 1000:3792 uses JLE — sets skip when (int)a[1] <
 	// (int)a[0], i.e. body runs when (int)a[0] <= (int)a[1].
 	debugC(2, kDebugLevelScript, "opcode 0x06: if %s <= %s (signed)", +a[0], +a[1]);
 	if (!(int16(uint16(a[0])) <= int16(uint16(a[1]))))
@@ -1067,7 +1067,7 @@ OPCODE(0x06) {
 }
 
 OPCODE(0x07) {
-	// greater or equal (signed). DOS CS:0x37a5 uses JGE.
+	// greater or equal (signed). DOS Op_07_IfGreaterOrEqual @ 1000:37a5 uses JGE.
 	debugC(2, kDebugLevelScript, "opcode 0x07: if %s >= %s (signed)", +a[0], +a[1]);
 	if (!(int16(uint16(a[0])) >= int16(uint16(a[1]))))
 		return kFail;
@@ -1076,7 +1076,7 @@ OPCODE(0x07) {
 
 OPCODE(0x08) {
 	// bit-and check: skip if (a[0] & a[1]) == 0 — succeed if any bit overlaps.
-	// DOS handler at CS:0x37b8.
+	// DOS handler @ 1000:37b8.
 	debugC(2, kDebugLevelScript, "opcode 0x08: if %s & %s", +a[0], +a[1]);
 	unless((uint16(a[0]) & uint16(a[1])) != 0) return kFail;
 	return kThxBye;
@@ -1084,7 +1084,7 @@ OPCODE(0x08) {
 
 OPCODE(0x09) {
 	// "either non-zero": skip only when both args are zero.
-	// DOS handler at CS:0x37cb — sets g_skip_counter when a[0] == 0 && a[1] == 0.
+	// DOS handler @ 1000:37cb — sets g_skip_counter when a[0] == 0 && a[1] == 0.
 	debugC(2, kDebugLevelScript, "opcode 0x09: if %s || %s", +a[0], +a[1]);
 	unless(uint16(a[0]) != 0 || uint16(a[1]) != 0) return kFail;
 	return kThxBye;
@@ -1100,7 +1100,7 @@ OPCODE(0x0f) {
 OPCODE(0x12) {
 	// DOS Op_12_IfSoundDeviceMask @ 1000:392b:
 	//   if (((g_music_enabled | g_sfx_enabled) & arg0) == 0) skip;
-	// `g_music_enabled` (1000:000d) and `g_sfx_enabled` (1000:000e) are
+	// `g_music_enabled` (CS:[0x000d]) and `g_sfx_enabled` (CS:[0x000e]) are
 	// config bytes set by ParseConfigAndCmdLine + ParseSwitchString.
 	// Ghidra/raw assembly show this opcode only ORs those bytes and ANDs
 	// with arg0; it does not query the live ScummVM MIDI backend or mixer.
@@ -1113,7 +1113,7 @@ OPCODE(0x12) {
 }
 
 OPCODE(0x13) {
-	// DOS CS:0x3945: skip if (hit_region != 0) || (step_pending == 0). Body runs
+	// DOS Op_13_IfHitOrFlagFalse @ 1000:3945: skip if (hit_region != 0) || (step_pending == 0). Body runs
 	// when there's an action pending but no hotspot was clicked — i.e. the user
 	// pressed something with no target.
 	debugC(2, kDebugLevelScript, "opcode 0x13: if pending action with no hit target");
@@ -1138,7 +1138,7 @@ OPCODE(0xd8) {
 
 OPCODE(0xda) {
 	// Clear the per-room zone list (g_zone_count = 0).
-	// DOS handler at CS:0x5467. Pairs with 0xd9 which adds entries.
+	// DOS handler @ 1000:5467. Pairs with 0xd9 which adds entries.
 	debugC(2, kDebugLevelScript, "opcode 0xda: clear zone list");
 	Log.zonesClear();
 	return kThxBye;
@@ -1146,7 +1146,7 @@ OPCODE(0xda) {
 
 OPCODE(0xdc) {
 	// Clear g_collision_zone_count (zone-A count, used by FindZoneAtPoint).
-	// DOS handler at CS:0x54b8.
+	// DOS handler @ 1000:54b8.
 	debugC(2, kDebugLevelScript, "opcode 0xdc: clear collision zones");
 	Log.collisionZonesClear();
 	return kThxBye;
@@ -1154,7 +1154,7 @@ OPCODE(0xdc) {
 
 OPCODE(0xde) {
 	// Clear g_zone_b_count (zone-B count).
-	// DOS handler at CS:0x54fd.
+	// DOS handler @ 1000:54fd.
 	debugC(2, kDebugLevelScript, "opcode 0xde: clear zone-B");
 	Log.zonesBClear();
 	return kThxBye;
@@ -1164,14 +1164,14 @@ OPCODE(0xe2) {
 	// Clear g_walkbox_count (DS:0x6617), not the backing table populated by
 	// Op_df. DOS SetActorPosition indexes the backing memory directly, so
 	// records beyond the current count deliberately retain stale values.
-	// DOS handler at CS:0x5582.
+	// DOS handler @ 1000:5582.
 	debugC(2, kDebugLevelScript, "opcode 0xe2: clear walkbox count");
 	Log.actorFramesClearCount();
 	return kThxBye;
 }
 
 OPCODE(0xf6) {
-	// Set music volume to maximum. DOS handler at CS:0x5824 patches the music driver
+	// Set music volume to maximum. DOS handler @ 1000:5824 patches the music driver
 	// state bytes directly to 0xff (volume) and 0x3f / 0 (mode-dependent flag).
 	debugC(2, kDebugLevelScript, "opcode 0xf6: max music volume");
 	const uint8 dosMusicMode = _engine->dosMusicEnabled();
@@ -1182,7 +1182,7 @@ OPCODE(0xf6) {
 
 OPCODE(0xf8) {
 	// Stop all music AND sfx (panic stop).
-	// DOS handler at CS:0x5889 calls the music driver's "stop" entry, clears
+	// DOS handler @ 1000:5889 calls the music driver's "stop" entry, clears
 	// g_current_tune_addr, then calls the sfx driver's "stop" if active.
 	debugC(2, kDebugLevelScript, "opcode 0xf8: stop all music/sfx");
 	if (_engine->dosMusicEnabled() != 0)
@@ -1215,7 +1215,7 @@ OPCODE(0x10) {
 
 OPCODE(0x11) {
 	// "if slow CPU" — body executes only when the startup calibration
-	// set g_slow_cpu. DOS handler at CS:0x391d skips if DS:0x67b5 == 0.
+	// set g_slow_cpu. DOS handler @ 1000:391d skips if DS:0x67b5 == 0.
 	debugC(2, kDebugLevelScript, "opcode 0x11: if slow CPU");
 	if (!Log.slowCpu())
 		return kFail;
@@ -1599,7 +1599,7 @@ OPCODE(0x54) {
 	//   CALL ResolveOpcodeArg3; MOV BX, AX   ; arg3 = height/rows
 	//   CALL ResolveOpcodeArg2;              ; arg2 = width/cols
 	//   POP DI; POP ES                       ; restore es:di
-	//   CALL RunModalLoop @ 0x7ea2          ; modal!
+	//   CALL RunModalLoop @ 1000:7ea2         ; modal!
 	//   MOV AX, [0x66a2]                     ; selected item index
 	//   CMP AX, 0xffff
 	//   JZ skip                              ; cancelled -> keep next PC
@@ -2059,7 +2059,7 @@ OPCODE(0x63) {
 
 OPCODE(0x6c) {
 	// add: a[0] += a[1]
-	// DOS handler at CS:0x42b1.
+	// DOS handler @ 1000:42b1.
 	const uint16 left = uint16(a[0]);
 	const uint16 right = uint16(a[1]);
 	const uint16 result = uint16(left + right);
@@ -2079,7 +2079,7 @@ OPCODE(0x6d) {
 
 OPCODE(0x6e) {
 	// subtract: a[0] -= a[1]
-	// DOS handler at CS:0x42c9.
+	// DOS handler @ 1000:42c9.
 	const uint16 left = uint16(a[0]);
 	const uint16 right = uint16(a[1]);
 	const uint16 result = uint16(left - right);
@@ -2098,7 +2098,7 @@ OPCODE(0x6f) {
 }
 
 OPCODE(0x71) {
-	// DOS handler at CS:0x42ea resolves arg0 into BX, arg1 into CX, then
+	// DOS handler @ 1000:42ea resolves arg0 into BX, arg1 into CX, then
 	// writes arg0's old value through arg1 before writing arg1's old value
 	// through arg0.
 	const uint16 old0 = uint16(a[0]);
@@ -2194,7 +2194,7 @@ OPCODE(0x79) {
 
 OPCODE(0x74) {
 	// Boolean toggle: if a[0] is zero set it to 1; otherwise set it to 0.
-	// DOS handler at CS:0x430a — branches between Op_72 (=1) and Op_73 (=0).
+	// DOS handler @ 1000:430a — branches between Op_72 (=1) and Op_73 (=0).
 	const uint16 oldValue = uint16(a[0]);
 	const uint16 result = (oldValue == 0) ? 1 : 0;
 	a[0] = result;
@@ -2405,7 +2405,7 @@ OPCODE(0x9d) {
 }
 
 OPCODE(0x9e) {
-	// DOS Op_9e (CS:0x4c4c). nargs=1 in dispatch table. Saves
+	// DOS Op_9e @ 1000:4c4c. nargs=1 in dispatch table. Saves
 	// g_main_character_id and uses it as the target actor; arg0 is the
 	// frame id. DOS field assignments (after GetActorOffset(prot)):
 	//   field+0x61 = arg0   (current frame)
@@ -2456,7 +2456,7 @@ OPCODE(0xad) {
 	// CheckActorIdle gates through the same current-opcode retry path as
 	// Op_ab; the ready path resolves arg1 and calls MoveActorToTargetExit.
 	//
-	// MoveActorToTargetExit (1000:70da) dispatches by actor type:
+	// MoveActorToTargetExit @ 1000:70da dispatches by actor type:
 	//   - Protagonist: QueueExitTransition (cancel speech + walk +
 	//     g_break_inner=1, but no interpreter break).
 	//   - Non-protag IN g_actor_table[20] (active in current room):
@@ -2764,7 +2764,7 @@ OPCODE(0xcc) {
 }
 
 OPCODE(0xce) {
-	// DOS Op_ce_handler (CS:0x52a4): start cutscene.
+	// DOS Op_ce_handler @ 1000:52a4: start cutscene.
 	//   1. g_room_active = 0
 	//   2. SetBackdropDimensions(0xc8) (fullscreen)
 	//   3. g_flag_misc_1 = 1 (dirty flag)
@@ -2894,7 +2894,7 @@ OPCODE(0xe6) {
 
 OPCODE(0xed) {
 	// Set timer deadline: a[0] = frame_tick_counter + a[1]
-	// DOS handler at CS:0x568c. Pairs with Op_10 which fires when reached.
+	// DOS handler @ 1000:568c. Pairs with Op_10 which fires when reached.
 	const uint16 now = Log.frameTicks();
 	const uint16 delay = uint16(a[1]);
 	const uint16 deadline = uint16(now + delay);
@@ -2984,7 +2984,7 @@ OPCODE(0xf7) {
 }
 
 OPCODE(0xf9) {
-	// DOS Op_f9_handler (CS:0x58cc):
+	// DOS Op_f9_handler @ 1000:58cc:
 	//   arg1 = state byte (0=disable channel, non-zero=enable)
 	//   arg0 = which: 1=music, 2=sfx
 	// On music-disable: stop the current tune (silence + clear current_tune_addr).
@@ -3014,7 +3014,7 @@ OPCODE(0xfc) {
 	// DOS Op_fc_handler @ 1000:5996:
 	//   Resolve arg0; arg0 != 0 -> ShutdownAndExit.
 	//   arg0 == 0 -> tail-jump to HandleSpecialKey's menu branch
-	//   (1000:b82d), which only opens RunModalLoop while
+	//   @ 1000:b82d, which only opens RunModalLoop while
 	//   g_fullscreen_gate_active is clear. Status mode is not a blocker.
 	//   Menu choice 2 exits, choice 1 requests restart, otherwise it
 	//   returns normally.
@@ -3046,7 +3046,7 @@ OPCODE(0xfc) {
 // ============================================================================
 
 OPCODE(0x0a) {
-	// DOS CS:0x37de:
+	// DOS Op_0a_IfModeIs80OrFlag @ 1000:37de:
 	//   if ((cursor_mode == 0x80 || step_pending) && (cursor_mode & arg0)) return;
 	//   else skip;
 	// arg0 is a bitmask of cursor-mode bits the script handles. The opcode is
@@ -3067,7 +3067,7 @@ OPCODE(0x0b) {
 	// Note: DOS reads `g_drag_target_mode40` @ DS:0x667e, NOT the
 	// regular `g_drag_target` @ DS:0x667c (which Op_0e uses). The
 	// mode-40 slot is set exclusively by Op_76_BeginDragWithTarget
-	// (1000:4325) together with `_g_cursor_mode = 0x40`.
+	// @ 1000:4325 together with `_g_cursor_mode = 0x40`.
 	// In C++ this is `Logic::_dragTargetMode40`; Op_76 populates it
 	// and sets cursor mode 0x40.
 	uint16 mask = uint16(a[0]);
@@ -3078,7 +3078,7 @@ OPCODE(0x0b) {
 }
 
 OPCODE(0x0c) {
-	// DOS CS:0x38ab: skip if NOT in status mode → body runs ONLY in status mode.
+	// DOS Op_0c_IfNotInStatusMode @ 1000:38ab: skip if NOT in status mode → body runs ONLY in status mode.
 	debugC(2, kDebugLevelScript, "opcode 0x0c: if in status mode");
 	if (!Log.inStatusMode())
 		return kFail;
@@ -3086,7 +3086,7 @@ OPCODE(0x0c) {
 }
 
 OPCODE(0x0d) {
-	// DOS CS:0x38d7: skip if (!step || cursor!=0x20 || drag==0). Body runs when
+	// DOS Op_0d_IfDragNotMatchTarget @ 1000:38d7: skip if (!step || cursor!=0x20 || drag==0). Body runs when
 	// actively dragging an object (verb-on-object pre-action).
 	debugC(2, kDebugLevelScript, "opcode 0x0d: if dragging (cursor=0x20 + drag set)");
 	if (!Log.stepPending() || Log.cursorMode() != 0x20 || Log.dragTarget() == 0)
@@ -3095,7 +3095,7 @@ OPCODE(0x0d) {
 }
 
 OPCODE(0x0e) {
-	// DOS CS:0x38b9: like 0x0d but only when dragTarget == arg0 (verb-on-this-object).
+	// DOS Op_0e_IfDragMatchesArg @ 1000:38b9: like 0x0d but only when dragTarget == arg0 (verb-on-this-object).
 	debugC(2, kDebugLevelScript, "opcode 0x0e: if dragging && dragTarget == %s", +a[0]);
 	if (!Log.stepPending() || Log.cursorMode() != 0x20 || Log.dragTarget() != uint16(a[0]))
 		return kFail;
@@ -3103,7 +3103,7 @@ OPCODE(0x0e) {
 }
 
 OPCODE(0x14) {
-	// IfFreshGameState (DOS CS:0x395a): fail if current entity type != 0.
+	// DOS Op_14_IfFreshGameState @ 1000:395a: fail if current entity type != 0.
 	debugC(2, kDebugLevelScript, "opcode 0x14: if current entity type == 0");
 	if (Log.gameState() != 0)
 		return kFail;
@@ -3152,7 +3152,7 @@ OPCODE(0x16) {
 }
 
 OPCODE(0x18) {
-	// DOS Op_18 (CS:0x39a9): SETS skip_counter when Object[a[0]].room == 0
+	// DOS Op_18 @ 1000:39a9: SETS skip_counter when Object[a[0]].room == 0
 	// (i.e. SKIPS the body when the object is missing). Net semantics: the
 	// conditional body executes when the object is PRESENT. Ghidra's label
 	// "IfObjectMissing" describes the SKIP condition, not the run condition.
@@ -3169,7 +3169,7 @@ OPCODE(0x18) {
 }
 
 OPCODE(0x1b) {
-	// DOS Op_1b (CS:0x39e3): SETS skip_counter when Object[a[0]].room != 0
+	// DOS Op_1b @ 1000:39e3: SETS skip_counter when Object[a[0]].room != 0
 	// (i.e. SKIPS the body when the object is PRESENT). Net semantics: the
 	// conditional body executes when the object is MISSING. Inverse of 0x18.
 	const uint16 id = uint16(a[0]);
@@ -3466,7 +3466,7 @@ OPCODE(0x2e) {
 	return kThxBye;
 }
 
-// Case-comparison family (DOS Op_2f..Op_34 @ 1000:3b1d..0x3bc8). All
+// Case-comparison family (DOS Op_2f..Op_34 @ 1000:3b1d..1000:3bc8). All
 // share the structure:
 //   if (g_branch_state == 0) g_pendingErrorCode = 4; return;
 //   if (SKIP_COND) g_codeptr_di_save = g_branch_state; return;  // jump back
@@ -3573,7 +3573,7 @@ OPCODE(0x38) {
 	return Log.switchToScene(sceneId, next);
 }
 
-// Speech variants (DOS CS:0x3da2..0x3e68). The engine routes everything via
+// Speech variants (DOS speech-opcode range @ 1000:3da2..1000:3e68). The engine routes everything via
 // Actor::say, which queues a speech bubble for the calling actor. Variants
 // differ by speaker (main vs identified actor) and target (none vs hotspot).
 OPCODE(0x3f) {
@@ -3731,7 +3731,7 @@ OPCODE(0x48) {
 	return kThxBye;
 }
 OPCODE(0x49) {
-	// DOS Op_49_SetActorFlag70 (CS:0x3ec5): a[0]=actor id, a[1]=byte.
+	// DOS Op_49_SetActorFlag70 @ 1000:3ec5: a[0]=actor id, a[1]=byte.
 	// Sets Actor[a[0]].field_0x70 = (byte)a[1].
 	const uint8 v = uint8(uint16(a[1]));
 	const uint16 id = uint16(a[0]);
@@ -3926,7 +3926,7 @@ OPCODE(0x52) {
 	// DOS Op_52_DrawFixedTextBubble @ 1000:3ff6:
 	//   CALL ResolveOpcodeArg0;     ; AX = text
 	//   MOV DI, AX
-	//   CALL MeasureVerbBubbleTextHeight @ 0x8eb7
+	//   CALL MeasureVerbBubbleTextHeight @ 1000:8eb7
 	//                                ; → updates a different metric
 	//                                  (uses already-formatted text)
 	//   MOV [0x66c6], 2;             ; palette mode = 2 (fixed bubble)
@@ -4043,7 +4043,7 @@ OPCODE(0x53) {
 // StoreOpcodeArg0Value` — a one-instruction read-and-store. The
 // LABELS in Ghidra (Op_58_StoreCursorMode etc.) were AUTO-GENERATED
 // and bear no relation to what's actually read. Cross-checked
-// against actual disassembly addresses 1000:408f..0x40bd.
+// against actual disassembly addresses 1000:408f..1000:40bd.
 OPCODE(0x58) {
 	// DOS Op_58 @ 1000:408f: BX = [DS:0x661b] = g_draw_command_count.
 	// Count of pending draw commands queued via AddDrawCommand.
@@ -4172,7 +4172,7 @@ OPCODE(0x61) {
 	//   1. ResolveOpcodeArg0 (exit id);
 	//   2. if (id > g_exit_count) → pending-error 0x13;
 	//   3. GetExitOffset(id) → ES:SI;
-	//   4. ValidateTypeAndWriteVar2 @ 0x4146:
+	//   4. ValidateTypeAndWriteVar2 @ 1000:4146:
 	//      ResolveOpcodeArg1 → AX (low=offset, high=size);
 	//      size==1 -> BL = byte ptr ES:[offset + SI];
 	//      size==2 -> BX = word ptr ES:[offset + SI];
@@ -4249,7 +4249,7 @@ OPCODE(0x62) {
 // flag is a side-channel that arg-parsing can read; in C++ it's
 // captured directly via the segValue parameter.
 //
-// DOS Op_64 / Op_65 algorithm (1000:418c / 0x4185 → shared body):
+// DOS Op_64 / Op_65 algorithm @ 1000:418c / 1000:4185 → shared body:
 //   walk_speed_flag = 0 (Op_64) or 1 (Op_65);
 //   ResolveOpcodeArg3, ResolveOpcodeArg1 → CX (search key),
 //   ResolveOpcodeArg2 → DX (field offset),
@@ -4450,7 +4450,7 @@ OPCODE(0x68) {
 	return kThxBye;
 }
 OPCODE(0x69) {
-	// DOS Op_69_SetCellBitDefault (CS:0x425c): 1 arg. Sets BIT 1 (the "default
+	// DOS Op_69_SetCellBitDefault @ 1000:425c: 1 arg. Sets BIT 1 (the "default
 	// bit") on cellByte[a[0]] after the shared signed max-id check.
 	const uint16 id = uint16(a[0]);
 	const uint16 exitCount = _logic->blockProgram() ? _logic->blockProgram()->exitsCount() : 0;
@@ -4562,7 +4562,7 @@ OPCODE(0x78) {
 	return kThxBye;
 }
 OPCODE(0x7a) {
-	// DOS Op_7a_PlaceActorInRoomXY (CS:0x4443). nargs=4 per dispatch
+	// DOS Op_7a_PlaceActorInRoomXY @ 1000:4443. nargs=4 per dispatch
 	// table. Same shape as Op_79 but with a separate target frame:
 	//   a[0] = actor id
 	//   a[1] = room
@@ -4689,7 +4689,7 @@ OPCODE(0x7e) {
 	return kThxBye;
 }
 OPCODE(0x7f) {
-	// DOS Op_7f_PlaceObjectInRoom (CS:0x452f): set Object[a[0]].room = a[1],
+	// DOS Op_7f_PlaceObjectInRoom @ 1000:452f: set Object[a[0]].room = a[1],
 	// Object[a[0]].position = -1, Object[a[0]].field4 = 0. Marks logic dirty.
 	// Used both to place an object in a scene AND to add it to the player's
 	// inventory (room == kInventoryRoom). Op_18 / Op_1b / Op_21 read this.
@@ -4989,7 +4989,7 @@ OPCODE(0x84) {
 	return kThxBye;
 }
 OPCODE(0x85) {
-	// DOS Op_85 (CS:0x4762): SEARCH for first object whose room == arg0,
+	// DOS Op_85 @ 1000:4762: SEARCH for first object whose room == arg0,
 	// write its 1-based index to a[1] (destination var slot). 2 args.
 	const uint16 searchRoom = uint16(a[0]);
 	uint16 found = 0;
@@ -5200,9 +5200,9 @@ OPCODE(0x8e) {
 OPCODE(0x8f) {
 	// DOS Op_8f_handler @ 1000:4925:
 	//   if (g_game_state != 1): pending error 0xe;
-	//   else JMP trampoline @ 0x49df with
+	//   else JMP trampoline @ 1000:49df with
 	//        AX = [0x666c] (currentEntityId), BX = arg0, CX = 0.
-	// Trampoline @ 0x49df (executed inline, NOT post-move):
+	// Trampoline @ 1000:49df (executed inline, NOT post-move):
 	//   PUSH CX; PUSH BX;
 	//   CALL DisableObjectFlag1(AX = currentEntityId);
 	//   POP AX; CALL MovePersonToActor(AX = arg0);
@@ -5239,7 +5239,7 @@ OPCODE(0x91) {
 	// DOS Op_91_handler @ 1000:4960: gate (g_flag_step_pending +
 	// g_cursor_mode==1). game==1 →
 	//   CALL SendActorToTarget() for the current clicked entity;
-	//   if carry set, jump to trampoline @ 0x49df immediately;
+	//   if carry set, jump to trampoline @ 1000:49df immediately;
 	//   otherwise SetActorTarget and SetPostMoveCallback(BP=0x49df,
 	//   BX=arg0, CX=0, AX=currentEntityId).
 	if (!Log.stepPending() || Log.cursorMode() != 1)
@@ -5299,7 +5299,7 @@ OPCODE(0x92) {
 OPCODE(0x93) {
 	// DOS Op_93_handler @ 1000:49f1: gate (step + cursor==0x20 +
 	// arg0 == g_drag_target). Then walk to the current clicked entity;
-	// if carry set, run trampoline @ 0x4a36 immediately; otherwise
+	// if carry set, run trampoline @ 1000:4a36 immediately; otherwise
 	// arm SetPostMoveCallback(BP=0x4a36, BX=arg1, AX=currentEntityId).
 	// The 0x4a36 tail restores BX but uses AX as left by
 	// DisableObjectFlag1 for EnableObjectFlag1, matching DOS exactly.
@@ -5498,7 +5498,7 @@ OPCODE(0xa0) {
 	return kThxBye;
 }
 OPCODE(0xa1) {
-	// DOS Op_a1 (CS:0x4c59). nargs=2. Disassembly:
+	// DOS Op_a1 @ 1000:4c59. nargs=2. Disassembly:
 	//   AX = arg0 (BX), AX = arg1; PUSH BX, PUSH AX; AX = BX (= arg0)
 	//   GetActorOffset(arg0)        ; SI = actor for arg0
 	//   POP AX                      ; AX = arg1 (the frame)
@@ -5523,7 +5523,7 @@ OPCODE(0xa1) {
 	return kThxBye;
 }
 OPCODE(0xa2) {
-	// DOS Op_a2 (CS:0x4cb0). nargs=3. Disassembly order:
+	// DOS Op_a2 @ 1000:4cb0. nargs=3. Disassembly order:
 	//   ResolveOpcodeArg2 → CX                ; arg2 = code offset
 	//   ResolveOpcodeArg0 → BX                ; arg0 = actor id
 	//   ResolveOpcodeArg1 → AX                ; arg1 = frame
@@ -5553,7 +5553,7 @@ OPCODE(0xa2) {
 	return kThxBye;
 }
 OPCODE(0xa3) {
-	// 0xa3 (DOS CS:0x4ca9): same as 0xa2 but with g_walk_speed_flag=1,
+	// DOS Op_a3_handler @ 1000:4ca9: same as 0xa2 but with g_walk_speed_flag=1,
 	// which selects the loaded block-code segment for arg2.
 	Log.setWalkSpeedFlag(1);
 	CodePointer anim(static_cast<CodePointer &>(a[2]).offset(), Log.blockInterpreter());
@@ -5570,7 +5570,7 @@ OPCODE(0xa3) {
 	return kThxBye;
 }
 OPCODE(0xa4) {
-	// 0xa4 (DOS CS:0x4d47): if not in status mode, wait for protagonist animation
+	// DOS Op_a4_handler @ 1000:4d47: if not in status mode, wait for protagonist animation
 	// to finish (CheckActorAnimReady on g_main_character_id). The script blocks
 	// here until the actor stops moving.
 	if (Log.inStatusMode())
@@ -5590,7 +5590,7 @@ OPCODE(0xa4) {
 	return kThxBye;
 }
 OPCODE(0xa5) {
-	// 0xa5 (DOS CS:0x4d5c): same as 0xa4 with one extra arg consumed.
+	// DOS Op_a5_handler @ 1000:4d5c: same as 0xa4 with one extra arg consumed.
 	if (Log.inStatusMode())
 		return kThxBye;
 	const uint8 marker = uint8(uint16(a[0]));
@@ -5610,7 +5610,7 @@ OPCODE(0xa5) {
 	return kThxBye;
 }
 OPCODE(0xa6) {
-	// 0xa6 (DOS CS:0x4cfb): wait for actor `arg0`'s animation to finish.
+	// DOS Op_a6_handler @ 1000:4cfb: wait for actor `arg0`'s animation to finish.
 	// arg1 is copied into actor.field+0x67 on the ready path.
 	if (Log.inStatusMode())
 		return kThxBye;
@@ -5631,7 +5631,7 @@ OPCODE(0xa6) {
 	return kThxBye;
 }
 OPCODE(0xa7) {
-	// 0xa7 (DOS CS:0x4d0f): wait actor `arg0` anim ready, 3-arg variant
+	// DOS Op_a7_handler @ 1000:4d0f: wait actor `arg0` anim ready, 3-arg variant
 	// with arg1 -> field+0x67 and arg2 -> field+0x69.
 	if (Log.inStatusMode())
 		return kThxBye;
@@ -5663,7 +5663,7 @@ OPCODE(0xa8) {
 	int16 targetX = 0;
 	int16 targetY = 0;
 	if (entityType == 1) {
-		// DOS GetExitOffset @ 0xc31c: lower bound ONLY (id<=0 -> err 0x14),
+		// DOS GetExitOffset @ 1000:c31c: lower bound ONLY (id<=0 -> err 0x14),
 		// NO upper bound. The a8/a9 caller (0x4dae) does NOT early-return on
 		// the error -- it reads the exit-table base coords and falls through
 		// to the actor-ready / direction-marker tail.
@@ -5676,7 +5676,7 @@ OPCODE(0xa8) {
 		targetX = exit ? int16(exit->position().x) : 0;
 		targetY = exit ? int16(exit->position().y) : 0;
 	} else if (entityType == 2) {
-		// DOS GetObjectOffset @ 0xc301: lower bound ONLY (id<=0 -> err 0x16),
+		// DOS GetObjectOffset @ 1000:c301: lower bound ONLY (id<=0 -> err 0x16),
 		// NO upper bound (Op_62/Op_80 add `cmp ax,[cs:0x6b]` themselves; the
 		// a8/a9 tail does not). The caller falls through, no early return.
 		uint16 objId = targetId;
@@ -5689,8 +5689,8 @@ OPCODE(0xa8) {
 	} else if (entityType == 3) {
 		if (actorId == targetId)
 			return kThxBye; // DOS cmp cx,ax; jz -> faithful self-target return
-		// DOS GetActorOffset @ 0xc337 has a real two-tier id bound (err 0x17
-		// @ 0x507d), but on failure it errs+RETs and the caller still falls
+		// DOS GetActorOffset @ 1000:c337 has a real two-tier id bound
+		// (err 0x17 path @ 1000:507d), but on failure it errs+RETs and the caller still falls
 		// through to the marker tail instead of aborting the opcode.
 		Actor *target = Log.getActor(targetId);
 		if (!target)
@@ -5726,7 +5726,7 @@ OPCODE(0xa9) {
 	int16 targetX = 0;
 	int16 targetY = 0;
 	if (entityType == 1) {
-		// DOS GetExitOffset @ 0xc31c: lower bound ONLY (id<=0 -> err 0x14),
+		// DOS GetExitOffset @ 1000:c31c: lower bound ONLY (id<=0 -> err 0x14),
 		// NO upper bound. The a8/a9 caller (0x4dae) does NOT early-return on
 		// the error -- it reads the exit-table base coords and falls through
 		// to the actor-ready / direction-marker tail.
@@ -5739,7 +5739,7 @@ OPCODE(0xa9) {
 		targetX = exit ? int16(exit->position().x) : 0;
 		targetY = exit ? int16(exit->position().y) : 0;
 	} else if (entityType == 2) {
-		// DOS GetObjectOffset @ 0xc301: lower bound ONLY (id<=0 -> err 0x16),
+		// DOS GetObjectOffset @ 1000:c301: lower bound ONLY (id<=0 -> err 0x16),
 		// NO upper bound (Op_62/Op_80 add `cmp ax,[cs:0x6b]` themselves; the
 		// a8/a9 tail does not). The caller falls through, no early return.
 		uint16 objId = targetId;
@@ -5752,8 +5752,8 @@ OPCODE(0xa9) {
 	} else if (entityType == 3) {
 		if (actorId == targetId)
 			return kThxBye; // DOS cmp cx,ax; jz -> faithful self-target return
-		// DOS GetActorOffset @ 0xc337 has a real two-tier id bound (err 0x17
-		// @ 0x507d), but on failure it errs+RETs and the caller still falls
+		// DOS GetActorOffset @ 1000:c337 has a real two-tier id bound
+		// (err 0x17 path @ 1000:507d), but on failure it errs+RETs and the caller still falls
 		// through to the marker tail instead of aborting the opcode.
 		Actor *target = Log.getActor(targetId);
 		if (!target)
@@ -6247,7 +6247,7 @@ OPCODE(0xbf) {
 OPCODE(0xc0) {
 	// DOS Op_c0_WaitProtagonistAnimBreakFast @ 1000:509a: same as Op_bf
 	// but g_walk_speed_flag = 1 (this opcode entry is just 7 bytes
-	// before Op_bf @ 0x50a1, falling through into the same body).
+	// before Op_bf @ 1000:50a1, falling through into the same body).
 	Log.setWalkSpeedFlag(1);
 	if (Log.inStatusMode())
 		return kThxBye;
@@ -6370,7 +6370,7 @@ OPCODE(0xca) {
 	return kThxBye;
 }
 OPCODE(0xcd) {
-	// DOS Op_cd_RestoreRoomActive (CS:0x52b7): end cutscene — mirror of 0xce.
+	// DOS Op_cd_RestoreRoomActive @ 1000:52b7: end cutscene — mirror of 0xce.
 	//   1. g_room_active = 1
 	//   2. SetBackdropDimensions(0x98) (restore interface area)
 	//   3. g_flag_misc_1 = 1
@@ -6438,7 +6438,7 @@ OPCODE(0xd7) {
 	return kThxBye;
 }
 OPCODE(0xd9) {
-	// 0xd9 (DOS CS:0x5430): add zone entry to g_zone[8] (4 uint16 args, 8-byte
+	// DOS Op_d9_handler @ 1000:5430: add zone entry to g_zone[8] (4 uint16 args, 8-byte
 	// stride). Overflow sets g_pendingErrorCode = 0x27.
 	if (Log.zones().size() >= 8) {
 		Log.setPendingError(0x27);
@@ -6452,7 +6452,7 @@ OPCODE(0xd9) {
 }
 
 OPCODE(0xdd) {
-	// 0xdd (DOS CS:0x54bf): add zone-B entry. 4 uint16 args + 1 var slot value
+	// DOS Op_dd_handler @ 1000:54bf: add zone-B entry. 4 uint16 args + 1 var slot value
 	// (ReadVarBySlot_RHS) at offset +0x679. Overflow at 30 sets error 0x32.
 	// VM args 0..3 + arg 4 (variable). Stride 10 bytes per entry.
 	if (Log.zonesB().size() >= 30) {
@@ -6469,7 +6469,7 @@ OPCODE(0xdd) {
 
 // 0xe0..0xec: frame-table mutators, anim-list state, and parser helpers.
 OPCODE(0xe0) {
-	// DOS Op_e0 (CS:0x5548): InvalidateFrame. Sets frame[arg0].x = .y = 999.
+	// DOS Op_e0 @ 1000:5548: InvalidateFrame. Sets frame[arg0].x = .y = 999.
 	// findPath skips frames with this sentinel — used to remove a frame
 	// from the walkable graph mid-cutscene (e.g. blocking a path).
 	const uint16 frame = uint16(a[0]);
@@ -6482,7 +6482,7 @@ OPCODE(0xe0) {
 	return kThxBye;
 }
 OPCODE(0xe1) {
-	// DOS Op_e1 (CS:0x5564): SetFramePosition. Overwrites frame[arg0]'s
+	// DOS Op_e1 @ 1000:5564: SetFramePosition. Overwrites frame[arg0]'s
 	// (x, y) with arg1, arg2. Used to dynamically move a walkable point.
 	const uint16 frame = uint16(a[0]);
 	if (frame >= 0xfd) {
@@ -6561,7 +6561,7 @@ OPCODE(0xe9) {
 	return kThxBye;
 }
 OPCODE(0xea) {
-	// DOS Op_ea (CS:0x5642): Pascal-string append-byte. arg0 = string ptr,
+	// DOS Op_ea @ 1000:5642: Pascal-string append-byte. arg0 = string ptr,
 	// arg1 = byte to append. If string.length < string.capacity, increments
 	// length and writes byte at end. Uses signed byte comparison (`JGE`).
 	byte *base = nullptr;
@@ -6580,7 +6580,7 @@ OPCODE(0xeb) {
 	return kThxBye;
 }
 OPCODE(0xec) {
-	// DOS Op_ec (CS:0x5670): Pascal-string truncate-by-length. arg0 = string
+	// DOS Op_ec @ 1000:5670: Pascal-string truncate-by-length. arg0 = string
 	// ptr; if length > 0, decrements length and zeroes last char.
 	byte *base = nullptr;
 	byte *ptr = resolveDosResourcePointer(a[0], current, &base);
@@ -6592,7 +6592,7 @@ OPCODE(0xec) {
 
 OPCODE(0xee) {
 	// DOS Op_ee_handler @ 1000:5698:
-	//   if (arg0 >= g_score_event_count [CS:0x93]) pending-error 0x2f;
+	//   if (arg0 >= g_score_event_count CS:[0x93]) pending-error 0x2f;
 	//   else:
 	//     entry = score_table[arg0*2]   ; CS:[0x95 + arg0*2]
 	//     if (entry+1 byte == 0):       ; not yet claimed
@@ -6664,7 +6664,7 @@ OPCODE(0xf2) {
 	return kThxBye;
 }
 OPCODE(0xf3) {
-	// DOS Op_f3 (CS:0x5769): nargs=0 per opcodes_nargs.data. Calls
+	// DOS Op_f3 @ 1000:5769: nargs=0 per opcodes_nargs.data. Calls
 	// RegisterSampleSlot_Bare8 (BX=0xb: CheckSfxPlaying) when SFX is
 	// active/enabled, else AX=1 + RegisterSampleSlot_Bare5. Because the
 	// C++ wait model re-runs this opcode instead of storing a native DOS
@@ -6686,7 +6686,7 @@ OPCODE(0xf3) {
 	return kReturn;
 }
 OPCODE(0xf5) {
-	// DOS Op_f5 (CS:0x5812): nargs=0 per opcodes_nargs.data. Calls
+	// DOS Op_f5 @ 1000:5812: nargs=0 per opcodes_nargs.data. Calls
 	// RegisterSampleSlot_Bare6 (BX=7: CheckMusicPlaying) when music is
 	// enabled. CheckMusicPlaying @ 1000:5c78 returns carry clear while the
 	// driver current-tune word is nonzero and carry set once it is zero; the

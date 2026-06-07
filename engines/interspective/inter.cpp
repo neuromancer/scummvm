@@ -186,7 +186,7 @@ Status Interpreter::run(uint16 offset, int ifDepth) {
 			;
 		}
 
-		// DOS MainGameLoop (1000:050d) calls DisplayIllError (1000:35cd)
+		// DOS MainGameLoop @ 1000:050d calls DisplayIllError @ 1000:35cd
 		// each frame: it shows a one-shot "ILL Error <code> (<mode>)"
 		// overlay, clears the code, and CONTINUES (g_flag_room_loaded=1).
 		// DOS errors are recoverable — they do NOT halt the program. So

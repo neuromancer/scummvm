@@ -581,8 +581,9 @@ void Engine::handleEvents() {
 			const Common::KeyCode kc = event.kbd.keycode;
 			const byte mods = event.kbd.flags & (Common::KBD_CTRL | Common::KBD_ALT);
 			if (!event.kbdRepeat && kc == Common::KEYCODE_v && (mods & Common::KBD_ALT)) {
-				// Hidden Alt-V version/credits screen (DOS @ 1000:b87b,
-				// RunModalLoop with the credits text at DS:0x8889; ungated).
+				// Hidden Alt-V version/credits screen (HandleSpecialKey @
+				// 1000:b87b, RunModalLoop with the credits text at DS:0x8889;
+				// ungated).
 				GUI::MessageDialog dlg(
 					Common::U32String(
 						"INNOCENT - until caught\n\n"
@@ -593,9 +594,9 @@ void Engine::handleEvents() {
 				break;
 			}
 			if (!event.kbdRepeat && kc == Common::KEYCODE_F1) {
-				// F1 "Game paused" overlay (DOS @ 1000:b862, RunModalLoop with
-				// the pause text at DS:0x884e, no menu items; ungated). The
-				// blocking modal is the pause itself.
+				// F1 "Game paused" overlay (HandleSpecialKey @ 1000:b862,
+				// RunModalLoop with the pause text at DS:0x884e, no menu items;
+				// ungated). The blocking modal is the pause itself.
 				GUI::MessageDialog dlg(
 					Common::U32String("Game paused.\n\nPress a button or ENTER to continue."));
 				dlg.runModal();
@@ -606,7 +607,7 @@ void Engine::handleEvents() {
 								 ((mods & Common::KBD_ALT) && (kc == Common::KEYCODE_q || kc == Common::KEYCODE_x));
 			if (!event.kbdRepeat && menuKey) {
 				// F8 / Ctrl-C / Ctrl-Q / Alt-Q / Alt-X open the Continue/
-				// Restart/Exit system menu (DOS @ 1000:b82d), but only while
+				// Restart/Exit system menu (HandleSpecialKey @ 1000:b82d), but only while
 				// the fullscreen gate is clear. Routed to the same host menu
 				// as Op_fc (openMainMenuDialog); a faithful in-engine 3-item
 				// Continue/Restart/Exit modal honoring restart is a follow-up.
@@ -616,10 +617,10 @@ void Engine::handleEvents() {
 			}
 			if (consumeEscapePress(event) && _logic) {
 				// DOS: ESC (0x1b) is NOT a verb/status hotkey — CheckVerbHotkey
-				// @1000:b9bc maps only Space→status (region 2) and H/U/M/L/S/T
+				// @ 1000:b9bc maps only Space→status (region 2) and H/U/M/L/S/T
 				// to verbs; ESC maps to no region. ESC's ONLY job is to skip a
 				// cutscene when an escape break point is armed (Op_3d /
-				// HandleEscDuringScript @1000:2bd9). When nothing is armed DOS
+				// HandleEscDuringScript @ 1000:2bd9). When nothing is armed DOS
 				// does nothing — it must NOT open the status menu (that is
 				// Space's role, handled via applyVerbHotkey below).
 				_logic->requestSkipCutscene();
