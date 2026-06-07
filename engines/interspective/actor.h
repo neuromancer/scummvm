@@ -186,9 +186,33 @@ public:
 		kOffsetTicksLeft = 0xa,
 		// DOS field +0x0c is BP: the current PC relative to kOffsetOffset.
 		kOffsetCode = 0xc,
+		kOffsetResumePc = 0xe,
 		kOffsetInterval = 0x10,
+		kOffsetSkipTimer = 0x11,
 		kOffsetZIndex = 0x12,
-		kOffsetRoom = 0x59
+		kOffsetZoneB = 0x13,
+		kOffsetFlag14 = 0x14,
+		kOffsetFlag15 = 0x15,
+		kOffsetZoneLayerAuto = 0x16,
+		kOffsetVisibleWidth = 0x17,
+		kOffsetVisibleHeight = 0x18,
+		kOffsetMoveSlots = 0x19,
+		kOffsetCallbackSegment = 0x5d,
+		kOffsetCallbackOffset = 0x5f,
+		kOffsetRoom = 0x59,
+		kOffsetFrame = 0x61,
+		kOffsetTargetFrame = 0x62,
+		kOffsetMood = 0x63,
+		kOffsetConfused = 0x64,
+		kOffsetAttentionNeeded = 0x65,
+		kOffsetTurnTie = 0x66,
+		kOffsetReadyMarker = 0x67,
+		kOffsetAnimationSet = 0x68,
+		kOffsetReadyCallback = 0x69,
+		kOffsetWalkQueueLength = 0x6b,
+		kOffsetPendingAnimation = 0x6d,
+		kOffsetWalkActive = 0x6f,
+		kOffsetSpeechColor = 0x70
 	};
 
 	virtual bool isActor() const { return true; }
@@ -201,28 +225,27 @@ public:
 	uint8 interval() const { return uint8(_interval); }
 	void setRawPosition(Common::Point p) {
 		_position = p;
-		setFieldWord(kOffsetLeft, uint16(p.x));
-		setFieldWord(kOffsetTop, uint16(p.y));
+		setRecordPosition(p);
 	}
 	void setRawTicksLeft(uint16 ticks) {
 		_ticksLeft = ticks;
-		setFieldWord(kOffsetTicksLeft, ticks);
+		setRecordTicksLeft(ticks);
 	}
 	void setRawInterval(uint8 interval) {
 		_interval = int8(interval);
-		setField(kOffsetInterval, interval);
+		setRecordInterval(interval);
 	}
 	void setRawFrame(uint16 frame) {
 		_frame = frame;
-		setField(0x61, uint8(frame));
+		setRecordFrame(frame);
 	}
 	void setRawTargetFrame(uint16 frame) {
 		_nextFrame = frame;
-		setField(0x62, uint8(frame));
+		setRecordTargetFrame(frame);
 	}
 	void clearMoveQueue() {
 		_framequeue.clear();
-		setFieldWord(0x6b, 0);
+		setWalkQueueLength(0);
 	}
 	void setRawMainSprite(uint16 sprite) { setMainSprite(sprite); }
 	void setRawSpriteTarget(uint16 target) {
@@ -241,7 +264,7 @@ public:
 	// short-circuit.
 	void forceRoom(uint16 r) {
 		_room = r;
-		setFieldWord(kOffsetRoom, r);
+		setRecordRoom(r);
 	}
 
 	// DOS-aligned room/frame placement that does NOT reset the actor's
@@ -268,6 +291,7 @@ public:
 
 	void setAnimation(const CodePointer &anim);
 	void setAnimation(uint16);
+	bool hasRecordCodeOffset() const { return recordCodeOffset() != 0; }
 
 	void clearScriptPc();
 	void unregister();
@@ -301,8 +325,8 @@ public:
 	const Common::String &speechText() const;
 	void stopSpeaking();
 	void setAttentionNeeded(bool v) {
-		setField(0x65, v ? 1 : 0);
 		_attentionNeeded = v;
+		setRecordAttentionNeeded(v);
 	}
 	void callMeWhenSilent(const CodePointer &cp);
 	void say(const Common::String &text, uint16 maxLines = 0);
@@ -322,6 +346,25 @@ public:
 	void toggleDebug();
 
 	void setPuppeteer(const Puppeteer &p) { _puppeteer = p; }
+	uint8 visibleWidth() const { return recordByte(kOffsetVisibleWidth); }
+	uint8 visibleHeight() const { return recordByte(kOffsetVisibleHeight); }
+	uint8 speechColor() const { return recordByte(kOffsetSpeechColor); }
+	bool walkActive() const { return recordByte(kOffsetWalkActive) != 0; }
+	void setWalkActive(bool active) { setRecordByte(kOffsetWalkActive, active ? 1 : 0); }
+	uint16 walkQueueLength() const { return recordWord(kOffsetWalkQueueLength); }
+	void setWalkQueueLength(uint16 length) { setRecordWord(kOffsetWalkQueueLength, length); }
+	uint8 readyMarker() const { return recordByte(kOffsetReadyMarker); }
+	void setReadyMarker(uint8 marker) { setRecordByte(kOffsetReadyMarker, marker); }
+	uint16 readyCallback() const { return recordWord(kOffsetReadyCallback); }
+	void setReadyCallback(uint16 callback) { setRecordWord(kOffsetReadyCallback, callback); }
+	uint8 animationSet() const { return recordByte(kOffsetAnimationSet); }
+	void setAnimationSet(uint8 animationSet) { setRecordByte(kOffsetAnimationSet, animationSet); }
+	uint8 mood() const { return recordByte(kOffsetMood); }
+	void setMood(uint8 mood) { setRecordByte(kOffsetMood, mood); }
+	bool attentionNeededRecord() const { return recordByte(kOffsetAttentionNeeded) != 0; }
+	uint8 turnTie() const { return recordByte(kOffsetTurnTie); }
+	void setTurnTie(uint8 tie) { setRecordByte(kOffsetTurnTie, tie); }
+	void setSpeechColor(uint8 color) { setRecordByte(kOffsetSpeechColor, color); }
 
 private:
 	Actor(const CodePointer &code);
@@ -344,6 +387,60 @@ private:
 	void copyIntervalToTicks();
 	void decrementTicksLeft();
 	void setActorCodeOffset(uint16 offset);
+	uint8 recordByte(uint8 off) const { return field(off); }
+	uint16 recordWord(uint8 off) const { return fieldWord(off); }
+	void setRecordByte(uint8 off, uint8 v) { setField(off, v); }
+	void setRecordWord(uint8 off, uint16 v) { setFieldWord(off, v); }
+	uint16 recordSegment() const { return recordWord(kOffsetSegment); }
+	uint16 recordCodeOffset() const { return recordWord(kOffsetOffset); }
+	uint16 recordPc() const { return recordWord(kOffsetCode); }
+	void setRecordSegment(uint16 segment) { setRecordWord(kOffsetSegment, segment); }
+	void setRecordCodeOffset(uint16 offset) { setRecordWord(kOffsetOffset, offset); }
+	void setRecordPc(uint16 pc) { setRecordWord(kOffsetCode, pc); }
+	void setRecordScriptPointer(uint16 segment, uint16 offset, uint16 pc) {
+		setRecordSegment(segment);
+		setRecordCodeOffset(offset);
+		setRecordPc(pc);
+	}
+	void clearRecordScriptPointer() { setRecordScriptPointer(0, 0, 0); }
+	void setRecordPosition(Common::Point p) {
+		setRecordWord(kOffsetLeft, uint16(p.x));
+		setRecordWord(kOffsetTop, uint16(p.y));
+	}
+	void setRecordMainSprite(uint16 sprite) { setRecordWord(kOffsetMainSprite, sprite); }
+	void setRecordTicksLeft(uint16 ticks) { setRecordWord(kOffsetTicksLeft, ticks); }
+	void setRecordInterval(uint8 interval) { setRecordByte(kOffsetInterval, interval); }
+	void setRecordZIndex(uint8 zIndex) { setRecordByte(kOffsetZIndex, zIndex); }
+	uint8 recordZIndex() const { return recordByte(kOffsetZIndex); }
+	void setRecordRoom(uint16 room) { setRecordWord(kOffsetRoom, room); }
+	void setRecordZoneB(uint8 zone) { setRecordByte(kOffsetZoneB, zone); }
+	bool recordZoneLayerAutoEnabled() const { return recordByte(kOffsetZoneLayerAuto) != 0; }
+	void setRecordZoneLayerAutoEnabled(bool enabled) { setRecordByte(kOffsetZoneLayerAuto, enabled ? 1 : 0); }
+	void setRecordFlag14(bool enabled) { setRecordByte(kOffsetFlag14, enabled ? 1 : 0); }
+	void setRecordFlag15(bool enabled) { setRecordByte(kOffsetFlag15, enabled ? 1 : 0); }
+	void setRecordFrame(uint16 frame) { setRecordByte(kOffsetFrame, uint8(frame)); }
+	void setRecordTargetFrame(uint16 frame) { setRecordByte(kOffsetTargetFrame, uint8(frame)); }
+	bool confusedRecord() const { return recordByte(kOffsetConfused) != 0; }
+	void setConfusedRecord(bool confused) {
+		_confused = confused;
+		setRecordByte(kOffsetConfused, confused ? 1 : 0);
+	}
+	void setRecordAttentionNeeded(bool attentionNeeded) { setRecordByte(kOffsetAttentionNeeded, attentionNeeded ? 1 : 0); }
+	void setVisibleDimensions(uint8 width, uint8 height) {
+		setRecordByte(kOffsetVisibleWidth, width);
+		setRecordByte(kOffsetVisibleHeight, height);
+	}
+	void clearWalkState() {
+		setWalkQueueLength(0);
+		setWalkActive(false);
+	}
+	uint16 pendingAnimation() const { return recordWord(kOffsetPendingAnimation); }
+	void setPendingAnimation(uint16 animation) { setRecordWord(kOffsetPendingAnimation, animation); }
+	void clearPendingAnimation() { setPendingAnimation(0); }
+	uint8 skipTimer() const { return recordByte(kOffsetSkipTimer); }
+	void setSkipTimer(uint8 timer) { setRecordByte(kOffsetSkipTimer, timer); }
+	uint16 resumePc() const { return recordWord(kOffsetResumePc); }
+	void setResumePc(uint16 pc) { setRecordWord(kOffsetResumePc, pc); }
 
 	Common::Queue<Frame> _framequeue;
 	uint16 _frame;
@@ -402,18 +499,18 @@ public:
 			return false;
 		const uint slotIndex = _moveSlots.size();
 		_moveSlots.push_back(slot);
-		const uint8 off = uint8(0x19 + slotIndex * 8);
-		setFieldWord(off, slot.a);
-		setFieldWord(uint8(off + 2), slot.b);
-		setFieldWord(uint8(off + 4), slot.c);
-		setFieldWord(uint8(off + 6), slot.mode);
+		const uint8 off = uint8(kOffsetMoveSlots + slotIndex * 8);
+		setRecordWord(off, slot.a);
+		setRecordWord(uint8(off + 2), slot.b);
+		setRecordWord(uint8(off + 4), slot.c);
+		setRecordWord(uint8(off + 6), slot.mode);
 		return true;
 	}
 	const Common::Array<MoveSlot> &moveSlots() const { return _moveSlots; }
 	void clearMoveSlots() {
 		_moveSlots.clear();
 		for (uint i = 0; i < 8; ++i)
-			setFieldWord(uint8(0x19 + i * 8), 0xffff);
+			setRecordWord(uint8(kOffsetMoveSlots + i * 8), 0xffff);
 	}
 
 	// DOS callback (field+0x5d/0x5f). Set by Op_21/Op_22, cleared by Op_23.
@@ -422,12 +519,12 @@ public:
 	void setActorCallback(uint16 segment, uint16 offset) {
 		_actorCallbackSeg = segment;
 		_actorCallbackOff = offset;
-		setFieldWord(0x5d, segment);
-		setFieldWord(0x5f, offset);
+		setRecordWord(kOffsetCallbackSegment, segment);
+		setRecordWord(kOffsetCallbackOffset, offset);
 	}
 	void clearActorCallback() {
 		_actorCallbackSeg = 0xffff;
-		setFieldWord(0x5d, 0xffff);
+		setRecordWord(kOffsetCallbackSegment, 0xffff);
 	}
 	uint16 actorCallbackSeg() const { return _actorCallbackSeg; }
 	uint16 actorCallbackOff() const { return _actorCallbackOff; }

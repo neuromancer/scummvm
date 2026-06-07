@@ -134,7 +134,7 @@ static int16 cameraMaxOrigin(uint16 backdropSize, uint16 viewportSize) {
 
 static void setActorCallbackWordDirect(Actor *actor, uint16 callback) {
 	if (actor)
-		actor->setFieldWord(0x69, callback);
+		actor->setReadyCallback(callback);
 }
 
 static void moveActorToTargetFrame(Logic *logic, Actor *actor, uint16 frame) {
@@ -149,7 +149,7 @@ static void moveActorToTargetFrame(Logic *logic, Actor *actor, uint16 frame) {
 		if (actor->room() == logic->currentRoom() && actor->frameId() != 0)
 			actor->setRawTargetFrame(uint8(frame));
 		actor->moveTo(frame);
-		if (actor->field(0x6f) != 0)
+		if (actor->walkActive())
 			logic->setPostMoveTargetFrameMirror(uint8(actor->frameId()));
 		return;
 	}
@@ -657,7 +657,7 @@ void Logic::registerCurrentRoomActors() {
 	for (uint16 i = 0; i < mainActors; ++i) {
 		const uint16 id = i + 1;
 		Actor *const actor = _resources->mainDat()->actor(i);
-		if (!actor || actor->room() != _currentRoom || actor->fieldWord(Actor::kOffsetOffset) == 0)
+		if (!actor || actor->room() != _currentRoom || !actor->hasRecordCodeOffset())
 			continue;
 		registerActiveActor(id);
 		actor->prepareRoomEntryActiveActor();
@@ -670,7 +670,7 @@ void Logic::registerCurrentRoomActors() {
 	for (uint16 i = 0; i < blockActors; ++i) {
 		const uint16 id = uint16(mainActors + i + 1);
 		Actor *const actor = _blockProgram->actor(i);
-		if (!actor || actor->room() != _currentRoom || actor->fieldWord(Actor::kOffsetOffset) == 0)
+		if (!actor || actor->room() != _currentRoom || !actor->hasRecordCodeOffset())
 			continue;
 		registerActiveActor(id);
 		actor->prepareRoomEntryActiveActor();
@@ -983,7 +983,7 @@ void Logic::updateScrollPosition() {
 			}
 
 			int16 dxCandidate = int16(speedX * 2);
-			const uint8 actorWidth = protag->field(0x17);
+			const uint8 actorWidth = protag->visibleWidth();
 			if (actorScreenX <= int16(actorWidth)) {
 				_scrollDx = int16(-dxCandidate);
 			} else if (actorScreenX >= int16(0x13f - actorWidth)) {
@@ -997,7 +997,7 @@ void Logic::updateScrollPosition() {
 			}
 
 			int16 dyCandidate = int16(speedY * 2);
-			const uint8 actorHeight = protag->field(0x18);
+			const uint8 actorHeight = protag->visibleHeight();
 			if (actorScreenY <= int16(actorHeight)) {
 				_scrollDy = int16(-dyCandidate);
 			} else if (actorScreenY >= screenMaxY) {
@@ -1987,9 +1987,9 @@ void Logic::runPostMoveCallbackIfReady() {
 		return;
 	if (!_protagonist)
 		return;
-	if (_protagonist->field(0x6f) != 0)
+	if (_protagonist->walkActive())
 		return;
-	if (_protagonist->field(0x65) == 0)
+	if (!_protagonist->attentionNeededRecord())
 		return;
 
 	PostMoveCallback cb = _postMoveCallback;
@@ -3705,7 +3705,7 @@ bool Logic::allocActorSpeechAt(Actor *actor, const Common::String &text, Common:
 	slot->owner = actorGlobalId(actor);
 	slot->refX = uint16(pos.x);
 	slot->refY = uint16(pos.y);
-	slot->color = actor->field(0x70);
+	slot->color = actor->speechColor();
 	debugC(1, kDebugLevelActor, "alloc speech slot owner=%u at %d:%d maxLines=%u text=\"%s\"",
 		   slot->owner, pos.x, pos.y, maxLines, text.c_str());
 	if (!initSpeechSlot(*slot, text, maxLines))

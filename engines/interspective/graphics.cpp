@@ -292,13 +292,13 @@ static bool objectDrawShouldDefer(Logic *logic, const Logic::DrawCommand &cmd) {
 	if (!protagonist)
 		return false;
 
-	const uint16 spriteId = protagonist->fieldWord(Actor::kOffsetMainSprite);
+	const uint16 spriteId = protagonist->mainSpriteId();
 	if (spriteId == 0xffff)
 		return false;
 
 	SpriteInfo info = logic->engine()->resources()->getSpriteInfo(spriteId);
-	const int16 minX = int16(protagonist->position().x - int16(protagonist->field(0x17)));
-	const int16 maxX = int16(protagonist->position().x + int16(protagonist->field(0x17)));
+	const int16 minX = int16(protagonist->position().x - int16(protagonist->visibleWidth()));
+	const int16 maxX = int16(protagonist->position().x + int16(protagonist->visibleWidth()));
 	const int16 minY = int16(protagonist->position().y + int16(info.hotTop));
 	const int16 maxY = int16(minY + 6);
 	const int16 x = logic->getObjectPosX(cmd.id);

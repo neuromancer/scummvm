@@ -222,9 +222,9 @@ static void setActorTargetMarker(Actor *actor) {
 	// The shared speech path seeds BP from CS:[0x00bf], which has no writers
 	// in the executable image and is zero, so preserving the zero word and
 	// marker write is the observable actor-record side effect.
-	if (actor && actor->fieldWord(0x69) == 0) {
-		actor->setFieldWord(0x69, 0);
-		actor->setField(0x67, 5);
+	if (actor && actor->readyCallback() == 0) {
+		actor->setReadyCallback(0);
+		actor->setReadyMarker(5);
 	}
 }
 
@@ -330,27 +330,10 @@ static bool waitForSubtitle(const CodePointer &next) {
 	return true;
 }
 
-static void resetActorStateFields(Actor *actor) {
-	if (!actor)
-		return;
-	actor->setFieldWord(0x0c, 0);
-	actor->setField(0x16, 1);
-	actor->setField(0x14, 1);
-	actor->setField(0x15, 1);
-	actor->setFieldWord(0x08, 0xffff);
-	actor->setField(0x10, 1);
-	actor->setFieldWord(0x0a, 0);
-	actor->setField(0x11, 0);
-	actor->setField(0x64, 0);
-	actor->setField(0x65, 0);
-	actor->setField(0x6f, 0);
-}
-
 static void initActorState(Actor *actor, const CodePointer &anim) {
 	if (!actor)
 		return;
 	actor->setAnimation(anim);
-	resetActorStateFields(actor);
 }
 
 static void initActorFromPuppeteer(Logic *logic, Actor *actor, uint16 actorId) {
@@ -446,17 +429,16 @@ static Actor *getActorOrPending(uint16 id) {
 static void setActorReadyFields(Actor *actor, uint8 marker, uint16 callback) {
 	if (!actor || actor->room() != Log.currentRoom())
 		return;
-	actor->setField(0x67, marker);
-	actor->setField(0x6f, 1);
-	actor->setField(0x69, uint8(callback & 0xff));
-	actor->setField(0x6a, uint8(callback >> 8));
+	actor->setReadyMarker(marker);
+	actor->setWalkActive(true);
+	actor->setReadyCallback(callback);
 }
 
 static void setActorReadyMarkerOnly(Actor *actor, uint8 marker) {
 	if (!actor || actor->room() != Log.currentRoom())
 		return;
-	actor->setField(0x67, marker);
-	actor->setField(0x6f, 1);
+	actor->setReadyMarker(marker);
+	actor->setWalkActive(true);
 }
 
 static uint8 actorDirectionToPoint(Actor *actor, int16 targetX, int16 targetY) {
@@ -470,9 +452,9 @@ static uint8 actorDirectionToPoint(Actor *actor, int16 targetX, int16 targetY) {
 
 	const int16 adjustedX = int16(actor->position().x) - spriteHotLeft;
 	const int16 adjustedY = int16(actor->position().y) + spriteHotTop;
-	const int16 halfHeight = int16(actor->field(0x18)) >> 1;
+	const int16 halfHeight = int16(actor->visibleHeight()) >> 1;
 	const int16 leftX = adjustedX;
-	const int16 rightX = adjustedX + int16(actor->field(0x17));
+	const int16 rightX = adjustedX + int16(actor->visibleWidth());
 	const int16 topY = adjustedY - halfHeight;
 	const int16 bottomY = adjustedY;
 
@@ -512,8 +494,7 @@ static bool checkActorIdleReadyModeled(Actor *actor) {
 static void setActorCallbackWord(Actor *actor, uint16 callback) {
 	if (!actor)
 		return;
-	actor->setField(0x69, uint8(callback & 0xff));
-	actor->setField(0x6a, uint8(callback >> 8));
+	actor->setReadyCallback(callback);
 }
 
 static void queueExitTransition(Actor *actor, uint16 frame) {
@@ -528,7 +509,7 @@ static void queueExitTransition(Actor *actor, uint16 frame) {
 	if (actor->room() == Log.currentRoom() && actor->frameId() != 0)
 		actor->setRawTargetFrame(uint8(frame));
 	actor->moveTo(frame);
-	if (actor->field(0x6f) != 0)
+	if (actor->walkActive())
 		Log.setPostMoveTargetFrameMirror(uint8(actor->frameId()));
 }
 
@@ -3299,7 +3280,7 @@ OPCODE(0x26) {
 	Log.setImplicitActor(protag);
 	// CheckActorScripting: idle iff both field+0x6f (byte) and
 	// word field+0x6b are zero.
-	const bool idle = protag->field(0x6f) == 0 && protag->fieldWord(0x6b) == 0;
+	const bool idle = !protag->walkActive() && protag->walkQueueLength() == 0;
 	debugC(2, kDebugLevelScript, "opcode 0x26: step+cursor==4, protag idle=%d", int(idle));
 	if (!idle)
 		return kThxBye;
@@ -3739,7 +3720,7 @@ OPCODE(0x49) {
 	Actor *ac = getActorOrPending(id);
 	if (!ac)
 		return kThxBye;
-	ac->setField(0x70, v);
+	ac->setSpeechColor(v);
 	Log.setActorFlag70(id, v);
 	return kThxBye;
 }
@@ -4913,8 +4894,8 @@ static bool handleHotspotInteraction(uint16 id, Common::Point point) {
 		return false;
 
 	queueExitTransition(protag, frame);
-	if (protag->fieldWord(0x69) == 0)
-		protag->setField(0x67, 5);
+	if (protag->readyCallback() == 0)
+		protag->setReadyMarker(5);
 
 	const int16 placeX = int16(targetX - int16(info.width) / 2);
 	const int16 placeY = int16(targetY + 5);
@@ -5376,17 +5357,15 @@ OPCODE(0x97) {
 		warning("opcode 0x97: cutscene backup already active — overwriting");
 	}
 	b.active = true;
-	b.actorField62 = protag->field(0x62);
-	b.actorField67 = protag->field(0x67);
-	b.actorField69 = uint16(protag->field(0x69)) | (uint16(protag->field(0x6a)) << 8);
+	b.actorField62 = uint8(protag->targetFrameId());
+	b.actorField67 = protag->readyMarker();
+	b.actorField69 = protag->readyCallback();
 	b.targetFrameMirror = Log.postMoveTargetFrameMirror();
 	// Clear protag fields the way DOS does (field+0x67/+0x6b/+0x62).
 	// 0x6b is a word in DOS (`MOV word ptr ES:[SI+0x6b], 0`); we clear
 	// both bytes via the sparse map.
-	protag->setField(0x67, 0);
-	protag->setField(0x6b, 0);
-	protag->setField(0x6c, 0);
-	protag->setField(0x62, 0);
+	protag->setReadyMarker(0);
+	protag->setWalkQueueLength(0);
 	protag->setRawTargetFrame(0);
 	// Capture and clear post-move callback ([0x65ab..0x65bb]).
 	b.savedCallback = Log.postMoveCallback();
@@ -5424,10 +5403,8 @@ OPCODE(0x98) {
 	}
 	Logic::CutsceneBackup &b = Log.cutsceneBackup();
 	// Restore protag fields.
-	protag->setField(0x69, uint8(b.actorField69 & 0xff));
-	protag->setField(0x6a, uint8(b.actorField69 >> 8));
-	protag->setField(0x67, b.actorField67);
-	protag->setField(0x62, b.actorField62);
+	protag->setReadyCallback(b.actorField69);
+	protag->setReadyMarker(b.actorField67);
 	protag->setRawTargetFrame(b.actorField62);
 	Log.setPostMoveTargetFrameMirror(b.targetFrameMirror);
 	// LookupActorAndStartPath re-engages the walk toward field+0x62.
@@ -5440,7 +5417,7 @@ OPCODE(0x98) {
 			const Actor::Frame targetFrame = Log.room()->getFrame(0);
 			const bool destinationIsLeft =
 				int16(targetFrame.position().x) <= int16(protag->position().x);
-			protag->setField(0x66, destinationIsLeft ? 1 : 0);
+			protag->setTurnTie(destinationIsLeft ? 1 : 0);
 		}
 		protag->clearMoveQueue();
 	}
