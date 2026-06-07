@@ -793,16 +793,14 @@ OPCODE(0x15) {
 	const Common::Point screenCursor = Log.engine()->graphics()->cursorPosition();
 	const int16 cursorX = int16(screenCursor.x + Log.cameraX());
 	const int16 cursorY = int16(screenCursor.y + Log.cameraY());
-	int8 spriteHotLeft = 0;
-	int8 spriteHotTop = 0;
+	Common::Point spriteHotPoint(0, 0);
 	if (mainSpriteId() != 0xffff) {
 		const SpriteInfo info = _resources->getSpriteInfo(mainSpriteId());
-		spriteHotLeft = info.hotLeft;
-		spriteHotTop = info.hotTop;
+		spriteHotPoint = info.hotPoint();
 	}
 
-	const int16 adjustedX = int16(_position.x) - spriteHotLeft;
-	const int16 adjustedY = int16(_position.y) + spriteHotTop;
+	const int16 adjustedX = int16(_position.x) - spriteHotPoint.x;
+	const int16 adjustedY = int16(_position.y) + spriteHotPoint.y;
 	const uint8 width = animationRecordVisibleSpriteWidth();
 	const uint8 height = animationRecordVisibleSpriteHeight();
 	const int16 leftX = adjustedX;

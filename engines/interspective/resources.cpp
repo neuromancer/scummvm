@@ -385,15 +385,15 @@ Sprite *Resources::loadSprite(uint16 id) const {
 	// the requested index is out of bounds. An empty rect to Image::cut
 	// creates a 0x0 sprite which downstream paint/blit code can't safely
 	// handle.
-	if (info.width == 0 || info.height == 0) {
+	if (info.empty()) {
 		Sprite *sprite = new Sprite;
 		sprite->create(1, 1);
 		sprite->_hotPoint = Common::Point(0, 0);
 		return sprite;
 	}
-	Image *image = loadImage(info.image);
-	Sprite *sprite = image->cut(Common::Rect(info.left, info.top, info.left + info.width, info.top + info.height));
-	sprite->_hotPoint = Common::Point(info.hotLeft, info.hotTop);
+	Image *image = loadImage(info.imageId());
+	Sprite *sprite = image->cut(info.sourceRect());
+	sprite->_hotPoint = info.hotPoint();
 	return sprite;
 }
 

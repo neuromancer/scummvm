@@ -1371,8 +1371,9 @@ Common::Point Actor::getSpeechPosition() const {
 	Common::Point speechPosition(_position);
 	if (mainSpriteId() != 0xffff) {
 		const SpriteInfo info = _resources->getSpriteInfo(mainSpriteId());
-		speechPosition.x -= info.hotLeft;
-		speechPosition.y += info.hotTop;
+		const Common::Point hotPoint = info.hotPoint();
+		speechPosition.x -= hotPoint.x;
+		speechPosition.y += hotPoint.y;
 	}
 	speechPosition.y -= visibleSpriteHeight();
 	return speechPosition;
@@ -1679,17 +1680,15 @@ OPCODE(0x15) {
 	const Common::Point screenCursor = Log.engine()->graphics()->cursorPosition();
 	const int16 cursorX = int16(screenCursor.x + Log.cameraX());
 	const int16 cursorY = int16(screenCursor.y + Log.cameraY());
-	int8 spriteHotLeft = 0;
-	int8 spriteHotTop = 0;
+	Common::Point spriteHotPoint(0, 0);
 	if (mainSpriteId() != 0xffff) {
 		const SpriteInfo info = _resources->getSpriteInfo(mainSpriteId());
-		spriteHotLeft = info.hotLeft;
-		spriteHotTop = info.hotTop;
+		spriteHotPoint = info.hotPoint();
 	}
 	// adjusted_x = field+0x4 - sprite.hotLeft
 	// adjusted_y = field+0x6 + sprite.hotTop
-	const int16 adjustedX = int16(position().x) - spriteHotLeft;
-	const int16 adjustedY = int16(position().y) + spriteHotTop;
+	const int16 adjustedX = int16(position().x) - spriteHotPoint.x;
+	const int16 adjustedY = int16(position().y) + spriteHotPoint.y;
 	const uint8 width = visibleSpriteWidth();   // BP in DOS
 	const uint8 height = visibleSpriteHeight(); // BX in DOS
 	// Bounding rect (DOS layout):

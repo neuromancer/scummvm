@@ -34,7 +34,7 @@ enum SpriteMap {
 	kSpriteMapHeight,
 	kSpriteMapHotLeft,
 	kSpriteMapHotTop,
-	kSpriteMapSize
+	kSpriteMapSize = SpriteInfo::kSpriteMapRecordSize
 };
 
 SpriteInfo::SpriteInfo(const byte *spritemap, uint16 index) {

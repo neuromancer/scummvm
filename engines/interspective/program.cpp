@@ -114,12 +114,12 @@ SpriteInfo Program::getSpriteInfo(uint16 index) const {
 
 	// Bound check matching MainDat::getSpriteInfo. The footer doesn't
 	// store a per-block sprite count, so derive the upper bound from
-	// the buffer size: at most (codeSize - spritemapOffset) / kSpriteMapSize
-	// (=8 bytes per entry, see sprite.cpp). Without this an out-of-range
+	// the buffer size: at most (codeSize - spritemapOffset) /
+	// SpriteInfo::kSpriteMapRecordSize. Without this an out-of-range
 	// id (e.g. uninitialised script field, or main vs block id mismatch)
 	// runs straight off the end of _code.
 	const uint16 maxEntries = (spritemapOffset < _codeSize)
-								  ? (_codeSize - spritemapOffset) / 8
+								  ? (_codeSize - spritemapOffset) / SpriteInfo::kSpriteMapRecordSize
 								  : 0;
 	if (index >= maxEntries) {
 		warning("Program::getSpriteInfo: index 0x%04x out of range "

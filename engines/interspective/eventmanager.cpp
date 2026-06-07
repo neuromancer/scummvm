@@ -63,13 +63,10 @@ static bool spriteContainsWorldPoint(Resources *resources, uint16 spriteId,
 		return false;
 
 	SpriteInfo info = resources->getSpriteInfo(spriteId);
-	if (info.width == 0 || info.height == 0)
+	if (info.empty())
 		return false;
 
-	Common::Rect rect(info.width, info.height);
-	rect.moveTo(pos);
-	rect.translate(0, -int16(info.height));
-	rect.translate(-int16(info.hotLeft), int16(info.hotTop));
+	Common::Rect rect = info.bottomAnchoredRect(pos);
 	if (!rect.contains(world))
 		return false;
 
@@ -207,11 +204,10 @@ static bool spriteContainsTopLeftPoint(Resources *resources, uint16 spriteId,
 		return false;
 
 	SpriteInfo info = resources->getSpriteInfo(spriteId);
-	if (info.width == 0 || info.height == 0)
+	if (info.empty())
 		return false;
 
-	Common::Rect rect(info.width, info.height);
-	rect.moveTo(topLeft);
+	Common::Rect rect = info.topLeftRect(topLeft);
 	if (!rect.contains(screen))
 		return false;
 
@@ -241,12 +237,13 @@ static HitTarget hitInventoryObjectAtPoint(Logic &logic, Common::Point screen) {
 		if (spriteId == 0xffff)
 			continue;
 		const SpriteInfo info = resources->getSpriteInfo(spriteId);
-		if (info.width == 0 || info.height == 0)
+		if (info.empty())
 			continue;
 
+		const Common::Point hotPoint = info.hotPoint();
 		const Common::Point topLeft(
-			int16(0x80 + logic.getObjectPosX(id) - int16(info.hotLeft)),
-			int16(0xa0 + logic.getObjectPosY(id) - int16(info.hotTop)));
+			int16(0x80 + logic.getObjectPosX(id) - hotPoint.x),
+			int16(0xa0 + logic.getObjectPosY(id) - hotPoint.y));
 		if (!spriteContainsTopLeftPoint(resources, spriteId, topLeft, screen))
 			continue;
 

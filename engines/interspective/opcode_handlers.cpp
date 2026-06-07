@@ -442,16 +442,14 @@ static void setActorReadyMarkerOnly(Actor *actor, uint8 marker) {
 }
 
 static uint8 actorDirectionToPoint(Actor *actor, int16 targetX, int16 targetY) {
-	int8 spriteHotLeft = 0;
-	int8 spriteHotTop = 0;
+	Common::Point spriteHotPoint(0, 0);
 	if (actor && actor->mainSpriteId() != 0xffff) {
 		const SpriteInfo info = Log.engine()->resources()->getSpriteInfo(actor->mainSpriteId());
-		spriteHotLeft = info.hotLeft;
-		spriteHotTop = info.hotTop;
+		spriteHotPoint = info.hotPoint();
 	}
 
-	const int16 adjustedX = int16(actor->position().x) - spriteHotLeft;
-	const int16 adjustedY = int16(actor->position().y) + spriteHotTop;
+	const int16 adjustedX = int16(actor->position().x) - spriteHotPoint.x;
+	const int16 adjustedY = int16(actor->position().y) + spriteHotPoint.y;
 	const int16 halfHeight = int16(actor->visibleSpriteHeight()) >> 1;
 	const int16 leftX = adjustedX;
 	const int16 rightX = adjustedX + int16(actor->visibleSpriteWidth());
@@ -4889,7 +4887,7 @@ static bool handleHotspotInteraction(uint16 id, Common::Point point) {
 	const SpriteInfo info = objectPrimarySpriteInfo(id);
 	const int16 targetX = int16(target.position().x);
 	const int16 targetY = int16(target.position().y);
-	const int16 zoneCheckY = int16(targetY + 5 + int16(info.hotTop));
+	const int16 zoneCheckY = int16(targetY + 5 + info.hotPoint().y);
 	if (!hotspotZoneContains(targetX, zoneCheckY))
 		return false;
 

@@ -22,13 +22,37 @@
 #ifndef INTERSPECTIVE_SPRITE_H
 #define INTERSPECTIVE_SPRITE_H
 
+#include "common/rect.h"
+
 namespace Interspective {
 
 struct SpriteInfo {
+	enum {
+		kSpriteMapRecordSize = 8
+	};
+
 	// Default-construct an empty sprite — width=0/height=0, used as a
 	// safe fallback when an out-of-range sprite index is requested.
 	SpriteInfo() : left(0), top(0), width(0), height(0), image(0), hotLeft(0), hotTop(0) {}
 	SpriteInfo(const byte *, uint16 index);
+	bool empty() const { return width == 0 || height == 0; }
+	uint16 imageId() const { return image; }
+	Common::Rect rect() const { return Common::Rect(width, height); }
+	Common::Rect sourceRect() const { return Common::Rect(left, top, left + width, top + height); }
+	Common::Point hotPoint() const { return Common::Point(hotLeft, hotTop); }
+	Common::Rect topLeftRect(Common::Point topLeft) const {
+		Common::Rect r = rect();
+		r.moveTo(topLeft);
+		return r;
+	}
+	Common::Rect bottomAnchoredRect(Common::Point pos) const {
+		Common::Rect r = rect();
+		r.moveTo(pos);
+		r.translate(0, -int16(height));
+		r.translate(-int16(hotLeft), int16(hotTop));
+		return r;
+	}
+
 	uint16 left;
 	uint16 top;
 	uint16 width;

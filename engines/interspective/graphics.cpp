@@ -82,14 +82,14 @@ static uint16 inventoryObjectAtPoint(Logic *logic, Resources *resources,
 			continue;
 
 		const SpriteInfo info = resources->getSpriteInfo(spriteId);
-		if (info.width == 0 || info.height == 0)
+		if (info.empty())
 			continue;
 
+		const Common::Point hotPoint = info.hotPoint();
 		const Common::Point topLeft(
-			int16(0x80 + logic->getObjectPosX(id) - int16(info.hotLeft)),
-			int16(0xa0 + logic->getObjectPosY(id) - int16(info.hotTop)));
-		Common::Rect rect(info.width, info.height);
-		rect.moveTo(topLeft);
+			int16(0x80 + logic->getObjectPosX(id) - hotPoint.x),
+			int16(0xa0 + logic->getObjectPosY(id) - hotPoint.y));
+		Common::Rect rect = info.topLeftRect(topLeft);
 		if (!rect.contains(screen))
 			continue;
 
@@ -299,7 +299,7 @@ static bool objectDrawShouldDefer(Logic *logic, const Logic::DrawCommand &cmd) {
 	SpriteInfo info = logic->engine()->resources()->getSpriteInfo(spriteId);
 	const int16 minX = int16(protagonist->position().x - int16(protagonist->visibleSpriteWidth()));
 	const int16 maxX = int16(protagonist->position().x + int16(protagonist->visibleSpriteWidth()));
-	const int16 minY = int16(protagonist->position().y + int16(info.hotTop));
+	const int16 minY = int16(protagonist->position().y + info.hotPoint().y);
 	const int16 maxY = int16(minY + 6);
 	const int16 x = logic->getObjectPosX(cmd.id);
 	const int16 y = logic->getObjectPosY(cmd.id);
@@ -513,12 +513,13 @@ void Graphics::paintInventoryObjects() {
 			continue;
 
 		const SpriteInfo info = _resources->getSpriteInfo(spriteId);
-		if (info.width == 0 || info.height == 0)
+		if (info.empty())
 			continue;
 
+		const Common::Point hotPoint = info.hotPoint();
 		const Common::Point topLeft(
-			int16(0x80 + logic->getObjectPosX(id) - int16(info.hotLeft)),
-			int16(0xa0 + logic->getObjectPosY(id) - int16(info.hotTop)));
+			int16(0x80 + logic->getObjectPosX(id) - hotPoint.x),
+			int16(0xa0 + logic->getObjectPosY(id) - hotPoint.y));
 		Common::ScopedPtr<Sprite> sprite(_resources->loadSprite(spriteId));
 		paint(sprite.get(), topLeft, kPaintPositionIsTop | kPaintNoDirty | kPaintIgnoreHotPoint);
 	}
@@ -557,16 +558,17 @@ void Graphics::paintInventoryCloseUp() {
 		return;
 
 	const SpriteInfo info = _resources->getSpriteInfo(spriteId);
-	if (info.width == 0 || info.height == 0)
+	if (info.empty())
 		return;
 	if (info.width > 0x38 || info.height > 0x19) {
 		logic->setPendingError(0x2d);
 		return;
 	}
 
+	const Common::Point hotPoint = info.hotPoint();
 	const Common::Point topLeft(
-		int16(0x03 + ((0x38 - int16(info.width)) >> 1) + int16(info.hotLeft)),
-		int16(0x9b + ((0x19 - int16(info.height)) >> 1) + int16(info.hotTop)));
+		int16(0x03 + ((0x38 - int16(info.width)) >> 1) + hotPoint.x),
+		int16(0x9b + ((0x19 - int16(info.height)) >> 1) + hotPoint.y));
 	Common::ScopedPtr<Sprite> sprite(_resources->loadSprite(spriteId));
 	paint(sprite.get(), topLeft, kPaintPositionIsTop | kPaintNoDirty | kPaintIgnoreHotPoint);
 }
@@ -1298,8 +1300,8 @@ void Graphics::prepareConversationPalette() {
 		if (sprites[i] == 0xffff)
 			continue;
 		const SpriteInfo info = _resources->getSpriteInfo(sprites[i]);
-		if (info.image != 0)
-			loadGraphicPalette(info.image);
+		if (info.imageId() != 0)
+			loadGraphicPalette(info.imageId());
 	}
 }
 
