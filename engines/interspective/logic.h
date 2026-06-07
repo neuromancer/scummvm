@@ -845,9 +845,9 @@ public:
 		//   field+0x69 (word): walk callback target  → SetActorTarget
 		//   field+0x62 (byte): target frame byte
 		//   field+0x67 (byte): walk-callback status flag (e.g., 5 = armed)
-		uint16 actorField69;
-		uint8 actorField62;
-		uint8 actorField67;
+		uint16 readyCallbackOffset;
+		uint8 targetFrame;
+		uint8 readyMarker;
 		// [0x6609]: protag's target/current-frame mirror used by
 		// RunPostMoveCallback's frame match.
 		uint8 targetFrameMirror;
@@ -863,8 +863,8 @@ public:
 		// with owner == main character and type word 0. In C++ this is
 		// the mode-preserving Actor callback queued by Op_99/Op_9a.
 		Actor::RoomScriptWaitSnapshot roomScriptWait;
-		CutsceneBackup() : active(false), actorField69(0), actorField62(0),
-						   actorField67(0), targetFrameMirror(0), hadSpeech(false) {}
+		CutsceneBackup() : active(false), readyCallbackOffset(0), targetFrame(0),
+						   readyMarker(0), targetFrameMirror(0), hadSpeech(false) {}
 	};
 	CutsceneBackup &cutsceneBackup() { return _cutsceneBackup; }
 	const CutsceneBackup &cutsceneBackup() const { return _cutsceneBackup; }

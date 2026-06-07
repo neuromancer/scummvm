@@ -70,12 +70,12 @@ bool Actor::isFine() const {
 bool Actor::animReady() const {
 	// DOS CheckActorAnimReady @ 1000:6415 returns carry set once the
 	// actor no longer has current-room animation state that must be waited.
-	if (_room != Log.currentRoom() || recordCodeOffset() == 0)
+	if (_room != Log.currentRoom() || recordScriptBase() == 0)
 		return true;
 
-	const bool stillActive = walkActive() ||
-							 (!attentionNeededRecord() &&
-							  (walkQueueLength() != 0 || readyCallback() != 0 ||
+	const bool stillActive = movementWaitActive() ||
+							 (!needsAttention() &&
+							  (walkQueueLength() != 0 || readyCallbackOffset() != 0 ||
 							   !confusedRecord() || readyMarker() != 0));
 	return !stillActive;
 }
@@ -84,8 +84,8 @@ bool Actor::idleReady() const {
 	// DOS CheckActorIdle @ 1000:645e uses the same carry convention:
 	// carry clear while an active current-room actor script must be retried.
 	const bool stillActive = _room == Log.currentRoom() &&
-							 recordCodeOffset() != 0 &&
-							 walkQueueLength() == 0 && !attentionNeededRecord() &&
+							 recordScriptBase() != 0 &&
+							 walkQueueLength() == 0 && !needsAttention() &&
 							 (!confusedRecord() || readyMarker() != 0);
 	return !stillActive;
 }
@@ -104,10 +104,10 @@ void Actor::setAnimation(uint16 offset) {
 	resetActorStateFields();
 	if (_base) {
 		setRecordSegment(actorCodeSegmentTag(_base));
-		setRecordCodeOffset(_baseOffset);
+		setRecordScriptBase(_baseOffset);
 	} else {
 		setRecordSegment(0);
-		setRecordCodeOffset(0);
+		setRecordScriptBase(0);
 	}
 	registerActiveIfCurrentRoom();
 }
@@ -119,7 +119,7 @@ void Actor::setAnimation(const CodePointer &anim) {
 	_offset = 0;
 	resetActorStateFields();
 	setRecordSegment(actorCodeSegmentTag(_base));
-	setRecordCodeOffset(_baseOffset);
+	setRecordScriptBase(_baseOffset);
 	registerActiveIfCurrentRoom();
 }
 
@@ -136,15 +136,15 @@ void Actor::resetActorStateFields() {
 	_nextDirection = kDirNone;
 	setRecordMainSprite(0xffff);
 	setRecordTicksLeft(0);
-	setRecordPc(0);
+	setScriptPc(0);
 	setRecordInterval(1);
-	setSkipTimer(0);
+	setSkipTimerCount(0);
 	setRecordFlag14(true);
 	setRecordFlag15(true);
-	setRecordZoneLayerAutoEnabled(true);
+	setAutoZoneLayerEnabled(true);
 	setConfusedRecord(false);
 	setRecordAttentionNeeded(false);
-	setWalkActive(false);
+	setMovementWaitActive(false);
 }
 
 void Actor::setActorCodeOffset(uint16 offset) {
@@ -155,8 +155,8 @@ void Actor::setActorCodeOffset(uint16 offset) {
 	_base = segmentBase + offset;
 	_baseOffset = offset;
 	_offset = 0;
-	setRecordCodeOffset(_baseOffset);
-	setRecordPc(0);
+	setRecordScriptBase(_baseOffset);
+	setScriptPc(0);
 	_debugInvalid = false;
 }
 
@@ -189,7 +189,7 @@ void Actor::unregister() {
 
 void Actor::prepareRoomEntryActiveActor() {
 	const uint16 segment = recordSegment();
-	const uint16 codeOffset = recordCodeOffset();
+	const uint16 codeOffset = recordScriptBase();
 	const bool blockSegment = segment == 1 || ((segment & 0xc000) == 0x4000);
 	const bool mainSegment = segment == 0 ||
 							 segment == actorCodeSegmentTag(Log.mainInterpreter() ? Log.mainInterpreter()->rawCode(0) : 0);
@@ -199,7 +199,7 @@ void Actor::prepareRoomEntryActiveActor() {
 		if (segmentBase) {
 			_base = segmentBase + codeOffset;
 			_baseOffset = codeOffset;
-			_offset = recordPc();
+			_offset = scriptPc();
 			setRecordScriptPointer(actorCodeSegmentTag(segmentBase), codeOffset, _offset);
 		}
 	}
@@ -228,14 +228,14 @@ void Actor::syncStateToRecordFields() {
 	setRecordMainSprite(_mainSpriteId);
 	setRecordTicksLeft(_ticksLeft);
 	setRecordInterval(uint8(_interval));
-	setRecordZIndex(uint8(_zIndex));
+	setRecordDrawLayer(uint8(_zIndex));
 	setRecordRoom(_room);
 	setRecordFrame(_frame);
 	setRecordTargetFrame(_nextFrame);
 	setConfusedRecord(_confused);
 	setRecordAttentionNeeded(_attentionNeeded);
-	setRecordWord(kOffsetCallbackSegment, _actorCallbackSeg);
-	setRecordWord(kOffsetCallbackOffset, _actorCallbackOff);
+	setRecordWord(kOffsetActorCallbackSegment, _actorCallbackSeg);
+	setRecordWord(kOffsetActorCallbackOffset, _actorCallbackOff);
 }
 
 static void syncActorRecordFields(Common::Serializer &s, Common::HashMap<uint8, uint8> &fields) {
@@ -492,10 +492,10 @@ void Actor::updateZoneAtPoint() {
 		break;
 	}
 
-	setRecordZoneB(bh);
-	if (!recordZoneLayerAutoEnabled())
-		bl = recordZIndex();
-	setRecordZIndex(bl);
+	setSecondaryZone(bh);
+	if (!autoZoneLayerEnabled())
+		bl = recordDrawLayer();
+	setRecordDrawLayer(bl);
 	_zIndex = int8(bl);
 }
 
@@ -585,13 +585,13 @@ Actor::RoomScriptWaitDispatch Actor::dispatchReadyRoomScriptWaitMode(uint16 mode
 	_callBacks.clear();
 
 	RoomScriptWaitDispatch status = kNoRoomScriptWait;
-	CodePointer readyCallback;
+	CodePointer readyRoomScriptCallback;
 	while (!callbacks.empty()) {
 		const ScriptCallback callback = callbacks.pop();
 		if (status == kNoRoomScriptWait && callback.hasRunMode && callback.runMode == mode) {
 			if (animReady()) {
 				status = kRoomScriptWaitDispatched;
-				readyCallback = callback.callback;
+				readyRoomScriptCallback = callback.callback;
 				continue;
 			}
 			status = kRoomScriptWaitPending;
@@ -602,9 +602,9 @@ Actor::RoomScriptWaitDispatch Actor::dispatchReadyRoomScriptWaitMode(uint16 mode
 	_callBacks = kept;
 	if (status == kRoomScriptWaitDispatched) {
 		debugC(3, kDebugLevelScript, "room-script mode 0x%02x actor wait ready; running %s",
-			   mode, +readyCallback);
+			   mode, +readyRoomScriptCallback);
 		const uint16 savedOpcodeMode = Log.opcodeMode();
-		readyCallback.run(static_cast<OpcodeMode>(mode));
+		readyRoomScriptCallback.run(static_cast<OpcodeMode>(mode));
 		Log.setOpcodeMode(savedOpcodeMode);
 	}
 	return status;
@@ -656,7 +656,7 @@ bool Actor::isMoving() const {
 	// DOS CheckActorScripting @ 1000:6499 treats movement/scripting wait
 	// as active while field+0x6f or word field+0x6b is non-zero.
 	// _framequeue is the C++ mirror of the same queued walk path.
-	return walkActive() || walkQueueLength() != 0 || !_framequeue.empty();
+	return movementWaitActive() || walkQueueLength() != 0 || !_framequeue.empty();
 }
 
 void Actor::callMeWhenStill(const CodePointer &cp) {
@@ -768,7 +768,7 @@ void Actor::moveTo(uint16 frame) {
 	const Frame targetFrame = Log.room()->getFrame(frame);
 	// LookupActorAndStartPath stores whether the destination is left of
 	// or equal to the current actor x before running FindActorPath.
-	setTurnTie(int16(targetFrame.position().x) <= int16(_position.x) ? 1 : 0);
+	setTurnTieBreaker(int16(targetFrame.position().x) <= int16(_position.x) ? 1 : 0);
 	if (targetFrame.position().x == 999) {
 		debugC(3, kDebugLevelActor, "moveTo(%u): warp (target frame invalid in current room)", (uint)frame);
 		_framequeue.clear();
@@ -814,7 +814,7 @@ void Actor::moveTo(uint16 frame) {
 
 	const uint16 pathLen = uint16(MIN<uint>(_framequeue.size(), 0xffff));
 	setWalkQueueLength(pathLen);
-	setWalkActive(pathLen != 0);
+	setMovementWaitActive(pathLen != 0);
 	if (pathLen != 0) {
 		setAttentionNeeded(true);
 	}
@@ -875,7 +875,7 @@ bool Actor::nextFrame() {
 	_framequeue.pop();
 	setWalkQueueLength(uint16(MIN<uint>(_framequeue.size(), 0xffff)));
 	if (_framequeue.empty())
-		setWalkActive(false);
+		setMovementWaitActive(false);
 	return true;
 }
 
@@ -891,7 +891,7 @@ bool Actor::turnTo(Direction dir) {
 		// +0x66, set by LookupActorAndStartPath from target-vs-current X, to
 		// choose the rotation side.
 		int8 delta = int8(dir) - int8(_direction);
-		uint8 tie = turnTie();
+		uint8 tie = turnTieBreaker();
 		if (_direction == kDirUp)
 			tie ^= 1;
 
@@ -972,15 +972,15 @@ bool Actor::consumeReadyMarkerCallback() {
 	// written by opcodes 0xa4..0xa7. The opcode handlers only arm these fields;
 	// this actor update path is what eventually starts the callback script.
 	const uint8 marker = readyMarker();
-	const uint16 callback = readyCallback();
+	const uint16 callback = readyCallbackOffset();
 	if (marker == 0 && callback == 0)
 		return false;
 	if (walkQueueLength() != 0 || !_framequeue.empty())
 		return false;
 
 	if (marker != 0) {
-		const uint16 pendingAnim = pendingAnimation();
-		clearPendingAnimation();
+		const uint16 pendingAnim = pendingReadyAnimation();
+		clearPendingReadyAnimation();
 		if (pendingAnim != 0) {
 			debugC(3, kDebugLevelActor,
 				   "ready marker %u starting pending actor animation 0x%04x before callback 0x%04x [DOS UpdateActors]",
@@ -991,7 +991,7 @@ bool Actor::consumeReadyMarkerCallback() {
 
 		Direction stepDir = kDirNone;
 		const uint8 current = mood();
-		if (pickReadyMarkerTurnStep(current, marker, turnTie(), stepDir)) {
+		if (pickReadyMarkerTurnStep(current, marker, turnTieBreaker(), stepDir)) {
 			debugC(4, kDebugLevelActor, "ready marker %u needs turn step %u before callback 0x%04x [DOS UpdateActors]",
 				   marker, uint8(stepDir), callback);
 			setAnimation(_puppeteer.turnAnimator(stepDir));
@@ -1004,7 +1004,7 @@ bool Actor::consumeReadyMarkerCallback() {
 		setReadyMarker(0);
 	}
 
-	setReadyCallback(0);
+	setReadyCallbackOffset(0);
 	if (callback != 0) {
 		debugC(3, kDebugLevelActor, "ready marker %u starting actor callback 0x%04x [DOS UpdateActors]",
 			   marker, callback);
@@ -1031,7 +1031,7 @@ void Actor::animate() {
 		const Frame current = Log.room()->getFrame(_frame);
 		queuedWalkReady = current.position() == _position;
 	}
-	const bool readyMarkerActive = (readyMarker() != 0 || readyCallback() != 0) &&
+	const bool readyMarkerActive = (readyMarker() != 0 || readyCallbackOffset() != 0) &&
 								   walkQueueLength() == 0 && _framequeue.empty();
 	unless(_attentionNeeded || _confused || queuedWalkReady || readyMarkerActive /* || _timedOut*/) return;
 
@@ -1128,7 +1128,7 @@ Animation::Status Actor::tick() {
 				if (_debug)
 					gDebugLevel -= 3;
 				if (_base)
-					setRecordPc(_offset);
+					setScriptPc(_offset);
 				else
 					clearRecordScriptPointer();
 				decrementTicksLeft();
@@ -1150,11 +1150,11 @@ void Actor::readHeader(const byte *code) {
 	const byte *const headerBase = _base;
 	_interval = code[kOffsetInterval];
 	_ticksLeft = READ_LE_UINT16(code + kOffsetTicksLeft);
-	_zIndex = int8(code[kOffsetZIndex]);
+	_zIndex = int8(code[kOffsetDrawLayer]);
 	_position = Common::Point(READ_LE_UINT16(code + kOffsetLeft), READ_LE_UINT16(code + kOffsetTop));
 	const uint16 segment = READ_LE_UINT16(code + kOffsetSegment);
-	const uint16 codeOffset = READ_LE_UINT16(code + kOffsetOffset);
-	_offset = READ_LE_UINT16(code + kOffsetCode);
+	const uint16 codeOffset = READ_LE_UINT16(code + kOffsetScriptBase);
+	_offset = READ_LE_UINT16(code + kOffsetScriptPc);
 	if (segment != 0) {
 		byte *segmentBase = const_cast<byte *>(headerBase);
 		const uint16 mainSegment = actorCodeSegmentTag(Log.mainInterpreter() ? Log.mainInterpreter()->rawCode(0) : 0);
@@ -1173,7 +1173,7 @@ void Actor::readHeader(const byte *code) {
 	_frame = code[kOffsetFrame];
 	_nextFrame = code[kOffsetTargetFrame];
 	_room = READ_LE_UINT16(code + kOffsetRoom);
-	setActorCallback(READ_LE_UINT16(code + kOffsetCallbackSegment), READ_LE_UINT16(code + kOffsetCallbackOffset));
+	setActorCallback(READ_LE_UINT16(code + kOffsetActorCallbackSegment), READ_LE_UINT16(code + kOffsetActorCallbackOffset));
 	static const uint8 sparseFields[] = {
 		0x00, 0x01, 0x02, 0x03, 0x0c, 0x0d, 0x0e, 0x0f,
 		0x11, 0x12, 0x13, 0x14, 0x15, 0x16,
@@ -1182,7 +1182,7 @@ void Actor::readHeader(const byte *code) {
 	for (uint i = 0; i < ARRAYSIZE(sparseFields); ++i)
 		setRecordByte(sparseFields[i], code[sparseFields[i]]);
 	_confused = confusedRecord();
-	_attentionNeeded = attentionNeededRecord();
+	_attentionNeeded = needsAttention();
 
 	debugC(3, kDebugLevelFiles, "loading %s: interv %d ticks %u z%d pos%d:%d segment %d code %d pc %d sprite %d room %d", _debugInfo, _interval, _ticksLeft, _zIndex, _position.x, _position.y, segment, codeOffset, _offset, sprite, _room);
 
@@ -1202,7 +1202,7 @@ void Actor::callBacks() {
 			// carry set only when actor.field+0x6f == 0 and word +0x6b == 0.
 			// Do not use isFine() here; script PC can be clear while a
 			// queued walk is still in flight.
-			const bool ready = callback.hasRunMode ? animReady() : (!walkActive() && walkQueueLength() == 0);
+			const bool ready = callback.hasRunMode ? animReady() : (!movementWaitActive() && walkQueueLength() == 0);
 			if (!ready) {
 				pending.push(callback);
 				continue;
@@ -1374,7 +1374,7 @@ Common::Point Actor::getSpeechPosition() const {
 		speechPosition.x -= info.hotLeft;
 		speechPosition.y += info.hotTop;
 	}
-	speechPosition.y -= visibleHeight();
+	speechPosition.y -= visibleSpriteHeight();
 	return speechPosition;
 }
 
@@ -1665,7 +1665,7 @@ OPCODE(0x15) {
 	//     3..5        -> write center (0x63).
 	//     delta >= 6  -> DEC current with wrap (short route via 1->8).
 	if (Log.cursorMode() != 0x80) {
-		setAnimationSet(0);
+		setFacingPose(0);
 		debugC(3, kDebugLevelAnimation,
 			   "actor opcode 0x15: PickAnimationSet — cursor_mode=%u != 0x80 → field+0x68 = 0",
 			   Log.cursorMode());
@@ -1690,8 +1690,8 @@ OPCODE(0x15) {
 	// adjusted_y = field+0x6 + sprite.hotTop
 	const int16 adjustedX = int16(position().x) - spriteHotLeft;
 	const int16 adjustedY = int16(position().y) + spriteHotTop;
-	const uint8 width = visibleWidth();   // BP in DOS
-	const uint8 height = visibleHeight(); // BX in DOS
+	const uint8 width = visibleSpriteWidth();   // BP in DOS
+	const uint8 height = visibleSpriteHeight(); // BX in DOS
 	// Bounding rect (DOS layout):
 	//   left = adjustedX
 	//   right = adjustedX + width
@@ -1729,9 +1729,9 @@ OPCODE(0x15) {
 			target = 3; // E
 	}
 
-	const uint8 current = animationSet();
+	const uint8 current = facingPose();
 	if (current == 0x63 || target == 0x63 || target == current) {
-		setAnimationSet(target);
+		setFacingPose(target);
 		debugC(3, kDebugLevelAnimation,
 			   "actor opcode 0x15: PickAnimationSet snap target=%u current=%u",
 			   target, current);
@@ -1757,7 +1757,7 @@ OPCODE(0x15) {
 			next = int8(n) <= 8 ? n : 1;
 		}
 	}
-	setAnimationSet(next);
+	setFacingPose(next);
 	debugC(3, kDebugLevelAnimation,
 		   "actor opcode 0x15: PickAnimationSet rect=(%d..%d, %d..%d) cursor=(%d,%d) target=%u current=%u → %u (delta=%d)",
 		   leftX, rightX, topY, botY, cursorX, cursorY, target, current, next, int(delta));
@@ -1772,19 +1772,19 @@ OPCODE(0x16) {
 	//   else: ADD BP, 4;                                  // advance past 4-byte opcode
 	//
 	// Was using `_direction` as a proxy. Now correctly compares against
-	// animationSet(), which is set by Op_15 (ActorOp_16 PickAnimationSet).
+	// facingPose(), which is set by Op_15 (ActorOp_16 PickAnimationSet).
 	const byte val = embeddedByte();
 	const uint16 off = shift();
-	const uint8 animSet = animationSet();
-	if (animSet == val) {
+	const uint8 pose = facingPose();
+	if (pose == val) {
 		debugC(3, kDebugLevelAnimation,
 			   "actor opcode 0x16: BranchIfAnimSetEquals val=%d field+0x68=%u → jump 0x%04x [DOS Op_17]",
-			   val, animSet, off);
+			   val, pose, off);
 		_offset = off;
 	} else {
 		debugC(3, kDebugLevelAnimation,
 			   "actor opcode 0x16: BranchIfAnimSetEquals val=%d field+0x68=%u (no match) [DOS Op_17]",
-			   val, animSet);
+			   val, pose);
 	}
 	return kOk;
 }
@@ -1817,7 +1817,7 @@ OPCODE(0x18) {
 	// Stores the full word at actor.field+0x6d.
 	uint16 val = shift();
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x18: SetField6d = 0x%04x [DOS Op_19]", val);
-	setPendingAnimation(val);
+	setPendingReadyAnimation(val);
 	return kOk;
 }
 
@@ -1841,8 +1841,8 @@ OPCODE(0x1a) {
 	// and DrawAllRoomObjects uses that byte as the actor render layer.
 	byte v = embeddedByte();
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x1a: SetField12ClearFlag16 = %d [DOS Op_1b]", v);
-	setRecordZIndex(v);
-	setRecordZoneLayerAutoEnabled(false);
+	setRecordDrawLayer(v);
+	setAutoZoneLayerEnabled(false);
 	_zIndex = int8(v);
 	return kOk;
 }
@@ -2084,11 +2084,11 @@ OPCODE(0x0d) {
 	// Op_0f decrements.
 	const byte v = embeddedByte();
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x0d: SetTimerAndSkip = %u [DOS Op_0e]", v);
-	setSkipTimer(v);
+	setSkipTimerCount(v);
 	// The dispatcher has already advanced past the 2-byte opcode header,
 	// matching DOS's ADD BP,2 before the store.
 	const uint16 nextPC = _offset;
-	setResumePc(nextPC);
+	setSkipTimerResumePc(nextPC);
 	return kOk;
 }
 
@@ -2097,12 +2097,12 @@ OPCODE(0x0e) {
 	// DOS advances BP by 2, decrements actor.field+0x11 when nonzero,
 	// and if the post-decrement value is still nonzero jumps back to
 	// actor.field+0x0e.
-	const uint8 cur = skipTimer();
+	const uint8 cur = skipTimerCount();
 	if (cur != 0) {
 		const uint8 next = uint8(cur - 1);
-		setSkipTimer(next);
+		setSkipTimerCount(next);
 		if (next != 0) {
-			const uint16 resume = resumePc();
+			const uint16 resume = skipTimerResumePc();
 			_offset = resume;
 			debugC(4, kDebugLevelAnimation, "actor opcode 0x0e: DecrementTimer %u → %u, loop 0x%04x [DOS Op_0f]",
 				   cur, next, resume);

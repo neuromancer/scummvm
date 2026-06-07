@@ -132,15 +132,15 @@ static int16 cameraMaxOrigin(uint16 backdropSize, uint16 viewportSize) {
 	return backdropSize > viewportSize ? int16(backdropSize - viewportSize) : 0;
 }
 
-static void setActorCallbackWordDirect(Actor *actor, uint16 callback) {
+static void setReadyCallbackOffsetDirect(Actor *actor, uint16 callback) {
 	if (actor)
-		actor->setReadyCallback(callback);
+		actor->setReadyCallbackOffset(callback);
 }
 
 static void moveActorToTargetFrame(Logic *logic, Actor *actor, uint16 frame) {
 	if (!logic || !actor)
 		return;
-	setActorCallbackWordDirect(actor, 0);
+	setReadyCallbackOffsetDirect(actor, 0);
 	if (actor == logic->protagonist()) {
 		logic->setBreakInner(true);
 		logic->clearPostMoveCallback();
@@ -149,7 +149,7 @@ static void moveActorToTargetFrame(Logic *logic, Actor *actor, uint16 frame) {
 		if (actor->room() == logic->currentRoom() && actor->frameId() != 0)
 			actor->setRawTargetFrame(uint8(frame));
 		actor->moveTo(frame);
-		if (actor->walkActive())
+		if (actor->movementWaitActive())
 			logic->setPostMoveTargetFrameMirror(uint8(actor->frameId()));
 		return;
 	}
@@ -657,7 +657,7 @@ void Logic::registerCurrentRoomActors() {
 	for (uint16 i = 0; i < mainActors; ++i) {
 		const uint16 id = i + 1;
 		Actor *const actor = _resources->mainDat()->actor(i);
-		if (!actor || actor->room() != _currentRoom || !actor->hasRecordCodeOffset())
+		if (!actor || actor->room() != _currentRoom || !actor->hasScriptEntryPoint())
 			continue;
 		registerActiveActor(id);
 		actor->prepareRoomEntryActiveActor();
@@ -670,7 +670,7 @@ void Logic::registerCurrentRoomActors() {
 	for (uint16 i = 0; i < blockActors; ++i) {
 		const uint16 id = uint16(mainActors + i + 1);
 		Actor *const actor = _blockProgram->actor(i);
-		if (!actor || actor->room() != _currentRoom || !actor->hasRecordCodeOffset())
+		if (!actor || actor->room() != _currentRoom || !actor->hasScriptEntryPoint())
 			continue;
 		registerActiveActor(id);
 		actor->prepareRoomEntryActiveActor();
@@ -750,17 +750,17 @@ uint16 Logic::recordField(uint8 selector, uint16 id, uint8 off, uint8 size) cons
 			lo = recordWordByte(uint16(actor->ticksLeft()), Actor::kOffsetTicksLeft, off);
 		else if (off == Actor::kOffsetInterval)
 			lo = actor->interval();
-		else if (off == 0x5d || off == 0x5e)
-			lo = recordWordByte(actor->actorCallbackSeg(), 0x5d, off);
-		else if (off == 0x5f || off == 0x60)
-			lo = recordWordByte(actor->actorCallbackOff(), 0x5f, off);
+		else if (off == Actor::kOffsetActorCallbackSegment || off == Actor::kOffsetActorCallbackSegment + 1)
+			lo = recordWordByte(actor->actorCallbackSeg(), Actor::kOffsetActorCallbackSegment, off);
+		else if (off == Actor::kOffsetActorCallbackOffset || off == Actor::kOffsetActorCallbackOffset + 1)
+			lo = recordWordByte(actor->actorCallbackOff(), Actor::kOffsetActorCallbackOffset, off);
 		else if (off == Actor::kOffsetRoom || off == Actor::kOffsetRoom + 1)
 			lo = recordWordByte(actor->room(), Actor::kOffsetRoom, off);
-		else if (off == 0x61)
+		else if (off == Actor::kOffsetFrame)
 			lo = uint8(actor->frameId());
-		else if (off == 0x62)
+		else if (off == Actor::kOffsetTargetFrame)
 			lo = uint8(actor->targetFrameId());
-		else if (off == 0x65 && actor->isMoving())
+		else if (off == Actor::kOffsetAttentionNeeded && actor->isMoving())
 			lo = 1;
 		else
 			lo = actor->field(off);
@@ -836,15 +836,15 @@ void Logic::setRecordField(uint8 selector, uint16 id, uint8 off, uint8 size, uin
 				actor->setRawTicksLeft(recordWordWithByte(uint16(actor->ticksLeft()), Actor::kOffsetTicksLeft, byteOff, byteValue));
 			else if (byteOff == Actor::kOffsetInterval)
 				actor->setRawInterval(byteValue);
-			else if (byteOff == 0x5d || byteOff == 0x5e)
-				actor->setActorCallback(recordWordWithByte(actor->actorCallbackSeg(), 0x5d, byteOff, byteValue), actor->actorCallbackOff());
-			else if (byteOff == 0x5f || byteOff == 0x60)
-				actor->setActorCallback(actor->actorCallbackSeg(), recordWordWithByte(actor->actorCallbackOff(), 0x5f, byteOff, byteValue));
+			else if (byteOff == Actor::kOffsetActorCallbackSegment || byteOff == Actor::kOffsetActorCallbackSegment + 1)
+				actor->setActorCallback(recordWordWithByte(actor->actorCallbackSeg(), Actor::kOffsetActorCallbackSegment, byteOff, byteValue), actor->actorCallbackOff());
+			else if (byteOff == Actor::kOffsetActorCallbackOffset || byteOff == Actor::kOffsetActorCallbackOffset + 1)
+				actor->setActorCallback(actor->actorCallbackSeg(), recordWordWithByte(actor->actorCallbackOff(), Actor::kOffsetActorCallbackOffset, byteOff, byteValue));
 			else if (byteOff == Actor::kOffsetRoom || byteOff == Actor::kOffsetRoom + 1)
 				actor->forceRoom(recordWordWithByte(actor->room(), Actor::kOffsetRoom, byteOff, byteValue));
-			else if (byteOff == 0x61)
+			else if (byteOff == Actor::kOffsetFrame)
 				actor->setRawFrame(byteValue);
-			else if (byteOff == 0x62)
+			else if (byteOff == Actor::kOffsetTargetFrame)
 				actor->setRawTargetFrame(byteValue);
 			break;
 		}
@@ -983,7 +983,7 @@ void Logic::updateScrollPosition() {
 			}
 
 			int16 dxCandidate = int16(speedX * 2);
-			const uint8 actorWidth = protag->visibleWidth();
+			const uint8 actorWidth = protag->visibleSpriteWidth();
 			if (actorScreenX <= int16(actorWidth)) {
 				_scrollDx = int16(-dxCandidate);
 			} else if (actorScreenX >= int16(0x13f - actorWidth)) {
@@ -997,7 +997,7 @@ void Logic::updateScrollPosition() {
 			}
 
 			int16 dyCandidate = int16(speedY * 2);
-			const uint8 actorHeight = protag->visibleHeight();
+			const uint8 actorHeight = protag->visibleSpriteHeight();
 			if (actorScreenY <= int16(actorHeight)) {
 				_scrollDy = int16(-dyCandidate);
 			} else if (actorScreenY >= screenMaxY) {
@@ -1987,9 +1987,9 @@ void Logic::runPostMoveCallbackIfReady() {
 		return;
 	if (!_protagonist)
 		return;
-	if (_protagonist->walkActive())
+	if (_protagonist->movementWaitActive())
 		return;
-	if (!_protagonist->attentionNeededRecord())
+	if (!_protagonist->needsAttention())
 		return;
 
 	PostMoveCallback cb = _postMoveCallback;

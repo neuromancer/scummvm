@@ -178,40 +178,40 @@ public:
 
 	enum ActorOffsets {
 		kOffsetSegment = 0,
-		// DOS field +2 is DI: the code-base offset within the selected segment.
-		kOffsetOffset = 2,
+		// DOS field +2 is DI: the script-base offset within the selected segment.
+		kOffsetScriptBase = 2,
 		kOffsetLeft = 4,
 		kOffsetTop = 6,
 		kOffsetMainSprite = 8,
 		kOffsetTicksLeft = 0xa,
-		// DOS field +0x0c is BP: the current PC relative to kOffsetOffset.
-		kOffsetCode = 0xc,
-		kOffsetResumePc = 0xe,
+		// DOS field +0x0c is BP: the current PC relative to kOffsetScriptBase.
+		kOffsetScriptPc = 0xc,
+		kOffsetSkipTimerResumePc = 0xe,
 		kOffsetInterval = 0x10,
-		kOffsetSkipTimer = 0x11,
-		kOffsetZIndex = 0x12,
-		kOffsetZoneB = 0x13,
+		kOffsetSkipTimerCount = 0x11,
+		kOffsetDrawLayer = 0x12,
+		kOffsetSecondaryZone = 0x13,
 		kOffsetFlag14 = 0x14,
 		kOffsetFlag15 = 0x15,
-		kOffsetZoneLayerAuto = 0x16,
-		kOffsetVisibleWidth = 0x17,
-		kOffsetVisibleHeight = 0x18,
+		kOffsetAutoZoneLayer = 0x16,
+		kOffsetVisibleSpriteWidth = 0x17,
+		kOffsetVisibleSpriteHeight = 0x18,
 		kOffsetMoveSlots = 0x19,
-		kOffsetCallbackSegment = 0x5d,
-		kOffsetCallbackOffset = 0x5f,
+		kOffsetActorCallbackSegment = 0x5d,
+		kOffsetActorCallbackOffset = 0x5f,
 		kOffsetRoom = 0x59,
 		kOffsetFrame = 0x61,
 		kOffsetTargetFrame = 0x62,
 		kOffsetMood = 0x63,
 		kOffsetConfused = 0x64,
 		kOffsetAttentionNeeded = 0x65,
-		kOffsetTurnTie = 0x66,
+		kOffsetTurnTieBreaker = 0x66,
 		kOffsetReadyMarker = 0x67,
-		kOffsetAnimationSet = 0x68,
-		kOffsetReadyCallback = 0x69,
+		kOffsetFacingPose = 0x68,
+		kOffsetReadyCallbackOffset = 0x69,
 		kOffsetWalkQueueLength = 0x6b,
-		kOffsetPendingAnimation = 0x6d,
-		kOffsetWalkActive = 0x6f,
+		kOffsetPendingReadyAnimation = 0x6d,
+		kOffsetMovementWaitActive = 0x6f,
 		kOffsetSpeechColor = 0x70
 	};
 
@@ -291,7 +291,7 @@ public:
 
 	void setAnimation(const CodePointer &anim);
 	void setAnimation(uint16);
-	bool hasRecordCodeOffset() const { return recordCodeOffset() != 0; }
+	bool hasScriptEntryPoint() const { return recordScriptBase() != 0; }
 
 	void clearScriptPc();
 	void unregister();
@@ -346,24 +346,24 @@ public:
 	void toggleDebug();
 
 	void setPuppeteer(const Puppeteer &p) { _puppeteer = p; }
-	uint8 visibleWidth() const { return recordByte(kOffsetVisibleWidth); }
-	uint8 visibleHeight() const { return recordByte(kOffsetVisibleHeight); }
+	uint8 visibleSpriteWidth() const { return recordByte(kOffsetVisibleSpriteWidth); }
+	uint8 visibleSpriteHeight() const { return recordByte(kOffsetVisibleSpriteHeight); }
 	uint8 speechColor() const { return recordByte(kOffsetSpeechColor); }
-	bool walkActive() const { return recordByte(kOffsetWalkActive) != 0; }
-	void setWalkActive(bool active) { setRecordByte(kOffsetWalkActive, active ? 1 : 0); }
+	bool movementWaitActive() const { return recordByte(kOffsetMovementWaitActive) != 0; }
+	void setMovementWaitActive(bool active) { setRecordByte(kOffsetMovementWaitActive, active ? 1 : 0); }
 	uint16 walkQueueLength() const { return recordWord(kOffsetWalkQueueLength); }
 	void setWalkQueueLength(uint16 length) { setRecordWord(kOffsetWalkQueueLength, length); }
 	uint8 readyMarker() const { return recordByte(kOffsetReadyMarker); }
 	void setReadyMarker(uint8 marker) { setRecordByte(kOffsetReadyMarker, marker); }
-	uint16 readyCallback() const { return recordWord(kOffsetReadyCallback); }
-	void setReadyCallback(uint16 callback) { setRecordWord(kOffsetReadyCallback, callback); }
-	uint8 animationSet() const { return recordByte(kOffsetAnimationSet); }
-	void setAnimationSet(uint8 animationSet) { setRecordByte(kOffsetAnimationSet, animationSet); }
+	uint16 readyCallbackOffset() const { return recordWord(kOffsetReadyCallbackOffset); }
+	void setReadyCallbackOffset(uint16 callback) { setRecordWord(kOffsetReadyCallbackOffset, callback); }
+	uint8 facingPose() const { return recordByte(kOffsetFacingPose); }
+	void setFacingPose(uint8 pose) { setRecordByte(kOffsetFacingPose, pose); }
 	uint8 mood() const { return recordByte(kOffsetMood); }
 	void setMood(uint8 mood) { setRecordByte(kOffsetMood, mood); }
-	bool attentionNeededRecord() const { return recordByte(kOffsetAttentionNeeded) != 0; }
-	uint8 turnTie() const { return recordByte(kOffsetTurnTie); }
-	void setTurnTie(uint8 tie) { setRecordByte(kOffsetTurnTie, tie); }
+	bool needsAttention() const { return recordByte(kOffsetAttentionNeeded) != 0; }
+	uint8 turnTieBreaker() const { return recordByte(kOffsetTurnTieBreaker); }
+	void setTurnTieBreaker(uint8 tie) { setRecordByte(kOffsetTurnTieBreaker, tie); }
 	void setSpeechColor(uint8 color) { setRecordByte(kOffsetSpeechColor, color); }
 
 private:
@@ -392,15 +392,15 @@ private:
 	void setRecordByte(uint8 off, uint8 v) { setField(off, v); }
 	void setRecordWord(uint8 off, uint16 v) { setFieldWord(off, v); }
 	uint16 recordSegment() const { return recordWord(kOffsetSegment); }
-	uint16 recordCodeOffset() const { return recordWord(kOffsetOffset); }
-	uint16 recordPc() const { return recordWord(kOffsetCode); }
+	uint16 recordScriptBase() const { return recordWord(kOffsetScriptBase); }
+	uint16 scriptPc() const { return recordWord(kOffsetScriptPc); }
 	void setRecordSegment(uint16 segment) { setRecordWord(kOffsetSegment, segment); }
-	void setRecordCodeOffset(uint16 offset) { setRecordWord(kOffsetOffset, offset); }
-	void setRecordPc(uint16 pc) { setRecordWord(kOffsetCode, pc); }
+	void setRecordScriptBase(uint16 offset) { setRecordWord(kOffsetScriptBase, offset); }
+	void setScriptPc(uint16 pc) { setRecordWord(kOffsetScriptPc, pc); }
 	void setRecordScriptPointer(uint16 segment, uint16 offset, uint16 pc) {
 		setRecordSegment(segment);
-		setRecordCodeOffset(offset);
-		setRecordPc(pc);
+		setRecordScriptBase(offset);
+		setScriptPc(pc);
 	}
 	void clearRecordScriptPointer() { setRecordScriptPointer(0, 0, 0); }
 	void setRecordPosition(Common::Point p) {
@@ -410,12 +410,12 @@ private:
 	void setRecordMainSprite(uint16 sprite) { setRecordWord(kOffsetMainSprite, sprite); }
 	void setRecordTicksLeft(uint16 ticks) { setRecordWord(kOffsetTicksLeft, ticks); }
 	void setRecordInterval(uint8 interval) { setRecordByte(kOffsetInterval, interval); }
-	void setRecordZIndex(uint8 zIndex) { setRecordByte(kOffsetZIndex, zIndex); }
-	uint8 recordZIndex() const { return recordByte(kOffsetZIndex); }
+	void setRecordDrawLayer(uint8 zIndex) { setRecordByte(kOffsetDrawLayer, zIndex); }
+	uint8 recordDrawLayer() const { return recordByte(kOffsetDrawLayer); }
 	void setRecordRoom(uint16 room) { setRecordWord(kOffsetRoom, room); }
-	void setRecordZoneB(uint8 zone) { setRecordByte(kOffsetZoneB, zone); }
-	bool recordZoneLayerAutoEnabled() const { return recordByte(kOffsetZoneLayerAuto) != 0; }
-	void setRecordZoneLayerAutoEnabled(bool enabled) { setRecordByte(kOffsetZoneLayerAuto, enabled ? 1 : 0); }
+	void setSecondaryZone(uint8 zone) { setRecordByte(kOffsetSecondaryZone, zone); }
+	bool autoZoneLayerEnabled() const { return recordByte(kOffsetAutoZoneLayer) != 0; }
+	void setAutoZoneLayerEnabled(bool enabled) { setRecordByte(kOffsetAutoZoneLayer, enabled ? 1 : 0); }
 	void setRecordFlag14(bool enabled) { setRecordByte(kOffsetFlag14, enabled ? 1 : 0); }
 	void setRecordFlag15(bool enabled) { setRecordByte(kOffsetFlag15, enabled ? 1 : 0); }
 	void setRecordFrame(uint16 frame) { setRecordByte(kOffsetFrame, uint8(frame)); }
@@ -427,20 +427,20 @@ private:
 	}
 	void setRecordAttentionNeeded(bool attentionNeeded) { setRecordByte(kOffsetAttentionNeeded, attentionNeeded ? 1 : 0); }
 	void setVisibleDimensions(uint8 width, uint8 height) {
-		setRecordByte(kOffsetVisibleWidth, width);
-		setRecordByte(kOffsetVisibleHeight, height);
+		setRecordByte(kOffsetVisibleSpriteWidth, width);
+		setRecordByte(kOffsetVisibleSpriteHeight, height);
 	}
 	void clearWalkState() {
 		setWalkQueueLength(0);
-		setWalkActive(false);
+		setMovementWaitActive(false);
 	}
-	uint16 pendingAnimation() const { return recordWord(kOffsetPendingAnimation); }
-	void setPendingAnimation(uint16 animation) { setRecordWord(kOffsetPendingAnimation, animation); }
-	void clearPendingAnimation() { setPendingAnimation(0); }
-	uint8 skipTimer() const { return recordByte(kOffsetSkipTimer); }
-	void setSkipTimer(uint8 timer) { setRecordByte(kOffsetSkipTimer, timer); }
-	uint16 resumePc() const { return recordWord(kOffsetResumePc); }
-	void setResumePc(uint16 pc) { setRecordWord(kOffsetResumePc, pc); }
+	uint16 pendingReadyAnimation() const { return recordWord(kOffsetPendingReadyAnimation); }
+	void setPendingReadyAnimation(uint16 animation) { setRecordWord(kOffsetPendingReadyAnimation, animation); }
+	void clearPendingReadyAnimation() { setPendingReadyAnimation(0); }
+	uint8 skipTimerCount() const { return recordByte(kOffsetSkipTimerCount); }
+	void setSkipTimerCount(uint8 timer) { setRecordByte(kOffsetSkipTimerCount, timer); }
+	uint16 skipTimerResumePc() const { return recordWord(kOffsetSkipTimerResumePc); }
+	void setSkipTimerResumePc(uint16 pc) { setRecordWord(kOffsetSkipTimerResumePc, pc); }
 
 	Common::Queue<Frame> _framequeue;
 	uint16 _frame;
@@ -519,12 +519,12 @@ public:
 	void setActorCallback(uint16 segment, uint16 offset) {
 		_actorCallbackSeg = segment;
 		_actorCallbackOff = offset;
-		setRecordWord(kOffsetCallbackSegment, segment);
-		setRecordWord(kOffsetCallbackOffset, offset);
+		setRecordWord(kOffsetActorCallbackSegment, segment);
+		setRecordWord(kOffsetActorCallbackOffset, offset);
 	}
 	void clearActorCallback() {
 		_actorCallbackSeg = 0xffff;
-		setRecordWord(kOffsetCallbackSegment, 0xffff);
+		setRecordWord(kOffsetActorCallbackSegment, 0xffff);
 	}
 	uint16 actorCallbackSeg() const { return _actorCallbackSeg; }
 	uint16 actorCallbackOff() const { return _actorCallbackOff; }

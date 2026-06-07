@@ -222,8 +222,8 @@ static void setActorTargetMarker(Actor *actor) {
 	// The shared speech path seeds BP from CS:[0x00bf], which has no writers
 	// in the executable image and is zero, so preserving the zero word and
 	// marker write is the observable actor-record side effect.
-	if (actor && actor->readyCallback() == 0) {
-		actor->setReadyCallback(0);
+	if (actor && actor->readyCallbackOffset() == 0) {
+		actor->setReadyCallbackOffset(0);
 		actor->setReadyMarker(5);
 	}
 }
@@ -430,15 +430,15 @@ static void setActorReadyFields(Actor *actor, uint8 marker, uint16 callback) {
 	if (!actor || actor->room() != Log.currentRoom())
 		return;
 	actor->setReadyMarker(marker);
-	actor->setWalkActive(true);
-	actor->setReadyCallback(callback);
+	actor->setMovementWaitActive(true);
+	actor->setReadyCallbackOffset(callback);
 }
 
 static void setActorReadyMarkerOnly(Actor *actor, uint8 marker) {
 	if (!actor || actor->room() != Log.currentRoom())
 		return;
 	actor->setReadyMarker(marker);
-	actor->setWalkActive(true);
+	actor->setMovementWaitActive(true);
 }
 
 static uint8 actorDirectionToPoint(Actor *actor, int16 targetX, int16 targetY) {
@@ -452,9 +452,9 @@ static uint8 actorDirectionToPoint(Actor *actor, int16 targetX, int16 targetY) {
 
 	const int16 adjustedX = int16(actor->position().x) - spriteHotLeft;
 	const int16 adjustedY = int16(actor->position().y) + spriteHotTop;
-	const int16 halfHeight = int16(actor->visibleHeight()) >> 1;
+	const int16 halfHeight = int16(actor->visibleSpriteHeight()) >> 1;
 	const int16 leftX = adjustedX;
-	const int16 rightX = adjustedX + int16(actor->visibleWidth());
+	const int16 rightX = adjustedX + int16(actor->visibleSpriteWidth());
 	const int16 topY = adjustedY - halfHeight;
 	const int16 bottomY = adjustedY;
 
@@ -491,10 +491,10 @@ static bool checkActorIdleReadyModeled(Actor *actor) {
 	return !actor || actor->idleReady();
 }
 
-static void setActorCallbackWord(Actor *actor, uint16 callback) {
+static void setReadyCallbackOffset(Actor *actor, uint16 callback) {
 	if (!actor)
 		return;
-	actor->setReadyCallback(callback);
+	actor->setReadyCallbackOffset(callback);
 }
 
 static void queueExitTransition(Actor *actor, uint16 frame) {
@@ -502,21 +502,21 @@ static void queueExitTransition(Actor *actor, uint16 frame) {
 		return;
 	Log.clearPostMoveCallback();
 	actor->stopSpeaking();
-	setActorCallbackWord(actor, 0);
+	setReadyCallbackOffset(actor, 0);
 	if (actor == Log.protagonist())
 		Log.setBreakInner(true);
 	Log.setPostMoveTargetFrameMirror(uint8(frame));
 	if (actor->room() == Log.currentRoom() && actor->frameId() != 0)
 		actor->setRawTargetFrame(uint8(frame));
 	actor->moveTo(frame);
-	if (actor->walkActive())
+	if (actor->movementWaitActive())
 		Log.setPostMoveTargetFrameMirror(uint8(actor->frameId()));
 }
 
 static bool moveActorToTargetExit(Actor *actor, uint16 frame) {
 	if (!actor)
 		return false;
-	setActorCallbackWord(actor, 0);
+	setReadyCallbackOffset(actor, 0);
 	if (actor == Log.protagonist()) {
 		queueExitTransition(actor, frame);
 		return true;
@@ -1837,17 +1837,17 @@ static uint8 actorRecordByte(Actor *actor, uint8 off) {
 		return wordRecordByte(uint16(actor->ticksLeft()), Actor::kOffsetTicksLeft, off);
 	if (off == Actor::kOffsetInterval)
 		return actor->interval();
-	if (off == 0x5d || off == 0x5e)
-		return wordRecordByte(actor->actorCallbackSeg(), 0x5d, off);
-	if (off == 0x5f || off == 0x60)
-		return wordRecordByte(actor->actorCallbackOff(), 0x5f, off);
+	if (off == Actor::kOffsetActorCallbackSegment || off == Actor::kOffsetActorCallbackSegment + 1)
+		return wordRecordByte(actor->actorCallbackSeg(), Actor::kOffsetActorCallbackSegment, off);
+	if (off == Actor::kOffsetActorCallbackOffset || off == Actor::kOffsetActorCallbackOffset + 1)
+		return wordRecordByte(actor->actorCallbackOff(), Actor::kOffsetActorCallbackOffset, off);
 	if (off == Actor::kOffsetRoom || off == Actor::kOffsetRoom + 1)
 		return wordRecordByte(actor->room(), Actor::kOffsetRoom, off);
-	if (off == 0x61)
+	if (off == Actor::kOffsetFrame)
 		return uint8(actor->frameId());
-	if (off == 0x62)
+	if (off == Actor::kOffsetTargetFrame)
 		return uint8(actor->targetFrameId());
-	if (off == 0x65 && actor->isMoving())
+	if (off == Actor::kOffsetAttentionNeeded && actor->isMoving())
 		return 1;
 	return actor->field(off);
 }
@@ -1887,25 +1887,25 @@ static void writeActorRecordByte(Actor *actor, uint8 off, uint8 value) {
 		actor->setRawInterval(value);
 		return;
 	}
-	if (off == 0x5d || off == 0x5e) {
-		actor->setActorCallback(wordRecordWithByte(actor->actorCallbackSeg(), 0x5d, off, value),
+	if (off == Actor::kOffsetActorCallbackSegment || off == Actor::kOffsetActorCallbackSegment + 1) {
+		actor->setActorCallback(wordRecordWithByte(actor->actorCallbackSeg(), Actor::kOffsetActorCallbackSegment, off, value),
 								actor->actorCallbackOff());
 		return;
 	}
-	if (off == 0x5f || off == 0x60) {
+	if (off == Actor::kOffsetActorCallbackOffset || off == Actor::kOffsetActorCallbackOffset + 1) {
 		actor->setActorCallback(actor->actorCallbackSeg(),
-								wordRecordWithByte(actor->actorCallbackOff(), 0x5f, off, value));
+								wordRecordWithByte(actor->actorCallbackOff(), Actor::kOffsetActorCallbackOffset, off, value));
 		return;
 	}
 	if (off == Actor::kOffsetRoom || off == Actor::kOffsetRoom + 1) {
 		actor->forceRoom(wordRecordWithByte(actor->room(), Actor::kOffsetRoom, off, value));
 		return;
 	}
-	if (off == 0x61) {
+	if (off == Actor::kOffsetFrame) {
 		actor->setRawFrame(value);
 		return;
 	}
-	if (off == 0x62) {
+	if (off == Actor::kOffsetTargetFrame) {
 		actor->setRawTargetFrame(value);
 		return;
 	}
@@ -3280,7 +3280,7 @@ OPCODE(0x26) {
 	Log.setImplicitActor(protag);
 	// CheckActorScripting: idle iff both field+0x6f (byte) and
 	// word field+0x6b are zero.
-	const bool idle = !protag->walkActive() && protag->walkQueueLength() == 0;
+	const bool idle = !protag->movementWaitActive() && protag->walkQueueLength() == 0;
 	debugC(2, kDebugLevelScript, "opcode 0x26: step+cursor==4, protag idle=%d", int(idle));
 	if (!idle)
 		return kThxBye;
@@ -4894,7 +4894,7 @@ static bool handleHotspotInteraction(uint16 id, Common::Point point) {
 		return false;
 
 	queueExitTransition(protag, frame);
-	if (protag->readyCallback() == 0)
+	if (protag->readyCallbackOffset() == 0)
 		protag->setReadyMarker(5);
 
 	const int16 placeX = int16(targetX - int16(info.width) / 2);
@@ -5357,9 +5357,9 @@ OPCODE(0x97) {
 		warning("opcode 0x97: cutscene backup already active — overwriting");
 	}
 	b.active = true;
-	b.actorField62 = uint8(protag->targetFrameId());
-	b.actorField67 = protag->readyMarker();
-	b.actorField69 = protag->readyCallback();
+	b.targetFrame = uint8(protag->targetFrameId());
+	b.readyMarker = protag->readyMarker();
+	b.readyCallbackOffset = protag->readyCallbackOffset();
 	b.targetFrameMirror = Log.postMoveTargetFrameMirror();
 	// Clear protag fields the way DOS does (field+0x67/+0x6b/+0x62).
 	// 0x6b is a word in DOS (`MOV word ptr ES:[SI+0x6b], 0`); we clear
@@ -5377,7 +5377,7 @@ OPCODE(0x97) {
 	Log.setBreakInner(true);
 	debugC(2, kDebugLevelScript,
 		   "opcode 0x97: BackupCutscenePCState — fields(69=0x%04x 62=0x%02x 67=0x%02x) callback=%d speech='%s' roomWait=%d",
-		   b.actorField69, b.actorField62, b.actorField67,
+		   b.readyCallbackOffset, b.targetFrame, b.readyMarker,
 		   int(b.savedCallback.kind), b.speechText.c_str(), b.roomScriptWait.valid ? 1 : 0);
 	return kThxBye;
 }
@@ -5403,21 +5403,21 @@ OPCODE(0x98) {
 	}
 	Logic::CutsceneBackup &b = Log.cutsceneBackup();
 	// Restore protag fields.
-	protag->setReadyCallback(b.actorField69);
-	protag->setReadyMarker(b.actorField67);
-	protag->setRawTargetFrame(b.actorField62);
+	protag->setReadyCallbackOffset(b.readyCallbackOffset);
+	protag->setReadyMarker(b.readyMarker);
+	protag->setRawTargetFrame(b.targetFrame);
 	Log.setPostMoveTargetFrameMirror(b.targetFrameMirror);
 	// LookupActorAndStartPath re-engages the walk toward field+0x62.
 	// For a zero target, DOS still enters FindActorPath, which clears the
 	// queued-path word but does not warp the actor to frame 0.
-	if (b.actorField62 != 0) {
-		protag->moveTo(b.actorField62);
+	if (b.targetFrame != 0) {
+		protag->moveTo(b.targetFrame);
 	} else {
 		if (Log.room()) {
 			const Actor::Frame targetFrame = Log.room()->getFrame(0);
 			const bool destinationIsLeft =
 				int16(targetFrame.position().x) <= int16(protag->position().x);
-			protag->setTurnTie(destinationIsLeft ? 1 : 0);
+			protag->setTurnTieBreaker(destinationIsLeft ? 1 : 0);
 		}
 		protag->clearMoveQueue();
 	}
@@ -5431,7 +5431,7 @@ OPCODE(0x98) {
 	Log.setBreakInner(true);
 	debugC(2, kDebugLevelScript,
 		   "opcode 0x98: RestoreCutscenePCState — fields(69=0x%04x 62=0x%02x 67=0x%02x) callback=%d speech='%s' roomWait=%d",
-		   b.actorField69, b.actorField62, b.actorField67,
+		   b.readyCallbackOffset, b.targetFrame, b.readyMarker,
 		   int(b.savedCallback.kind), b.speechText.c_str(), b.roomScriptWait.valid ? 1 : 0);
 	b.active = false;
 	return kThxBye;
@@ -5804,7 +5804,7 @@ OPCODE(0xac) {
 	const uint16 callback = uint16(a[1]);
 	debugC(2, kDebugLevelScript, "opcode 0xac: queue protag exit transition to frame %u callback %u",
 		   targetFrame, callback);
-	setActorCallbackWord(ac, callback);
+	setReadyCallbackOffset(ac, callback);
 	return kThxBye;
 }
 
@@ -5834,7 +5834,7 @@ OPCODE(0xae) {
 	const uint16 cb = uint16(a[2]);
 	debugC(2, kDebugLevelScript, "opcode 0xae: actor %u walk to frame %u + callback %u",
 		   id, targetFrame, cb);
-	setActorCallbackWord(ac, cb);
+	setReadyCallbackOffset(ac, cb);
 	return kThxBye;
 }
 OPCODE(0xaf) {
@@ -5876,7 +5876,7 @@ OPCODE(0xb0) {
 	}
 	sendActorToCurrentScriptEntity(ac);
 	const uint16 cb = uint16(a[0]);
-	setActorCallbackWord(ac, cb);
+	setReadyCallbackOffset(ac, cb);
 	debugC(2, kDebugLevelScript, "opcode 0xb0: protagonist walk current entity + cb=%u", cb);
 	return kThxBye;
 }

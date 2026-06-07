@@ -297,8 +297,8 @@ static bool objectDrawShouldDefer(Logic *logic, const Logic::DrawCommand &cmd) {
 		return false;
 
 	SpriteInfo info = logic->engine()->resources()->getSpriteInfo(spriteId);
-	const int16 minX = int16(protagonist->position().x - int16(protagonist->visibleWidth()));
-	const int16 maxX = int16(protagonist->position().x + int16(protagonist->visibleWidth()));
+	const int16 minX = int16(protagonist->position().x - int16(protagonist->visibleSpriteWidth()));
+	const int16 maxX = int16(protagonist->position().x + int16(protagonist->visibleSpriteWidth()));
 	const int16 minY = int16(protagonist->position().y + int16(info.hotTop));
 	const int16 maxY = int16(minY + 6);
 	const int16 x = logic->getObjectPosX(cmd.id);
