@@ -1115,8 +1115,7 @@ OPCODE(0x12) {
 OPCODE(0x13) {
 	// DOS CS:0x3945: skip if (hit_region != 0) || (step_pending == 0). Body runs
 	// when there's an action pending but no hotspot was clicked — i.e. the user
-	// pressed something with no target. Previous engine code tested the left
-	// mouse button which is unrelated; corrected to mirror the binary.
+	// pressed something with no target.
 	debugC(2, kDebugLevelScript, "opcode 0x13: if pending action with no hit target");
 	if (Log.hitTarget() != 0 || !Log.stepPending())
 		return kFail;
@@ -2644,9 +2643,9 @@ OPCODE(0xc8) {
 	// g_loaded_backdrop_id (DS:0x666a) = arg0 + SetBackdropImage. This
 	// loads the named backdrop graphic into the room buffer.
 	//
-	// Difference from Op_c9 (clarified iter-30): Op_c8 immediately loads
-	// a backdrop image. Op_c9 sets the savegame "current place" id and
-	// only triggers a reload when in status mode.
+	// Difference from Op_c9: Op_c8 immediately loads a backdrop image.
+	// Op_c9 sets the savegame "current place" id and only triggers a reload
+	// when in status mode.
 	clearVideoAndPushToScreen(_graphics);
 	const uint16 id = uint16(a[0]);
 	MainDat *main = _logic->resources()->mainDat();
@@ -3080,7 +3079,6 @@ OPCODE(0x0b) {
 
 OPCODE(0x0c) {
 	// DOS CS:0x38ab: skip if NOT in status mode → body runs ONLY in status mode.
-	// Engine had this inverted previously.
 	debugC(2, kDebugLevelScript, "opcode 0x0c: if in status mode");
 	if (!Log.inStatusMode())
 		return kFail;
@@ -3712,13 +3710,10 @@ OPCODE(0x46) {
 	return kThxBye;
 }
 
-// 0x48..0x53: speech / sample / menu / text-bubble family.
-// PREVIOUSLY (incorrectly) implemented as bitwise / arithmetic ops by the
-// original ScummVM port — see PLAN.md "P0 finding". Confirmed via Ghidra:
-// these are speech, sample-registration, menu, and text-bubble handlers.
-// Replaced with faithful implementations that preserve DOS skip-counter
-// semantics. Modal text/menu handlers stop dispatch with kReturn while
-// their RunVerbMenuModalLoop-equivalent visible text is active.
+// 0x48..0x53: speech / sample / menu / text-bubble family. DOS dispatches
+// these as speech, sample-registration, menu, and text-bubble handlers.
+// Modal text/menu handlers stop dispatch with kReturn while their
+// RunVerbMenuModalLoop-equivalent visible text is active.
 OPCODE(0x48) {
 	// DOS Op_48_SpeakWithRectAndPos @ 1000:3ea7: 5 args (x, y, color,
 	// lines, text). Same shared-tail as Op_47 but reads via
@@ -3943,7 +3938,7 @@ OPCODE(0x52) {
 	Logic::FormattedBubble fb = _logic->measureVerbBubbleText(measureText);
 	Logic::ModalState &ms = Log.modalState();
 	ms.menuChoiceCount = 0; // DOS sets [0x66c2] = 0 explicitly
-	// menuMaxChoices is left as previously-set (DOS doesn't write [0x66c4] here)
+	// menuMaxChoices retains its current value; DOS doesn't write [0x66c4] here.
 	ms.activeAx = fb.maxLineWidth;
 	ms.activeBx = fb.lineCount;
 	ms.activeEs = 0;
@@ -4457,9 +4452,6 @@ OPCODE(0x68) {
 OPCODE(0x69) {
 	// DOS Op_69_SetCellBitDefault (CS:0x425c): 1 arg. Sets BIT 1 (the "default
 	// bit") on cellByte[a[0]] after the shared signed max-id check.
-	// The original ScummVM port misclassified this as
-	// 4-arg clamp(), which read 3 garbage Value slots past the end of the
-	// dispatched arg vector.
 	const uint16 id = uint16(a[0]);
 	const uint16 exitCount = _logic->blockProgram() ? _logic->blockProgram()->exitsCount() : 0;
 	if (dosPositiveIdExceedsMax(id, exitCount)) {
@@ -4531,9 +4523,8 @@ OPCODE(0x76) {
 	//   _g_drag_step_idx = 0;
 	//   _g_cursor_mode = 0x40;      ; HARDCODED 0x40 (not arg0!)
 	//   g_flag_step_pending = 0;
-	// Old C++ set cursor=arg0 — WRONG. Op_76 always enters cursor
-	// mode 0x40 and stores arg0 as the drag target for Op_0b's
-	// later check.
+	// Op_76 always enters cursor mode 0x40 and stores arg0 as the drag
+	// target for Op_0b's later check.
 	const uint16 target = uint16(a[0]);
 	Log.setDragTargetMode40(target);
 	Log.setCursorMode(0x40);
@@ -4580,7 +4571,6 @@ OPCODE(0x7a) {
 	// DOS sequence: UnregisterActor, set fields, SetActorPosition (X/Y
 	// from frame[a[2]]), FindPlaceById, InitActorState. If the new room
 	// matches g_current_location and target!=current, MoveActorToTargetExit.
-	// Previous C++ was a logging stub mislabelled as "deactivate object".
 	const uint16 id = uint16(a[0]);
 	const uint16 room = uint16(a[1]);
 	const uint8 frame = uint8(uint16(a[2]));
@@ -4727,11 +4717,8 @@ OPCODE(0x7f) {
 	return kThxBye;
 }
 
-// 0x80..0x94: Object placement / hotspot manipulation. iter-20 audit per
-// opcodes_nargs.data discovered SEVEN OOB-read bugs in this range — the
-// C++ opcode bodies were accessing args past the count the dispatcher
-// fetches, reading garbage from past the end of the ValueVector. All
-// fixed below: each handler now respects its declared nargs.
+// 0x80..0x94: Object placement / hotspot manipulation. Each handler must
+// respect its declared nargs from opcodes_nargs.data.
 OPCODE(0x80) {
 	// DOS Op_80_handler @ 1000:457f:
 	//   if (arg0 > g_persons_count) pending-error 0x16;
@@ -5004,8 +4991,6 @@ OPCODE(0x84) {
 OPCODE(0x85) {
 	// DOS Op_85 (CS:0x4762): SEARCH for first object whose room == arg0,
 	// write its 1-based index to a[1] (destination var slot). 2 args.
-	// Was previously claiming "place exit" with 4 args and OOB-reading
-	// a[2]/a[3].
 	const uint16 searchRoom = uint16(a[0]);
 	uint16 found = 0;
 	const uint16 personsCount = Log.engine()->resources()->mainDat()->personsCount();
@@ -5681,7 +5666,7 @@ OPCODE(0xa8) {
 		// DOS GetExitOffset @ 0xc31c: lower bound ONLY (id<=0 -> err 0x14),
 		// NO upper bound. The a8/a9 caller (0x4dae) does NOT early-return on
 		// the error -- it reads the exit-table base coords and falls through
-		// to the actor-ready / direction-marker tail. (Re-audit 2026-05-30.)
+		// to the actor-ready / direction-marker tail.
 		uint16 exitId = targetId;
 		if (dosIdIsNonPositive(targetId)) {
 			Log.setPendingError(0x14);
@@ -5744,7 +5729,7 @@ OPCODE(0xa9) {
 		// DOS GetExitOffset @ 0xc31c: lower bound ONLY (id<=0 -> err 0x14),
 		// NO upper bound. The a8/a9 caller (0x4dae) does NOT early-return on
 		// the error -- it reads the exit-table base coords and falls through
-		// to the actor-ready / direction-marker tail. (Re-audit 2026-05-30.)
+		// to the actor-ready / direction-marker tail.
 		uint16 exitId = targetId;
 		if (dosIdIsNonPositive(targetId)) {
 			Log.setPendingError(0x14);
@@ -6567,10 +6552,8 @@ OPCODE(0xe8) {
 }
 OPCODE(0xe9) {
 	// DOS Op_e9 @ 1000:5634: 1 arg (char). Appends arg0 byte to the
-	// parser buffer at DS:0x4fa9 if length < capacity. C++ comment
-	// previously said "set verbMode" — WRONG; that was a misrouting
-	// from a different opcode. The disassembly clearly shows
-	// `*(byte *)0x4faa` length increment + char store.
+	// parser buffer at DS:0x4fa9 if length < capacity. The disassembly
+	// shows `*(byte *)0x4faa` length increment + char store.
 	const byte ch = uint8(uint16(a[0]) & 0xff);
 	debugC(2, kDebugLevelScript, "opcode 0xe9: parser append '%c' (0x%02x)",
 		   ch >= 0x20 && ch < 0x7f ? ch : '.', ch);
@@ -6709,12 +6692,7 @@ OPCODE(0xf5) {
 	// driver current-tune word is nonzero and carry set once it is zero; the
 	// saved script resumes only on that carry-set path. Disabled music uses
 	// AX=1 + RegisterSampleSlot_Bare5 (BX=5: one-tick countdown). It is NOT
-	// a beat-set.
-	// Original C++ called Music.setBeat(uint16(a[0])) — reading a[0]
-	// (which doesn't exist with 0 nargs) as a beat number, then setting
-	// the music to a garbage beat. Could index past the beat array
-	// (Tune::setBeat is now bound-checked iter-12, so it'd just no-op,
-	// but cleaner to not invoke at all). iter-21 fix.
+	// a beat-set and has no opcode arguments to read.
 	debugC(2, kDebugLevelScript, "opcode 0xf5: wait for music stop");
 	if (_engine->dosMusicEnabled() != 0) {
 		if (!Music.hasCurrentTune())

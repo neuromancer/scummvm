@@ -757,11 +757,9 @@ void Actor::moveTo(uint16 frame) {
 	// warp. The actor's existing animation script keeps running.
 	//
 	// Mirror that exactly: setFrame() does both the _frame assignment
-	// and the position lookup-and-update via Room::getFrame.
-	// (iter-34's attempt to also pick a direction and call
-	// setAnimation(moveAnimator(dir)) was overreaching — DOS doesn't
-	// do that, and the synthetic Frame I built crashed on
-	// Frame::operator-'s assumption that _nexts has 8 entries.)
+	// and the position lookup-and-update via Room::getFrame. Do not
+	// synthesize direction or animation changes here; DOS does not do
+	// that, and synthetic frames may not have adjacency data.
 	if (_frame == 0 || cur.position().x == 999) {
 		debugC(3, kDebugLevelActor, "moveTo(%u): warp (no valid current frame)", (uint)frame);
 		_framequeue.clear();
@@ -776,8 +774,7 @@ void Actor::moveTo(uint16 frame) {
 	// only has the player's current room loaded), do a soft warp via
 	// setFrame() — same as the !valid-current-frame branch above.
 	// Pushing a sentinel Frame onto _framequeue causes _frame corruption
-	// on the next nextFrame() pop (Pass2-16 game.log: 44064 garbage
-	// value from sentinel.index() reads).
+	// on the next nextFrame() pop.
 	const Frame targetFrame = Log.room()->getFrame(frame);
 	// LookupActorAndStartPath stores whether the destination is left of
 	// or equal to the current actor x before running FindActorPath.
@@ -1510,26 +1507,20 @@ Animation::Status Actor::op(byte opcode) {
 #define OPCODE(n) template<> \
 Animation::Status Actor::opcodeHandler<n>()
 
-// Actor opcode dispatch — the original ScummVM port wrote these without
-// reference to the DOS binary; many semantics here diverge from Ghidra's
-// findings. The C++ has built a parallel "walking model" around
-// _attentionNeeded (see Op_24 below) and _direction (see Op_17/0x23) that
-// keeps the engine functional. Audit (2026-05-04 iter 8) cross-referenced
-// each handler against the DOS ActorOp_* labels; misclassifications are
-// noted inline. Do not "correct" the misclassified ones without porting
-// the DOS data model first — the C++ heuristics are load-bearing.
+// Actor opcode dispatch. These handlers preserve the DOS ActorOp_* field
+// model while still using the C++ walking state around _attentionNeeded
+// (see Op_24 below) and _direction (see Op_17/0x23). Do not remove those
+// C++ state writes without porting the rest of the DOS walk driver.
 
 OPCODE(0x00) {
 	// DOS Op_01 ScriptEnd (CS:0x68d3) — actually a 1-based-naming
 	// confusion. C++ slot 0x00 corresponds to DOS Op_01 per the
 	// off-by-1 dispatcher mapping. DOS clears field0+field1 + sets
 	// g_actor_script_ended = 1 to break out of RunActorScript.
-	// Animation::OPCODE(0x00) returns kRemove which would erase the
-	// actor from Logic::_animations entirely — wrong for Actor (the
-	// actor should remain in the table, just inactive). Override to
-	// clear PC and stop dispatch. Do not return kFrameDone: DOS Op_01
-	// does not write field+0x0a, so the shared interval fallback would add
-	// a non-DOS countdown after the script PC is cleared.
+	// Actor script end clears the PC and stops dispatch without removing
+	// the actor from Logic::_animations. Do not return kFrameDone: DOS
+	// Op_01 does not write field+0x0a, so the shared interval fallback
+	// would add a non-DOS countdown after the script PC is cleared.
 	debugC(2, kDebugLevelActor, "actor opcode 0x00: ScriptEnd (clear PC, no remove) [DOS Op_01]");
 	clearScriptPc();
 	return kOk;
@@ -1927,10 +1918,9 @@ OPCODE(0x24) {
 	// C++ slot 0x24 = DOS Op_25 SetField65 (CS:0x6c1e). Reads byte at +1.
 	// Byte consumption matches. C++ uses this as "set _attentionNeeded"
 	// — the load-bearing C++ walking trigger. The bytecode emits this
-	// between walk frames so the next frame can advance. CRITICAL: the
-	// iter-7 movement-speed fix gates animate() on _ticksLeft; do NOT
-	// remove the _attentionNeeded write without porting the DOS walk
-	// driver. Also stash the field value for any future readers.
+	// between walk frames so the next frame can advance. Do not remove
+	// the _attentionNeeded write without porting the DOS walk driver.
+	// Also stash the field value for any future readers.
 	byte v = embeddedByte();
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x24: SetField65 = %d (C++ also sets _attentionNeeded for walking) [DOS Op_25]", v);
 	setDosField(0x65, v);
@@ -1940,7 +1930,7 @@ OPCODE(0x24) {
 
 // ============================================================================
 // DOS-faithful overrides for the movement / frame-state opcode family
-// (DOS Op_03..Op_0a, C++ slots 0x02..0x09). Phase-2 of the iter-10 roadmap.
+// (DOS Op_03..Op_0a, C++ slots 0x02..0x09).
 //
 // Most of these ops end the script (Op_06..0a; DOS sets
 // g_actor_script_ended = 1) and copy actor byte +0x10 into word +0x0a
@@ -1949,23 +1939,18 @@ OPCODE(0x24) {
 // they stop the per-tick opcode loop. Ops that don't end the script
 // return kOk (continue with the next opcode this tick).
 //
-// **Pass2-17 NOTE**: Op_04/Op_05 (slots 0x03/0x04) are NOT
-// "SetCurrentFrame" / "SetCurrentFrameFromGlobal" despite the original
-// label. DOS @ 1000:6912 / 1000:691d both write to actor `[SI+0x10]` =
-// `kOffsetInterval` (Animation `_interval`), NOT field+0x61 (`_frame`).
-// The original Animation::OPCODE(0x03)/(0x04) ("set interval") was
-// correct; an earlier override misclassified the op name and clobbered
-// `_frame=0` mid-walk, locking the actor in `nextFrame`/`turnTo` cycles.
-// The slot-0x03/0x04 overrides below now match DOS — kept for symmetry
-// with the rest of the family.
+// Op_04/Op_05 (slots 0x03/0x04) are NOT SetCurrentFrame /
+// SetCurrentFrameFromGlobal. DOS @ 1000:6912 / 1000:691d both write to
+// actor [SI+0x10] = kOffsetInterval (Animation::_interval), NOT
+// field+0x61 (_frame). The slot-0x03/0x04 overrides are kept explicit
+// for symmetry with the rest of the family.
 // ============================================================================
 
 OPCODE(0x02) {
 	// C++ slot 0x02 = DOS Op_03 SetPosition (1000:6900). 2 shifts.
 	// Writes actor.x = word, actor.y = word. Doesn't end script.
-	// Animation::0x02 ("move to position") fall-through happened to do
-	// the right thing structurally — but make the override explicit so
-	// any Phase-2 walking-state writes can hook in here later.
+	// Keep the override explicit so actor position writes remain grouped
+	// with the movement opcode family.
 	const uint16 x = shift();
 	const uint16 y = shift();
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x02: SetPosition (%u,%u) [DOS Op_03]", x, y);
@@ -1979,11 +1964,8 @@ OPCODE(0x03) {
 	//   MOV byte ptr [SI+0x10], AL ; field+0x10 = AL  (interval byte)
 	//   ADD BP, 4 / RET
 	// field+0x10 = kOffsetInterval = Animation::_interval (NOT frame —
-	// _frame is field+0x61 per Op_7a / moveTo comment). Pass2-17: prior
-	// override wrote `_frame` based on a misclassification of the opcode
-	// name; that wiped pathfinding state mid-script and was the ROOT
-	// CAUSE of the room-1 stuck loop (game.log Pass2-16). Now writes
-	// _interval, matching DOS [SI+0x10].
+	// _frame is field+0x61 per Op_7a / moveTo comment). Write _interval,
+	// matching DOS [SI+0x10], and do not reset pathfinding frame state.
 	const uint16 word = shift();
 	const uint8 interval = uint8(word);
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x03: SetInterval %u [DOS Op_04]", interval);
@@ -1995,9 +1977,7 @@ OPCODE(0x04) {
 	// C++ slot 0x04 = DOS Op_05 SetIntervalFromGlobal (1000:691d). 1 shift.
 	//   reads global word var at index (arg/2)
 	//   writes its low byte to [SI+0x10] = Animation::_interval.
-	// Pass2-17: same misclassification fix as 0x03 — was wrongly writing
-	// _frame, which kept resetting pathfinding state to 0 every cycle in
-	// the room-1 loop. Now writes _interval per DOS.
+	// Writes _interval per DOS; do not update _frame.
 	const uint16 offset = shift();
 	const uint16 word = READ_LE_UINT16(_resources->getGlobalWordVariable(offset / 2));
 	const uint8 interval = uint8(word);
@@ -2016,12 +1996,10 @@ OPCODE(0x05) {
 	//   actor.field+0xa  = zero-extended actor.field+0x10
 	//   g_actor_script_ended = 1;
 	//
-	// **Important**: Despite the "WalkRelative" name, DOS does NOT
-	// engage walk pathfinding. It only updates the actor's relative
-	// position + sprite-target field. Walk pathfinding (FindActorPath)
-	// is engaged separately by other opcodes. PRIOR C++ called
-	// `moveTo(target)` which corrupts _frame when target is invalid in
-	// current room — same bug pattern as Op_06 (see comment there).
+	// Despite the "WalkRelative" name, DOS does NOT engage walk
+	// pathfinding. It only updates the actor's relative position and
+	// sprite-target field. Walk pathfinding (FindActorPath) is engaged
+	// separately by other opcodes.
 	const int8 dx = shiftByte();
 	const int8 dy = shiftByte();
 	const uint16 target = shift();
@@ -2039,18 +2017,9 @@ OPCODE(0x06) {
 	//   actor.field+0xa  = zero-extended actor.field+0x10
 	//   g_actor_script_ended = 1;              ; end this script run
 	//
-	// **Important**: DOS does NOT engage walk here. It only updates
-	// the sprite-target field. Some other code (e.g., the actor's
-	// drawing or animation pipeline) reads field+0x8 later.
-	//
-	// PRIOR C++ BUG: called `moveTo(target)` which pushed a sentinel
-	// Frame onto _framequeue when target was invalid in current room.
-	// After the script ended (Op_01 UnregisterAndEnd) and the
-	// _attentionNeeded flag re-fired, nextFrame() popped the sentinel
-	// and assigned `_frame = sentinel.index()` which is uninitialized
-	// memory (game.log: `_frame = 27680` corruption). The actor then
-	// looped forever in this corrupted state, blocking the room-1
-	// "Who the heck owns THIS ship?" speech from advancing.
+	// DOS does NOT engage walk here. It only updates the sprite-target
+	// field. Some other code (e.g., the actor's drawing or animation
+	// pipeline) reads field+0x8 later.
 	const uint16 target = shift();
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x06: SetTargetFrame %u [DOS Op_07]", target);
 	// Update sprite/target ID (DOS field+0x8 analog).
@@ -2092,9 +2061,7 @@ OPCODE(0x08) {
 OPCODE(0x09) {
 	// C++ slot 0x09 = DOS Op_0a WalkAbsolute (1000:6991). 2 shifts.
 	// Writes actor.x/y = (word, word), copies field+0x10 to +0x0a, and
-	// ends script. iter-11 was a no-op stub; iter-12 added correct byte
-	// consumption; iter-13 now writes the position properly and ends the
-	// script.
+	// ends script.
 	const uint16 x = shift();
 	const uint16 y = shift();
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x09: WalkAbsolute (%u,%u) [DOS Op_0a]", x, y);
@@ -2114,7 +2081,6 @@ OPCODE(0x0a) {
 	//
 	// Despite the "WalkAbsolute" name, DOS does NOT engage walk
 	// pathfinding. Just position + sprite-target field updates.
-	// Pass2-15/16: removed the spurious moveTo(target) call.
 	const uint16 x = shift();
 	const uint16 y = shift();
 	const uint16 target = shift();
@@ -2130,10 +2096,9 @@ OPCODE(0x0d) {
 	// C++ slot 0x0d = DOS Op_0e SetTimerAndSkip (1000:6a5e). Reads embedded
 	// byte at +1 (skip-timer value), writes to actor.field+0x11. Also DOS
 	// stashes BP+2 (script PC after the opcode) into actor.field+0xe — a
-	// "resume point" used by some other op. Animation::0x0d fall-through
-	// ("loop start") wrote _counter and _loopStart instead — wrong fields.
-	// Stash via the sparse _dosFields map; field+0x11 is the per-actor
-	// skip-timer that DOS Op_0f decrements.
+	// "resume point" used by the timer loop. Stash via the sparse
+	// _dosFields map; field+0x11 is the per-actor skip-timer that DOS
+	// Op_0f decrements.
 	const byte v = embeddedByte();
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x0d: SetTimerAndSkip = %u [DOS Op_0e]", v);
 	setDosField(0x11, v);
@@ -2149,8 +2114,7 @@ OPCODE(0x0e) {
 	// C++ slot 0x0e = DOS Op_0f DecrementTimer (1000:6a6c). 0 args.
 	// DOS advances BP by 2, decrements actor.field+0x11 when nonzero,
 	// and if the post-decrement value is still nonzero jumps back to
-	// actor.field+0x0e. Animation::0x0e fall-through ("loop end") was an
-	// unrelated counter decrement — replaced.
+	// actor.field+0x0e.
 	const uint8 cur = dosField(0x11);
 	if (cur != 0) {
 		const uint8 next = uint8(cur - 1);
@@ -2173,8 +2137,6 @@ OPCODE(0x0f) {
 	// C++ slot 0x0f = DOS Op_10 (CS:0x6a7e). The Ghidra label says "NoOp"
 	// but the disassembly shows `MOV BP, ES:[BP+DI+2] / RET` — it's an
 	// UNCONDITIONAL JUMP to the word at script[+2..+3]. 4-byte opcode.
-	// Original Animation::0x0f handler was correct ("jump"); iter-12
-	// erroneously changed it to NoOp. FIXED iter-13: restore jump semantic.
 	uint16 target = shift();
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x0f: Jump to 0x%04x [DOS Op_10]", target);
 	_offset = target;
@@ -2182,19 +2144,13 @@ OPCODE(0x0f) {
 }
 
 // ============================================================================
-// Phase-1 actor opcode overrides (iter 11; CORRECTED iter 12 after off-by-1
-// dispatcher mapping was uncovered).
+// Actor opcode overrides that depend on the off-by-one dispatcher mapping.
 //
-// CRITICAL: C++ OPCODE(N) handles memory byte (-N-1 as int8), which the DOS
+// C++ OPCODE(N) handles memory byte (-N-1 as int8), which the DOS
 // dispatcher labels as Op_(N+1). For example:
 //   memory byte 0xff → C++ OPCODE(0x00) → DOS Op_01 (ScriptEnd)
 //   memory byte 0xed → C++ OPCODE(0x12) → DOS Op_13 (JumpIfByteVar)
 //   memory byte 0xdc → C++ OPCODE(0x23) → DOS Op_24 (SetMood)
-// The original ScummVM port and iter-10 audit notation labeled handlers by
-// the C++ slot number while quoting DOS Op_N semantics — so they were
-// systemically mismatched by 1. Iter-12 corrected the mapping after the
-// trace at file offset 0x0262 showed OPCODE(0x12) was still using the
-// old misidentified semantics before the raw disassembly was checked.
 //
 // Each handler below is named per its TRUE DOS opcode (= C++ slot + 1).
 // Byte consumption MUST match DOS exactly — script PC alignment depends on
@@ -2204,9 +2160,7 @@ OPCODE(0x0f) {
 
 OPCODE(0x10) {
 	// C++ slot 0x10 = DOS Op_11 SetGlobalByteFlag. Reads 1 int16 offset
-	// (1 shift = 2 bytes), writes 1 to global byte var. Original Animation
-	// fall-through (set-bvar) happened to do the right thing structurally
-	// but always wrote 1; semantically this matches.
+	// (1 shift = 2 bytes), writes 1 to global byte var.
 	uint16 var = shift();
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x10: SetGlobalByteFlag var %d = 1 [DOS Op_11]", var);
 	*_resources->getGlobalByteVariable(var) = 1;
@@ -2215,8 +2169,7 @@ OPCODE(0x10) {
 
 OPCODE(0x11) {
 	// C++ slot 0x11 = DOS Op_12 ClearGlobalByteFlag. Reads 1 int16 offset
-	// (1 shift), writes 0 to global byte var. Animation::0x11 ("reset
-	// flag") happens to also write 0 with 1 shift — accidentally aligned.
+	// (1 shift), writes 0 to global byte var.
 	uint16 var = shift();
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x11: ClearGlobalByteFlag var %d = 0 [DOS Op_12]", var);
 	*_resources->getGlobalByteVariable(var) = 0;
@@ -2228,8 +2181,6 @@ OPCODE(0x12) {
 	// the disassembly is JumpIfByteVar: reads var index at script[+2..+3],
 	// reads jump target at script[+4..+5], if global byte var is non-zero
 	// jump to target, else ADD BP,6 (skip 6-byte opcode). 2 shifts total.
-	// Original Animation::0x12 handler ("jump if bvar") was correct; iter-12
-	// broke it by treating as NoOp. FIXED iter-13.
 	uint16 var = shift();
 	uint16 off = shift();
 	byte ok = *_resources->getGlobalByteVariable(var);

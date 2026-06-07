@@ -1270,14 +1270,10 @@ void Logic::doChangeRoom() {
 
 	centerCameraOnProtagonist();
 
-	// (iter-27's unconditional `_protagonist->forceRoom(_currentRoom)`
-	// removed iter-36 — it caused the protagonist sprite to be rendered
-	// on top of the title-card logo and any other "no protagonist" room
-	// because we were registering them in EVERY room, ignoring the
-	// data-file room state. Replaced by Op_d6's boot-param substitution
-	// path which seeds the protagonist's room ONLY when the boot-param
-	// shortcut fires — matching what the skipped intro animation would
-	// have done.)
+	// Do not force the protagonist into every loaded room. Rooms without
+	// protagonist data (e.g. title-card/no-protagonist rooms) must remain
+	// actor-free; Op_d6 seeds the protagonist room only for the boot-param
+	// shortcut that skips the intro animation.
 
 	refreshCurrentRoomActorFrames();
 
@@ -3574,7 +3570,7 @@ bool Logic::handleEscDuringScript() {
 	// DOS HandleEscDuringScript @ 1000:2bd9 is called from the main
 	// loop after active script dispatch. Input/fade code only latches
 	// ESC, so the target script must run here, not reentrantly inside
-	// the fade opcode that observed the keypress.
+	// the fade opcode that latched the keypress.
 	skipCutscene();
 	return true;
 }

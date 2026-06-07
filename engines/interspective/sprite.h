@@ -26,8 +26,7 @@ namespace Interspective {
 
 struct SpriteInfo {
 	// Default-construct an empty sprite — width=0/height=0, used as a
-	// safe fallback when an out-of-range sprite index is requested
-	// (Program::getSpriteInfo iter-29).
+	// safe fallback when an out-of-range sprite index is requested.
 	SpriteInfo() : left(0), top(0), width(0), height(0), image(0), hotLeft(0), hotTop(0) {}
 	SpriteInfo(const byte *, uint16 index);
 	uint16 left, top, width, height, image;

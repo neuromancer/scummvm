@@ -152,11 +152,9 @@ bool MusicParser::loadMusic(const byte *data, uint32 size) {
 	}
 
 	// Idempotency guard: scripts can re-emit Op_f4 with the same data
-	// pointer many times per second (observed iter-29: 100+ calls/sec
-	// of loadMusic with the same data, racing with the MIDI timer
-	// thread's _tune->tick() and crashing in Channel::tick when the old
-	// _tune was freed mid-iteration). Skip if data matches what's
-	// already loaded.
+	// pointer many times per second. Rebuilding while the MIDI timer
+	// thread is ticking can free _tune mid-iteration, so skip if data
+	// matches what's already loaded.
 	if (_script && _script->base() == data && hasCurrentTune())
 		return true;
 
@@ -659,10 +657,10 @@ void MusicScript::tick() {
 			return;
 
 		default: {
-			// Unhandled music opcodes show up in real game scripts (e.g.
-			// 0x94 in tune 5 around iter-29). Stopping music is a safer
-			// fallback than `error()` which kills the engine — the user
-			// loses music for that scene rather than the whole session.
+			// Unhandled music opcodes show up in real game scripts.
+			// Stopping music is a safer fallback than `error()` which
+			// kills the engine — the user loses music for that scene
+			// rather than the whole session.
 			static bool reportedOnce = false;
 			if (!reportedOnce) {
 				reportedOnce = true;

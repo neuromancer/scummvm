@@ -117,7 +117,7 @@ SpriteInfo Program::getSpriteInfo(uint16 index) const {
 	// the buffer size: at most (codeSize - spritemapOffset) / kSpriteMapSize
 	// (=8 bytes per entry, see sprite.cpp). Without this an out-of-range
 	// id (e.g. uninitialised script field, or main vs block id mismatch)
-	// runs straight off the end of _code and ASan-trips (iter-29).
+	// runs straight off the end of _code.
 	const uint16 maxEntries = (spritemapOffset < _codeSize)
 								  ? (_codeSize - spritemapOffset) / 8
 								  : 0;

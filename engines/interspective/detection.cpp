@@ -35,9 +35,9 @@ static const PlainGameDescriptor interspectiveGames[] = {
 // Debug channel registration. Modern ScummVM expects channels to be
 // declared via getDebugChannels() on the MetaEngine — the legacy
 // addDebugChannel() calls in Engine::Engine() do not register the names
-// for --debugflags lookup, so previously --debugflags=script silently
-// dropped all messages and emitted "Engine does not support debug level
-// 'script'". Mirror the bitmask values from interspective/debug.h.
+// for --debugflags lookup; otherwise channel-specific debug flags are
+// rejected as unsupported. Mirror the bitmask values from
+// interspective/debug.h.
 static const DebugChannelDef debugFlagList[] = {
 	{kDebugLevelScript, "script", "bytecode scripts"},
 	{kDebugLevelGraphics, "graphics", "graphics handling"},

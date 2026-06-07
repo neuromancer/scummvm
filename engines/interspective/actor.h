@@ -92,11 +92,9 @@ public:
 		Frame() : _index(0), _position(999, 999), _nexts(), _nextCount(0xff) {
 			// _index = 0 sentinel — the (999, 999) position marks the
 			// frame as "invalid / uninitialized". Without this explicit
-			// zero-init, _index was uninitialized memory and reads
-			// returned stack/heap garbage (game.log Pass2-15 / Pass2-16:
-			// `_frame = 27680 / 44064` corruption when `nextFrame()`
-			// popped a sentinel from `_framequeue` and assigned
-			// `_frame = next.index()`).
+			// zero-init, _index was uninitialized memory and reads could
+			// corrupt _frame when nextFrame() popped a sentinel from
+			// _framequeue.
 			_nexts.resize(8);
 		}
 		Frame(Common::Point pos, Common::Array<byte> n, uint16 i) : _position(pos), _nexts(n), _index(i), _nextCount(0xff) {}
@@ -240,7 +238,7 @@ public:
 	// Update only the room field, without touching frame/position/script.
 	// Used by Logic::doChangeRoom to keep the protagonist's _room in
 	// sync with _currentRoom so the gating in Actor::tick() doesn't
-	// short-circuit (see PLAN iter-27).
+	// short-circuit.
 	void forceRoom(uint16 r) {
 		_room = r;
 		setDosFieldWord(kOffsetRoom, r);

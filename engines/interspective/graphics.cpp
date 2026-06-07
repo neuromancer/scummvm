@@ -2733,8 +2733,8 @@ bool Graphics::fadeOut(FadeFlags f) {
 }
 
 void Graphics::say(const byte *text, uint16 length, uint16 frames) {
-	// Default position/color = top-left, color 235 (matches the
-	// pre-Pass2 behaviour). Op_47/0x48 use sayAt() instead.
+	// Default narrator position/color = top-left, color 235. Op_47/0x48
+	// use sayAt() instead.
 	sayAt(text, length, frames, 0, 0, 235);
 }
 
@@ -2784,8 +2784,7 @@ void Graphics::sayAt(const byte *text, uint16 length, uint16 frames,
 	// Callers pass `length = strlen(text)` (no NUL counted). paintText
 	// scans with `while ((ch = *string++))` and needs a NUL terminator,
 	// so over-allocate by 1 and write a sentinel. Without this, paintText
-	// reads past the end of the heap allocation and ASan trips
-	// (caught iter-29: 21-byte allocation, paintText reading byte 22).
+	// reads past the end of the heap allocation.
 	Common::Array<Common::String> pages = paginateSpeechText(text, length, maxLines);
 	bool started = false;
 	for (uint i = 0; i < pages.size(); ++i) {

@@ -130,7 +130,7 @@ public:
 	uint16 frameTicks() const { return uint16(_frameCounter); }
 
 	// VM state (mirrors DS:0x6XXX globals from the binary).
-	// Legacy alias: earlier C++ called DOS `g_cursor_mode` "verb mode".
+	// Legacy alias for DOS g_cursor_mode, kept for the public C++ API.
 	// Ghidra names the real global at DS:0x6678; DS:0x665d is
 	// `g_drag_step_idx`, not the cursor/verb mode predicate used by
 	// opcodes 0x0a/0x0b/0x0d/0x0e and the cursor gate helpers.
@@ -621,8 +621,8 @@ public:
 	// "Implicit actor" — DOS opcodes that take an actor id call
 	// GetActorOffset(id) which sets SI to the actor record. Keep the
 	// last resolved actor modeled explicitly for opcodes that reuse SI.
-	// Op_1e/Op_20 were audited separately: they load
-	// g_main_character_id directly, not this implicit actor.
+	// Op_1e/Op_20 load g_main_character_id directly, not this implicit
+	// actor.
 	Actor *implicitActor() const { return _implicitActor; }
 	void setImplicitActor(Actor *ac) { _implicitActor = ac; }
 	// DOS g_current_hit_region (DS:0x6672): 0 = playfield, 1 = inventory,
@@ -959,10 +959,8 @@ public:
 	//   [0x4fab+] = chars
 	// Op_e9 appends; Op_e7 clears; Op_eb pops last char; Op_22
 	// compares against arg0. C++ models as a simple Common::String
-	// with a max-capacity bound (mirrors DOS 0x4fa9 byte). The
-	// default capacity (165 = 0x4faa - 0x4fab + 0x100? actually max
-	// observed in DOS is set at boot; default to 60 chars — same
-	// length as DOS savegame name field).
+	// with a max-capacity bound (mirrors DOS 0x4fa9 byte). The default
+	// capacity is 60 chars, matching the DOS savegame name field length.
 	const Common::String &parserBuffer() const { return _parserBuffer; }
 	uint8 parserBufferCapacity() const { return _parserBufferCapacity; }
 	void setParserBufferCapacity(uint8 cap) { _parserBufferCapacity = cap; }
@@ -1128,8 +1126,7 @@ public:
 
 	// DOS scene-snapshot slot (`_g_block_pc_offset` @ 0x6718 et al.).
 	// Op_38 (1000:3c58) saves the current scene; Op_01 (1000:59a3)
-	// restores it. DOS uses a single slot, not a stack — see
-	// PLAN.md "Cross-cutting subsystems / Scene-snapshot stack".
+	// restores it. DOS uses a single slot, not a stack.
 	// _animations is saved as a list snapshot so the sub-scene's
 	// loadActors-appended entries can be unwound on pop. The Program
 	// SharedPtr preserves the old _code buffer; Animation::dropBaseIfIn
