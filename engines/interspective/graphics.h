@@ -76,17 +76,17 @@ public:
 	void setBackdrop(uint16 id);
 	void loadGraphicPalette(uint16 id);
 	void paintBackdrop();
-	void clearBackdropLikeDos(byte colour = 0);
+	void clearBackdrop(byte colour = 0);
 
 	enum FadeFlags {
 		kFullFade = 0,
 		kPartialFade = 1
 	};
-	void applyRoomChangeWipeLikeDos();
+	void applyRoomChangeWipe();
 	void willFadein(FadeFlags f = kFullFade);
 	bool fadeOut(FadeFlags f = kFullFade);
 	bool inFade() const { return _inFade; }
-	bool palettePendingLikeDos() const { return _willFadein || _inFade; }
+	bool palettePending() const { return _willFadein || _inFade; }
 	void setInFade(bool v) { _inFade = v; }
 
 	void say(const byte *text, uint16, uint16 frames = 50);
@@ -109,9 +109,9 @@ public:
 	void runWhenSaid(const CodePointer &p);
 
 	uint16 ask(uint16 left, uint16 top, byte width, byte height, byte *string, uint16 *selectedIndex = 0);
-	uint16 askVerbBubbleLikeDos(byte paletteMode, byte *string, uint16 *selectedIndex = 0);
-	uint16 askVerbBubbleTextLikeDos(byte paletteMode, const byte *string, uint16 *selectedIndex = 0);
-	void showVerbBubbleTextLikeDos(byte paletteMode, const byte *string, uint16 frames);
+	uint16 askVerbBubble(byte paletteMode, byte *string, uint16 *selectedIndex = 0);
+	uint16 askVerbBubbleText(byte paletteMode, const byte *string, uint16 *selectedIndex = 0);
+	void showVerbBubbleText(byte paletteMode, const byte *string, uint16 frames);
 	Common::Rect paintText(uint16 left, uint16 top, byte colour, const byte *string) {
 		return paintText(left, top, colour, string, _framebuffer.get(), 0, 0, 0);
 	}
@@ -120,18 +120,18 @@ public:
 		return paintText(left, top, 235, string, 0, lines, 0, 0);
 	}
 	Common::Rect paintText(uint16 left, uint16 top, byte colour, const byte *string, Surface *s, uint16 *lines = 0, uint8 firstLineExtraIndent = 0, int flags = 0);
-	Common::Rect paintTextOneDirtyLikeDos(uint16 left, uint16 top, byte colour, const byte *string);
-	void clearStatusScreenTextLikeDos();
-	void rememberStatusScreenTextLikeDos(uint16 left, uint16 top, byte colour, const Common::String &text);
+	Common::Rect paintTextOneDirty(uint16 left, uint16 top, byte colour, const byte *string);
+	void clearStatusScreenText();
+	void rememberStatusScreenText(uint16 left, uint16 top, byte colour, const Common::String &text);
 	void paintMotionText(const byte *stream, uint16 length);
 	uint16 plainTextLineWidth(const byte *string) const;
 	Common::Rect paintPlainTextLine(uint16 left, uint16 top, byte colour, const byte *string, bool markDirty = true);
-	bool setStatusOverlayTextLikeDos(const byte *text);
+	bool setStatusOverlayText(const byte *text);
 	void setInterfaceOverlaySprite(uint16 maskBit, uint16 spriteId, uint16 x, uint16 y);
-	void setRoomCloseUpLikeDos(Common::Point point);
-	void clearRoomCloseUpLikeDos();
-	void setInventoryCloseUpObjectLikeDos(uint16 objectId);
-	void clearInventoryCloseUpObjectLikeDos();
+	void setRoomCloseUp(Common::Point point);
+	void clearRoomCloseUp();
+	void setInventoryCloseUpObject(uint16 objectId);
+	void clearInventoryCloseUpObject();
 
 	void paintSpeechBubbleColumn(Sprite *top, Sprite *fill, Common::Point &point, uint8 fill_tiles, Surface *dest);
 	Common::Rect paintSpeechInBubble(Common::Point pos, byte colour, const byte *string, Surface *dest,
@@ -187,19 +187,19 @@ private:
 	byte clampChar(byte ch) const;
 	uint16 calculateLineWidth(const byte *string) const;
 	Sprite *getGlyph(byte ch) const;
-	void prepareConversationPaletteLikeDos();
-	void beginConversationModalLikeDos();
-	void finishConversationModalLikeDos();
-	void restoreConversationPaletteLikeDos();
-	void paintConversationBackdropLikeDos();
-	void paintInterfaceMinimapLikeDos();
-	void paintRoomCloseUpLikeDos();
-	void paintInventoryObjectsLikeDos();
-	void paintInventoryCloseUpLikeDos();
+	void prepareConversationPalette();
+	void beginConversationModal();
+	void finishConversationModal();
+	void restoreConversationPalette();
+	void paintConversationBackdrop();
+	void paintInterfaceMinimap();
+	void paintRoomCloseUp();
+	void paintInventoryObjects();
+	void paintInventoryCloseUp();
 	void paintInterfaceOverlaySprites();
-	void paintAutoCloseTimerLikeDos();
+	void paintAutoCloseTimer();
 	void paintStatusOverlayText();
-	void paintStatusScreenTextLikeDos();
+	void paintStatusScreenText();
 
 	/**
 	 * paint a character on screen

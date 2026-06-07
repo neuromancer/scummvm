@@ -124,7 +124,7 @@ static void popDosPascalByteAt(byte *ptr) {
 
 static void applyFormattedTextLimit9bcc(uint16 limit, uint16 &height, uint16 &rows);
 
-static uint16 speechDisplayTicksLikeDos(const byte *text, uint16 maxLines) {
+static uint16 speechDisplayTicks(const byte *text, uint16 maxLines) {
 	Common::String normalized;
 	for (const byte *p = text; p && *p; ++p)
 		normalized += char(*p == '\n' ? '\r' : *p);
@@ -152,7 +152,7 @@ static void speakOrSubtitle(Actor *speaker, const Common::String &text, uint16 m
 		const uint16 length = uint16(text.size());
 		if (length > 0)
 			Graf.sayAt(reinterpret_cast<const byte *>(text.c_str()),
-					   length, speechDisplayTicksLikeDos(reinterpret_cast<const byte *>(text.c_str()), maxLines),
+					   length, speechDisplayTicks(reinterpret_cast<const byte *>(text.c_str()), maxLines),
 					   0xa4, 0x14, 0xeb, maxLines, Graphics::kSpeechBubbleType2, true);
 		return;
 	}
@@ -175,7 +175,7 @@ enum SpeechDeferResult {
 	kSpeechWaitError
 };
 
-static SpeechDeferResult waitForActiveSpeechSlotOwnerLikeDos(uint16 owner, const CodePointer &current) {
+static SpeechDeferResult waitForActiveSpeechSlotOwner(uint16 owner, const CodePointer &current) {
 	if (!Log.speechSlotActiveForOwner(owner))
 		return kSpeechNoWait;
 	if (sampleSlotWouldError())
@@ -197,7 +197,7 @@ static SpeechDeferResult deferSpeechUntilReady(Actor *speaker, const CodePointer
 	}
 	if (!speaker)
 		return kSpeechNoWait;
-	const SpeechDeferResult speechWait = waitForActiveSpeechSlotOwnerLikeDos(Log.actorGlobalId(speaker), current);
+	const SpeechDeferResult speechWait = waitForActiveSpeechSlotOwner(Log.actorGlobalId(speaker), current);
 	if (speechWait != kSpeechNoWait)
 		return speechWait;
 	if (speaker->isMoving()) {
@@ -216,7 +216,7 @@ enum MainSpeechTargetResult {
 	kMainSpeechError
 };
 
-static void setActorTargetMarkerLikeDos(Actor *actor) {
+static void setActorTargetMarker(Actor *actor) {
 	// DOS SetActorTarget @ 1000:7087 stores BP into actor.field+0x69 and
 	// writes marker 5 to field+0x67 only if the callback word is empty.
 	// The shared speech path seeds BP from CS:0x00bf, which has no writers
@@ -228,7 +228,7 @@ static void setActorTargetMarkerLikeDos(Actor *actor) {
 	}
 }
 
-static bool sendActorToCurrentEntityCarryClearLikeDos(Actor *protag) {
+static bool sendActorToCurrentEntityCarryClear(Actor *protag) {
 	// SendActorToTarget @ 1000:7323 returns carry set for the normal
 	// protagonist path through MoveActorToTargetExit @ 1000:70da,
 	// including the "already at target frame" case. The visible carry-clear
@@ -240,21 +240,21 @@ static bool sendActorToCurrentEntityCarryClearLikeDos(Actor *protag) {
 	return unplacedObject;
 }
 
-static MainSpeechTargetResult speakAsMainAfterOptionalTargetWalkLikeDos(Actor *protag,
-																		const Common::String &text, uint16 maxLines, const CodePointer &current) {
+static MainSpeechTargetResult speakAsMainAfterOptionalTargetWalk(Actor *protag,
+																 const Common::String &text, uint16 maxLines, const CodePointer &current) {
 	if (Log.inStatusMode() || Log.hitTarget() != 0)
 		return kMainSpeechContinue;
 
-	const bool carryClear = sendActorToCurrentEntityCarryClearLikeDos(protag);
+	const bool carryClear = sendActorToCurrentEntityCarryClear(protag);
 	if (!carryClear)
 		return kMainSpeechContinue;
 
 	if (Log.gameState() == 2)
-		setActorTargetMarkerLikeDos(protag);
+		setActorTargetMarker(protag);
 
 	if (protag) {
 		const SpeechDeferResult speechWait =
-			waitForActiveSpeechSlotOwnerLikeDos(Log.actorGlobalId(protag), current);
+			waitForActiveSpeechSlotOwner(Log.actorGlobalId(protag), current);
 		if (speechWait == kSpeechWaitError)
 			return kMainSpeechError;
 		if (speechWait == kSpeechWait)
@@ -274,12 +274,12 @@ static bool failIfMainActorMissingForNonStatusSpeech(Actor *protag) {
 	return false;
 }
 
-static SpeechDeferResult deferMainSpeechNoTargetUntilReadyLikeDos(Actor *protag, const CodePointer &current) {
+static SpeechDeferResult deferMainSpeechNoTargetUntilReady(Actor *protag, const CodePointer &current) {
 	if (Log.inStatusMode())
 		return deferSpeechUntilReady(protag, current);
 
 	const SpeechDeferResult speechWait =
-		waitForActiveSpeechSlotOwnerLikeDos(Log.protagonistId(), current);
+		waitForActiveSpeechSlotOwner(Log.protagonistId(), current);
 	if (speechWait != kSpeechNoWait)
 		return speechWait;
 
@@ -295,7 +295,7 @@ static bool sayNarratorOrSubtitle(const byte *text, uint16 x, uint16 y, byte col
 	const uint16 length = (uint16)strlen(reinterpret_cast<const char *>(text));
 	if (length == 0)
 		return false;
-	const uint16 ticks = speechDisplayTicksLikeDos(text, maxLines);
+	const uint16 ticks = speechDisplayTicks(text, maxLines);
 	if (Log.inStatusMode() && Graf.isSaying()) {
 		if (sampleSlotWouldError())
 			return false;
@@ -309,28 +309,28 @@ static bool sayNarratorOrSubtitle(const byte *text, uint16 x, uint16 y, byte col
 	return false;
 }
 
-static bool waitForSpeechSlotOwnerLikeDos(uint16 owner, const CodePointer &next) {
+static bool waitForSpeechSlotOwner(uint16 owner, const CodePointer &next) {
 	if (!Log.speechSlotActiveForOwner(owner))
 		return false;
 	Log.queueSpeechSlotCallbackForOwner(owner, next);
 	return true;
 }
 
-static bool waitForUiTextSlotLikeDos(const CodePointer &next) {
-	if (!Log.uiTextSpeechSlotActiveLikeDos())
+static bool waitForUiTextSlot(const CodePointer &next) {
+	if (!Log.uiTextSpeechSlotActive())
 		return false;
-	Log.queueUiTextSpeechSlotCallbackLikeDos(next);
+	Log.queueUiTextSpeechSlotCallback(next);
 	return true;
 }
 
-static bool waitForSubtitleLikeDos(const CodePointer &next) {
+static bool waitForSubtitle(const CodePointer &next) {
 	if (!Graf.isSaying())
 		return false;
 	Graf.runWhenSaid(next);
 	return true;
 }
 
-static void resetActorStateFieldsLikeDos(Actor *actor) {
+static void resetActorStateFields(Actor *actor) {
 	if (!actor)
 		return;
 	actor->setDosFieldWord(0x0c, 0);
@@ -346,21 +346,21 @@ static void resetActorStateFieldsLikeDos(Actor *actor) {
 	actor->setDosField(0x6f, 0);
 }
 
-static void initActorStateLikeDos(Actor *actor, const CodePointer &anim) {
+static void initActorState(Actor *actor, const CodePointer &anim) {
 	if (!actor)
 		return;
 	actor->setAnimation(anim);
-	resetActorStateFieldsLikeDos(actor);
+	resetActorStateFields(actor);
 }
 
-static void initActorFromPuppeteerLikeDos(Logic *logic, Actor *actor, uint16 actorId) {
+static void initActorFromPuppeteer(Logic *logic, Actor *actor, uint16 actorId) {
 	if (!logic || !actor || !logic->resources() || !logic->resources()->mainDat())
 		return;
 	const Puppeteer puppeteer = logic->resources()->mainDat()->getPuppeteer(actorId);
-	initActorStateLikeDos(actor, CodePointer(puppeteer.mainCodeOffset(), logic->mainInterpreter()));
+	initActorState(actor, CodePointer(puppeteer.mainCodeOffset(), logic->mainInterpreter()));
 }
 
-static void writeActorRoomTransitionLikeDos(Actor *actor, uint16 room, uint8 frame, uint8 target) {
+static void writeActorRoomTransition(Actor *actor, uint16 room, uint8 frame, uint8 target) {
 	if (!actor)
 		return;
 	// DOS 0x77/0x78 tail writes only these fields; SetActorPosition is
@@ -372,11 +372,11 @@ static void writeActorRoomTransitionLikeDos(Actor *actor, uint16 room, uint8 fra
 	actor->forceRoom(room);
 }
 
-static void requestRoomRestartTailLikeDos(uint16 room) {
+static void requestRoomRestartTail(uint16 room) {
 	if (room != Log.currentRoom())
 		Log.changeRoom(room);
 	else
-		Log.restartRoomLikeDos();
+		Log.restartRoom();
 	Log.setLogicDirty();
 	Log.setPaused();
 }
@@ -385,20 +385,20 @@ static void clearDragInteractionLikeOp8e() {
 	Log.clearDragInteractionLikeOp8e();
 }
 
-static void placeActorInRoomWithPositionLikeDos(Actor *actor, uint16 room, uint8 frame, uint8 target) {
+static void placeActorInRoomWithPosition(Actor *actor, uint16 room, uint8 frame, uint8 target) {
 	if (!actor)
 		return;
 	actor->forceRoom(room);
 	actor->setRawTargetFrame(target);
-	actor->clearMoveQueueLikeDos();
+	actor->clearMoveQueue();
 	actor->setFrame(frame);
 }
 
 static bool checkActorAnimReadyModeled(Actor *actor) {
 	// DOS CheckActorAnimReady @ 1000:6415 returns carry set when the
-	// actor is ready. Actor::animReadyLikeDos mirrors the field-level
+	// actor is ready. Actor::animReady mirrors the field-level
 	// predicate, including +0x64/+0x65/+0x6b/+0x69/+0x6f.
-	return !actor || actor->animReadyLikeDos();
+	return !actor || actor->animReady();
 }
 
 static bool retryCurrentOpcodeWhenActorReady(const CodePointer &current, Actor *actor) {
@@ -412,7 +412,7 @@ static bool retryCurrentOpcodeWhenActorReady(const CodePointer &current, Actor *
 	return true;
 }
 
-static uint16 actorAnimMaxIdLikeDos() {
+static uint16 actorAnimMaxId() {
 	const uint16 mainActors = Log.engine()->resources()->mainDat()->actorsCount();
 	const uint16 blockActors = Log.blockProgram() ? Log.blockProgram()->actorsCount() : 0;
 	return uint16(mainActors + blockActors);
@@ -506,7 +506,7 @@ static bool checkActorIdleReadyModeled(Actor *actor) {
 	// DOS CheckActorIdle @ 1000:645e returns carry set when the actor is
 	// idle/ready. This is stricter than Actor::isFine(), which is a legacy
 	// movement heuristic and does not model all DOS actor fields.
-	return !actor || actor->idleReadyLikeDos();
+	return !actor || actor->idleReady();
 }
 
 static void setActorCallbackWord(Actor *actor, uint16 callback) {
@@ -516,7 +516,7 @@ static void setActorCallbackWord(Actor *actor, uint16 callback) {
 	actor->setDosField(0x6a, uint8(callback >> 8));
 }
 
-static void queueExitTransitionLikeDos(Actor *actor, uint16 frame) {
+static void queueExitTransition(Actor *actor, uint16 frame) {
 	if (!actor)
 		return;
 	Log.clearPostMoveCallback();
@@ -532,12 +532,12 @@ static void queueExitTransitionLikeDos(Actor *actor, uint16 frame) {
 		Log.setPostMoveTargetFrameMirror(uint8(actor->frameId()));
 }
 
-static bool moveActorToTargetExitLikeDos(Actor *actor, uint16 frame) {
+static bool moveActorToTargetExit(Actor *actor, uint16 frame) {
 	if (!actor)
 		return false;
 	setActorCallbackWord(actor, 0);
 	if (actor == Log.protagonist()) {
-		queueExitTransitionLikeDos(actor, frame);
+		queueExitTransition(actor, frame);
 		return true;
 	}
 	if (actor->room() != Log.currentRoom()) {
@@ -550,7 +550,7 @@ static bool moveActorToTargetExitLikeDos(Actor *actor, uint16 frame) {
 	return false;
 }
 
-static bool sendActorToEntityByTypeLikeDos(Actor *actor, uint16 targetId, uint16 entityType) {
+static bool sendActorToScriptEntityByType(Actor *actor, uint16 targetId, uint16 entityType) {
 	if (!actor || !Log.room())
 		return false;
 
@@ -598,7 +598,7 @@ static bool sendActorToEntityByTypeLikeDos(Actor *actor, uint16 targetId, uint16
 		break;
 	}
 	default: {
-		const Common::Point cursor = Log.lockedCursorPositionLikeDos();
+		const Common::Point cursor = Log.lockedCursorPosition();
 		targetX = int16(cursor.x + Log.cameraX());
 		targetY = int16(cursor.y + Log.cameraY());
 		break;
@@ -608,23 +608,23 @@ static bool sendActorToEntityByTypeLikeDos(Actor *actor, uint16 targetId, uint16
 	const uint16 frame = Log.room()->nearestFrameTo(targetX, targetY);
 	if (frame == 0) {
 		Log.setPendingError(0x31);
-		return moveActorToTargetExitLikeDos(actor, actor->frameId());
+		return moveActorToTargetExit(actor, actor->frameId());
 	}
-	return moveActorToTargetExitLikeDos(actor, frame);
+	return moveActorToTargetExit(actor, frame);
 }
 
-static bool sendActorToCurrentEntityLikeDos(Actor *actor) {
-	return sendActorToEntityByTypeLikeDos(actor, Log.currentEntityId(), Log.gameState());
+static bool sendActorToCurrentScriptEntity(Actor *actor) {
+	return sendActorToScriptEntityByType(actor, Log.currentEntityId(), Log.gameState());
 }
 
-static void clearVideoAndPushToScreenLikeDos(Graphics *graphics) {
+static void clearVideoAndPushToScreen(Graphics *graphics) {
 	if (!graphics)
 		return;
 	graphics->clearFramebuffer();
 	graphics->updateScreen();
 }
 
-static void reloadLoadedBackdropLikeDos(Graphics *graphics) {
+static void reloadLoadedBackdrop(Graphics *graphics) {
 	if (!graphics)
 		return;
 	const uint16 id = Log.loadedBackdropId();
@@ -663,7 +663,7 @@ static bool showFormattedModalTextAndWait(const Logic::FormattedBubble &fb,
 	const uint16 length = uint16(visible.size());
 	if (Log.modalState().paletteMode != 0) {
 		Log.modalState().activeText = visible;
-		Graf.showVerbBubbleTextLikeDos(Log.modalState().paletteMode, out, MAX<uint16>(1, frames));
+		Graf.showVerbBubbleText(Log.modalState().paletteMode, out, MAX<uint16>(1, frames));
 		return false;
 	}
 	Graf.say(out, length, MAX<uint16>(1, frames));
@@ -702,7 +702,7 @@ static bool formattedTextHasMenuOptions(const Common::String &text) {
 	return false;
 }
 
-static bool formattedTextIsPureChoiceListLikeDos(const Common::String &text) {
+static bool formattedTextIsPureChoiceList(const Common::String &text) {
 	bool sawChoice = false;
 	for (uint i = 0; i < text.size();) {
 		const byte ch = byte(text[i++]);
@@ -753,23 +753,23 @@ static uint16 modalChoiceLineWidth(const Common::String &text) {
 	return width;
 }
 
-struct RawModalChoiceLikeDos {
+struct RawModalChoice {
 	Common::Array<byte> line;
 	uint16 target;
 	bool terminal;
 
-	RawModalChoiceLikeDos() : target(0xffff), terminal(false) {}
+	RawModalChoice() : target(0xffff), terminal(false) {}
 };
 
-static bool runFormattedChoiceModalLikeDos(const Logic::FormattedBubble &fb,
-										   uint16 rows, uint16 *selectedIndex, uint16 &target);
+static bool runFormattedChoiceModal(const Logic::FormattedBubble &fb,
+									uint16 rows, uint16 *selectedIndex, uint16 &target);
 static void seedFormattedModalState(Logic::ModalState &ms,
 									const Logic::FormattedBubble &fb, uint16 menuValue, uint16 rows,
 									uint8 paletteMode, uint8 stashFlag);
 
-static bool appendRawModalChoicesLikeDos(const byte *src, Common::Array<byte> &encoded,
-										 Common::Array<RawModalChoiceLikeDos> &rawChoices, uint16 &choiceCount,
-										 uint16 &maxTextWidth) {
+static bool appendRawModalChoices(const byte *src, Common::Array<byte> &encoded,
+								  Common::Array<RawModalChoice> &rawChoices, uint16 &choiceCount,
+								  uint16 &maxTextWidth) {
 	// LayoutVerbBubbleText_Right/Left @ 1000:8cb0/8d1e read a raw list
 	// of entries: one optional condition marker, NUL-terminated text, then
 	// a 16-bit branch target. 0xff terminates the list. HandleVerbButton_
@@ -837,7 +837,7 @@ static bool appendRawModalChoicesLikeDos(const byte *src, Common::Array<byte> &e
 			encoded.push_back('\r');
 		encoded.push_back(kStringMenuOption);
 		Common::String label;
-		RawModalChoiceLikeDos rawChoice;
+		RawModalChoice rawChoice;
 		rawChoice.target = target;
 		rawChoice.terminal = lineLen != 0 && line[0] == 0x04;
 		for (uint i = 0; i < lineLen; ++i) {
@@ -861,23 +861,23 @@ static bool appendRawModalChoicesLikeDos(const byte *src, Common::Array<byte> &e
 	return true;
 }
 
-static uint16 runEncodedChoiceModalLikeDos(const byte *encoded,
-										   uint16 choiceCount, uint16 maxTextWidth, uint16 *selectedIndex) {
+static uint16 runEncodedChoiceModal(const byte *encoded,
+									uint16 choiceCount, uint16 maxTextWidth, uint16 *selectedIndex) {
 	(void)choiceCount;
 	(void)maxTextWidth;
-	return Graf.askVerbBubbleLikeDos(Log.modalState().paletteMode,
-									 const_cast<byte *>(encoded), selectedIndex);
+	return Graf.askVerbBubble(Log.modalState().paletteMode,
+							  const_cast<byte *>(encoded), selectedIndex);
 }
 
-static bool runRawChoiceListModalLikeDos(const byte *src, uint16 *selectedIndex, uint16 &target) {
+static bool runRawChoiceListModal(const byte *src, uint16 *selectedIndex, uint16 &target) {
 	Common::Array<byte> encoded;
-	Common::Array<RawModalChoiceLikeDos> rawChoices;
+	Common::Array<RawModalChoice> rawChoices;
 	uint16 choiceCount = 0;
 	uint16 maxTextWidth = 0;
-	if (!appendRawModalChoicesLikeDos(src, encoded, rawChoices, choiceCount, maxTextWidth))
+	if (!appendRawModalChoices(src, encoded, rawChoices, choiceCount, maxTextWidth))
 		return false;
 
-	target = runEncodedChoiceModalLikeDos(&encoded[0], choiceCount, maxTextWidth, selectedIndex);
+	target = runEncodedChoiceModal(&encoded[0], choiceCount, maxTextWidth, selectedIndex);
 	if (!selectedIndex || *selectedIndex == 0xffff || *selectedIndex >= rawChoices.size()) {
 		debugC(1, kDebugLevelScript, "raw modal choice cancelled");
 		target = 0xffff;
@@ -885,7 +885,7 @@ static bool runRawChoiceListModalLikeDos(const byte *src, uint16 *selectedIndex,
 	}
 
 	const uint16 rawSelectedIndex = *selectedIndex;
-	const RawModalChoiceLikeDos &choice = rawChoices[rawSelectedIndex];
+	const RawModalChoice &choice = rawChoices[rawSelectedIndex];
 	if (choice.terminal) {
 		target = choice.target;
 		debugC(1, kDebugLevelScript, "raw modal terminal choice selected index=%u target=0x%04x",
@@ -903,7 +903,7 @@ static bool runRawChoiceListModalLikeDos(const byte *src, uint16 *selectedIndex,
 
 	uint16 nestedIndex = 0xffff;
 	uint16 nestedTarget = 0xffff;
-	if (runFormattedChoiceModalLikeDos(fb, fb.rowCount, &nestedIndex, nestedTarget)) {
+	if (runFormattedChoiceModal(fb, fb.rowCount, &nestedIndex, nestedTarget)) {
 		*selectedIndex = (nestedIndex == 0xffff) ? rawSelectedIndex : nestedIndex;
 		target = (nestedTarget == 0xffff) ? choice.target : nestedTarget;
 		if (fb.truncated)
@@ -924,23 +924,23 @@ static bool runRawChoiceListModalLikeDos(const byte *src, uint16 *selectedIndex,
 	return true;
 }
 
-static bool runFormattedChoiceModalLikeDos(const Logic::FormattedBubble &fb,
-										   uint16 rows, uint16 *selectedIndex, uint16 &target) {
+static bool runFormattedChoiceModal(const Logic::FormattedBubble &fb,
+									uint16 rows, uint16 *selectedIndex, uint16 &target) {
 	Common::String visible = stripFormattedRowCenterRecords(fb);
 	if (!formattedTextHasMenuOptions(visible))
 		return false;
 
-	if (!formattedTextIsPureChoiceListLikeDos(visible)) {
-		target = Graf.askVerbBubbleTextLikeDos(Log.modalState().paletteMode,
-											   reinterpret_cast<const byte *>(visible.c_str()), selectedIndex);
+	if (!formattedTextIsPureChoiceList(visible)) {
+		target = Graf.askVerbBubbleText(Log.modalState().paletteMode,
+										reinterpret_cast<const byte *>(visible.c_str()), selectedIndex);
 		debugC(1, kDebugLevelScript, "inline formatted modal choice selected index=%u target=0x%04x",
 			   selectedIndex ? *selectedIndex : 0xffff, target);
 		return true;
 	}
 
 	const uint16 widthPixels = uint16(fb.maxLineWidth + 0x40);
-	target = runEncodedChoiceModalLikeDos(reinterpret_cast<const byte *>(visible.c_str()), MAX<uint16>(1, rows),
-										  widthPixels, selectedIndex);
+	target = runEncodedChoiceModal(reinterpret_cast<const byte *>(visible.c_str()), MAX<uint16>(1, rows),
+								   widthPixels, selectedIndex);
 	debugC(1, kDebugLevelScript, "formatted modal choice selected index=%u target=0x%04x",
 		   selectedIndex ? *selectedIndex : 0xffff, target);
 	return true;
@@ -955,7 +955,7 @@ static void finishVerbModalLoopState(Logic::ModalState &ms) {
 	ms.paletteMode = 0;
 	ms.textContinuationPtr = 0;
 	ms.menuDone = false;
-	Log.lockCursorAndButtonsLikeDos(Log.lockedCursorPositionLikeDos(), 0);
+	Log.lockCursorAndButtons(Log.lockedCursorPosition(), 0);
 	Log.setLogicDirty();
 }
 
@@ -1230,7 +1230,7 @@ OPCODE(0x17) {
 	// errors on id 0; it does not check against the loaded exit count.
 	debugC(1, kDebugLevelScript, "opcode 0x17: if exit %s exists", +a[0]);
 	uint16 room = 0;
-	if (!_logic->blockProgram() || !_logic->blockProgram()->getExitRoomWordLikeDos(uint16(a[0]), room)) {
+	if (!_logic->blockProgram() || !_logic->blockProgram()->getExitRoomWord(uint16(a[0]), room)) {
 		Log.setPendingError(0x14);
 		return kThxBye;
 	}
@@ -1261,7 +1261,7 @@ OPCODE(0x1a) {
 	// Body runs when exit room == 0.
 	debugC(1, kDebugLevelScript, "opcode 0x1a: if exit %s missing", +a[0]);
 	uint16 room = 0;
-	if (!_logic->blockProgram() || !_logic->blockProgram()->getExitRoomWordLikeDos(uint16(a[0]), room)) {
+	if (!_logic->blockProgram() || !_logic->blockProgram()->getExitRoomWord(uint16(a[0]), room)) {
 		Log.setPendingError(0x14);
 		return kThxBye;
 	}
@@ -1456,7 +1456,7 @@ OPCODE(0x41) {
 	debugC(2, kDebugLevelScript, "opcode 0x41: protag says %s", +a[0]);
 	Actor *protag = Log.protagonist();
 	const SpeechDeferResult speechWait =
-		deferMainSpeechNoTargetUntilReadyLikeDos(protag, current);
+		deferMainSpeechNoTargetUntilReady(protag, current);
 	if (speechWait == kSpeechWaitError)
 		return kThxBye;
 	if (speechWait == kSpeechWait)
@@ -1474,7 +1474,7 @@ OPCODE(0x43) {
 	if (actorId == Log.protagonistId()) {
 		Actor *protag = Log.protagonist();
 		if (!Log.inStatusMode()) {
-			const SpeechDeferResult speechSlotWait = waitForActiveSpeechSlotOwnerLikeDos(actorId, current);
+			const SpeechDeferResult speechSlotWait = waitForActiveSpeechSlotOwner(actorId, current);
 			if (speechSlotWait == kSpeechWaitError)
 				return kThxBye;
 			if (speechSlotWait == kSpeechWait)
@@ -1491,7 +1491,7 @@ OPCODE(0x43) {
 		return kThxBye;
 	}
 
-	const SpeechDeferResult speechSlotWait = waitForActiveSpeechSlotOwnerLikeDos(actorId, current);
+	const SpeechDeferResult speechSlotWait = waitForActiveSpeechSlotOwner(actorId, current);
 	if (speechSlotWait == kSpeechWaitError)
 		return kThxBye;
 	if (speechSlotWait == kSpeechWait)
@@ -1505,7 +1505,7 @@ OPCODE(0x43) {
 	if (speechWait == kSpeechWait)
 		return kReturn;
 	speakOrSubtitle(ac, text);
-	Log.stashUiTextSpeechSlotForOwnerLikeDos(actorId);
+	Log.stashUiTextSpeechSlotForOwner(actorId);
 	return kThxBye;
 }
 
@@ -1543,12 +1543,12 @@ OPCODE(0x4a) {
 	}
 	debugC(2, kDebugLevelScript, "opcode 0x4a: wait protag silent (status=%d)", Log.inStatusMode() ? 1 : 0);
 	if (Log.inStatusMode()) {
-		if (waitForSubtitleLikeDos(next))
+		if (waitForSubtitle(next))
 			return kReturn;
 		Log.runLaterWithCurrentMode(next, 0);
 		return kReturn;
 	}
-	if (waitForSpeechSlotOwnerLikeDos(Log.protagonistId(), next))
+	if (waitForSpeechSlotOwner(Log.protagonistId(), next))
 		return kReturn;
 	Log.runLaterWithCurrentMode(next, 0);
 	return kReturn;
@@ -1572,7 +1572,7 @@ OPCODE(0x4b) {
 			return kThxBye;
 		}
 		debugC(2, kDebugLevelScript, "opcode 0x4b: wait actor %u silent", owner);
-		if (waitForSpeechSlotOwnerLikeDos(owner, next))
+		if (waitForSpeechSlotOwner(owner, next))
 			return kReturn;
 		Log.runLaterWithCurrentMode(next, 0);
 		return kReturn;
@@ -1583,7 +1583,7 @@ OPCODE(0x4b) {
 		return kThxBye;
 	}
 	debugC(2, kDebugLevelScript, "opcode 0x4b: wait status subtitle if main id is opcode byte");
-	if (waitForSubtitleLikeDos(next))
+	if (waitForSubtitle(next))
 		return kReturn;
 	Log.runLaterWithCurrentMode(next, 0);
 	return kReturn;
@@ -1663,9 +1663,9 @@ OPCODE(0x55) {
 	debugC(2, kDebugLevelScript, "opcode 0x55: paint prepared '%s' with colour %u at %u:%u",
 		   prepared.c_str(), colour, left, top);
 	if (Log.inStatusMode())
-		_graphics->rememberStatusScreenTextLikeDos(left, top, colour, prepared);
-	_graphics->paintTextOneDirtyLikeDos(left, top, colour,
-										reinterpret_cast<const byte *>(prepared.c_str()));
+		_graphics->rememberStatusScreenText(left, top, colour, prepared);
+	_graphics->paintTextOneDirty(left, top, colour,
+								 reinterpret_cast<const byte *>(prepared.c_str()));
 	if (truncated)
 		Log.setPendingError(0x19);
 	return kThxBye;
@@ -1742,7 +1742,7 @@ static uint8 exitRecordByte(Logic *logic, Exit *exit, uint16 id, uint8 off) {
 	if (off == 6 || off == 7)
 		return wordRecordByte(exit->spriteField(), 6, off);
 	if (off == 0x0a)
-		return exit->noSpriteLikeDos() ? 1 : 0;
+		return exit->noSprite() ? 1 : 0;
 	if (off == 0x0b)
 		return exit->zIndex();
 	return logic->exitField(id, off);
@@ -1777,7 +1777,7 @@ static void writeExitRecordByte(Logic *logic, Exit *exit, uint16 id, uint8 off, 
 		return;
 	}
 	if (off == 0x0a) {
-		exit->setNoSpriteLikeDos(value != 0);
+		exit->setNoSprite(value != 0);
 		return;
 	}
 	if (off == 0x0b) {
@@ -2152,13 +2152,13 @@ OPCODE(0x77) {
 	const uint16 room = uint16(a[0]);
 	debugC(2, kDebugLevelScript, "opcode 0x77: go to room %u frame %u", room, frame);
 	if (Log.inStatusMode()) {
-		Log.restartRoomLikeDos();
+		Log.restartRoom();
 		Log.setLogicDirty();
 		Log.setPaused();
 		return kThxBye;
 	}
-	writeActorRoomTransitionLikeDos(ac, room, frame, frame);
-	requestRoomRestartTailLikeDos(room);
+	writeActorRoomTransition(ac, room, frame, frame);
+	requestRoomRestartTail(room);
 	return kThxBye;
 }
 
@@ -2187,9 +2187,9 @@ OPCODE(0x79) {
 		Log.setPendingError(0x17);
 		return kThxBye;
 	}
-	ac->unregisterLikeDos();
-	placeActorInRoomWithPositionLikeDos(ac, room, frame, frame);
-	initActorFromPuppeteerLikeDos(_logic, ac, id);
+	ac->unregister();
+	placeActorInRoomWithPosition(ac, room, frame, frame);
+	initActorFromPuppeteer(_logic, ac, id);
 	return kThxBye;
 }
 
@@ -2248,12 +2248,12 @@ OPCODE(0x4c) {
 	}
 	debugC(2, kDebugLevelScript, "opcode 0x4c: wait speech/status=%d", Log.inStatusMode() ? 1 : 0);
 	if (Log.inStatusMode()) {
-		if (waitForSubtitleLikeDos(next))
+		if (waitForSubtitle(next))
 			return kReturn;
 		Log.runLaterWithCurrentMode(next, 0);
 		return kReturn;
 	}
-	if (waitForUiTextSlotLikeDos(next))
+	if (waitForUiTextSlot(next))
 		return kReturn;
 	Log.runLaterWithCurrentMode(next, 0);
 	return kReturn;
@@ -2421,7 +2421,7 @@ OPCODE(0x9e) {
 	Log.setPostMoveTargetFrameMirror(frame);
 	if (Actor *ac = Log.protagonist()) {
 		ac->placeIn(ac->room(), frame);
-		initActorFromPuppeteerLikeDos(_logic, ac, Log.protagonistId());
+		initActorFromPuppeteer(_logic, ac, Log.protagonistId());
 	} else {
 		Log.setPendingError(0x17);
 	}
@@ -2448,7 +2448,7 @@ OPCODE(0xab) {
 
 	const uint16 targetFrame = uint16(a[0]);
 	debugC(2, kDebugLevelScript, "opcode 0xab: queue protag exit transition to frame %u", targetFrame);
-	queueExitTransitionLikeDos(ac, targetFrame);
+	queueExitTransition(ac, targetFrame);
 	return kThxBye;
 }
 
@@ -2482,7 +2482,7 @@ OPCODE(0xad) {
 	const uint16 targetFrame = uint16(a[1]);
 	debugC(2, kDebugLevelScript, "opcode 0xad: move actor %u to frame %u next",
 		   actorId, targetFrame);
-	moveActorToTargetExitLikeDos(ac, targetFrame);
+	moveActorToTargetExit(ac, targetFrame);
 	return kThxBye;
 }
 
@@ -2496,7 +2496,7 @@ OPCODE(0xb9) {
 	if (Log.inStatusMode())
 		return kThxBye;
 	const uint16 id = uint16(a[0]);
-	if (dosPositiveIdExceedsMax(id, actorAnimMaxIdLikeDos())) {
+	if (dosPositiveIdExceedsMax(id, actorAnimMaxId())) {
 		Log.setPendingError(0x17);
 		return kThxBye;
 	}
@@ -2514,7 +2514,7 @@ OPCODE(0xb9) {
 
 	CodePointer anim(static_cast<CodePointer &>(a[1]).offset(), Log.blockInterpreter());
 	debugC(2, kDebugLevelScript, "opcode 0xb9: set actor %u block animation to %s", id, +anim);
-	initActorStateLikeDos(ac, anim);
+	initActorState(ac, anim);
 	return kThxBye;
 }
 
@@ -2532,7 +2532,7 @@ OPCODE(0xbc) {
 		return kThxBye;
 	}
 	debugC(2, kDebugLevelScript, "opcode 0xbc: unregister actor %u", id);
-	ac->unregisterLikeDos();
+	ac->unregister();
 	return kThxBye;
 }
 
@@ -2557,7 +2557,7 @@ OPCODE(0xbd) {
 
 	CodePointer p(static_cast<CodePointer &>(a[0]).offset(), Log.mainInterpreter());
 	debugC(2, kDebugLevelScript, "opcode 0xbd: set protagonist animation to %s", +p);
-	initActorStateLikeDos(ac, p);
+	initActorState(ac, p);
 	return kThxBye;
 }
 
@@ -2582,7 +2582,7 @@ OPCODE(0xbe) {
 
 	CodePointer p(static_cast<CodePointer &>(a[0]).offset(), Log.blockInterpreter());
 	debugC(2, kDebugLevelScript, "opcode 0xbe: set protagonist block animation to %s", +p);
-	initActorStateLikeDos(ac, p);
+	initActorState(ac, p);
 	return kThxBye;
 }
 
@@ -2592,7 +2592,7 @@ OPCODE(0xc2) {
 	// offset), current ES (script segment), and locked cursor x/y as
 	// initial position. C++ mirrors this in Logic::_castTable; the cast
 	// renderer state bytes are initialized by castTableRegister.
-	const Common::Point p = Log.lockedCursorPositionLikeDos();
+	const Common::Point p = Log.lockedCursorPosition();
 	const uint16 id = uint16(a[0]);
 	debugC(2, kDebugLevelScript, "opcode 0xc2: RegisterCastEntry id=%u at cursor (%d,%d)",
 		   id, p.x, p.y);
@@ -2629,12 +2629,12 @@ OPCODE(0xc7) {
 	m->setFrameDelay(frameDelay);
 	m->play();
 	delete m;
-	Log.resetMovieGraphicSlotsLikeDos();
+	Log.resetMovieGraphicSlots();
 	if (_graphics) {
 		_graphics->clearFramebuffer();
 		_graphics->willFadein();
 	}
-	reloadLoadedBackdropLikeDos(_graphics);
+	reloadLoadedBackdrop(_graphics);
 	Log.setLogicDirty();
 	return kThxBye;
 }
@@ -2647,7 +2647,7 @@ OPCODE(0xc8) {
 	// Difference from Op_c9 (clarified iter-30): Op_c8 immediately loads
 	// a backdrop image. Op_c9 sets the savegame "current place" id and
 	// only triggers a reload when in status mode.
-	clearVideoAndPushToScreenLikeDos(_graphics);
+	clearVideoAndPushToScreen(_graphics);
 	const uint16 id = uint16(a[0]);
 	MainDat *main = _logic->resources()->mainDat();
 	if (!main || dosPositiveIdExceedsMax(id, main->imagesCount())) {
@@ -2675,7 +2675,7 @@ OPCODE(0xc9) {
 	debugC(2, kDebugLevelScript, "opcode 0xc9: set current place to %u", place);
 	_logic->setCurrentPlace(place);
 	if (Log.inStatusMode()) {
-		clearVideoAndPushToScreenLikeDos(_graphics);
+		clearVideoAndPushToScreen(_graphics);
 		MainDat *main = _logic->resources()->mainDat();
 		if (!main || dosPositiveIdExceedsMax(place, main->imagesCount())) {
 			Log.setPendingError(0x0a);
@@ -3325,7 +3325,7 @@ OPCODE(0x27) {
 	if (Log.stepPending() && Log.cursorMode() == 4) {
 		Actor *protag = Log.protagonist();
 		const MainSpeechTargetResult targetSpeech =
-			speakAsMainAfterOptionalTargetWalkLikeDos(protag, a[0], 0, current);
+			speakAsMainAfterOptionalTargetWalk(protag, a[0], 0, current);
 		if (targetSpeech == kMainSpeechError)
 			return kThxBye;
 		if (targetSpeech == kMainSpeechWait)
@@ -3333,7 +3333,7 @@ OPCODE(0x27) {
 		if (targetSpeech == kMainSpeechDone)
 			return kThxBye;
 		const SpeechDeferResult speechWait =
-			deferMainSpeechNoTargetUntilReadyLikeDos(protag, current);
+			deferMainSpeechNoTargetUntilReady(protag, current);
 		if (speechWait == kSpeechWaitError)
 			return kThxBye;
 		if (speechWait == kSpeechWait)
@@ -3388,7 +3388,7 @@ OPCODE(0x28) {
 		// buffer, and queues one fixed dirty rect after all lines. C++ also
 		// remembers the result because paintInterface() redraws the base
 		// interface every frame, unlike DOS's dirty-rect-presented buffer.
-		if (!_graphics->setStatusOverlayTextLikeDos(text)) {
+		if (!_graphics->setStatusOverlayText(text)) {
 			Log.setPendingError(0x2c);
 			return kThxBye;
 		}
@@ -3408,7 +3408,7 @@ OPCODE(0x29) {
 		debugC(2, kDebugLevelScript,
 			   "opcode 0x29: walk current entity, then place protag room %s frame %s",
 			   +a[0], +a[1]);
-		if (sendActorToCurrentEntityCarryClearLikeDos(Log.protagonist())) {
+		if (sendActorToCurrentEntityCarryClear(Log.protagonist())) {
 			Log.setPostMoveCallback(
 				Logic::PostMoveCallback::kPlaceProtagonistAfterMove,
 				uint16(a[0]),
@@ -3425,7 +3425,7 @@ OPCODE(0x2a) {
 		debugC(2, kDebugLevelScript,
 			   "opcode 0x2a: walk current entity, then place protag room %s frame %s next %s",
 			   +a[0], +a[1], +a[2]);
-		if (sendActorToCurrentEntityCarryClearLikeDos(Log.protagonist())) {
+		if (sendActorToCurrentEntityCarryClear(Log.protagonist())) {
 			Log.setPostMoveCallback(
 				Logic::PostMoveCallback::kPlaceProtagonistAfterMove,
 				uint16(a[0]),
@@ -3572,7 +3572,7 @@ OPCODE(0x38) {
 	// then restores the saved PC.
 	const uint16 sceneId = uint16(a[0]);
 	debugC(2, kDebugLevelScript, "opcode 0x38: switch to scene %u (push)", sceneId);
-	return Log.switchToSceneLikeDos(sceneId, next);
+	return Log.switchToScene(sceneId, next);
 }
 
 // Speech variants (DOS CS:0x3da2..0x3e68). The engine routes everything via
@@ -3586,7 +3586,7 @@ OPCODE(0x3f) {
 	debugC(1, kDebugLevelScript, "opcode 0x3f: main says %s", +a[0]);
 	Actor *protag = Log.protagonist();
 	const MainSpeechTargetResult targetSpeech =
-		speakAsMainAfterOptionalTargetWalkLikeDos(protag, a[0], 0, current);
+		speakAsMainAfterOptionalTargetWalk(protag, a[0], 0, current);
 	if (targetSpeech == kMainSpeechError)
 		return kThxBye;
 	if (targetSpeech == kMainSpeechWait)
@@ -3594,7 +3594,7 @@ OPCODE(0x3f) {
 	if (targetSpeech == kMainSpeechDone)
 		return kThxBye;
 	const SpeechDeferResult speechWait =
-		deferMainSpeechNoTargetUntilReadyLikeDos(protag, current);
+		deferMainSpeechNoTargetUntilReady(protag, current);
 	if (speechWait == kSpeechWaitError)
 		return kThxBye;
 	if (speechWait == kSpeechWait)
@@ -3612,7 +3612,7 @@ OPCODE(0x40) {
 	debugC(1, kDebugLevelScript, "opcode 0x40: main says %s maxLines=%u",
 		   +a[1], maxLines);
 	const MainSpeechTargetResult targetSpeech =
-		speakAsMainAfterOptionalTargetWalkLikeDos(protag, a[1], maxLines, current);
+		speakAsMainAfterOptionalTargetWalk(protag, a[1], maxLines, current);
 	if (targetSpeech == kMainSpeechError)
 		return kThxBye;
 	if (targetSpeech == kMainSpeechWait)
@@ -3620,7 +3620,7 @@ OPCODE(0x40) {
 	if (targetSpeech == kMainSpeechDone)
 		return kThxBye;
 	const SpeechDeferResult speechWait =
-		deferMainSpeechNoTargetUntilReadyLikeDos(protag, current);
+		deferMainSpeechNoTargetUntilReady(protag, current);
 	if (speechWait == kSpeechWaitError)
 		return kThxBye;
 	if (speechWait == kSpeechWait)
@@ -3635,7 +3635,7 @@ OPCODE(0x42) {
 	debugC(1, kDebugLevelScript, "opcode 0x42: main says %s maxLines=%u",
 		   +a[1], maxLines);
 	const SpeechDeferResult speechWait =
-		deferMainSpeechNoTargetUntilReadyLikeDos(protag, current);
+		deferMainSpeechNoTargetUntilReady(protag, current);
 	if (speechWait == kSpeechWaitError)
 		return kThxBye;
 	if (speechWait == kSpeechWait)
@@ -3655,7 +3655,7 @@ OPCODE(0x44) {
 	if (actorId == Log.protagonistId()) {
 		Actor *protag = Log.protagonist();
 		const SpeechDeferResult speechWait =
-			deferMainSpeechNoTargetUntilReadyLikeDos(protag, current);
+			deferMainSpeechNoTargetUntilReady(protag, current);
 		if (speechWait == kSpeechWaitError)
 			return kThxBye;
 		if (speechWait == kSpeechWait)
@@ -3664,7 +3664,7 @@ OPCODE(0x44) {
 		return kThxBye;
 	}
 
-	const SpeechDeferResult speechSlotWait = waitForActiveSpeechSlotOwnerLikeDos(actorId, current);
+	const SpeechDeferResult speechSlotWait = waitForActiveSpeechSlotOwner(actorId, current);
 	if (speechSlotWait == kSpeechWaitError)
 		return kThxBye;
 	if (speechSlotWait == kSpeechWait)
@@ -3678,7 +3678,7 @@ OPCODE(0x44) {
 	if (speechWait == kSpeechWait)
 		return kReturn;
 	speakOrSubtitle(ac, text, maxLines);
-	Log.stashUiTextSpeechSlotForOwnerLikeDos(actorId);
+	Log.stashUiTextSpeechSlotForOwner(actorId);
 	return kThxBye;
 }
 OPCODE(0x45) {
@@ -3758,9 +3758,9 @@ OPCODE(0x4d) {
 	// stash flag is RESET so Op_53 (DrawFixedTextBubbleStashed) takes
 	// its non-stashed branch unless Op_50/0x51 fires in between.
 	const uint16 stash0 = uint16(a[0]);
-	Log.setMenuStashFirstArgLikeDos(stash0);
+	Log.setMenuStashFirstArg(stash0);
 	const uint16 stash1 = uint16(a[1]);
-	Log.setMenuStashSecondArgLikeDos(stash1);
+	Log.setMenuStashSecondArg(stash1);
 	debugC(2, kDebugLevelScript, "opcode 0x4d: stash menu args (%u, %u)", stash0, stash1);
 	// Sync new ModalState.stashFlag (canonical for Op_53's branch).
 	Log.modalState().stashFlag = 0;
@@ -3792,7 +3792,7 @@ OPCODE(0x4e) {
 		   fb.lineCount, fb.totalHeight);
 	uint16 selectedIndex = 0xffff;
 	uint16 target = 0xffff;
-	if (runFormattedChoiceModalLikeDos(fb, fb.rowCount, &selectedIndex, target)) {
+	if (runFormattedChoiceModal(fb, fb.rowCount, &selectedIndex, target)) {
 		ms.selectedItemIdx = selectedIndex;
 		finishVerbModalLoopState(ms);
 		if (fb.truncated)
@@ -3837,7 +3837,7 @@ OPCODE(0x4f) {
 		   text ? reinterpret_cast<const char *>(text) : "(null)", limit);
 	uint16 selectedIndex = 0xffff;
 	uint16 target = 0xffff;
-	if (runFormattedChoiceModalLikeDos(fb, rows, &selectedIndex, target)) {
+	if (runFormattedChoiceModal(fb, rows, &selectedIndex, target)) {
 		ms.selectedItemIdx = selectedIndex;
 		finishVerbModalLoopState(ms);
 		if (fb.truncated)
@@ -3872,7 +3872,7 @@ OPCODE(0x50) {
 		   text ? reinterpret_cast<const char *>(text) : "(null)");
 	uint16 selectedIndex = 0xffff;
 	uint16 target = 0xffff;
-	if (runFormattedChoiceModalLikeDos(fb, fb.rowCount, &selectedIndex, target)) {
+	if (runFormattedChoiceModal(fb, fb.rowCount, &selectedIndex, target)) {
 		ms.selectedItemIdx = selectedIndex;
 		finishVerbModalLoopState(ms);
 		if (fb.truncated)
@@ -3912,7 +3912,7 @@ OPCODE(0x51) {
 		   text ? reinterpret_cast<const char *>(text) : "(null)", limit);
 	uint16 selectedIndex = 0xffff;
 	uint16 target = 0xffff;
-	if (runFormattedChoiceModalLikeDos(fb, rows, &selectedIndex, target)) {
+	if (runFormattedChoiceModal(fb, rows, &selectedIndex, target)) {
 		ms.selectedItemIdx = selectedIndex;
 		finishVerbModalLoopState(ms);
 		if (fb.truncated)
@@ -3957,7 +3957,7 @@ OPCODE(0x52) {
 		   text ? reinterpret_cast<const char *>(text) : "(null)", fb.totalHeight);
 	uint16 selectedIndex = 0xffff;
 	uint16 target = 0xffff;
-	if (runRawChoiceListModalLikeDos(measureText, &selectedIndex, target)) {
+	if (runRawChoiceListModal(measureText, &selectedIndex, target)) {
 		ms.selectedItemIdx = selectedIndex;
 		finishVerbModalLoopState(ms);
 		if (fb.truncated)
@@ -4028,7 +4028,7 @@ OPCODE(0x53) {
 	ms.menuDone = false;
 	uint16 selectedIndex = 0xffff;
 	uint16 target = 0xffff;
-	if (runRawChoiceListModalLikeDos(measureText, &selectedIndex, target)) {
+	if (runRawChoiceListModal(measureText, &selectedIndex, target)) {
 		ms.selectedItemIdx = selectedIndex;
 		finishVerbModalLoopState(ms);
 		if (fb.truncated)
@@ -4561,13 +4561,13 @@ OPCODE(0x78) {
 	debugC(2, kDebugLevelScript, "opcode 0x78: go to room %u frame curr=%u target=%u",
 		   room, frame, target);
 	if (Log.inStatusMode()) {
-		Log.restartRoomLikeDos();
+		Log.restartRoom();
 		Log.setLogicDirty();
 		Log.setPaused();
 		return kThxBye;
 	}
-	writeActorRoomTransitionLikeDos(protag, room, frame, target);
-	requestRoomRestartTailLikeDos(room);
+	writeActorRoomTransition(protag, room, frame, target);
+	requestRoomRestartTail(room);
 	return kThxBye;
 }
 OPCODE(0x7a) {
@@ -4594,11 +4594,11 @@ OPCODE(0x7a) {
 		Log.setPendingError(0x17);
 		return kThxBye;
 	}
-	ac->unregisterLikeDos();
-	placeActorInRoomWithPositionLikeDos(ac, room, frame, target);
-	initActorFromPuppeteerLikeDos(_logic, ac, id);
+	ac->unregister();
+	placeActorInRoomWithPosition(ac, room, frame, target);
+	initActorFromPuppeteer(_logic, ac, id);
 	if (room == Log.currentRoom() && target != frame) {
-		moveActorToTargetExitLikeDos(ac, target);
+		moveActorToTargetExit(ac, target);
 		return kThxBye;
 	}
 	return kThxBye;
@@ -4761,7 +4761,7 @@ OPCODE(0x80) {
 	if (room == 0xffff) {
 		if (!Log.registerObjectExit(id))
 			return kThxBye;
-		Log.clampObjectExitToScreenLikeDos(recordId);
+		Log.clampObjectExitToScreen(recordId);
 		Log.setLogicDirty();
 	}
 	return kThxBye;
@@ -4790,7 +4790,7 @@ OPCODE(0x81) {
 	if (room == 0xffff) {
 		if (!Log.registerObjectExit(id))
 			return kThxBye;
-		Log.clampObjectExitToScreenLikeDos(recordId);
+		Log.clampObjectExitToScreen(recordId);
 		Log.setLogicDirty();
 	}
 	return kThxBye;
@@ -4848,12 +4848,12 @@ OPCODE(0x82) {
 	Log.setObjectRoom(recordB, ra);
 	Log.setObjectPosition(recordA, xb, yb);
 	Log.setObjectPosition(recordB, xa, ya);
-	Log.clampObjectExitToScreenLikeDos(recordB);
-	Log.clampObjectExitToScreenLikeDos(recordA);
+	Log.clampObjectExitToScreen(recordB);
+	Log.clampObjectExitToScreen(recordA);
 	Log.setLogicDirty();
 	return kThxBye;
 }
-static bool hotspotZoneContainsLikeDos(int16 x, int16 y) {
+static bool hotspotZoneContains(int16 x, int16 y) {
 	const Common::Array<Logic::Zone> &zones = Log.zones();
 	for (uint i = 0; i < zones.size(); ++i) {
 		const Logic::Zone &z = zones[i];
@@ -4864,7 +4864,7 @@ static bool hotspotZoneContainsLikeDos(int16 x, int16 y) {
 	return false;
 }
 
-static bool inventoryRegionContainsLikeDos(Common::Point point) {
+static bool inventoryRegionContains(Common::Point point) {
 	return point.x >= 0x80 && point.x < 0x136 && point.y >= 0xa0 && point.y < 0xbf;
 }
 
@@ -4875,7 +4875,7 @@ static SpriteInfo objectPrimarySpriteInfo(uint16 id) {
 	return Log.engine()->resources()->getSpriteInfo(sprite);
 }
 
-static void pauseAndLockCursorLikeDos() {
+static void pauseAndLockCursor() {
 	// DOS PauseAndLockCursor @ 1000:34c2 sets g_flag_paused,
 	// g_flag_misc_1, g_flag_logic_dirty, and clamps the software cursor
 	// bounds to the full playfield.
@@ -4883,7 +4883,7 @@ static void pauseAndLockCursorLikeDos() {
 	Log.setLogicDirty();
 }
 
-static bool handleHotspotInteractionLikeDos(uint16 id, Common::Point point) {
+static bool handleHotspotInteraction(uint16 id, Common::Point point) {
 	// Mirrors the observable state changes of HandleHotspotInteraction
 	// @ 1000:3353 for the object/drag opcodes. The original first checks
 	// the hit-region list, then the active Op_d9 zone list, and only then
@@ -4891,7 +4891,7 @@ static bool handleHotspotInteractionLikeDos(uint16 id, Common::Point point) {
 	if (id == 0)
 		return false;
 
-	if (inventoryRegionContainsLikeDos(point)) {
+	if (inventoryRegionContains(point)) {
 		if (!Log.placeObjectInInventoryAtDosPoint(id, point))
 			return false;
 		return true;
@@ -4899,7 +4899,7 @@ static bool handleHotspotInteractionLikeDos(uint16 id, Common::Point point) {
 
 	const int16 worldX = int16(point.x + Log.cameraX());
 	const int16 worldY = int16(point.y + Log.cameraY());
-	if (!hotspotZoneContainsLikeDos(worldX, worldY))
+	if (!hotspotZoneContains(worldX, worldY))
 		return false;
 
 	if (Log.drawCommandCount() > 0x18 || Log.objectField(id, 0x0d) == 1) {
@@ -4921,10 +4921,10 @@ static bool handleHotspotInteractionLikeDos(uint16 id, Common::Point point) {
 	const int16 targetX = int16(target.position().x);
 	const int16 targetY = int16(target.position().y);
 	const int16 zoneCheckY = int16(targetY + 5 + int16(info.hotTop));
-	if (!hotspotZoneContainsLikeDos(targetX, zoneCheckY))
+	if (!hotspotZoneContains(targetX, zoneCheckY))
 		return false;
 
-	queueExitTransitionLikeDos(protag, frame);
+	queueExitTransition(protag, frame);
 	if (protag->dosFieldWord(0x69) == 0)
 		protag->setDosField(0x67, 5);
 
@@ -4982,7 +4982,7 @@ OPCODE(0x83) {
 	Log.setObjectRoom(a1, room0);
 	Log.setObjectPosition(a1, x0, y0);
 	Log.setObjectRoom(a0, 0);
-	Log.clampObjectExitToScreenLikeDos(a1);
+	Log.clampObjectExitToScreen(a1);
 	Log.setLogicDirty();
 	return kThxBye;
 }
@@ -5055,12 +5055,12 @@ OPCODE(0x87) {
 	//   DI = g_drag_target; RetEmpty; HandleHotspotInteraction;
 	//   if AX != 0 PauseAndLockCursor else pending-error 0x25.
 	const uint16 id = Log.dragTarget();
-	const Common::Point cursor = Log.lockedCursorPositionLikeDos();
-	if (!handleHotspotInteractionLikeDos(id, cursor)) {
+	const Common::Point cursor = Log.lockedCursorPosition();
+	if (!handleHotspotInteraction(id, cursor)) {
 		Log.setPendingError(0x25);
 		return kThxBye;
 	}
-	pauseAndLockCursorLikeDos();
+	pauseAndLockCursor();
 	debugC(2, kDebugLevelScript, "opcode 0x87: drag-target hotspot interaction object %u", id);
 	return kThxBye;
 }
@@ -5086,14 +5086,14 @@ OPCODE(0x88) {
 			return kThxBye;
 		}
 	}
-	const Common::Point cursor = Log.lockedCursorPositionLikeDos();
-	if (!handleHotspotInteractionLikeDos(id, cursor)) {
+	const Common::Point cursor = Log.lockedCursorPosition();
+	if (!handleHotspotInteraction(id, cursor)) {
 		Log.setPendingError(0x25);
 		debugC(2, kDebugLevelScript, "opcode 0x88: hotspot interaction object %u → not registered (pending 0x25)", id);
 		return kThxBye;
 	}
 	if (isDragTarget)
-		pauseAndLockCursorLikeDos();
+		pauseAndLockCursor();
 	else
 		Log.setLogicDirty();
 	debugC(2, kDebugLevelScript, "opcode 0x88: hotspot interaction object %u (drag=%u) → hit", id, Log.dragTarget());
@@ -5115,7 +5115,7 @@ OPCODE(0x89) {
 	Log.setObjectRoom(id, room);
 	Log.setObjectPosition(id, -1, -1);
 	if (id == Log.dragTarget())
-		pauseAndLockCursorLikeDos();
+		pauseAndLockCursor();
 	return kThxBye;
 }
 OPCODE(0x8a) {
@@ -5130,15 +5130,15 @@ OPCODE(0x8a) {
 			return kThxBye;
 		}
 	} else {
-		point = Log.lockedCursorPositionLikeDos();
+		point = Log.lockedCursorPosition();
 	}
-	if (!handleHotspotInteractionLikeDos(id, point)) {
+	if (!handleHotspotInteraction(id, point)) {
 		Log.setPendingError(0x25);
 		debugC(2, kDebugLevelScript, "opcode 0x8a: hotspot interaction object %u (3-arg) → not registered (pending 0x25)", id);
 		return kThxBye;
 	}
 	if (isDragTarget)
-		pauseAndLockCursorLikeDos();
+		pauseAndLockCursor();
 	else
 		Log.setLogicDirty();
 	debugC(2, kDebugLevelScript, "opcode 0x8a: hotspot interaction object %u (3-arg) → hit", id);
@@ -5456,7 +5456,7 @@ OPCODE(0x98) {
 				int16(targetFrame.position().x) <= int16(protag->position().x);
 			protag->setDosField(0x66, destinationIsLeft ? 1 : 0);
 		}
-		protag->clearMoveQueueLikeDos();
+		protag->clearMoveQueue();
 	}
 	// Restore post-move callback record.
 	Log.setPostMoveCallback(b.savedCallback);
@@ -5493,7 +5493,7 @@ OPCODE(0x9f) {
 		return kThxBye;
 	}
 	ac->placeIn(ac->room(), frame);
-	initActorStateLikeDos(ac, anim);
+	initActorState(ac, anim);
 	return kThxBye;
 }
 OPCODE(0xa0) {
@@ -5509,7 +5509,7 @@ OPCODE(0xa0) {
 		return kThxBye;
 	}
 	ac->placeIn(ac->room(), frame);
-	initActorStateLikeDos(ac, anim);
+	initActorState(ac, anim);
 	return kThxBye;
 }
 OPCODE(0xa1) {
@@ -5531,7 +5531,7 @@ OPCODE(0xa1) {
 	debugC(2, kDebugLevelScript, "opcode 0xa1: warp actor %u to frame %u", id, frame);
 	if (Actor *ac = Log.getActor(id)) {
 		ac->placeIn(ac->room(), frame);
-		initActorFromPuppeteerLikeDos(_logic, ac, id);
+		initActorFromPuppeteer(_logic, ac, id);
 	} else {
 		Log.setPendingError(0x17);
 	}
@@ -5561,7 +5561,7 @@ OPCODE(0xa2) {
 		   actorId, frame, +anim);
 	if (Actor *ac = Log.getActor(actorId)) {
 		ac->placeIn(ac->room(), frame);
-		initActorStateLikeDos(ac, anim);
+		initActorState(ac, anim);
 	} else {
 		Log.setPendingError(0x17);
 	}
@@ -5578,7 +5578,7 @@ OPCODE(0xa3) {
 		   actorId, frame, +anim);
 	if (Actor *ac = Log.getActor(actorId)) {
 		ac->placeIn(ac->room(), frame);
-		initActorStateLikeDos(ac, anim);
+		initActorState(ac, anim);
 	} else {
 		Log.setPendingError(0x17);
 	}
@@ -5713,7 +5713,7 @@ OPCODE(0xa8) {
 		targetX = target ? int16(target->position().x) : 0;
 		targetY = target ? int16(target->position().y) : 0;
 	} else {
-		const Common::Point cursor = Log.lockedCursorPositionLikeDos();
+		const Common::Point cursor = Log.lockedCursorPosition();
 		targetX = int16(cursor.x + Log.cameraX());
 		targetY = int16(cursor.y + Log.cameraY());
 	}
@@ -5776,7 +5776,7 @@ OPCODE(0xa9) {
 		targetX = target ? int16(target->position().x) : 0;
 		targetY = target ? int16(target->position().y) : 0;
 	} else {
-		const Common::Point cursor = Log.lockedCursorPositionLikeDos();
+		const Common::Point cursor = Log.lockedCursorPosition();
 		targetX = int16(cursor.x + Log.cameraX());
 		targetY = int16(cursor.y + Log.cameraY());
 	}
@@ -5837,7 +5837,7 @@ OPCODE(0xac) {
 		return kReturn;
 	}
 	const uint16 targetFrame = uint16(a[0]);
-	queueExitTransitionLikeDos(ac, targetFrame);
+	queueExitTransition(ac, targetFrame);
 	const uint16 callback = uint16(a[1]);
 	debugC(2, kDebugLevelScript, "opcode 0xac: queue protag exit transition to frame %u callback %u",
 		   targetFrame, callback);
@@ -5867,7 +5867,7 @@ OPCODE(0xae) {
 		return kReturn;
 	}
 	const uint16 targetFrame = uint16(a[1]);
-	moveActorToTargetExitLikeDos(ac, targetFrame);
+	moveActorToTargetExit(ac, targetFrame);
 	const uint16 cb = uint16(a[2]);
 	debugC(2, kDebugLevelScript, "opcode 0xae: actor %u walk to frame %u + callback %u",
 		   id, targetFrame, cb);
@@ -5893,7 +5893,7 @@ OPCODE(0xaf) {
 		return kReturn;
 	}
 	debugC(2, kDebugLevelScript, "opcode 0xaf: protagonist walk to current entity");
-	sendActorToCurrentEntityLikeDos(ac);
+	sendActorToCurrentScriptEntity(ac);
 	return kThxBye;
 }
 OPCODE(0xb0) {
@@ -5911,7 +5911,7 @@ OPCODE(0xb0) {
 			return kThxBye;
 		return kReturn;
 	}
-	sendActorToCurrentEntityLikeDos(ac);
+	sendActorToCurrentScriptEntity(ac);
 	const uint16 cb = uint16(a[0]);
 	setActorCallbackWord(ac, cb);
 	debugC(2, kDebugLevelScript, "opcode 0xb0: protagonist walk current entity + cb=%u", cb);
@@ -5937,7 +5937,7 @@ OPCODE(0xb1) {
 	}
 	const uint16 targetId = uint16(a[0]);
 	debugC(2, kDebugLevelScript, "opcode 0xb1: protagonist walk to exit %u", targetId);
-	sendActorToEntityByTypeLikeDos(protag, targetId, 1);
+	sendActorToScriptEntityByType(protag, targetId, 1);
 	return kThxBye;
 }
 OPCODE(0xb2) {
@@ -5956,7 +5956,7 @@ OPCODE(0xb2) {
 	}
 	const uint16 targetId = uint16(a[0]);
 	debugC(2, kDebugLevelScript, "opcode 0xb2: protagonist walk to object %u", targetId);
-	sendActorToEntityByTypeLikeDos(protag, targetId, 2);
+	sendActorToScriptEntityByType(protag, targetId, 2);
 	return kThxBye;
 }
 OPCODE(0xb3) {
@@ -5975,7 +5975,7 @@ OPCODE(0xb3) {
 	}
 	const uint16 targetId = uint16(a[0]);
 	debugC(2, kDebugLevelScript, "opcode 0xb3: protagonist walk to actor %u", targetId);
-	sendActorToEntityByTypeLikeDos(protag, targetId, 3);
+	sendActorToScriptEntityByType(protag, targetId, 3);
 	return kThxBye;
 }
 OPCODE(0xb4) {
@@ -5995,7 +5995,7 @@ OPCODE(0xb4) {
 		return kReturn;
 	}
 	debugC(2, kDebugLevelScript, "opcode 0xb4: actor %u walk to current entity", actorId);
-	sendActorToCurrentEntityLikeDos(ac);
+	sendActorToCurrentScriptEntity(ac);
 	return kThxBye;
 }
 OPCODE(0xb5) {
@@ -6021,7 +6021,7 @@ OPCODE(0xb5) {
 	}
 	const uint16 targetId = uint16(a[1]);
 	debugC(2, kDebugLevelScript, "opcode 0xb5: actor %u walk to exit %u", actorId, targetId);
-	sendActorToEntityByTypeLikeDos(actor, targetId, 1);
+	sendActorToScriptEntityByType(actor, targetId, 1);
 	return kThxBye;
 }
 OPCODE(0xb6) {
@@ -6041,7 +6041,7 @@ OPCODE(0xb6) {
 	}
 	const uint16 targetId = uint16(a[1]);
 	debugC(2, kDebugLevelScript, "opcode 0xb6: actor %u walk to object %u", actorId, targetId);
-	sendActorToEntityByTypeLikeDos(actor, targetId, 2);
+	sendActorToScriptEntityByType(actor, targetId, 2);
 	return kThxBye;
 }
 OPCODE(0xb7) {
@@ -6061,7 +6061,7 @@ OPCODE(0xb7) {
 	}
 	const uint16 targetId = uint16(a[1]);
 	debugC(2, kDebugLevelScript, "opcode 0xb7: actor %u walk to actor %u", actorId, targetId);
-	sendActorToEntityByTypeLikeDos(actor, targetId, 3);
+	sendActorToScriptEntityByType(actor, targetId, 3);
 	return kThxBye;
 }
 OPCODE(0xb8) {
@@ -6079,7 +6079,7 @@ OPCODE(0xb8) {
 	if (Log.inStatusMode())
 		return kThxBye;
 	const uint16 id = uint16(a[0]);
-	if (dosPositiveIdExceedsMax(id, actorAnimMaxIdLikeDos())) {
+	if (dosPositiveIdExceedsMax(id, actorAnimMaxId())) {
 		Log.setPendingError(0x17);
 		return kThxBye;
 	}
@@ -6096,7 +6096,7 @@ OPCODE(0xb8) {
 	}
 	CodePointer anim(static_cast<CodePointer &>(a[1]).offset(), Log.mainInterpreter());
 	debugC(2, kDebugLevelScript, "opcode 0xb8: actor %u main animation %s", id, +anim);
-	initActorStateLikeDos(ac, anim);
+	initActorState(ac, anim);
 	return kThxBye;
 }
 OPCODE(0xba) {
@@ -6121,7 +6121,7 @@ OPCODE(0xba) {
 	const int16 destX = int16(uint16(a[2]));
 	const int16 destY = int16(uint16(a[3]));
 	const uint16 initialId = uint16(a[0]);
-	if (dosPositiveIdExceedsMax(initialId, actorAnimMaxIdLikeDos())) {
+	if (dosPositiveIdExceedsMax(initialId, actorAnimMaxId())) {
 		Log.setPendingError(0x17);
 		return kThxBye;
 	}
@@ -6140,7 +6140,7 @@ OPCODE(0xba) {
 	if (Log.inStatusMode())
 		return kThxBye;
 	const uint16 id = uint16(a[0]);
-	if (dosPositiveIdExceedsMax(id, actorAnimMaxIdLikeDos())) {
+	if (dosPositiveIdExceedsMax(id, actorAnimMaxId())) {
 		Log.setPendingError(0x17);
 		return kThxBye;
 	}
@@ -6158,7 +6158,7 @@ OPCODE(0xba) {
 	CodePointer anim(static_cast<CodePointer &>(a[1]).offset(), Log.mainInterpreter());
 	debugC(2, kDebugLevelScript, "opcode 0xba: actor %u raw-position (%d,%d) main animation %s",
 		   id, destX, destY, +anim);
-	initActorStateLikeDos(ac, anim);
+	initActorState(ac, anim);
 	return kThxBye;
 }
 OPCODE(0xbb) {
@@ -6170,7 +6170,7 @@ OPCODE(0xbb) {
 	const int16 destX = int16(uint16(a[2]));
 	const int16 destY = int16(uint16(a[3]));
 	const uint16 initialId = uint16(a[0]);
-	if (dosPositiveIdExceedsMax(initialId, actorAnimMaxIdLikeDos())) {
+	if (dosPositiveIdExceedsMax(initialId, actorAnimMaxId())) {
 		Log.setPendingError(0x17);
 		return kThxBye;
 	}
@@ -6189,7 +6189,7 @@ OPCODE(0xbb) {
 	if (Log.inStatusMode())
 		return kThxBye;
 	const uint16 id = uint16(a[0]);
-	if (dosPositiveIdExceedsMax(id, actorAnimMaxIdLikeDos())) {
+	if (dosPositiveIdExceedsMax(id, actorAnimMaxId())) {
 		Log.setPendingError(0x17);
 		return kThxBye;
 	}
@@ -6207,7 +6207,7 @@ OPCODE(0xbb) {
 	CodePointer anim(static_cast<CodePointer &>(a[1]).offset(), Log.blockInterpreter());
 	debugC(2, kDebugLevelScript, "opcode 0xbb: actor %u raw-position (%d,%d) block animation %s",
 		   id, destX, destY, +anim);
-	initActorStateLikeDos(ac, anim);
+	initActorState(ac, anim);
 	return kThxBye;
 }
 
@@ -6254,7 +6254,7 @@ OPCODE(0xbf) {
 	CodePointer anim(static_cast<CodePointer &>(a[0]).offset(), Log.mainInterpreter());
 	debugC(2, kDebugLevelScript, "opcode 0xbf: protagonist raw-position (%d,%d) main animation %s",
 		   destX, destY, +anim);
-	initActorStateLikeDos(protag, anim);
+	initActorState(protag, anim);
 	return kThxBye;
 }
 
@@ -6292,7 +6292,7 @@ OPCODE(0xc0) {
 	CodePointer anim(static_cast<CodePointer &>(a[0]).offset(), Log.blockInterpreter());
 	debugC(2, kDebugLevelScript, "opcode 0xc0: protagonist raw-position (%d,%d) block animation %s",
 		   destX, destY, +anim);
-	initActorStateLikeDos(protag, anim);
+	initActorState(protag, anim);
 	return kThxBye;
 }
 OPCODE(0xc1) {
@@ -6316,7 +6316,7 @@ OPCODE(0xc1) {
 	if (Log.inStatusMode())
 		return kThxBye;
 	if (Actor *protag = Log.protagonist()) {
-		protag->unregisterLikeDos();
+		protag->unregister();
 		debugC(2, kDebugLevelScript, "opcode 0xc1: UnregisterActor — protagonist script PC cleared");
 	} else {
 		Log.setPendingError(0x17);
@@ -6741,7 +6741,7 @@ OPCODE(0xfa) {
 	// current backdrop target and marking logic dirty.
 	debugC(1, kDebugLevelScript, "opcode 0xfa: save game requested");
 	_engine->saveGameDialog();
-	reloadLoadedBackdropLikeDos(_graphics);
+	reloadLoadedBackdrop(_graphics);
 	Log.setLogicDirty();
 	return kThxBye;
 }
@@ -6752,18 +6752,18 @@ OPCODE(0xfb) {
 	// g_flag_change_room, restores the non-status room backup, then sets
 	// g_break_loop. ScummVM loadGameDialog/loadGameStream performs the
 	// modal load. Engine::loadGameStream mirrors LoadGame_ReadFromDisk's
-	// restore-time slot side effect; Logic::restoreRoomFromBackupLikeDos
+	// restore-time slot side effect; Logic::restoreRoomFromBackup
 	// mirrors RestoreRoomFromBackup's reload/reset tail; kReturn mirrors
 	// the successful g_break_loop path.
 	debugC(1, kDebugLevelScript, "opcode 0xfb: load game requested (ScummVM hotkey to load)");
 	if (_engine->loadGameDialog()) {
 		if (!Log.inStatusMode())
-			Log.restoreRoomFromBackupLikeDos();
+			Log.restoreRoomFromBackup();
 		else
 			Log.setLogicDirty();
 		return kReturn; // DOS sets g_break_loop after a successful load.
 	}
-	reloadLoadedBackdropLikeDos(_graphics);
+	reloadLoadedBackdrop(_graphics);
 	return kThxBye;
 }
 

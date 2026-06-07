@@ -95,9 +95,9 @@ public:
 
 private:
 	bool consumeEscapePress(const Common::Event &event) const;
-	bool applyKeyboardCursorButtonLikeDos(const Common::Event &event);
-	void updateKeyboardCursorDirectionLikeDos(Common::KeyCode keycode, bool pressed);
-	void applyKeyboardCursorMovementLikeDos();
+	bool applyKeyboardCursorButton(const Common::Event &event);
+	void updateKeyboardCursorDirection(Common::KeyCode keycode, bool pressed);
+	void applyKeyboardCursorMovement();
 	void initDosSoundConfig();
 	void resolveDataFilenames();
 	Common::Error loadStartupSaveSlot(int slot);

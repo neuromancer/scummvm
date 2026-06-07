@@ -60,8 +60,8 @@ public:
 	bool isEnabled() const { return _enabled; }
 	void setEnabled(bool en) { _enabled = en; }
 	bool hasSprite() const { return !_noSprite; }
-	bool noSpriteLikeDos() const { return _noSprite; }
-	void setNoSpriteLikeDos(bool noSprite);
+	bool noSprite() const { return _noSprite; }
+	void setNoSprite(bool noSprite);
 	uint16 spriteField() const { return _spriteField; }
 	void setSpriteField(uint16 sprite);
 

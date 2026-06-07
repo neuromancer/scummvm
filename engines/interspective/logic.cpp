@@ -132,15 +132,15 @@ static int16 cameraMaxOrigin(uint16 backdropSize, uint16 viewportSize) {
 	return backdropSize > viewportSize ? int16(backdropSize - viewportSize) : 0;
 }
 
-static void setActorCallbackWordLikeDos(Actor *actor, uint16 callback) {
+static void setActorCallbackWordDirect(Actor *actor, uint16 callback) {
 	if (actor)
 		actor->setDosFieldWord(0x69, callback);
 }
 
-static void moveActorToTargetFrameLikeDos(Logic *logic, Actor *actor, uint16 frame) {
+static void moveActorToTargetFrame(Logic *logic, Actor *actor, uint16 frame) {
 	if (!logic || !actor)
 		return;
-	setActorCallbackWordLikeDos(actor, 0);
+	setActorCallbackWordDirect(actor, 0);
 	if (actor == logic->protagonist()) {
 		logic->setBreakInner(true);
 		logic->clearPostMoveCallback();
@@ -366,7 +366,7 @@ void Logic::setEngine(Engine *e) {
 	_loadedBackdropId = 0;
 	_loadBlockOverrideId = 0xffff;
 	_loadBlockOverrideData.clear();
-	resetActiveActorTableLikeDos();
+	resetActiveActorTable();
 	_roomBackup = RoomBackup();
 	_statusSaveShadow = RoomBackup();
 	_statusSaveOverrideActive = false;
@@ -374,7 +374,7 @@ void Logic::setEngine(Engine *e) {
 		_dirtyObjectPlacements[i] = DirtyObjectPlacement();
 }
 
-bool Logic::speechWouldConsumeRightClickLikeDos() const {
+bool Logic::speechWouldConsumeRightClick() const {
 	for (uint i = 0; i < _speechSlots.size(); ++i) {
 		const SpeechSlot &slot = _speechSlots[i];
 		if (slot.framesLeft == 0 || slot.active == 0)
@@ -385,7 +385,7 @@ bool Logic::speechWouldConsumeRightClickLikeDos() const {
 	return false;
 }
 
-bool Logic::setVerbModeFromHitRegionLikeDos(uint16 hitRegion) {
+bool Logic::setVerbModeFromHitRegion(uint16 hitRegion) {
 	if (_fullscreenGateActive || _cursorMode == 0x20)
 		return false;
 
@@ -421,20 +421,20 @@ bool Logic::setVerbModeFromHitRegionLikeDos(uint16 hitRegion) {
 	return true;
 }
 
-void Logic::activateStatusButtonHotkeyLikeDos() {
+void Logic::activateStatusButtonHotkey() {
 	// CheckVerbHotkey @ 1000:b9bc maps Space to hit-region 2, and
 	// DispatchVerbAction @ 1000:b9a0 sends region 2 to RunStatusScreenLoop.
 	// In the status loop, the same region exits through RestoreRoomFromBackup.
 	_hitTarget = 2;
 	if (_inStatusMode) {
 		_stepPending = true;
-		restoreRoomFromBackupLikeDos();
+		restoreRoomFromBackup();
 	} else {
-		enterStatusScreenLoopLikeDos();
+		enterStatusScreenLoop();
 	}
 }
 
-void Logic::cycleCursorModeByRightClickLikeDos() {
+void Logic::cycleCursorModeByRightClick() {
 	// CheckDoubleClickReset @ 1000:b92c: when not no-step, not dragging,
 	// and the locked button byte is 2, cycle through the verb cursor modes
 	// and clear step-pending via SetCursorMode. RunStatusScreenLoop calls
@@ -443,7 +443,7 @@ void Logic::cycleCursorModeByRightClickLikeDos() {
 		return;
 	if (_rightClickCycleCooldown != 0)
 		return;
-	if (speechWouldConsumeRightClickLikeDos())
+	if (speechWouldConsumeRightClick())
 		return;
 
 	uint16 nextMode = _defaultCursorMode;
@@ -476,7 +476,7 @@ void Logic::cycleCursorModeByRightClickLikeDos() {
 	_rightClickCycleCooldown = 4;
 }
 
-uint16 Logic::updateAutoCloseTimerSpriteLikeDos() {
+uint16 Logic::updateAutoCloseTimerSprite() {
 	// UpdateAutoCloseTimer @ 1000:7a2b:
 	//   if room_active && g_auto_close_timer != 0, choose CS:[0xc9] for
 	//   positive values and the first negative tick, choose CS:[0xcb] for
@@ -510,7 +510,7 @@ void Logic::initCode() {
 
 void Logic::tick() {
 	++_frameCounter;
-	tickRightClickCycleCooldownLikeDos();
+	tickRightClickCycleCooldown();
 
 	if (_nextRoom)
 		doChangeRoom();
@@ -551,7 +551,7 @@ void Logic::runPostAnimationScripts() {
 	// RunStatusScreenLoop is a separate modal loop: it services status-mode room
 	// scripts, but does not run the normal game post-move/global/room loops.
 	if (_inStatusMode) {
-		runStatusScreenScriptsLikeDos();
+		runStatusScreenScripts();
 		if (handleEscDuringScript())
 			return;
 		tickMotionText();
@@ -564,7 +564,7 @@ void Logic::runPostAnimationScripts() {
 	runRoomLoop();
 	if (handleEscDuringScript())
 		return;
-	runItemRoomScriptSlotLikeDos();
+	runItemRoomScriptSlot();
 	if (handleEscDuringScript())
 		return;
 	tickMotionText();
@@ -581,12 +581,12 @@ void Logic::callAnimations() {
 				++it;
 				continue;
 			}
-			if (!activeActorLikeDos(actorGlobalId(actor))) {
+			if (!activeActor(actorGlobalId(actor))) {
 				// DOS room-script slots are checked before actor animation
 				// updates and are independent of the active actor render table.
 				// An ActorOp_02 unregister therefore must still be able to
 				// release a pending Op_9a/0x99 wait on the next frame.
-				actor->processWaitCallbacksLikeDos();
+				actor->processWaitCallbacks();
 				++it;
 				continue;
 			}
@@ -610,18 +610,18 @@ void Logic::clearRoomTransientAnimations() {
 	}
 }
 
-void Logic::resetActiveActorTableLikeDos() {
+void Logic::resetActiveActorTable() {
 	_activeActorIds.clear();
 	_activeActorIds.resize(kActiveActorTableSlots);
 	for (uint i = 0; i < _activeActorIds.size(); ++i)
 		_activeActorIds[i] = 0;
 }
 
-bool Logic::registerActiveActorLikeDos(uint16 id) {
+bool Logic::registerActiveActor(uint16 id) {
 	if (id == 0)
 		return false;
 	if (_activeActorIds.size() != kActiveActorTableSlots)
-		resetActiveActorTableLikeDos();
+		resetActiveActorTable();
 	for (uint i = 0; i < _activeActorIds.size(); ++i)
 		if (_activeActorIds[i] == id)
 			return true;
@@ -635,20 +635,20 @@ bool Logic::registerActiveActorLikeDos(uint16 id) {
 	return false;
 }
 
-void Logic::unregisterActiveActorLikeDos(uint16 id) {
+void Logic::unregisterActiveActor(uint16 id) {
 	for (uint i = 0; i < _activeActorIds.size(); ++i)
 		if (_activeActorIds[i] == id)
 			_activeActorIds[i] = 0;
 }
 
-bool Logic::activeActorLikeDos(uint16 id) const {
+bool Logic::activeActor(uint16 id) const {
 	for (uint i = 0; i < _activeActorIds.size(); ++i)
 		if (_activeActorIds[i] == id)
 			return true;
 	return false;
 }
 
-void Logic::registerCurrentRoomActorsLikeDos() {
+void Logic::registerCurrentRoomActors() {
 	if (!_resources || !_resources->mainDat())
 		return;
 
@@ -658,8 +658,8 @@ void Logic::registerCurrentRoomActorsLikeDos() {
 		Actor *const actor = _resources->mainDat()->actor(i);
 		if (!actor || actor->room() != _currentRoom || actor->dosFieldWord(Actor::kOffsetOffset) == 0)
 			continue;
-		registerActiveActorLikeDos(id);
-		actor->prepareRoomEntryActiveActorLikeDos();
+		registerActiveActor(id);
+		actor->prepareRoomEntryActiveActor();
 	}
 
 	if (!_blockProgram)
@@ -671,12 +671,12 @@ void Logic::registerCurrentRoomActorsLikeDos() {
 		Actor *const actor = _blockProgram->actor(i);
 		if (!actor || actor->room() != _currentRoom || actor->dosFieldWord(Actor::kOffsetOffset) == 0)
 			continue;
-		registerActiveActorLikeDos(id);
-		actor->prepareRoomEntryActiveActorLikeDos();
+		registerActiveActor(id);
+		actor->prepareRoomEntryActiveActor();
 	}
 }
 
-void Logic::refreshCurrentRoomActorFramesLikeDos() {
+void Logic::refreshCurrentRoomActorFrames() {
 	// DOS DrawActors @ 1000:6cca walks the active actor table every pass:
 	// if actor.field+0x61 is nonzero it calls SetActorPosition, then starts
 	// MoveActorToTargetExit when field+0x62 differs. C++ keeps the actor path
@@ -712,7 +712,7 @@ uint16 Logic::dosRecordField(uint8 selector, uint16 id, uint8 off, uint8 size) c
 		else if (off == 6 || off == 7)
 			lo = dosWordByte(exit->spriteField(), 6, off);
 		else if (off == 0x0a)
-			lo = exit->noSpriteLikeDos() ? 1 : 0;
+			lo = exit->noSprite() ? 1 : 0;
 		else if (off == 0x0b)
 			lo = exit->zIndex();
 		else
@@ -797,7 +797,7 @@ void Logic::setDosRecordField(uint8 selector, uint16 id, uint8 off, uint8 size, 
 			} else if (byteOff == 6 || byteOff == 7)
 				exit->setSpriteField(dosWordWithByte(exit->spriteField(), 6, byteOff, byteValue));
 			else if (byteOff == 0x0a)
-				exit->setNoSpriteLikeDos(byteValue != 0);
+				exit->setNoSprite(byteValue != 0);
 			else if (byteOff == 0x0b)
 				exit->setZIndex(byteValue);
 			else
@@ -1036,7 +1036,7 @@ void Logic::updateScrollPosition() {
 	_scrollChanged = oldX != _cameraX || oldY != _cameraY;
 }
 
-void Logic::centerCameraOnProtagonistLikeDos() {
+void Logic::centerCameraOnProtagonist() {
 	// CenterCameraOnActor @ 1000:742c runs after the room script and before
 	// DrawActors. It only runs while input is enabled, and centers from the
 	// protagonist's current frame table entry, not the actor's raw x/y.
@@ -1072,7 +1072,7 @@ void Logic::centerCameraOnProtagonistLikeDos() {
 void Logic::changeRoom(uint16 newRoom) {
 	// ApplyChangeRoomTransition first stores g_current_location = AX and
 	// then flushes the five pending PlaceObjectInRoom slots into that room.
-	flushDirtyObjectPlacementsLikeDos(newRoom);
+	flushDirtyObjectPlacements(newRoom);
 
 	// DOS ApplyChangeRoomTransition restores g_cursor_mode from DS:0x667a
 	// after the Op_cc fullscreen gate, before the restart-room pass clears
@@ -1085,7 +1085,7 @@ void Logic::changeRoom(uint16 newRoom) {
 	// screen black for the restart-room pass.
 	Graphics *graphics = _engine ? _engine->graphics() : 0;
 	if (_currentRoom != 0xffff && _opcodeMode != 0 && graphics && !graphics->inFade())
-		graphics->applyRoomChangeWipeLikeDos();
+		graphics->applyRoomChangeWipe();
 
 	// just schedule it, we'll execute on next tick
 	_nextRoom = newRoom;
@@ -1097,7 +1097,7 @@ void Logic::changeRoom(uint16 newRoom) {
 		doChangeRoom(); // except if it's the first one
 }
 
-void Logic::restartRoomLikeDos() {
+void Logic::restartRoom() {
 	if (_currentRoom == 0xffff)
 		return;
 	_nextRoom = _currentRoom;
@@ -1127,7 +1127,7 @@ void Logic::doChangeRoom() {
 	// room script. Mirror the modeled pieces here for every room change,
 	// not only block changes.
 	clearRoomTransientAnimations();
-	resetActiveActorTableLikeDos();
+	resetActiveActorTable();
 	castTableClearAll();
 	_overlayQueue.clear();
 	clearDrawCommands();
@@ -1161,7 +1161,7 @@ void Logic::doChangeRoom() {
 	_motionTextTicks = 0;
 	// DOS restart-room calls RecycleStaleSpeechSlots @ 1000:996c, which
 	// clears slots whose owner was marked 0xffff by cutscene backup.
-	recycleStaleSpeechSlotsLikeDos();
+	recycleStaleSpeechSlots();
 	if (_engine && _engine->graphics())
 		_engine->graphics()->clearSpeech();
 
@@ -1239,7 +1239,7 @@ void Logic::doChangeRoom() {
 	}
 
 	cancelDeferredScriptsForInterpreter(_blockInterpreter.get());
-	registerCurrentRoomActorsLikeDos();
+	registerCurrentRoomActors();
 
 	_room = Common::SharedPtr<Room>(new Room(this));
 	const uint16 roomHandler = _blockProgram->roomHandler(_currentRoom);
@@ -1268,7 +1268,7 @@ void Logic::doChangeRoom() {
 		}
 	}
 
-	centerCameraOnProtagonistLikeDos();
+	centerCameraOnProtagonist();
 
 	// (iter-27's unconditional `_protagonist->forceRoom(_currentRoom)`
 	// removed iter-36 — it caused the protagonist sprite to be rendered
@@ -1279,13 +1279,13 @@ void Logic::doChangeRoom() {
 	// shortcut fires — matching what the skipped intro animation would
 	// have done.)
 
-	refreshCurrentRoomActorFramesLikeDos();
+	refreshCurrentRoomActorFrames();
 
 	if (changedBlock)
-		restartBlockAudioLikeDos();
+		restartBlockAudio();
 }
 
-void Logic::queueDirtyObjectPlacementLikeDos(uint16 objId, int16 x, int16 y) {
+void Logic::queueDirtyObjectPlacement(uint16 objId, int16 x, int16 y) {
 	const int16 height = int16(objectField(objId, 0x11));
 	const int16 currentX = getObjectPosX(objId);
 	const int16 currentYMinusHeight = int16(getObjectPosY(objId) - height);
@@ -1313,7 +1313,7 @@ void Logic::queueDirtyObjectPlacementLikeDos(uint16 objId, int16 x, int16 y) {
 	setLogicDirty();
 }
 
-void Logic::flushDirtyObjectPlacementsLikeDos(uint16 room) {
+void Logic::flushDirtyObjectPlacements(uint16 room) {
 	for (uint i = 0; i < ARRAYSIZE(_dirtyObjectPlacements); ++i) {
 		DirtyObjectPlacement &slot = _dirtyObjectPlacements[i];
 		if (slot.objId == 0)
@@ -1330,7 +1330,7 @@ void Logic::flushDirtyObjectPlacementsLikeDos(uint16 room) {
 	}
 }
 
-void Logic::paintDirtyObjectPlacementsLikeDos(Graphics *graphics, int16 layer) {
+void Logic::paintDirtyObjectPlacements(Graphics *graphics, int16 layer) {
 	if (!graphics)
 		return;
 
@@ -1376,7 +1376,7 @@ void Logic::paintDirtyObjectPlacementsLikeDos(Graphics *graphics, int16 layer) {
 	}
 }
 
-void Logic::refreshObjectSpriteAndExitInfoLikeDos(uint16 objId) {
+void Logic::refreshObjectSpriteAndExitInfo(uint16 objId) {
 	const uint16 sprite = uint16(objectField(objId, 6)) | (uint16(objectField(objId, 7)) << 8);
 	if (sprite == 0xffff)
 		return;
@@ -1415,14 +1415,14 @@ void Logic::refreshObjectSpriteAndExitInfoLikeDos(uint16 objId) {
 	setObjectField(objId, 0x0f, high);
 }
 
-void Logic::restartBlockAudioLikeDos() {
+void Logic::restartBlockAudio() {
 	if (!_engine)
 		return;
 
 	if (_engine->dosMusicEnabled() != 0)
-		Music.restartCurrentLikeDos();
+		Music.restartCurrent();
 	if (Sound *snd = _engine->sound())
-		snd->playQueuedLikeDos();
+		snd->playQueued();
 }
 
 void Logic::runLater(const CodePointer &p, uint16 delay) {
@@ -1447,7 +1447,7 @@ uint16 Logic::deferredQueuedCount() const {
 	return count;
 }
 
-void Logic::syncCodePointerLikeDos(Common::Serializer &s, CodePointer &p) const {
+void Logic::syncCodePointer(Common::Serializer &s, CodePointer &p) const {
 	enum SavedCodeSegment {
 		kSavedCodeNone = 0,
 		kSavedCodeMain = 1,
@@ -1488,7 +1488,7 @@ void Logic::syncCodePointerLikeDos(Common::Serializer &s, CodePointer &p) const 
 	}
 }
 
-void Logic::syncQueuedRunsLikeDos(Common::Serializer &s) {
+void Logic::syncQueuedRuns(Common::Serializer &s) {
 	uint16 count = uint16(_queued.size());
 	s.syncAsUint16LE(count);
 
@@ -1498,7 +1498,7 @@ void Logic::syncQueuedRunsLikeDos(Common::Serializer &s) {
 		_runningQueuedMode = 0;
 		for (uint16 i = 0; i < count; ++i) {
 			CodePointer code;
-			syncCodePointerLikeDos(s, code);
+			syncCodePointer(s, code);
 			uint16 delay = 0;
 			uint16 queuedTick = 0;
 			uint16 runMode = 0;
@@ -1537,7 +1537,7 @@ void Logic::syncQueuedRunsLikeDos(Common::Serializer &s) {
 		uint8 canceled = it->canceled ? 1 : 0;
 		uint8 waitKind = uint8(it->waitKind);
 		uint16 waitParam = it->waitParam;
-		syncCodePointerLikeDos(s, code);
+		syncCodePointer(s, code);
 		s.syncAsUint16LE(delay);
 		s.syncAsUint16LE(queuedTick);
 		s.syncAsUint16LE(runMode);
@@ -1680,7 +1680,7 @@ void Logic::saveSceneFrame(const CodePointer &resumePC) {
 	_savedScene = Common::SharedPtr<SceneFrame>(frame);
 }
 
-CodePointer Logic::switchToSceneLikeDos(uint16 sceneId, const CodePointer &resumePC) {
+CodePointer Logic::switchToScene(uint16 sceneId, const CodePointer &resumePC) {
 	// Op_38 calls LoadRoomLevelHeader, not the normal room-restart path.
 	// Scene scripts live in the second IUC_PROG.DAT entry table
 	// (main footer count0 + scene id) and execute from offset 2 in a
@@ -1736,7 +1736,7 @@ CodePointer Logic::restoreSceneFrame() {
 	return frame.resumePC;
 }
 
-void Logic::captureRoomStateForStatusSaveLikeDos(RoomBackup &dst) const {
+void Logic::captureRoomStateForStatusSave(RoomBackup &dst) const {
 	dst.valid = true;
 	dst.currentBlock = _currentBlock;
 	dst.currentRoom = _currentRoom;
@@ -1780,7 +1780,7 @@ void Logic::captureRoomStateForStatusSaveLikeDos(RoomBackup &dst) const {
 	dst.autoCloseTimer = _autoCloseTimer;
 }
 
-void Logic::applyRoomStateForStatusSaveLikeDos(const RoomBackup &src) {
+void Logic::applyRoomStateForStatusSave(const RoomBackup &src) {
 	_currentBlock = src.currentBlock;
 	_currentRoom = src.currentRoom;
 	_loadedBackdropId = src.loadedBackdropId;
@@ -1822,18 +1822,18 @@ void Logic::applyRoomStateForStatusSaveLikeDos(const RoomBackup &src) {
 		_engine->graphics()->setFullscreen(src.fullscreen);
 }
 
-void Logic::backupRoomForStatusLikeDos() {
+void Logic::backupRoomForStatus() {
 	// RunStatusScreenLoop @ 1000:7695 saves these fields into DS:0x5ed5..0x5ee8,
 	// then snapshots cast, actor, and script state before switching to room 999.
-	captureRoomStateForStatusSaveLikeDos(_roomBackup);
+	captureRoomStateForStatusSave(_roomBackup);
 }
 
-bool Logic::beginStatusSaveSnapshotLikeDos() {
+bool Logic::beginStatusSaveSnapshot() {
 	if (_statusSaveOverrideActive || !_inStatusMode || !_roomBackup.valid)
 		return false;
 
-	captureRoomStateForStatusSaveLikeDos(_statusSaveShadow);
-	applyRoomStateForStatusSaveLikeDos(_roomBackup);
+	captureRoomStateForStatusSave(_statusSaveShadow);
+	applyRoomStateForStatusSave(_roomBackup);
 	_nextRoom = 0;
 	_forceRoomRestart = false;
 	_enteringStatusScreen = false;
@@ -1848,15 +1848,15 @@ bool Logic::beginStatusSaveSnapshotLikeDos() {
 	return true;
 }
 
-void Logic::endStatusSaveSnapshotLikeDos() {
+void Logic::endStatusSaveSnapshot() {
 	if (!_statusSaveOverrideActive)
 		return;
-	applyRoomStateForStatusSaveLikeDos(_statusSaveShadow);
+	applyRoomStateForStatusSave(_statusSaveShadow);
 	_statusSaveShadow = RoomBackup();
 	_statusSaveOverrideActive = false;
 }
 
-void Logic::enterStatusScreenLoopLikeDos() {
+void Logic::enterStatusScreenLoop() {
 	// DispatchVerbAction @ 1000:b9a0 sends hit-region 2 to
 	// RunStatusScreenLoop @ 1000:7695. DOS snapshots the current room state,
 	// switches to special room 999, then lets that room's scripts drive the
@@ -1869,21 +1869,21 @@ void Logic::enterStatusScreenLoopLikeDos() {
 	// DOES allow SPACE to open the status menu during a cutscene (confirmed by
 	// play-testing the DOS build), so do NOT gate on canSkipCutscene/_roomActive
 	// here — that would diverge from the original.
-	if (_fullscreenGateActive || (graphics && graphics->palettePendingLikeDos())) {
+	if (_fullscreenGateActive || (graphics && graphics->palettePending())) {
 		debugC(2, kDebugLevelEvents,
 			   "status screen entry ignored [DOS RunStatusScreenLoop gate: fullscreen=%d palette=%d]",
 			   _fullscreenGateActive ? 1 : 0,
-			   (graphics && graphics->palettePendingLikeDos()) ? 1 : 0);
+			   (graphics && graphics->palettePending()) ? 1 : 0);
 		return;
 	}
 
 	if (_engine)
 		_engine->captureStatusSaveThumbnail();
-	backupRoomForStatusLikeDos();
+	backupRoomForStatus();
 	// The DOS status loop saves the deferred queue/room-script slots, then
 	// services only status-room mode 7 until RestoreScriptStateBackup. Keep the
 	// saved game-room queue out of the live C++ dispatcher while room 999 is
-	// active; restoreRoomFromBackupLikeDos() reinstates it.
+	// active; restoreRoomFromBackup() reinstates it.
 	_queued.clear();
 	_runningQueued = 0;
 	_runningQueuedMode = 0;
@@ -1901,13 +1901,13 @@ void Logic::enterStatusScreenLoopLikeDos() {
 	_nextRoom = 999;
 	_forceRoomRestart = true;
 	if (graphics) {
-		graphics->clearStatusScreenTextLikeDos();
-		graphics->clearBackdropLikeDos();
+		graphics->clearStatusScreenText();
+		graphics->clearBackdrop();
 		graphics->setFullscreen(false);
 	}
 }
 
-void Logic::restoreRoomFromBackupLikeDos() {
+void Logic::restoreRoomFromBackup() {
 	// RestoreRoomFromBackup @ 1000:7886:
 	//   subtitle_frames_left = 0; restore DS:0x5ed5 backup fields; reload
 	//   g_loaded_backdrop_id; RestoreCastBackup; RestoreActorTableBackup;
@@ -1915,7 +1915,7 @@ void Logic::restoreRoomFromBackupLikeDos() {
 	//   step_pending = 0; auto_close_timer = 1; change_room = logic_dirty = 1;
 	//   in_status_mode = 0.
 	if (_engine && _engine->graphics()) {
-		_engine->graphics()->clearStatusScreenTextLikeDos();
+		_engine->graphics()->clearStatusScreenText();
 		_engine->graphics()->clearSpeech();
 	}
 
@@ -2031,9 +2031,9 @@ void Logic::runPostMoveCallbackIfReady() {
 			if (room != _currentRoom)
 				changeRoom(room);
 			else
-				restartRoomLikeDos();
+				restartRoom();
 		} else {
-			restartRoomLikeDos();
+			restartRoom();
 		}
 		setLogicDirty();
 		setPaused();
@@ -2049,11 +2049,11 @@ void Logic::runPostMoveCallbackIfReady() {
 			const int16 oldY = getObjectPosY(cb.cellId);
 			setObjectRoom(cb.cellId, uint16(_currentRoom));
 			setObjectPosition(cb.cellId, int16(cb.arg0), int16(cb.arg1));
-			refreshObjectSpriteAndExitInfoLikeDos(cb.cellId);
+			refreshObjectSpriteAndExitInfo(cb.cellId);
 			setObjectRoom(cb.cellId, oldRoom);
 			setObjectPosition(cb.cellId, oldX, oldY);
 		}
-		queueDirtyObjectPlacementLikeDos(cb.cellId, int16(cb.arg0), int16(cb.arg1));
+		queueDirtyObjectPlacement(cb.cellId, int16(cb.arg0), int16(cb.arg1));
 		setDragTarget(0);
 		setCursorMode(1);
 		setLogicDirty();
@@ -2062,12 +2062,12 @@ void Logic::runPostMoveCallbackIfReady() {
 		// DOS @ 0x9be9: find the protagonist speech slot, mark slot+2
 		// active again, and recompute the bubble reference point from the
 		// actor's current sprite/size fields.
-		activateActorSpeechAfterPostMoveLikeDos(_protagonist);
+		activateActorSpeechAfterPostMove(_protagonist);
 		break;
 	case PostMoveCallback::kBeginDragAfterMove:
 		// DOS @ 0x3297: BeginDrag_AfterRemoveExit with BX=0 after
 		// HandleSecondaryClick walked the protagonist to a room object.
-		beginDragAfterRemoveExitLikeDos(cb.arg0, false);
+		beginDragAfterRemoveExit(cb.arg0, false);
 		break;
 	case PostMoveCallback::kNone:
 	default:
@@ -2122,11 +2122,11 @@ void Logic::movePersonToActor(uint16 id) {
 	// to the locked cursor plus camera origin, matching RetEmpty.
 	const uint16 objRoom = getObjectRoom(id);
 	if (objRoom != _currentRoom && objRoom != 0xffff) {
-		const Common::Point cursor = lockedCursorPositionLikeDos();
+		const Common::Point cursor = lockedCursorPosition();
 		setObjectPosition(id, int16(cursor.x + _cameraX), int16(cursor.y + _cameraY));
 	}
 
-	beginDragAfterRemoveExitLikeDos(id, objRoom == 0xffff);
+	beginDragAfterRemoveExit(id, objRoom == 0xffff);
 }
 
 bool Logic::prepareDragInteraction(uint16 id) {
@@ -2146,7 +2146,7 @@ bool Logic::prepareDragInteraction(uint16 id) {
 	return true;
 }
 
-void Logic::beginDragAfterRemoveExitLikeDos(uint16 id, bool removeExit) {
+void Logic::beginDragAfterRemoveExit(uint16 id, bool removeExit) {
 	const int16 objectX = getObjectPosX(id);
 	const int16 objectY = getObjectPosY(id);
 	if (!prepareDragInteraction(id))
@@ -2180,7 +2180,7 @@ bool Logic::placeObjectInInventoryAtDosPoint(uint16 id, Common::Point screen) {
 
 	setObjectPosition(id, int16(screen.x - 0x80), int16(screen.y - 0xa0));
 	setObjectRoom(id, 0xffff);
-	clampObjectExitToScreenLikeDos(id);
+	clampObjectExitToScreen(id);
 	setCursorMode(1);
 	setDragTarget(0);
 	setLogicDirty();
@@ -2231,7 +2231,7 @@ void Logic::placeObjectExitAtDosPosition(uint16 id, int16 x, int16 y) {
 	const int16 adjustedX = int16(uint16(uint16(x) + uint16(int16(placementInfo.hotLeft))));
 	const int16 adjustedY = int16(uint16(uint16(y) + uint16(int16(placementInfo.hotTop))));
 	setObjectPosition(id, adjustedX, adjustedY);
-	clampObjectExitToScreenLikeDos(id);
+	clampObjectExitToScreen(id);
 
 	const uint16 sprite = uint16(objectField(id, 6)) | (uint16(objectField(id, 7)) << 8);
 	const SpriteInfo info = objectSpriteInfo(_resources, _blockProgram.get(), sprite);
@@ -2240,7 +2240,7 @@ void Logic::placeObjectExitAtDosPosition(uint16 id, int16 x, int16 y) {
 	setLogicDirty();
 }
 
-void Logic::clampObjectExitToScreenLikeDos(uint16 id) {
+void Logic::clampObjectExitToScreen(uint16 id) {
 	if (getObjectRoom(id) != 0xffff)
 		return;
 
@@ -2379,7 +2379,7 @@ bool Logic::sendActorToEntityByType(Actor *walker, uint16 targetId, uint16 entit
 		break;
 	}
 	default: {
-		const Common::Point cursor = lockedCursorPositionLikeDos();
+		const Common::Point cursor = lockedCursorPosition();
 		targetX = int16(cursor.x + _cameraX);
 		targetY = int16(cursor.y + _cameraY);
 		break;
@@ -2389,10 +2389,10 @@ bool Logic::sendActorToEntityByType(Actor *walker, uint16 targetId, uint16 entit
 	const uint16 frame = _room->nearestFrameTo(targetX, targetY);
 	if (frame == 0) {
 		setPendingError(0x31);
-		moveActorToTargetFrameLikeDos(this, walker, walker->frameId());
+		moveActorToTargetFrame(this, walker, walker->frameId());
 		return walker == _protagonist;
 	}
-	moveActorToTargetFrameLikeDos(this, walker, frame);
+	moveActorToTargetFrame(this, walker, frame);
 	return walker == _protagonist;
 }
 
@@ -2596,13 +2596,13 @@ void Logic::castTableDeactivateAnimation(Animation *animation) {
 	}
 }
 
-bool Logic::castEntryActiveLikeDos(uint16 id) const {
+bool Logic::castEntryActive(uint16 id) const {
 	for (uint i = 0; i < _castTable.size(); ++i) {
 		const CastEntry &e = _castTable[i];
 		if (e.active == 0 || e.id != id)
 			continue;
 		if (e.animation)
-			return !e.animation->castWaitCompleteLikeDos();
+			return !e.animation->castWaitComplete();
 		if (READ_LE_UINT16(e.raw + 2) == 0 && e.interpreter) {
 			const uint16 scriptOffset = uint16(READ_LE_UINT16(e.raw + 4) + id);
 			byte *script = e.interpreter->rawCode(scriptOffset);
@@ -3091,7 +3091,7 @@ void Logic::runQueued() {
 				   current->delay);
 			current->delay--;
 		} else if (current->waitKind == DelayedRun::kWaitCastEntryInactive &&
-				   castEntryActiveLikeDos(current->waitParam)) {
+				   castEntryActive(current->waitParam)) {
 			debugC(3, kDebugLevelScript, "queued %s waits for cast entry %u",
 				   +current->code, current->waitParam);
 		} else if (current->deferredMode != 0 &&
@@ -3212,7 +3212,7 @@ bool Logic::dispatchReadyActorRoomScriptWaitMode(uint16 mode) {
 	return false;
 }
 
-void Logic::runItemRoomScriptSlotLikeDos() {
+void Logic::runItemRoomScriptSlot() {
 	// DOS HandleInventoryClick @ 1000:2a90 starts with
 	// RunScriptByMode(kCodeItem) late in the frame, after actor movement
 	// and room-loop scripts. Entity scripts that used Op_9a therefore get
@@ -3224,7 +3224,7 @@ void Logic::runItemRoomScriptSlotLikeDos() {
 	dispatchReadyActorRoomScriptWaitMode(kCodeItem);
 }
 
-void Logic::runStatusScreenScriptsLikeDos() {
+void Logic::runStatusScreenScripts() {
 	// RunStatusScreenLoop @ 1000:7795..7848:
 	//   RunScriptByMode(7);
 	//   UpdateRoomAnimation();
@@ -3515,11 +3515,11 @@ void Logic::synchronize(Common::Serializer &s) {
 	if (s.isLoading() && _activeActorIds.size() != kActiveActorTableSlots)
 		_activeActorIds.resize(kActiveActorTableSlots);
 
-	syncQueuedRunsLikeDos(s);
+	syncQueuedRuns(s);
 
 	if (s.isLoading()) {
-		registerCurrentRoomActorsLikeDos();
-		refreshCurrentRoomActorFramesLikeDos();
+		registerCurrentRoomActors();
+		refreshCurrentRoomActorFrames();
 	}
 }
 
@@ -3726,7 +3726,7 @@ bool Logic::allocActorSpeechForPostMove(Actor *actor, const Common::String &text
 	return allocated;
 }
 
-void Logic::activateActorSpeechAfterPostMoveLikeDos(Actor *actor) {
+void Logic::activateActorSpeechAfterPostMove(Actor *actor) {
 	if (!actor)
 		return;
 	SpeechSlot *slot = findSpeechSlotForOwner(actorGlobalId(actor));
@@ -3776,13 +3776,13 @@ bool Logic::anySpeechSlotActive() const {
 	return false;
 }
 
-bool Logic::uiTextSpeechSlotActiveLikeDos() const {
+bool Logic::uiTextSpeechSlotActive() const {
 	if (_uiTextSpeechSlot >= _speechSlots.size())
 		return false;
 	return _speechSlots[_uiTextSpeechSlot].framesLeft != 0;
 }
 
-void Logic::stashUiTextSpeechSlotForOwnerLikeDos(uint16 owner) {
+void Logic::stashUiTextSpeechSlotForOwner(uint16 owner) {
 	if (SpeechSlot *slot = findSpeechSlotForOwner(owner))
 		_uiTextSpeechSlot = uint16(slot - &_speechSlots[0]);
 }
@@ -3817,7 +3817,7 @@ void Logic::queueSpeechSlotCallbackForAnyActive(const CodePointer &cp) {
 	runLaterWithMode(cp, opcodeMode());
 }
 
-void Logic::queueUiTextSpeechSlotCallbackLikeDos(const CodePointer &cp) {
+void Logic::queueUiTextSpeechSlotCallback(const CodePointer &cp) {
 	if (_uiTextSpeechSlot < _speechSlots.size()) {
 		SpeechSlot &slot = _speechSlots[_uiTextSpeechSlot];
 		if (slot.framesLeft != 0) {
@@ -3843,7 +3843,7 @@ bool Logic::restoreActorSpeechSlot(Actor *actor, const Common::String &text) {
 	return allocActorSpeech(actor, text, 0);
 }
 
-void Logic::recycleStaleSpeechSlotsLikeDos() {
+void Logic::recycleStaleSpeechSlots() {
 	for (uint i = 0; i < _speechSlots.size(); ++i) {
 		SpeechSlot &slot = _speechSlots[i];
 		if (slot.owner == 0xffff) {
@@ -3931,7 +3931,7 @@ void Logic::paintSpeechSlots(Graphics *g) {
 	}
 }
 
-void Logic::resetSpeechSlotsLikeDos() {
+void Logic::resetSpeechSlots() {
 	// DOS ResetSpeechSlots @ 1000:9951 only zeros each slot's frames-left
 	// byte. C++ also drops callbacks owned by those slots because the ESC
 	// target script replaces the old wait path.
@@ -4015,10 +4015,10 @@ void Logic::skipCutscene() {
 
 	const CodePointer target = _skipPoint;
 	const uint16 proc = _escBreakProc;
-	resetSpeechSlotsLikeDos();
+	resetSpeechSlots();
 	resetQueuedRunMode(proc);
 	if (Actor *protag = protagonist())
-		protag->setAttentionNeededLikeDos(true);
+		protag->setAttentionNeeded(true);
 	else
 		setPendingError(0x17);
 	clearEscBreakPoint();

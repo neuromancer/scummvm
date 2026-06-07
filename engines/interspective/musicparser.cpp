@@ -591,7 +591,7 @@ void MusicParser::restoreSavedState(const byte *script, uint16 currentTuneWord, 
 		_tune->restorePosition(beat, beatTicks);
 }
 
-bool MusicParser::restartCurrentLikeDos() {
+bool MusicParser::restartCurrent() {
 	Common::StackLock lock(_mutex);
 	if (!_midiDriver || !_active || !_script || !hasCurrentTune())
 		return false;

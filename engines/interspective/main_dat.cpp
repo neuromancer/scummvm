@@ -285,7 +285,7 @@ uint16 MainDat::progEntriesCount1() const {
 	return READ_LE_UINT16(_footer + kProgEntriesCount1);
 }
 
-byte *MainDat::imageDirectoryEntryLikeDos(uint16 index) const {
+byte *MainDat::imageDirectoryEntry(uint16 index) const {
 	const int32 directoryOffset = int32(_imageDirectory - _data);
 	// DOS keeps this arithmetic in 16-bit registers:
 	//   DEC AX; ADD AX,AX; ADD AX,AX; ADD DI,AX
@@ -294,7 +294,7 @@ byte *MainDat::imageDirectoryEntryLikeDos(uint16 index) const {
 	const int16 entryDelta = int16(uint16(uint16(index - 1) * 4));
 	const int32 entryOffset = directoryOffset + entryDelta;
 	if (entryOffset < 0 || entryOffset + 3 >= int32(_dataLen)) {
-		warning("MainDat::imageDirectoryEntryLikeDos: id %u resolves outside iuc_main.dat (entryOff=%d)",
+		warning("MainDat::imageDirectoryEntry: id %u resolves outside iuc_main.dat (entryOff=%d)",
 				index, entryOffset);
 		return 0;
 	}
@@ -302,21 +302,21 @@ byte *MainDat::imageDirectoryEntryLikeDos(uint16 index) const {
 }
 
 uint16 MainDat::fileIndexOfImage(uint16 index) const {
-	const byte *entry = imageDirectoryEntryLikeDos(index);
+	const byte *entry = imageDirectoryEntry(index);
 	if (!entry)
 		return 0;
 	return READ_LE_UINT16(entry + 2);
 }
 
 uint16 MainDat::imageType(uint16 index) const {
-	const byte *entry = imageDirectoryEntryLikeDos(index);
+	const byte *entry = imageDirectoryEntry(index);
 	if (!entry)
 		return 0;
 	return READ_LE_UINT16(entry);
 }
 
 void MainDat::patchImageType(uint16 index, uint16 type) {
-	byte *entry = imageDirectoryEntryLikeDos(index);
+	byte *entry = imageDirectoryEntry(index);
 	if (!entry)
 		return;
 	WRITE_LE_UINT16(entry, type);

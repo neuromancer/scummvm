@@ -72,7 +72,7 @@ static const VerbButtonRegion kVerbButtonRegions[] = {
 	{83, 172, 99, 188, 7},
 	{101, 172, 117, 188, 8}};
 
-static bool applyVerbButtonClickLikeDos(Logic *logic, const Common::Point &pos) {
+static bool applyVerbButtonClick(Logic *logic, const Common::Point &pos) {
 	if (!logic || logic->noStep() || logic->cursorMode() == 0x20)
 		return false;
 
@@ -81,7 +81,7 @@ static bool applyVerbButtonClickLikeDos(Logic *logic, const Common::Point &pos) 
 		if (pos.x < r.left || pos.x >= r.right || pos.y < r.top || pos.y >= r.bottom)
 			continue;
 
-		logic->setVerbModeFromHitRegionLikeDos(r.region);
+		logic->setVerbModeFromHitRegion(r.region);
 		logic->setHitTarget(r.region);
 		return true;
 	}
@@ -89,7 +89,7 @@ static bool applyVerbButtonClickLikeDos(Logic *logic, const Common::Point &pos) 
 	return false;
 }
 
-static uint16 verbHitRegionForKeyLikeDos(const Common::Event &event) {
+static uint16 verbHitRegionForKey(const Common::Event &event) {
 	switch (event.kbd.ascii) {
 	case ' ':
 		return 2;
@@ -116,21 +116,21 @@ static uint16 verbHitRegionForKeyLikeDos(const Common::Event &event) {
 	}
 }
 
-static bool applyVerbHotkeyLikeDos(Logic *logic, const Common::Event &event) {
+static bool applyVerbHotkey(Logic *logic, const Common::Event &event) {
 	if (!logic || event.kbdRepeat)
 		return false;
 
-	const uint16 hitRegion = verbHitRegionForKeyLikeDos(event);
+	const uint16 hitRegion = verbHitRegionForKey(event);
 	if (hitRegion == 0xffff)
 		return false;
 	if (hitRegion == 2) {
-		logic->activateStatusButtonHotkeyLikeDos();
+		logic->activateStatusButtonHotkey();
 		return true;
 	}
-	return logic->setVerbModeFromHitRegionLikeDos(hitRegion);
+	return logic->setVerbModeFromHitRegion(hitRegion);
 }
 
-static uint8 keyboardCursorDirectionBitLikeDos(Common::KeyCode keycode) {
+static uint8 keyboardCursorDirectionBit(Common::KeyCode keycode) {
 	switch (keycode) {
 	case Common::KEYCODE_UP:
 	case Common::KEYCODE_KP8:
@@ -161,7 +161,7 @@ static uint8 keyboardCursorDirectionBitLikeDos(Common::KeyCode keycode) {
 	}
 }
 
-static uint8 keyboardCursorButtonBitLikeDos(Common::KeyCode keycode) {
+static uint8 keyboardCursorButtonBit(Common::KeyCode keycode) {
 	switch (keycode) {
 	case Common::KEYCODE_RETURN:
 	case Common::KEYCODE_KP_ENTER:
@@ -322,7 +322,7 @@ Common::Error Engine::saveGameStream(Common::WriteStream *stream, bool isAutosav
 	if (!stream || !_logic || !_resources || !_resources->mainDat())
 		return Common::kWritingFailed;
 
-	const bool statusSaveSnapshot = _logic->beginStatusSaveSnapshotLikeDos();
+	const bool statusSaveSnapshot = _logic->beginStatusSaveSnapshot();
 	Common::Error result = Common::kNoError;
 	Common::Serializer s(nullptr, stream);
 	if (!s.matchBytes("IUCS", 4)) {
@@ -349,7 +349,7 @@ Common::Error Engine::saveGameStream(Common::WriteStream *stream, bool isAutosav
 		result = s.err() ? Common::kWritingFailed : Common::kNoError;
 	}
 	if (statusSaveSnapshot)
-		_logic->endStatusSaveSnapshotLikeDos();
+		_logic->endStatusSaveSnapshot();
 	return result;
 }
 
@@ -427,7 +427,7 @@ Common::Error Engine::loadStartupSaveSlot(int slot) {
 		ExtendedSavegameHeader header;
 		if (MetaEngine::readSavegameHeader(saveFile, &header))
 			setTotalPlayTime(header.playtime);
-		_logic->restoreRoomFromBackupLikeDos();
+		_logic->restoreRoomFromBackup();
 	}
 
 	delete saveFile;
@@ -499,30 +499,30 @@ bool Engine::consumeEscapePress(const Common::Event &event) const {
 	return true;
 }
 
-bool Engine::applyKeyboardCursorButtonLikeDos(const Common::Event &event) {
+bool Engine::applyKeyboardCursorButton(const Common::Event &event) {
 	if (event.kbdRepeat)
 		return false;
 
-	const uint8 bit = keyboardCursorButtonBitLikeDos(event.kbd.keycode);
+	const uint8 bit = keyboardCursorButtonBit(event.kbd.keycode);
 	if (bit == 0 || !_logic || !_graphics)
 		return false;
 
 	const Common::Point pos = _graphics->cursorPosition();
 	if (bit == 0x10) {
-		_logic->lockCursorAndButtonsLikeDos(pos, 1);
-		if (!applyVerbButtonClickLikeDos(_logic, pos))
+		_logic->lockCursorAndButtons(pos, 1);
+		if (!applyVerbButtonClick(_logic, pos))
 			EventManager::instance().clicked(pos);
 		return true;
 	}
 
-	_logic->lockCursorAndButtonsLikeDos(pos, 2);
+	_logic->lockCursorAndButtons(pos, 2);
 	_logic->setSpeechSkipInput(true);
-	_logic->cycleCursorModeByRightClickLikeDos();
+	_logic->cycleCursorModeByRightClick();
 	return true;
 }
 
-void Engine::updateKeyboardCursorDirectionLikeDos(Common::KeyCode keycode, bool pressed) {
-	const uint8 bit = keyboardCursorDirectionBitLikeDos(keycode);
+void Engine::updateKeyboardCursorDirection(Common::KeyCode keycode, bool pressed) {
+	const uint8 bit = keyboardCursorDirectionBit(keycode);
 	if (bit == 0)
 		return;
 
@@ -537,11 +537,11 @@ void Engine::updateKeyboardCursorDirectionLikeDos(Common::KeyCode keycode, bool 
 	}
 }
 
-void Engine::applyKeyboardCursorMovementLikeDos() {
+void Engine::applyKeyboardCursorMovement() {
 	// ProcessKeyboardCursor @ 1000:0a0a accelerates held keyboard
 	// directions through 1, 2, 4, then 8-pixel steps. The DOS keyboard ISR
 	// also maps Enter/KP5 and Tab/KP+ into left/right button bits; those
-	// are consumed in applyKeyboardCursorButtonLikeDos().
+	// are consumed in applyKeyboardCursorButton().
 	if (_keyboardCursorDirs == 0 || !_graphics)
 		return;
 
@@ -621,22 +621,22 @@ void Engine::handleEvents() {
 				// cutscene when an escape break point is armed (Op_3d /
 				// HandleEscDuringScript @1000:2bd9). When nothing is armed DOS
 				// does nothing — it must NOT open the status menu (that is
-				// Space's role, handled via applyVerbHotkeyLikeDos below).
+				// Space's role, handled via applyVerbHotkey below).
 				_logic->requestSkipCutscene();
-			} else if (applyKeyboardCursorButtonLikeDos(event)) {
+			} else if (applyKeyboardCursorButton(event)) {
 				// Consumed as a DOS keyboard-button event.
 			} else {
-				applyVerbHotkeyLikeDos(_logic, event);
+				applyVerbHotkey(_logic, event);
 			}
-			updateKeyboardCursorDirectionLikeDos(event.kbd.keycode, true);
+			updateKeyboardCursorDirection(event.kbd.keycode, true);
 			break;
 		}
 
 		case Common::EVENT_KEYUP:
 			consumeEscapePress(event);
-			if (_logic && keyboardCursorButtonBitLikeDos(event.kbd.keycode) == 0x20)
+			if (_logic && keyboardCursorButtonBit(event.kbd.keycode) == 0x20)
 				_logic->setSpeechSkipInput(false);
-			updateKeyboardCursorDirectionLikeDos(event.kbd.keycode, false);
+			updateKeyboardCursorDirection(event.kbd.keycode, false);
 			if (event.kbd.keycode == Common::KEYCODE_BACKQUOTE)
 				_debugger->attach();
 			break;
@@ -650,15 +650,15 @@ void Engine::handleEvents() {
 			if (_logic && (event.type == Common::EVENT_RBUTTONDOWN || event.type == Common::EVENT_RBUTTONUP))
 				_logic->setSpeechSkipInput(event.type == Common::EVENT_RBUTTONDOWN);
 			if (_logic && event.type == Common::EVENT_RBUTTONDOWN) {
-				_logic->lockCursorAndButtonsLikeDos(event.mouse, 2);
-				_logic->cycleCursorModeByRightClickLikeDos();
+				_logic->lockCursorAndButtons(event.mouse, 2);
+				_logic->cycleCursorModeByRightClick();
 			} else if (_logic && (event.type == Common::EVENT_LBUTTONUP || event.type == Common::EVENT_RBUTTONUP)) {
-				_logic->lockCursorAndButtonsLikeDos(event.mouse, 0);
+				_logic->lockCursorAndButtons(event.mouse, 0);
 			}
 			if (event.type == Common::EVENT_LBUTTONDOWN) {
 				if (_logic)
-					_logic->lockCursorAndButtonsLikeDos(event.mouse, 1);
-				if (applyVerbButtonClickLikeDos(_logic, event.mouse))
+					_logic->lockCursorAndButtons(event.mouse, 1);
+				if (applyVerbButtonClick(_logic, event.mouse))
 					break;
 				EventManager::instance().clicked(event.mouse);
 			}
@@ -668,7 +668,7 @@ void Engine::handleEvents() {
 			break;
 		}
 	}
-	applyKeyboardCursorMovementLikeDos();
+	applyKeyboardCursorMovement();
 }
 
 bool Engine::escapePressed() const {

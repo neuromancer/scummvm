@@ -64,7 +64,7 @@ public:
 	uint16 mainSpriteId() const { return _mainSpriteId; }
 	bool hasDosMainSpriteForDraw() const { return _mainSpriteId != 0xffff && _mainSprite.get(); }
 	int16 dosDrawY() const { return int16(_position.y); }
-	bool castWaitCompleteLikeDos() const;
+	bool castWaitComplete() const;
 	int8 zIndex() const { return _zIndex; }
 	void setCastTableRunner(bool v) { _castTableRunner = v; }
 
@@ -90,13 +90,13 @@ protected:
 	uint16 animationDosFieldWord(uint8 off) const;
 	void setAnimationDosField(uint8 off, uint8 v);
 	void setAnimationDosFieldWord(uint8 off, uint16 v);
-	void setPositionFromFrameLikeDos(uint8 frame);
-	void copyIntervalToTicksLikeDos();
-	void clearAnimationMoveSlotsLikeDos();
-	bool queueAnimationMoveSlotLikeDos(uint16 arg1, uint16 arg2, uint16 arg3, uint8 mode);
-	void paintMoveSlotLikeDos(Graphics *g, uint16 sprite, uint16 x, uint16 y, uint8 mode, const Common::Point &base) const;
-	void paintAnimationMoveSlotsLikeDos(Graphics *g) const;
-	void decrementAnimationTicksLeftLikeDos();
+	void setPositionFromFrame(uint8 frame);
+	void copyAnimationIntervalToTicks();
+	void clearAnimationMoveSlots();
+	bool queueAnimationMoveSlot(uint16 arg1, uint16 arg2, uint16 arg3, uint8 mode);
+	void paintMoveSlot(Graphics *g, uint16 sprite, uint16 x, uint16 y, uint8 mode, const Common::Point &base) const;
+	void paintAnimationMoveSlots(Graphics *g) const;
+	void decrementAnimationTicksLeft();
 
 	void setMainSprite(uint16 sprite);
 	void clearMainSprite();

@@ -103,7 +103,7 @@ public:
 
 	// DOS PlayQueuedSfx @ 1000:6103: when a block transition reloads the
 	// backdrop, replay the loaded primary/secondary SFX slots if present.
-	void playQueuedLikeDos();
+	void playQueued();
 
 	// "Is this SFX subsystem enabled?" — gates all play paths. Mirrors
 	// DOS `g_sfx_enabled` (CS:[0xe]) from the parsed DOS switch config.

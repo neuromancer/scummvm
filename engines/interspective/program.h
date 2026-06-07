@@ -64,7 +64,7 @@ public:
 
 	// DOS GetExitOffset uses 1-based script ids (DEC AX before scaling).
 	Exit *getExit(uint16 index) const;
-	bool getExitRoomWordLikeDos(uint16 index, uint16 &room) const;
+	bool getExitRoomWord(uint16 index, uint16 &room) const;
 	uint16 exitsCount() const { return _exitsCount; }
 	Common::List<Exit *> exitsForRoom(uint16 room) const;
 

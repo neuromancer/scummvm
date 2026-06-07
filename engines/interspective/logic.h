@@ -156,14 +156,14 @@ public:
 	void setPaused(bool v = true) { _paused = v; }
 	bool stepPending() const { return _stepPending; }
 	void setStepPending(bool v) { _stepPending = v; }
-	void tickRightClickCycleCooldownLikeDos() {
+	void tickRightClickCycleCooldown() {
 		if (!_fullscreenGateActive && !_noStep && _rightClickCycleCooldown != 0)
 			--_rightClickCycleCooldown;
 	}
-	void cycleCursorModeByRightClickLikeDos();
-	void activateStatusButtonHotkeyLikeDos();
-	bool setVerbModeFromHitRegionLikeDos(uint16 hitRegion);
-	uint16 updateAutoCloseTimerSpriteLikeDos();
+	void cycleCursorModeByRightClick();
+	void activateStatusButtonHotkey();
+	bool setVerbModeFromHitRegion(uint16 hitRegion);
+	uint16 updateAutoCloseTimerSprite();
 	// DOS g_flag_no_step (DS:0x6747). Dispatch-table opcode 0x96 sets it to
 	// lock player input during cutscenes. Opcode 0x95 clears both _noStep
 	// and _stepPending.
@@ -346,8 +346,8 @@ public:
 		_menuStashB = a1;
 		_menuStashConsumed = false;
 	}
-	void setMenuStashFirstArgLikeDos(uint16 a0) { _menuStashA = a0; }
-	void setMenuStashSecondArgLikeDos(uint16 a1) {
+	void setMenuStashFirstArg(uint16 a0) { _menuStashA = a0; }
+	void setMenuStashSecondArg(uint16 a1) {
 		_menuStashB = a1;
 		_menuStashConsumed = false;
 	}
@@ -392,9 +392,9 @@ public:
 	void movePersonToActor(uint16 id);
 	void resetObjectAtActorPosition(uint16 id);
 	void placeObjectExitAtDosPosition(uint16 id, int16 x, int16 y);
-	void clampObjectExitToScreenLikeDos(uint16 id);
+	void clampObjectExitToScreen(uint16 id);
 	bool prepareDragInteraction(uint16 id);
-	void beginDragAfterRemoveExitLikeDos(uint16 id, bool removeExit);
+	void beginDragAfterRemoveExit(uint16 id, bool removeExit);
 	bool placeObjectInInventoryAtDosPoint(uint16 id, Common::Point screen);
 	const Common::Array<uint16> &objectExitList() const { return _objectExitList; }
 	bool isObjectExitRegistered(uint16 id) const {
@@ -516,7 +516,7 @@ public:
 	void castTableClear(uint16 id);
 	void castTableDeactivateAnimation(Animation *animation);
 	void castTableClearAll();
-	bool castEntryActiveLikeDos(uint16 id) const;
+	bool castEntryActive(uint16 id) const;
 	void runLaterWhenCastEntryInactive(uint16 id, const CodePointer &p);
 	const Common::Array<CastEntry> &castTable() const { return _castTable; }
 
@@ -694,7 +694,7 @@ public:
 		return true;
 	}
 	const Common::Array<DrawCommand> &drawCommands() const { return _drawCommands; }
-	bool addVisibleNoSpriteExitLikeDos(uint16 id) {
+	bool addVisibleNoSpriteExit(uint16 id) {
 		if (_visibleNoSpriteExits.size() >= 0x23) {
 			setPendingError(0x29);
 			return false;
@@ -702,7 +702,7 @@ public:
 		_visibleNoSpriteExits.push_back(id);
 		return true;
 	}
-	const Common::Array<uint16> &visibleNoSpriteExitsLikeDos() const { return _visibleNoSpriteExits; }
+	const Common::Array<uint16> &visibleNoSpriteExits() const { return _visibleNoSpriteExits; }
 
 	// Anim-list (DOS DS:0x3f2d..., counter at `g_anim_list_count`,
 	// 8-entry cap). Op_e4 appends an entry; Op_e5 clears. Each entry
@@ -814,7 +814,7 @@ public:
 	uint8 postMoveTargetFrameMirror() const { return _postMoveTargetFrameMirror; }
 	void setPostMoveTargetFrameMirror(uint8 frame) { _postMoveTargetFrameMirror = frame; }
 	void runPostMoveCallbackIfReady();
-	void resetRoomScriptSlotLikeDos(uint16 mode) { resetQueuedRunMode(mode); }
+	void resetRoomScriptSlot(uint16 mode) { resetQueuedRunMode(mode); }
 
 	// Cutscene-PC state backup (DOS Op_97 @ 1000:4a5d / Op_98 @ 1000:4b40).
 	// Single-slot save/restore of the protagonist's walk callback fields,
@@ -871,15 +871,15 @@ public:
 	// DOS copies live cursor/buttons to locked globals before dispatch.
 	// RetEmpty @ 1000:bb58 reads these locked coordinates, so click-time
 	// object placement and movement must not resample the later live cursor.
-	void lockCursorAndButtonsLikeDos(Common::Point pos, uint8 buttons) {
+	void lockCursorAndButtons(Common::Point pos, uint8 buttons) {
 		_cursorLockedPos = pos;
 		_buttonsLocked = buttons;
 	}
-	Common::Point lockedCursorPositionLikeDos() const { return _cursorLockedPos; }
-	uint8 buttonsLockedLikeDos() const { return _buttonsLocked; }
+	Common::Point lockedCursorPosition() const { return _cursorLockedPos; }
+	uint8 buttonsLocked() const { return _buttonsLocked; }
 	void setLoadedBackdropId(uint16 id) { _loadedBackdropId = id; }
 	uint16 loadedBackdropId() const { return _loadedBackdropId; }
-	void resetMovieGraphicSlotsLikeDos() {
+	void resetMovieGraphicSlots() {
 		// AllocBuffersB @ 1000:10f8 clears the six allocated graphic-slot
 		// words at 0x676f,0x6771,0x6773,0x6775,0x6777,0x6779.
 		_graphicSlots[0] = _graphicSlots[1] = _graphicSlots[2] = 0;
@@ -1033,7 +1033,7 @@ public:
 	uint16 protagonistId() const { return _protagonistId; }
 
 	void changeRoom(uint16);
-	void restartRoomLikeDos();
+	void restartRoom();
 
 	Engine *engine() { return _engine; }
 
@@ -1046,10 +1046,10 @@ public:
 	void addAnimation(Animation *anim);
 	void removeAnimation(Animation *anim);
 	void setRoomLoop(const CodePointer &code);
-	void resetActiveActorTableLikeDos();
-	bool registerActiveActorLikeDos(uint16 id);
-	void unregisterActiveActorLikeDos(uint16 id);
-	bool activeActorLikeDos(uint16 id) const;
+	void resetActiveActorTable();
+	bool registerActiveActor(uint16 id);
+	void unregisterActiveActor(uint16 id);
+	bool activeActor(uint16 id) const;
 
 	const Common::List<Animation *> animations() const { return _animations; }
 	Room *room() const { return _room.get(); }
@@ -1068,7 +1068,7 @@ public:
 	void runLaterWithCurrentMode(const CodePointer &, uint16 delay = 0);
 	bool queueDeferred(const CodePointer &p);
 	uint16 deferredQueuedCount() const;
-	void syncCodePointerLikeDos(Common::Serializer &s, CodePointer &p) const;
+	void syncCodePointer(Common::Serializer &s, CodePointer &p) const;
 	// Remove the first deferred entry whose CodePointer matches `p`.
 	// DOS also clears the mode-specific delayed-run entry for that
 	// deferred slot via ResetDispatchModeEntry @ 1000:3198.
@@ -1087,30 +1087,30 @@ public:
 	bool allocActorSpeech(Actor *actor, const Common::String &text, uint16 maxLines = 0);
 	bool allocActorSpeechAt(Actor *actor, const Common::String &text, Common::Point pos, uint16 maxLines = 0);
 	bool allocActorSpeechForPostMove(Actor *actor, const Common::String &text, uint16 maxLines = 0);
-	void activateActorSpeechAfterPostMoveLikeDos(Actor *actor);
+	void activateActorSpeechAfterPostMove(Actor *actor);
 	bool allocNarratorSpeech(const byte *text, uint16 length, uint16 x, uint16 y,
 							 byte color, uint16 maxLines, uint8 type);
 	bool speechSlotActiveForOwner(uint16 owner) const;
 	bool anySpeechSlotActive() const;
-	bool uiTextSpeechSlotActiveLikeDos() const;
-	void stashUiTextSpeechSlotForOwnerLikeDos(uint16 owner);
+	bool uiTextSpeechSlotActive() const;
+	void stashUiTextSpeechSlotForOwner(uint16 owner);
 	const Common::String &speechTextForOwner(uint16 owner) const;
 	void clearSpeechForOwner(uint16 owner);
 	void setSpeechSkipInput(bool pressed) { _speechSkipInput = pressed; }
 	void queueSpeechSlotCallbackForOwner(uint16 owner, const CodePointer &cp);
 	void queueSpeechSlotCallbackForAnyActive(const CodePointer &cp);
-	void queueUiTextSpeechSlotCallbackLikeDos(const CodePointer &cp);
+	void queueUiTextSpeechSlotCallback(const CodePointer &cp);
 	bool backupSpeechSlotForOwner(uint16 owner, Common::String &text);
 	bool restoreActorSpeechSlot(Actor *actor, const Common::String &text);
-	void recycleStaleSpeechSlotsLikeDos();
+	void recycleStaleSpeechSlots();
 	void paintSpeechSlots(Graphics *g);
-	void paintDirtyObjectPlacementsLikeDos(Graphics *g, int16 layer);
+	void paintDirtyObjectPlacements(Graphics *g, int16 layer);
 
 	bool canSkipCutscene() const { return !_skipPoint.isEmpty(); }
 	void setSkipPoint(const CodePointer &);
 	void requestSkipCutscene();
 	bool handleEscDuringScript();
-	void resetSpeechSlotsLikeDos();
+	void resetSpeechSlots();
 	void skipCutscene();
 
 	// "Current place" id (DOS CS:[0x111], a savegame state identifier
@@ -1149,42 +1149,42 @@ public:
 	};
 	bool hasSavedScene() const { return _savedScene; }
 	void saveSceneFrame(const CodePointer &resumePC);
-	CodePointer switchToSceneLikeDos(uint16 sceneId, const CodePointer &resumePC);
+	CodePointer switchToScene(uint16 sceneId, const CodePointer &resumePC);
 	CodePointer restoreSceneFrame();
-	void backupRoomForStatusLikeDos();
-	void restoreRoomFromBackupLikeDos();
-	void enterStatusScreenLoopLikeDos();
-	bool beginStatusSaveSnapshotLikeDos();
-	void endStatusSaveSnapshotLikeDos();
+	void backupRoomForStatus();
+	void restoreRoomFromBackup();
+	void enterStatusScreenLoop();
+	bool beginStatusSaveSnapshot();
+	void endStatusSaveSnapshot();
 
 	friend class Debugger;
 
 private:
 	void doChangeRoom();
 	void clearRoomTransientAnimations();
-	void refreshCurrentRoomActorFramesLikeDos();
-	void registerCurrentRoomActorsLikeDos();
-	void centerCameraOnProtagonistLikeDos();
-	void queueDirtyObjectPlacementLikeDos(uint16 objId, int16 x, int16 y);
-	void flushDirtyObjectPlacementsLikeDos(uint16 room);
-	void refreshObjectSpriteAndExitInfoLikeDos(uint16 objId);
-	void restartBlockAudioLikeDos();
+	void refreshCurrentRoomActorFrames();
+	void registerCurrentRoomActors();
+	void centerCameraOnProtagonist();
+	void queueDirtyObjectPlacement(uint16 objId, int16 x, int16 y);
+	void flushDirtyObjectPlacements(uint16 room);
+	void refreshObjectSpriteAndExitInfo(uint16 objId);
+	void restartBlockAudio();
 	void updateScrollPosition();
-	bool speechWouldConsumeRightClickLikeDos() const;
+	bool speechWouldConsumeRightClick() const;
 	bool hasQueuedRunMode(uint16 mode) const;
 	bool dispatchReadyActorRoomScriptWaitMode(uint16 mode);
-	void runItemRoomScriptSlotLikeDos();
-	void runStatusScreenScriptsLikeDos();
+	void runItemRoomScriptSlot();
+	void runStatusScreenScripts();
 	void resetQueuedRunMode(uint16 mode);
 	void cancelDeferredScriptsForInterpreter(Interpreter *interpreter);
 	void cancelSpeechSlotCallbacksForInterpreter(Interpreter *interpreter);
 	bool redirectDeferredMode(uint16 mode, const CodePointer &target);
-	void syncQueuedRunsLikeDos(Common::Serializer &s);
+	void syncQueuedRuns(Common::Serializer &s);
 	void runQueued();
-	uint16 cellGroupLikeDos() const {
+	uint16 cellGroup() const {
 		return _savedScene ? _savedScene->currentBlock : _currentBlock;
 	}
-	uint32 cellKey(uint16 id) const { return (uint32(cellGroupLikeDos()) << 16) | id; }
+	uint32 cellKey(uint16 id) const { return (uint32(cellGroup()) << 16) | id; }
 	void storeCellByte(uint16 id, uint8 value) {
 		const uint32 key = cellKey(id);
 		if (value == 1)
@@ -1318,8 +1318,8 @@ private:
 		bool logicDirty;
 		int16 autoCloseTimer;
 	};
-	void captureRoomStateForStatusSaveLikeDos(RoomBackup &dst) const;
-	void applyRoomStateForStatusSaveLikeDos(const RoomBackup &src);
+	void captureRoomStateForStatusSave(RoomBackup &dst) const;
+	void applyRoomStateForStatusSave(const RoomBackup &src);
 	RoomBackup _roomBackup;
 	RoomBackup _statusSaveShadow;
 	bool _statusSaveOverrideActive;

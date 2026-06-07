@@ -118,13 +118,13 @@ Animation::Status Animation::tick() {
 
 	if (_ticksLeft) {
 		if (_castTableRunner)
-			decrementAnimationTicksLeftLikeDos();
+			decrementAnimationTicksLeft();
 		else
 			_ticksLeft--;
 		return kOk;
 	}
 
-	clearAnimationMoveSlotsLikeDos();
+	clearAnimationMoveSlots();
 	clearSprites();
 
 	Status status = kOk;
@@ -194,7 +194,7 @@ Animation::Status Animation::tick() {
 
 	if (ranScript && _castTableRunner) {
 		setAnimationDosFieldWord(0x0c, _offset);
-		decrementAnimationTicksLeftLikeDos();
+		decrementAnimationTicksLeft();
 	}
 
 	if (status == kRemove)
@@ -203,7 +203,7 @@ Animation::Status Animation::tick() {
 	return kOk;
 }
 
-bool Animation::castWaitCompleteLikeDos() const {
+bool Animation::castWaitComplete() const {
 	// DOS FindCastByActorId @ 1000:67f5 resumes Op_c6 when no matching
 	// active cast exists, or when cast field +0x0a is zero and the next
 	// script byte at field +0x0c is the 0xff sentinel.
@@ -263,7 +263,7 @@ void Animation::paint(Graphics *g) {
 	for (Common::List<Sprite *>::iterator it = _sprites.begin(); it != _sprites.end(); ++it)
 		(*it)->paint(g);
 
-	paintAnimationMoveSlotsLikeDos(g);
+	paintAnimationMoveSlots(g);
 }
 
 void Animation::Sprite::paint(Graphics *g) const {
@@ -313,7 +313,7 @@ static bool animationZoneContainsPoint(uint16 left, uint16 top, uint16 right, ui
 		   p.y >= int16(top) && p.y <= int16(bottom);
 }
 
-void Animation::setPositionFromFrameLikeDos(uint8 frame) {
+void Animation::setPositionFromFrame(uint8 frame) {
 	setAnimationDosField(0x61, frame);
 	if (!Log.room())
 		return;
@@ -348,14 +348,14 @@ void Animation::setPositionFromFrameLikeDos(uint8 frame) {
 	_zIndex = int8(bl);
 }
 
-void Animation::copyIntervalToTicksLikeDos() {
+void Animation::copyAnimationIntervalToTicks() {
 	const uint16 ticks = uint8(_interval);
 	_ticksLeft = ticks;
 	_explicitFrameDelay = true;
 	setAnimationDosFieldWord(0x0a, ticks);
 }
 
-void Animation::clearAnimationMoveSlotsLikeDos() {
+void Animation::clearAnimationMoveSlots() {
 	_animationMoveSlots.clear();
 	for (uint i = 0; i < 8; ++i) {
 		const uint8 off = uint8(0x19 + i * 8);
@@ -363,7 +363,7 @@ void Animation::clearAnimationMoveSlotsLikeDos() {
 	}
 }
 
-bool Animation::queueAnimationMoveSlotLikeDos(uint16 arg1, uint16 arg2, uint16 arg3, uint8 mode) {
+bool Animation::queueAnimationMoveSlot(uint16 arg1, uint16 arg2, uint16 arg3, uint8 mode) {
 	if (_animationMoveSlots.size() >= 8)
 		return false;
 
@@ -377,7 +377,7 @@ bool Animation::queueAnimationMoveSlotLikeDos(uint16 arg1, uint16 arg2, uint16 a
 	return true;
 }
 
-void Animation::decrementAnimationTicksLeftLikeDos() {
+void Animation::decrementAnimationTicksLeft() {
 	// DOS UpdateActorTimers @ 1000:673e decrements cast field +0x0a
 	// after the optional RunActorScript call, even when the script just
 	// wrote a fresh delay through the common tail at 1000:6953.
@@ -385,7 +385,7 @@ void Animation::decrementAnimationTicksLeftLikeDos() {
 	setAnimationDosFieldWord(0x0a, _ticksLeft);
 }
 
-void Animation::paintMoveSlotLikeDos(Graphics *g, uint16 spriteId, uint16 x, uint16 y, uint8 mode, const Common::Point &base) const {
+void Animation::paintMoveSlot(Graphics *g, uint16 spriteId, uint16 x, uint16 y, uint8 mode, const Common::Point &base) const {
 	if (spriteId == 0xffff)
 		return;
 
@@ -399,10 +399,10 @@ void Animation::paintMoveSlotLikeDos(Graphics *g, uint16 spriteId, uint16 x, uin
 	g->paint(sprite.get(), pos, Graphics::kPaintCameraRelative);
 }
 
-void Animation::paintAnimationMoveSlotsLikeDos(Graphics *g) const {
+void Animation::paintAnimationMoveSlots(Graphics *g) const {
 	for (uint i = 0; i < _animationMoveSlots.size(); ++i) {
 		const AnimationMoveSlot &slot = _animationMoveSlots[i];
-		paintMoveSlotLikeDos(g, slot.a, slot.b, slot.c, slot.mode, _position);
+		paintMoveSlot(g, slot.a, slot.b, slot.c, slot.mode, _position);
 	}
 }
 
@@ -673,7 +673,7 @@ OPCODE(0x1b) {
 	const uint16 arg1 = shift();
 	const uint16 arg2 = shift();
 	const uint16 arg3 = shift();
-	const bool ok = queueAnimationMoveSlotLikeDos(arg1, arg2, arg3, 0);
+	const bool ok = queueAnimationMoveSlot(arg1, arg2, arg3, 0);
 	if (!ok)
 		Log.setPendingError(0x0c);
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x1b: QueueMoveSlotMode0 "
@@ -742,11 +742,11 @@ OPCODE(0x0b) {
 	// again. The inline word remains the field+0x8 sprite/target write.
 	const byte face = uint8(embeddedByte());
 	uint16 spriteId = shift();
-	setPositionFromFrameLikeDos(face);
-	setPositionFromFrameLikeDos(animationDosField(0x62));
+	setPositionFromFrame(face);
+	setPositionFromFrame(animationDosField(0x62));
 	setAnimationDosFieldWord(0x08, spriteId);
 	setMainSprite(spriteId);
-	copyIntervalToTicksLikeDos();
+	copyAnimationIntervalToTicks();
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x0b: FaceAndWalkWithFrame → setMainSprite(%u) "
 									"[base Animation models LookupActorAndStartPath not-found branch]",
 		   spriteId);
@@ -762,9 +762,9 @@ OPCODE(0x0c) {
 	// As in 0x0b, base Animation records have no actor-table slot, so the
 	// fallback follows LookupActorAndStartPath's not-found branch.
 	const byte face = uint8(embeddedByte());
-	setPositionFromFrameLikeDos(face);
-	setPositionFromFrameLikeDos(animationDosField(0x62));
-	copyIntervalToTicksLikeDos();
+	setPositionFromFrame(face);
+	setPositionFromFrame(animationDosField(0x62));
+	copyAnimationIntervalToTicks();
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x0c: FaceAndWalk "
 									"[base Animation models LookupActorAndStartPath not-found branch]");
 	return kFrameDone;
@@ -949,7 +949,7 @@ OPCODE(0x1c) {
 	const uint16 arg1 = shift();
 	const uint16 arg2 = shift();
 	const uint16 arg3 = shift();
-	const bool ok = queueAnimationMoveSlotLikeDos(arg1, arg2, arg3, 1);
+	const bool ok = queueAnimationMoveSlot(arg1, arg2, arg3, 1);
 	if (!ok)
 		Log.setPendingError(0x0c);
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x1c: QueueMoveSlotMode1 "

@@ -67,7 +67,7 @@ bool Actor::isFine() const {
 		   (!_framequeue.empty() || !_confused || _nextDirection);
 }
 
-bool Actor::animReadyLikeDos() const {
+bool Actor::animReady() const {
 	// DOS CheckActorAnimReady @ 1000:6415 returns carry set once the
 	// actor no longer has current-room animation state that must be waited.
 	if (_room != Log.currentRoom() || dosFieldWord(kOffsetOffset) == 0)
@@ -80,7 +80,7 @@ bool Actor::animReadyLikeDos() const {
 	return !stillActive;
 }
 
-bool Actor::idleReadyLikeDos() const {
+bool Actor::idleReady() const {
 	// DOS CheckActorIdle @ 1000:645e uses the same carry convention:
 	// carry clear while an active current-room actor script must be retried.
 	const bool stillActive = _room == Log.currentRoom() &&
@@ -101,7 +101,7 @@ void Actor::setAnimation(uint16 offset) {
 	_base = base ? base + offset : 0;
 	_baseOffset = _base ? offset : 0;
 	_offset = 0;
-	resetActorStateFieldsLikeDos();
+	resetActorStateFields();
 	if (_base) {
 		setDosFieldWord(kOffsetSegment, actorCodeSegmentTag(_base));
 		setDosFieldWord(kOffsetOffset, _baseOffset);
@@ -109,7 +109,7 @@ void Actor::setAnimation(uint16 offset) {
 		setDosFieldWord(kOffsetSegment, 0);
 		setDosFieldWord(kOffsetOffset, 0);
 	}
-	registerActiveIfCurrentRoomLikeDos();
+	registerActiveIfCurrentRoom();
 }
 
 void Actor::setAnimation(const CodePointer &anim) {
@@ -117,13 +117,13 @@ void Actor::setAnimation(const CodePointer &anim) {
 	_base = anim.code();
 	_baseOffset = anim.offset();
 	_offset = 0;
-	resetActorStateFieldsLikeDos();
+	resetActorStateFields();
 	setDosFieldWord(kOffsetSegment, actorCodeSegmentTag(_base));
 	setDosFieldWord(kOffsetOffset, _baseOffset);
-	registerActiveIfCurrentRoomLikeDos();
+	registerActiveIfCurrentRoom();
 }
 
-void Actor::resetActorStateFieldsLikeDos() {
+void Actor::resetActorStateFields() {
 	// InitActorState @ 1000:6336 preserves actor x/y, installs the new
 	// script pointer, then resets the per-script animation fields.
 	_debugInvalid = false;
@@ -173,7 +173,7 @@ void Actor::hide() {
 	_framequeue.clear();
 }
 
-void Actor::clearScriptPcLikeDos() {
+void Actor::clearScriptPc() {
 	_base = 0;
 	_baseOffset = 0;
 	_offset = 0;
@@ -182,14 +182,14 @@ void Actor::clearScriptPcLikeDos() {
 	setDosFieldWord(kOffsetCode, 0);
 }
 
-void Actor::unregisterLikeDos() {
-	clearScriptPcLikeDos();
+void Actor::unregister() {
+	clearScriptPc();
 	const uint16 globalId = Log.actorGlobalId(this);
 	if (globalId != 0)
-		Log.unregisterActiveActorLikeDos(globalId);
+		Log.unregisterActiveActor(globalId);
 }
 
-void Actor::prepareRoomEntryActiveActorLikeDos() {
+void Actor::prepareRoomEntryActiveActor() {
 	const uint16 segment = dosFieldWord(kOffsetSegment);
 	const uint16 codeOffset = dosFieldWord(kOffsetOffset);
 	const bool blockSegment = segment == 1 || ((segment & 0xc000) == 0x4000);
@@ -210,15 +210,15 @@ void Actor::prepareRoomEntryActiveActorLikeDos() {
 	setDosField(0x63, 0);
 }
 
-void Actor::registerActiveIfCurrentRoomLikeDos() {
+void Actor::registerActiveIfCurrentRoom() {
 	if (_room != Log.currentRoom())
 		return;
 	const uint16 globalId = Log.actorGlobalId(this);
 	if (globalId != 0)
-		Log.registerActiveActorLikeDos(globalId);
+		Log.registerActiveActor(globalId);
 }
 
-void Actor::mirrorFirstClassFieldsToDosRecordLikeDos() {
+void Actor::mirrorFirstClassFieldsToDosRecord() {
 	// DOS has one 0x71-byte actor record. The C++ port keeps common fields
 	// as first-class members plus a sparse byte map for less common offsets;
 	// keep the sparse record synchronized before/after save/load so helpers
@@ -270,7 +270,7 @@ static void syncActorDosFields(Common::Serializer &s, Common::HashMap<uint8, uin
 	}
 }
 
-void Actor::syncWaitCallbacksLikeDos(Common::Serializer &s) {
+void Actor::syncWaitCallbacks(Common::Serializer &s) {
 	uint16 callbackCount = uint16(_callBacks.size());
 	s.syncAsUint16LE(callbackCount);
 	if (s.isLoading()) {
@@ -279,7 +279,7 @@ void Actor::syncWaitCallbacksLikeDos(Common::Serializer &s) {
 			CodePointer callback;
 			uint16 runMode = 0;
 			uint8 hasRunMode = 0;
-			Log.syncCodePointerLikeDos(s, callback);
+			Log.syncCodePointer(s, callback);
 			s.syncAsUint16LE(runMode);
 			s.syncAsByte(hasRunMode);
 			if (!callback.isEmpty())
@@ -291,7 +291,7 @@ void Actor::syncWaitCallbacksLikeDos(Common::Serializer &s) {
 			ScriptCallback callback = callbacks.pop();
 			uint16 runMode = callback.runMode;
 			uint8 hasRunMode = callback.hasRunMode ? 1 : 0;
-			Log.syncCodePointerLikeDos(s, callback.callback);
+			Log.syncCodePointer(s, callback.callback);
 			s.syncAsUint16LE(runMode);
 			s.syncAsByte(hasRunMode);
 		}
@@ -307,7 +307,7 @@ void Actor::syncWaitCallbacksLikeDos(Common::Serializer &s) {
 			uint16 runMode = 0;
 			uint8 hasRunMode = 0;
 			s.syncAsUint16LE(timeout);
-			Log.syncCodePointerLikeDos(s, callback);
+			Log.syncCodePointer(s, callback);
 			s.syncAsUint16LE(runMode);
 			s.syncAsByte(hasRunMode);
 			if (!callback.isEmpty())
@@ -320,7 +320,7 @@ void Actor::syncWaitCallbacksLikeDos(Common::Serializer &s) {
 			uint16 runMode = it->runMode;
 			uint8 hasRunMode = it->hasRunMode ? 1 : 0;
 			s.syncAsUint16LE(timeout);
-			Log.syncCodePointerLikeDos(s, callback);
+			Log.syncCodePointer(s, callback);
 			s.syncAsUint16LE(runMode);
 			s.syncAsByte(hasRunMode);
 		}
@@ -356,7 +356,7 @@ void Actor::synchronize(Common::Serializer &s) {
 	uint16 callbackOff = _actorCallbackOff;
 
 	if (s.isSaving())
-		mirrorFirstClassFieldsToDosRecordLikeDos();
+		mirrorFirstClassFieldsToDosRecord();
 
 	s.syncAsByte(baseSource);
 	s.syncAsUint16LE(baseOffset);
@@ -403,7 +403,7 @@ void Actor::synchronize(Common::Serializer &s) {
 	}
 
 	if (s.isSaving())
-		syncWaitCallbacksLikeDos(s);
+		syncWaitCallbacks(s);
 
 	if (!s.isLoading())
 		return;
@@ -428,7 +428,7 @@ void Actor::synchronize(Common::Serializer &s) {
 	_callBacks.clear();
 	_roomCallbacks.clear();
 	_speech = Speech();
-	syncWaitCallbacksLikeDos(s);
+	syncWaitCallbacks(s);
 
 	switch (baseSource) {
 	case 1:
@@ -448,7 +448,7 @@ void Actor::synchronize(Common::Serializer &s) {
 	else
 		setMainSprite(mainSprite);
 
-	mirrorFirstClassFieldsToDosRecordLikeDos();
+	mirrorFirstClassFieldsToDosRecord();
 }
 
 void Actor::copyIntervalToTicks() {
@@ -460,7 +460,7 @@ void Actor::copyIntervalToTicks() {
 	setDosFieldWord(0x0a, ticks);
 }
 
-void Actor::decrementTicksLeftLikeDos() {
+void Actor::decrementTicksLeft() {
 	// DOS UpdateActorAnimation @ 1000:64ae decrements actor field +0x0a
 	// on every active actor update after the optional script dispatch.
 	_ticksLeft = uint16(_ticksLeft - 1);
@@ -478,7 +478,7 @@ static bool zoneContainsPoint(uint16 left, uint16 top, uint16 right, uint16 bott
 		   p.y >= int16(top) && p.y <= int16(bottom);
 }
 
-void Actor::updateZoneAtPointLikeDos() {
+void Actor::updateZoneAtPoint() {
 	if (mainSpriteId() == 0xffff)
 		return;
 
@@ -585,7 +585,7 @@ void Actor::dropRoomScriptWaitMode(uint16 mode) {
 	_callBacks = kept;
 }
 
-void Actor::processWaitCallbacksLikeDos() {
+void Actor::processWaitCallbacks() {
 	callBacks();
 }
 
@@ -599,7 +599,7 @@ Actor::RoomScriptWaitDispatch Actor::dispatchReadyRoomScriptWaitMode(uint16 mode
 	while (!callbacks.empty()) {
 		const ScriptCallback callback = callbacks.pop();
 		if (status == kNoRoomScriptWait && callback.hasRunMode && callback.runMode == mode) {
-			if (animReadyLikeDos()) {
+			if (animReady()) {
 				status = kRoomScriptWaitDispatched;
 				readyCallback = callback.callback;
 				continue;
@@ -844,7 +844,7 @@ void Actor::setRoom(uint16 r, uint16 frame, uint16 next_frame) {
 	unless(next_frame)
 		next_frame = frame;
 	_nextFrame = next_frame;
-	clearMoveQueueLikeDos();
+	clearMoveQueue();
 	setFrame(frame);
 
 	setAnimation(CodePointer(_puppeteer.mainCodeOffset(), Log.mainInterpreter()));
@@ -865,7 +865,7 @@ void Actor::placeIn(uint16 r, uint16 frame, uint16 next_frame) {
 	if (!next_frame)
 		next_frame = frame;
 	_nextFrame = next_frame;
-	clearMoveQueueLikeDos();
+	clearMoveQueue();
 	setFrame(frame);
 }
 
@@ -939,7 +939,7 @@ bool Actor::turnTo(Direction dir) {
 	return true;
 }
 
-static bool pickReadyMarkerTurnStepLikeDos(uint8 current, uint8 target, uint8 tie, Direction &stepDir) {
+static bool pickReadyMarkerTurnStep(uint8 current, uint8 target, uint8 tie, Direction &stepDir) {
 	// DOS PickActorAnimSet @ 1000:6f7e returns carry set when no intermediate
 	// turn script is needed. It also treats a one-step difference as already
 	// reached for the caller that will install the final/default script.
@@ -982,7 +982,7 @@ static bool pickReadyMarkerTurnStepLikeDos(uint8 current, uint8 target, uint8 ti
 	return true;
 }
 
-bool Actor::consumeReadyMarkerCallbackLikeDos() {
+bool Actor::consumeReadyMarkerCallback() {
 	// DOS UpdateActors @ 1000:6d98 consumes the ready marker/callback fields
 	// written by opcodes 0xa4..0xa7. The opcode handlers only arm these fields;
 	// this actor update path is what eventually starts the callback script.
@@ -1006,7 +1006,7 @@ bool Actor::consumeReadyMarkerCallbackLikeDos() {
 
 		Direction stepDir = kDirNone;
 		const uint8 current = dosField(0x63);
-		if (pickReadyMarkerTurnStepLikeDos(current, marker, dosField(0x66), stepDir)) {
+		if (pickReadyMarkerTurnStep(current, marker, dosField(0x66), stepDir)) {
 			debugC(4, kDebugLevelActor, "ready marker %u needs turn step %u before callback 0x%04x [DOS UpdateActors]",
 				   marker, uint8(stepDir), callback);
 			setAnimation(_puppeteer.turnAnimator(stepDir));
@@ -1090,7 +1090,7 @@ void Actor::animate() {
 					goto set_anim;*/
 	}
 
-	if (consumeReadyMarkerCallbackLikeDos())
+	if (consumeReadyMarkerCallback())
 		return;
 
 	if (_confused) {
@@ -1132,7 +1132,7 @@ Animation::Status Actor::tick() {
 		if (_base) {
 			if (_ticksLeft) {
 				debugC(5, kDebugLevelAnimation, "ticking animation %s (ticks left: %u)", _debugInfo, _ticksLeft);
-				decrementTicksLeftLikeDos();
+				decrementTicksLeft();
 			} else {
 				// DOS RunActorScript clears the 8-slot movement queue at entry
 				// before dispatching actor opcodes.
@@ -1149,9 +1149,9 @@ Animation::Status Actor::tick() {
 					setDosFieldWord(kOffsetOffset, 0);
 					setDosFieldWord(kOffsetCode, 0);
 				}
-				decrementTicksLeftLikeDos();
+				decrementTicksLeft();
 			}
-			updateZoneAtPointLikeDos();
+			updateZoneAtPoint();
 		}
 
 		Log.setCurrentEntityId(savedEntityId);
@@ -1220,7 +1220,7 @@ void Actor::callBacks() {
 			// carry set only when actor.field+0x6f == 0 and word +0x6b == 0.
 			// Do not use isFine() here; script PC can be clear while a
 			// queued walk is still in flight.
-			const bool ready = callback.hasRunMode ? animReadyLikeDos() : (dosField(0x6f) == 0 && dosFieldWord(0x6b) == 0);
+			const bool ready = callback.hasRunMode ? animReady() : (dosField(0x6f) == 0 && dosFieldWord(0x6b) == 0);
 			if (!ready) {
 				pending.push(callback);
 				continue;
@@ -1434,7 +1434,7 @@ void Actor::paint(Graphics *g) {
 
 	for (uint i = 0; i < _moveSlots.size(); ++i) {
 		const MoveSlot &slot = _moveSlots[i];
-		paintMoveSlotLikeDos(g, slot.a, slot.b, slot.c, slot.mode, _position);
+		paintMoveSlot(g, slot.a, slot.b, slot.c, slot.mode, _position);
 	}
 
 	uint8 width = 0;
@@ -1531,7 +1531,7 @@ OPCODE(0x00) {
 	// does not write field+0x0a, so the shared interval fallback would add
 	// a non-DOS countdown after the script PC is cleared.
 	debugC(2, kDebugLevelActor, "actor opcode 0x00: ScriptEnd (clear PC, no remove) [DOS Op_01]");
-	clearScriptPcLikeDos();
+	clearScriptPc();
 	return kOk;
 }
 
@@ -1541,7 +1541,7 @@ OPCODE(0x01) {
 	// off-by-1 mapping. UnregisterActor only clears the script PC and the
 	// actor-table id slot; it does not reset sprite/timer/path fields.
 	debugC(1, kDebugLevelActor, "actor opcode 0x01: UnregisterAndEnd (clear script PC) [DOS Op_02]");
-	unregisterLikeDos();
+	unregister();
 	return kOk;
 }
 

@@ -82,7 +82,7 @@ void Exit::setSpriteField(uint16 sprite) {
 	}
 }
 
-void Exit::setNoSpriteLikeDos(bool noSprite) {
+void Exit::setNoSprite(bool noSprite) {
 	_noSprite = noSprite;
 	if (_noSprite)
 		setSpriteField(_spriteField);

@@ -222,7 +222,7 @@ public:
 		_nextFrame = frame;
 		setDosField(0x62, uint8(frame));
 	}
-	void clearMoveQueueLikeDos() {
+	void clearMoveQueue() {
 		_framequeue.clear();
 		setDosFieldWord(0x6b, 0);
 	}
@@ -260,8 +260,8 @@ public:
 
 	bool isFine() const;
 	bool scriptActive() const { return _base != 0; }
-	bool animReadyLikeDos() const;
-	bool idleReadyLikeDos() const;
+	bool animReady() const;
+	bool idleReady() const;
 
 	// 1-based DOS actor id (matches DAT_1cb5_666c when this actor's
 	// script is dispatching). Set by the loader at construction.
@@ -271,9 +271,9 @@ public:
 	void setAnimation(const CodePointer &anim);
 	void setAnimation(uint16);
 
-	void clearScriptPcLikeDos();
-	void unregisterLikeDos();
-	void prepareRoomEntryActiveActorLikeDos();
+	void clearScriptPc();
+	void unregister();
+	void prepareRoomEntryActiveActor();
 	void hide();
 	void callMe(const CodePointer &cp);
 	void callMeWithMode(const CodePointer &cp, uint16 mode);
@@ -291,7 +291,7 @@ public:
 	void restoreRoomScriptWait(const RoomScriptWaitSnapshot &snapshot);
 	bool hasRoomScriptWaitMode(uint16 mode) const;
 	void dropRoomScriptWaitMode(uint16 mode);
-	void processWaitCallbacksLikeDos();
+	void processWaitCallbacks();
 	enum RoomScriptWaitDispatch {
 		kNoRoomScriptWait,
 		kRoomScriptWaitPending,
@@ -302,7 +302,7 @@ public:
 	bool isSpeaking() const;
 	const Common::String &speechText() const;
 	void stopSpeaking();
-	void setAttentionNeededLikeDos(bool v) {
+	void setAttentionNeeded(bool v) {
 		setDosField(0x65, v ? 1 : 0);
 		_attentionNeeded = v;
 	}
@@ -319,7 +319,7 @@ public:
 	void paint(Graphics *g);
 	void paintSpeech(Graphics *g);
 	void synchronize(Common::Serializer &s);
-	void syncWaitCallbacksLikeDos(Common::Serializer &s);
+	void syncWaitCallbacks(Common::Serializer &s);
 
 	void toggleDebug();
 
@@ -336,15 +336,15 @@ private:
 	void readHeader(const byte *code);
 
 	void animate();
-	void updateZoneAtPointLikeDos();
-	void resetActorStateFieldsLikeDos();
-	void mirrorFirstClassFieldsToDosRecordLikeDos();
-	void registerActiveIfCurrentRoomLikeDos();
-	bool consumeReadyMarkerCallbackLikeDos();
+	void updateZoneAtPoint();
+	void resetActorStateFields();
+	void mirrorFirstClassFieldsToDosRecord();
+	void registerActiveIfCurrentRoom();
+	bool consumeReadyMarkerCallback();
 	bool turnTo(Direction);
 	bool nextFrame();
 	void copyIntervalToTicks();
-	void decrementTicksLeftLikeDos();
+	void decrementTicksLeft();
 	void setActorCodeOffset(uint16 offset);
 
 	Common::Queue<Frame> _framequeue;

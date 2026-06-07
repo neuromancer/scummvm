@@ -608,7 +608,7 @@ void Sound::rangeCheck(uint16 id) {
 	playSfxSample(id, _primaryHandle);
 }
 
-void Sound::playQueuedLikeDos() {
+void Sound::playQueued() {
 	if (!isEnabled() || !_active || _state66fe == 0)
 		return;
 
@@ -617,7 +617,7 @@ void Sound::playQueuedLikeDos() {
 	// through DispatchSfxRangeCheck. Our resource backend loads samples on
 	// demand, so the room-change cache refresh is a no-op.
 	debugC(1, kDebugLevelSound,
-		   "Sound::playQueuedLikeDos() — cache retained primary=%u secondary=%u",
+		   "Sound::playQueued() — cache retained primary=%u secondary=%u",
 		   _state66fe, _state6700);
 }
 

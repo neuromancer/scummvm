@@ -51,7 +51,7 @@ struct HitTarget {
 	Exit *exitPtr;
 };
 
-static HitTarget findBestHitTargetLikeDos(Logic &logic, Common::Point world);
+static HitTarget findBestHitTarget(Logic &logic, Common::Point world);
 
 static uint16 recordWord(const Logic &logic, uint8 selector, uint16 id, uint8 off) {
 	return logic.dosRecordField(selector, id, off, 2);
@@ -91,7 +91,7 @@ static bool containsDosHalfOpen(int16 left, int16 top, int16 right, int16 bottom
 	return p.x >= left && p.x < right && p.y >= top && p.y < bottom;
 }
 
-static int16 hitRegionAtPointLikeDos(const Common::Point &pos) {
+static int16 hitRegionAtPoint(const Common::Point &pos) {
 	// iuc_main.dat hit-region table (footer +0x5a):
 	//   0 = room, 1 = inventory strip, 2 = status button, 3..8 = verb buttons.
 	if (containsDosHalfOpen(0, 0, 320, 152, pos))
@@ -126,7 +126,7 @@ static void considerLowerZTarget(HitTarget &best, uint16 type, uint16 id, int16 
 	}
 }
 
-static HitTarget hitDrawCommandAtPointLikeDos(Logic &logic, Common::Point world) {
+static HitTarget hitDrawCommandAtPoint(Logic &logic, Common::Point world) {
 	HitTarget best;
 	Resources *resources = logic.resources();
 	const Common::Array<Logic::DrawCommand> &commands = logic.drawCommands();
@@ -156,17 +156,17 @@ static HitTarget hitDrawCommandAtPointLikeDos(Logic &logic, Common::Point world)
 	return best;
 }
 
-static HitTarget hitDrawCommandWithFallbackLikeDos(Logic &logic, Common::Point world) {
-	HitTarget target = hitDrawCommandAtPointLikeDos(logic, world);
+static HitTarget hitDrawCommandWithFallback(Logic &logic, Common::Point world) {
+	HitTarget target = hitDrawCommandAtPoint(logic, world);
 	if (target.type != 0)
 		return target;
-	target = hitDrawCommandAtPointLikeDos(logic, Common::Point(world.x, world.y + 1));
+	target = hitDrawCommandAtPoint(logic, Common::Point(world.x, world.y + 1));
 	if (target.type != 0)
 		return target;
-	return hitDrawCommandAtPointLikeDos(logic, Common::Point(world.x + 1, world.y + 1));
+	return hitDrawCommandAtPoint(logic, Common::Point(world.x + 1, world.y + 1));
 }
 
-static HitTarget hitNoSpriteExitAtPointLikeDos(Logic &logic, Common::Point world) {
+static HitTarget hitNoSpriteExitAtPoint(Logic &logic, Common::Point world) {
 	HitTarget best;
 	best.z = 0x0c;
 	Program *program = logic.blockProgram();
@@ -176,7 +176,7 @@ static HitTarget hitNoSpriteExitAtPointLikeDos(Logic &logic, Common::Point world
 	// FindObjectAtCursor @ 1000:bd0f scans the side list built by
 	// CollectObjectsForRoom from back to front. Equal z values therefore
 	// keep the later visible entry, not the lowest exit id.
-	const Common::Array<uint16> &visible = logic.visibleNoSpriteExitsLikeDos();
+	const Common::Array<uint16> &visible = logic.visibleNoSpriteExits();
 	for (int i = int(visible.size()) - 1; i >= 0; --i) {
 		const uint16 id = visible[i];
 		Exit *exit = program->getExit(id);
@@ -225,7 +225,7 @@ static bool spriteContainsTopLeftPoint(Resources *resources, uint16 spriteId,
 	return pixel && *pixel != 0;
 }
 
-static HitTarget hitInventoryObjectAtPointLikeDos(Logic &logic, Common::Point screen) {
+static HitTarget hitInventoryObjectAtPoint(Logic &logic, Common::Point screen) {
 	HitTarget target;
 	Resources *resources = logic.resources();
 	if (!resources)
@@ -260,24 +260,24 @@ static HitTarget hitInventoryObjectAtPointLikeDos(Logic &logic, Common::Point sc
 	return target;
 }
 
-static HitTarget findHitTargetForRegionLikeDos(Logic &logic, int16 hitRegion, Common::Point screen) {
+static HitTarget findHitTargetForRegion(Logic &logic, int16 hitRegion, Common::Point screen) {
 	if (hitRegion == 1)
-		return hitInventoryObjectAtPointLikeDos(logic, screen);
+		return hitInventoryObjectAtPoint(logic, screen);
 	if (hitRegion == 0) {
 		Common::Point world(screen.x + logic.cameraX(), screen.y + logic.cameraY());
-		return findBestHitTargetLikeDos(logic, world);
+		return findBestHitTarget(logic, world);
 	}
 	return HitTarget();
 }
 
-static HitTarget hitActorAtPointLikeDos(Logic &logic, Common::Point world) {
+static HitTarget hitActorAtPoint(Logic &logic, Common::Point world) {
 	HitTarget best;
 	Resources *resources = logic.resources();
 	uint16 actorCount = logic.resources()->mainDat()->actorsCount();
 	if (logic.blockProgram())
 		actorCount += logic.blockProgram()->actorsCount();
 	for (uint16 id = 1; id <= actorCount; ++id) {
-		if (!logic.activeActorLikeDos(id))
+		if (!logic.activeActor(id))
 			continue;
 		Actor *actor = logic.getActor(id);
 		if (!actor || actor->room() != logic.currentRoom())
@@ -302,9 +302,9 @@ static HitTarget hitActorAtPointLikeDos(Logic &logic, Common::Point world) {
 	return best;
 }
 
-static HitTarget findBestHitTargetLikeDos(Logic &logic, Common::Point world) {
-	HitTarget best = hitDrawCommandWithFallbackLikeDos(logic, world);
-	const HitTarget noSpriteExit = hitNoSpriteExitAtPointLikeDos(logic, world);
+static HitTarget findBestHitTarget(Logic &logic, Common::Point world) {
+	HitTarget best = hitDrawCommandWithFallback(logic, world);
+	const HitTarget noSpriteExit = hitNoSpriteExitAtPoint(logic, world);
 	if (best.type != 0) {
 		if (noSpriteExit.type != 0 && best.z >= noSpriteExit.z)
 			best = noSpriteExit;
@@ -312,7 +312,7 @@ static HitTarget findBestHitTargetLikeDos(Logic &logic, Common::Point world) {
 		best = noSpriteExit;
 	}
 
-	const HitTarget actor = hitActorAtPointLikeDos(logic, world);
+	const HitTarget actor = hitActorAtPoint(logic, world);
 	if (actor.type != 0) {
 		if (best.type == 0 || best.z > actor.z || (best.z == actor.z && best.type != 2))
 			best = actor;
@@ -321,7 +321,7 @@ static HitTarget findBestHitTargetLikeDos(Logic &logic, Common::Point world) {
 	return best;
 }
 
-static bool runEntityScriptLikeDos(Logic &logic, const HitTarget &target, OpcodeMode mode) {
+static bool runEntityScript(Logic &logic, const HitTarget &target, OpcodeMode mode) {
 	if (target.type == 0)
 		return true;
 
@@ -334,7 +334,7 @@ static bool runEntityScriptLikeDos(Logic &logic, const HitTarget &target, Opcode
 		debugC(1, kDebugLevelEvents,
 			   "entity target type 1 id %u runs exit click handler in mode 0x%02x",
 			   target.id, uint(mode));
-		logic.resetRoomScriptSlotLikeDos(mode);
+		logic.resetRoomScriptSlot(mode);
 		return target.exitPtr->clicked();
 	}
 
@@ -367,12 +367,12 @@ static bool runEntityScriptLikeDos(Logic &logic, const HitTarget &target, Opcode
 	debugC(1, kDebugLevelEvents,
 		   "entity type %u id %u runs script 0x%04x in mode 0x%02x [DOS RunEntityScript]",
 		   target.type, target.id, scriptOffset, uint(mode));
-	logic.resetRoomScriptSlotLikeDos(mode);
+	logic.resetRoomScriptSlot(mode);
 	CodePointer(scriptOffset, interpreter).run(mode);
 	return true;
 }
 
-static bool handleMinimapExitClickLikeDos(Logic &logic, Common::Point screen) {
+static bool handleMinimapExitClick(Logic &logic, Common::Point screen) {
 	if (logic.cursorMode() == 0x80 || logic.dialogClickGate() == 0 || logic.inStatusMode())
 		return false;
 
@@ -399,7 +399,7 @@ static bool handleMinimapExitClickLikeDos(Logic &logic, Common::Point screen) {
 		target.id = entry.arg3;
 		target.z = int16(i);
 		target.exitPtr = logic.blockProgram() ? logic.blockProgram()->getExit(entry.arg3) : 0;
-		if (!runEntityScriptLikeDos(logic, target, kCodeItem))
+		if (!runEntityScript(logic, target, kCodeItem))
 			return true;
 
 		if (logic.roomChangePending() || logic.currentRoom() != currentRoom || logic.breakInner())
@@ -410,23 +410,23 @@ static bool handleMinimapExitClickLikeDos(Logic &logic, Common::Point screen) {
 			const Logic::PostMoveCallback savedCallback = logic.postMoveCallback();
 			logic.sendActorToCurrentEntity(protag);
 			logic.setPostMoveCallback(savedCallback);
-			logic.resetRoomScriptSlotLikeDos(kCodeItem);
+			logic.resetRoomScriptSlot(kCodeItem);
 		}
 		return true;
 	}
 	return false;
 }
 
-static void handleSecondaryClickLikeDos(Logic &logic, int16 hitRegion, Common::Point screen) {
+static void handleSecondaryClick(Logic &logic, int16 hitRegion, Common::Point screen) {
 	if (logic.cursorMode() != 1)
 		return;
 
-	const HitTarget target = findHitTargetForRegionLikeDos(logic, hitRegion, screen);
+	const HitTarget target = findHitTargetForRegion(logic, hitRegion, screen);
 	if (target.type != 2)
 		return;
 
 	if (hitRegion != 0) {
-		logic.beginDragAfterRemoveExitLikeDos(target.id, true);
+		logic.beginDragAfterRemoveExit(target.id, true);
 		debugC(1, kDebugLevelEvents,
 			   "inventory object %u begins drag [DOS HandleSecondaryClick/BeginDrag_AfterRemoveExit]",
 			   target.id);
@@ -445,7 +445,7 @@ static void handleSecondaryClickLikeDos(Logic &logic, int16 hitRegion, Common::P
 			   "room object %u pickup armed after walk [DOS HandleSecondaryClick]",
 			   target.id);
 	} else {
-		logic.beginDragAfterRemoveExitLikeDos(target.id, false);
+		logic.beginDragAfterRemoveExit(target.id, false);
 		debugC(1, kDebugLevelEvents,
 			   "room object %u pickup begins immediately [DOS HandleSecondaryClick]",
 			   target.id);
@@ -467,12 +467,12 @@ void EventManager::clicked(Common::Point pos) {
 	if (!logic.roomActive() || logic.canSkipCutscene())
 		return;
 
-	logic.lockCursorAndButtonsLikeDos(pos, 1);
+	logic.lockCursorAndButtons(pos, 1);
 
-	if (handleMinimapExitClickLikeDos(logic, pos))
+	if (handleMinimapExitClick(logic, pos))
 		return;
 
-	const int16 hitRegion = hitRegionAtPointLikeDos(pos);
+	const int16 hitRegion = hitRegionAtPoint(pos);
 	if (hitRegion < 0) {
 		logic.setHitTarget(0xffff);
 		return;
@@ -480,7 +480,7 @@ void EventManager::clicked(Common::Point pos) {
 	logic.setHitTarget(uint16(hitRegion));
 
 	Common::Point world(pos.x + logic.cameraX(), pos.y + logic.cameraY());
-	HitTarget target = findHitTargetForRegionLikeDos(logic, hitRegion, pos);
+	HitTarget target = findHitTargetForRegion(logic, hitRegion, pos);
 	const uint16 dispatchCursorMode = logic.cursorMode();
 	const uint16 dragTargetBeforeDispatch = logic.dragTarget();
 	debugC(1, kDebugLevelEvents,
@@ -494,7 +494,7 @@ void EventManager::clicked(Common::Point pos) {
 		return;
 	if (hitRegion >= 3 && hitRegion <= 8) {
 		logic.setStepPending(true);
-		logic.setVerbModeFromHitRegionLikeDos(hitRegion);
+		logic.setVerbModeFromHitRegion(hitRegion);
 		return;
 	}
 	if (hitRegion == 2) {
@@ -502,18 +502,18 @@ void EventManager::clicked(Common::Point pos) {
 		if (logic.inStatusMode()) {
 			debugC(1, kDebugLevelEvents,
 				   "status button restores previous room [DOS RunStatusScreenLoop]");
-			logic.restoreRoomFromBackupLikeDos();
+			logic.restoreRoomFromBackup();
 		} else {
 			debugC(1, kDebugLevelEvents,
 				   "status button enters room 999 [DOS RunStatusScreenLoop]");
-			logic.enterStatusScreenLoopLikeDos();
+			logic.enterStatusScreenLoop();
 		}
 		return;
 	}
 	if (dispatchCursorMode == 0)
 		return;
 	if (dispatchCursorMode != 0x80 || hitRegion != 1 || target.type != 2)
-		Graphics::instance().clearInventoryCloseUpObjectLikeDos();
+		Graphics::instance().clearInventoryCloseUpObject();
 
 	const uint16 currentRoom = logic.currentRoom();
 	logic.setStepPending(true);
@@ -523,7 +523,7 @@ void EventManager::clicked(Common::Point pos) {
 	if (target.type == 0) {
 		logic.setGameState(0);
 		logic.setCurrentEntityId(0);
-	} else if (!runEntityScriptLikeDos(logic, target, kCodeItem)) {
+	} else if (!runEntityScript(logic, target, kCodeItem)) {
 		return;
 	}
 
@@ -544,7 +544,7 @@ void EventManager::clicked(Common::Point pos) {
 	}
 
 	if (dispatchCursorMode == 0x80 && hitRegion == 1 && target.type == 2) {
-		Graphics::instance().setInventoryCloseUpObjectLikeDos(target.id);
+		Graphics::instance().setInventoryCloseUpObject(target.id);
 		debugC(1, kDebugLevelEvents,
 			   "inventory object %u close-up armed [DOS HandleInventoryClick]",
 			   target.id);
@@ -552,7 +552,7 @@ void EventManager::clicked(Common::Point pos) {
 	}
 
 	if (dispatchCursorMode == 0x80 && hitRegion == 0) {
-		Graphics::instance().setRoomCloseUpLikeDos(pos);
+		Graphics::instance().setRoomCloseUp(pos);
 		debugC(1, kDebugLevelEvents,
 			   "room eye close-up armed at (%d,%d) [DOS DrawCursorWithBackdrop]",
 			   pos.x, pos.y);
@@ -560,7 +560,7 @@ void EventManager::clicked(Common::Point pos) {
 	}
 
 	if (dispatchCursorMode == 1) {
-		handleSecondaryClickLikeDos(logic, hitRegion, pos);
+		handleSecondaryClick(logic, hitRegion, pos);
 		return;
 	}
 
@@ -576,7 +576,7 @@ void EventManager::clicked(Common::Point pos) {
 		const Logic::PostMoveCallback savedCallback = logic.postMoveCallback();
 		logic.sendActorToCurrentEntity(protag);
 		logic.setPostMoveCallback(savedCallback);
-		logic.resetRoomScriptSlotLikeDos(kCodeItem);
+		logic.resetRoomScriptSlot(kCodeItem);
 	}
 }
 

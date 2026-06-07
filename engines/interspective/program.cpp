@@ -163,7 +163,7 @@ Exit *Program::getExit(uint16 index) const {
 	return _exits[index - 1];
 }
 
-bool Program::getExitRoomWordLikeDos(uint16 index, uint16 &room) const {
+bool Program::getExitRoomWord(uint16 index, uint16 &room) const {
 	if (index == 0)
 		return false;
 
