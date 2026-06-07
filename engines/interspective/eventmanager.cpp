@@ -37,10 +37,8 @@
 #include "interspective/util.h"
 #include "interspective/value.h"
 
-using namespace std;
-
 namespace Common {
-	DECLARE_SINGLETON(Interspective::EventManager);
+DECLARE_SINGLETON(Interspective::EventManager);
 }
 
 namespace Interspective {
@@ -64,7 +62,7 @@ static uint16 recordWord(const Logic &logic, uint8 selector, uint16 id, uint8 of
 }
 
 static bool spriteContainsWorldPoint(Resources *resources, uint16 spriteId,
-		Common::Point pos, Common::Point world) {
+									 Common::Point pos, Common::Point world) {
 	if (!resources || spriteId == 0xffff)
 		return false;
 
@@ -141,8 +139,7 @@ static HitTarget hitDrawCommandAtPointLikeDos(Logic &logic, Common::Point world)
 		const Logic::DrawCommand &cmd = commands[i];
 		if (cmd.type == 1) {
 			Exit *exit = logic.blockProgram() ? logic.blockProgram()->getExit(cmd.id) : 0;
-			if (!exit || logic.dosRecordField(1, cmd.id, 0, 2) != logic.currentRoom()
-					|| !logic.cellBit(cmd.id, 0))
+			if (!exit || logic.dosRecordField(1, cmd.id, 0, 2) != logic.currentRoom() || !logic.cellBit(cmd.id, 0))
 				continue;
 			const uint16 spriteId = recordWord(logic, 1, cmd.id, 6);
 			const Common::Point pos(
@@ -209,7 +206,7 @@ static HitTarget hitNoSpriteExitAtPointLikeDos(Logic &logic, Common::Point world
 }
 
 static bool spriteContainsTopLeftPoint(Resources *resources, uint16 spriteId,
-		Common::Point topLeft, Common::Point screen) {
+									   Common::Point topLeft, Common::Point screen) {
 	if (!resources || spriteId == 0xffff)
 		return false;
 
@@ -339,8 +336,8 @@ static bool runEntityScriptLikeDos(Logic &logic, const HitTarget &target, Opcode
 		if (!target.exitPtr)
 			return false;
 		debugC(1, kDebugLevelEvents,
-				"entity target type 1 id %u runs exit click handler in mode 0x%02x",
-				target.id, uint(mode));
+			   "entity target type 1 id %u runs exit click handler in mode 0x%02x",
+			   target.id, uint(mode));
 		logic.resetRoomScriptSlotLikeDos(mode);
 		return target.exitPtr->clicked();
 	}
@@ -363,8 +360,8 @@ static bool runEntityScriptLikeDos(Logic &logic, const HitTarget &target, Opcode
 			return false;
 		}
 		interpreter = target.id <= logic.resources()->mainDat()->actorsCount()
-			? logic.mainInterpreter()
-			: logic.blockInterpreter();
+						  ? logic.mainInterpreter()
+						  : logic.blockInterpreter();
 		scriptOffset = recordWord(logic, 3, target.id, 0x5b);
 	}
 
@@ -372,8 +369,8 @@ static bool runEntityScriptLikeDos(Logic &logic, const HitTarget &target, Opcode
 		return false;
 
 	debugC(1, kDebugLevelEvents,
-			"entity type %u id %u runs script 0x%04x in mode 0x%02x [DOS RunEntityScript]",
-			target.type, target.id, scriptOffset, uint(mode));
+		   "entity type %u id %u runs script 0x%04x in mode 0x%02x [DOS RunEntityScript]",
+		   target.type, target.id, scriptOffset, uint(mode));
 	logic.resetRoomScriptSlotLikeDos(mode);
 	CodePointer(scriptOffset, interpreter).run(mode);
 	return true;
@@ -387,15 +384,15 @@ static bool handleMinimapExitClickLikeDos(Logic &logic, Common::Point screen) {
 	for (uint i = 0; i < entries.size(); ++i) {
 		const Logic::AnimListEntry &entry = entries[i];
 		if (!containsDosHalfOpen(int16(entry.x0), int16(entry.y0),
-				int16(entry.x1), int16(entry.y1), screen))
+								 int16(entry.x1), int16(entry.y1), screen))
 			continue;
 
 		logic.setStepPending(true);
 		logic.setGameState(1);
 		logic.setCurrentEntityId(entry.arg3);
 		debugC(1, kDebugLevelEvents,
-			"minimap exit click pos=(%d,%d) entry=%u exit=%u marker=%u cursor=0x%02x [DOS HandleClick]",
-			screen.x, screen.y, i, entry.arg3, entry.arg2, logic.cursorMode());
+			   "minimap exit click pos=(%d,%d) entry=%u exit=%u marker=%u cursor=0x%02x [DOS HandleClick]",
+			   screen.x, screen.y, i, entry.arg3, entry.arg2, logic.cursorMode());
 
 		if (!logic.cellBit(entry.arg3, 0))
 			return true;
@@ -435,8 +432,8 @@ static void handleSecondaryClickLikeDos(Logic &logic, int16 hitRegion, Common::P
 	if (hitRegion != 0) {
 		logic.beginDragAfterRemoveExitLikeDos(target.id, true);
 		debugC(1, kDebugLevelEvents,
-			"inventory object %u begins drag [DOS HandleSecondaryClick/BeginDrag_AfterRemoveExit]",
-			target.id);
+			   "inventory object %u begins drag [DOS HandleSecondaryClick/BeginDrag_AfterRemoveExit]",
+			   target.id);
 		return;
 	}
 
@@ -447,15 +444,15 @@ static void handleSecondaryClickLikeDos(Logic &logic, int16 hitRegion, Common::P
 	const bool waitForWalk = logic.sendActorToCurrentEntity(protag) && protag && protag->isMoving();
 	if (waitForWalk) {
 		logic.setPostMoveCallback(Logic::PostMoveCallback::kBeginDragAfterMove,
-			logic.currentEntityId(), target.id, 0);
+								  logic.currentEntityId(), target.id, 0);
 		debugC(1, kDebugLevelEvents,
-			"room object %u pickup armed after walk [DOS HandleSecondaryClick]",
-			target.id);
+			   "room object %u pickup armed after walk [DOS HandleSecondaryClick]",
+			   target.id);
 	} else {
 		logic.beginDragAfterRemoveExitLikeDos(target.id, false);
 		debugC(1, kDebugLevelEvents,
-			"room object %u pickup begins immediately [DOS HandleSecondaryClick]",
-			target.id);
+			   "room object %u pickup begins immediately [DOS HandleSecondaryClick]",
+			   target.id);
 	}
 }
 
@@ -491,12 +488,12 @@ void EventManager::clicked(Common::Point pos) {
 	const uint16 dispatchCursorMode = logic.cursorMode();
 	const uint16 dragTargetBeforeDispatch = logic.dragTarget();
 	debugC(1, kDebugLevelEvents,
-			"click pos=(%d,%d) world=(%d,%d) region=%d room=%u camera=(%d,%d) cursor=0x%02x step=%d noStep=%d hit=%u draw=%u -> target type=%u id=%u z=%d",
-			pos.x, pos.y, world.x, world.y, hitRegion, logic.currentRoom(),
-			logic.cameraX(), logic.cameraY(), dispatchCursorMode,
-			logic.stepPending() ? 1 : 0, logic.noStep() ? 1 : 0,
-			logic.hitTarget(), logic.drawCommandCount(),
-			target.type, target.id, target.z);
+		   "click pos=(%d,%d) world=(%d,%d) region=%d room=%u camera=(%d,%d) cursor=0x%02x step=%d noStep=%d hit=%u draw=%u -> target type=%u id=%u z=%d",
+		   pos.x, pos.y, world.x, world.y, hitRegion, logic.currentRoom(),
+		   logic.cameraX(), logic.cameraY(), dispatchCursorMode,
+		   logic.stepPending() ? 1 : 0, logic.noStep() ? 1 : 0,
+		   logic.hitTarget(), logic.drawCommandCount(),
+		   target.type, target.id, target.z);
 	if (logic.noStep())
 		return;
 	if (hitRegion >= 3 && hitRegion <= 8) {
@@ -508,11 +505,11 @@ void EventManager::clicked(Common::Point pos) {
 		logic.setStepPending(true);
 		if (logic.inStatusMode()) {
 			debugC(1, kDebugLevelEvents,
-				"status button restores previous room [DOS RunStatusScreenLoop]");
+				   "status button restores previous room [DOS RunStatusScreenLoop]");
 			logic.restoreRoomFromBackupLikeDos();
 		} else {
 			debugC(1, kDebugLevelEvents,
-				"status button enters room 999 [DOS RunStatusScreenLoop]");
+				   "status button enters room 999 [DOS RunStatusScreenLoop]");
 			logic.enterStatusScreenLoopLikeDos();
 		}
 		return;
@@ -541,13 +538,11 @@ void EventManager::clicked(Common::Point pos) {
 		return;
 
 	if (dispatchCursorMode == 0x20) {
-		if (hitRegion == 1 && dragTargetBeforeDispatch != 0
-				&& logic.dragTarget() == dragTargetBeforeDispatch
-				&& logic.placeObjectInInventoryAtDosPoint(dragTargetBeforeDispatch, pos)) {
+		if (hitRegion == 1 && dragTargetBeforeDispatch != 0 && logic.dragTarget() == dragTargetBeforeDispatch && logic.placeObjectInInventoryAtDosPoint(dragTargetBeforeDispatch, pos)) {
 			logic.setPaused();
 			debugC(1, kDebugLevelEvents,
-				"drag object %u returned to inventory at (%d,%d) [DOS HandleHotspotInteraction]",
-				dragTargetBeforeDispatch, pos.x, pos.y);
+				   "drag object %u returned to inventory at (%d,%d) [DOS HandleHotspotInteraction]",
+				   dragTargetBeforeDispatch, pos.x, pos.y);
 		}
 		return;
 	}
@@ -555,16 +550,16 @@ void EventManager::clicked(Common::Point pos) {
 	if (dispatchCursorMode == 0x80 && hitRegion == 1 && target.type == 2) {
 		Graphics::instance().setInventoryCloseUpObjectLikeDos(target.id);
 		debugC(1, kDebugLevelEvents,
-			"inventory object %u close-up armed [DOS HandleInventoryClick]",
-			target.id);
+			   "inventory object %u close-up armed [DOS HandleInventoryClick]",
+			   target.id);
 		return;
 	}
 
 	if (dispatchCursorMode == 0x80 && hitRegion == 0) {
 		Graphics::instance().setRoomCloseUpLikeDos(pos);
 		debugC(1, kDebugLevelEvents,
-			"room eye close-up armed at (%d,%d) [DOS DrawCursorWithBackdrop]",
-			pos.x, pos.y);
+			   "room eye close-up armed at (%d,%d) [DOS DrawCursorWithBackdrop]",
+			   pos.x, pos.y);
 		return;
 	}
 
@@ -577,9 +572,7 @@ void EventManager::clicked(Common::Point pos) {
 		return;
 
 	Actor *protag = logic.protagonist();
-	const bool brokeInner = logic.roomChangePending()
-		|| logic.currentRoom() != currentRoom
-		|| logic.breakInner();
+	const bool brokeInner = logic.roomChangePending() || logic.currentRoom() != currentRoom || logic.breakInner();
 
 	if (!brokeInner) {
 		if (logic.gameState() == 1)
@@ -624,4 +617,4 @@ void EventManager::toggleDebug() {
 		Graphics::instance().pop(this);
 }
 
-}
+} // End of namespace Interspective

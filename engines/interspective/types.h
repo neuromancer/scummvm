@@ -50,7 +50,6 @@ enum StringSpecial {
 	kStringCenter = 12
 };
 
-
 enum FramePart {
 	kFrameTopLeft,
 	kFrameTop,
@@ -83,6 +82,6 @@ enum SpeechBubblePart {
 	kBubbleVerbStem
 };
 
-} // end of namespace Interspective
+} // End of namespace Interspective
 
-#endif
+#endif // INTERSPECTIVE_TYPES_H

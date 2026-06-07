@@ -29,11 +29,11 @@
 #include "interspective/actor.h"
 #include "interspective/graphics.h"
 #include "interspective/innocent.h"
-#include "interspective/sound.h"
 #include "interspective/inter.h"
 #include "interspective/logic.h"
 #include "interspective/resources.h"
 #include "interspective/room.h"
+#include "interspective/sound.h"
 #include "interspective/util.h"
 
 namespace Interspective {
@@ -68,7 +68,7 @@ Actor::Actor(const CodePointer &code) : Animation(code, Common::Point()), _id(0)
 
 bool Actor::isFine() const {
 	return _room == Log.currentRoom() && _base && !_attentionNeeded &&
-			(!_framequeue.empty() || !_confused || _nextDirection);
+		   (!_framequeue.empty() || !_confused || _nextDirection);
 }
 
 bool Actor::animReadyLikeDos() const {
@@ -78,9 +78,9 @@ bool Actor::animReadyLikeDos() const {
 		return true;
 
 	const bool stillActive = dosField(0x6f) != 0 ||
-		(dosField(0x65) == 0 &&
-		 (dosFieldWord(0x6b) != 0 || dosFieldWord(0x69) != 0 ||
-		  dosField(0x64) == 0 || dosField(0x67) != 0));
+							 (dosField(0x65) == 0 &&
+							  (dosFieldWord(0x6b) != 0 || dosFieldWord(0x69) != 0 ||
+							   dosField(0x64) == 0 || dosField(0x67) != 0));
 	return !stillActive;
 }
 
@@ -88,9 +88,9 @@ bool Actor::idleReadyLikeDos() const {
 	// DOS CheckActorIdle @ 1000:645e uses the same carry convention:
 	// carry clear while an active current-room actor script must be retried.
 	const bool stillActive = _room == Log.currentRoom() &&
-		dosFieldWord(kOffsetOffset) != 0 &&
-		dosFieldWord(0x6b) == 0 && dosField(0x65) == 0 &&
-		(dosField(0x64) == 0 || dosField(0x67) != 0);
+							 dosFieldWord(kOffsetOffset) != 0 &&
+							 dosFieldWord(0x6b) == 0 && dosField(0x65) == 0 &&
+							 (dosField(0x64) == 0 || dosField(0x67) != 0);
 	return !stillActive;
 }
 
@@ -198,10 +198,10 @@ void Actor::prepareRoomEntryActiveActorLikeDos() {
 	const uint16 codeOffset = dosFieldWord(kOffsetOffset);
 	const bool blockSegment = segment == 1 || ((segment & 0xc000) == 0x4000);
 	const bool mainSegment = segment == 0 ||
-		segment == actorCodeSegmentTag(Log.mainInterpreter() ? Log.mainInterpreter()->rawCode(0) : 0);
+							 segment == actorCodeSegmentTag(Log.mainInterpreter() ? Log.mainInterpreter()->rawCode(0) : 0);
 	if (blockSegment || mainSegment) {
-		Interpreter * const interp = blockSegment ? Log.blockInterpreter() : Log.mainInterpreter();
-		byte * const segmentBase = interp ? interp->rawCode(0) : 0;
+		Interpreter *const interp = blockSegment ? Log.blockInterpreter() : Log.mainInterpreter();
+		byte *const segmentBase = interp ? interp->rawCode(0) : 0;
 		if (segmentBase) {
 			_base = segmentBase + codeOffset;
 			_baseOffset = codeOffset;
@@ -479,7 +479,7 @@ void Actor::decrementTicksLeftLikeDos() {
 
 static bool zoneContainsPoint(uint16 left, uint16 top, uint16 right, uint16 bottom, const Common::Point &p) {
 	return p.x >= int16(left) && p.x <= int16(right) &&
-		p.y >= int16(top) && p.y <= int16(bottom);
+		   p.y >= int16(top) && p.y <= int16(bottom);
 }
 
 void Actor::updateZoneAtPointLikeDos() {
@@ -616,7 +616,7 @@ Actor::RoomScriptWaitDispatch Actor::dispatchReadyRoomScriptWaitMode(uint16 mode
 	_callBacks = kept;
 	if (status == kRoomScriptWaitDispatched) {
 		debugC(3, kDebugLevelScript, "room-script mode 0x%02x actor wait ready; running %s",
-				mode, +readyCallback);
+			   mode, +readyCallback);
 		const uint16 savedOpcodeMode = Log.opcodeMode();
 		readyCallback.run(static_cast<OpcodeMode>(mode));
 		Log.setOpcodeMode(savedOpcodeMode);
@@ -737,8 +737,8 @@ Common::List<Actor::Frame> Actor::findPath(Actor::Frame from, uint16 to) {
 
 	if (!found) {
 		debugC(2, kDebugLevelActor,
-			"findPath: frame %u unreachable from %u (%u frames explored)",
-			to, from.index(), (uint)parent.size());
+			   "findPath: frame %u unreachable from %u (%u frames explored)",
+			   to, from.index(), (uint)parent.size());
 		return path;
 	}
 
@@ -845,7 +845,7 @@ void Actor::moveTo(uint16 frame) {
 
 void Actor::setRoom(uint16 r, uint16 frame, uint16 next_frame) {
 	_room = r;
-	unless (next_frame)
+	unless(next_frame)
 		next_frame = frame;
 	_nextFrame = next_frame;
 	clearMoveQueueLikeDos();
@@ -886,7 +886,7 @@ bool Actor::nextFrame() {
 	if (turnTo(direction))
 		return true;
 
-//	setFrame(_framequeue.front().index());
+	//	setFrame(_framequeue.front().index());
 	setAnimation(_puppeteer.moveAnimator(direction));
 	_frame = next.index();
 	if (Log.protagonist() == this)
@@ -904,7 +904,7 @@ bool Actor::turnTo(Direction dir) {
 
 	Direction d = _direction >> dir;
 	if (_direction >= kDirUp && _direction <= kDirUpLeft &&
-			dir >= kDirUp && dir <= kDirUpLeft) {
+		dir >= kDirUp && dir <= kDirUpLeft) {
 		// DOS PickActorAnimSet @ 1000:6f7e steps one compass slot toward
 		// the requested direction. For exact 180-degree turns it uses field
 		// +0x66, set by LookupActorAndStartPath from target-vs-current X, to
@@ -1002,8 +1002,8 @@ bool Actor::consumeReadyMarkerCallbackLikeDos() {
 		setDosFieldWord(0x6d, 0);
 		if (pendingAnim != 0) {
 			debugC(3, kDebugLevelActor,
-				"ready marker %u starting pending actor animation 0x%04x before callback 0x%04x [DOS UpdateActors]",
-				marker, pendingAnim, callback);
+				   "ready marker %u starting pending actor animation 0x%04x before callback 0x%04x [DOS UpdateActors]",
+				   marker, pendingAnim, callback);
 			setAnimation(pendingAnim);
 			return true;
 		}
@@ -1012,7 +1012,7 @@ bool Actor::consumeReadyMarkerCallbackLikeDos() {
 		const uint8 current = dosField(0x63);
 		if (pickReadyMarkerTurnStepLikeDos(current, marker, dosField(0x66), stepDir)) {
 			debugC(4, kDebugLevelActor, "ready marker %u needs turn step %u before callback 0x%04x [DOS UpdateActors]",
-				marker, uint8(stepDir), callback);
+				   marker, uint8(stepDir), callback);
 			setAnimation(_puppeteer.turnAnimator(stepDir));
 			return true;
 		}
@@ -1026,14 +1026,14 @@ bool Actor::consumeReadyMarkerCallbackLikeDos() {
 	setDosFieldWord(0x69, 0);
 	if (callback != 0) {
 		debugC(3, kDebugLevelActor, "ready marker %u starting actor callback 0x%04x [DOS UpdateActors]",
-			marker, callback);
+			   marker, callback);
 		setAnimation(callback);
 		return true;
 	}
 
 	if (marker != 0) {
 		debugC(4, kDebugLevelActor, "ready marker %u returning to actor base animation [DOS UpdateActors]",
-			marker);
+			   marker);
 		setAnimation(_puppeteer.offset());
 		return true;
 	}
@@ -1042,8 +1042,7 @@ bool Actor::consumeReadyMarkerCallbackLikeDos() {
 }
 
 void Actor::animate() {
-	unless (_puppeteer.valid())
-		return;
+	unless(_puppeteer.valid()) return;
 
 	const bool walkQueueActive = !_framequeue.empty() && dosFieldWord(0x6b) != 0;
 	bool queuedWalkReady = false;
@@ -1052,9 +1051,8 @@ void Actor::animate() {
 		queuedWalkReady = current.position() == _position;
 	}
 	const bool readyMarkerActive = (dosField(0x67) != 0 || dosFieldWord(0x69) != 0) &&
-		dosFieldWord(0x6b) == 0 && _framequeue.empty();
-	unless (_attentionNeeded || _confused || queuedWalkReady || readyMarkerActive/* || _timedOut*/)
-		return;
+								   dosFieldWord(0x6b) == 0 && _framequeue.empty();
+	unless(_attentionNeeded || _confused || queuedWalkReady || readyMarkerActive /* || _timedOut*/) return;
 
 	// DOS UpdateActors @ 1000:6d3a keeps queued walking alive through
 	// word field +0x6b. Actor byte +0x65 is an attention latch that
@@ -1084,16 +1082,16 @@ void Actor::animate() {
 			return;
 		_direction = _nextDirection;
 		_nextDirection = kDirNone;
-/*		ax = _nextPuppeteer;
-		_nextPuppeteer = 0;
-		if (ax)
-			goto set_anim;*/
+		/*		ax = _nextPuppeteer;
+				_nextPuppeteer = 0;
+				if (ax)
+					goto set_anim;*/
 		setAnimation(_puppeteer.offset());
-/*	} else if (_nextPuppeteer) {
-		ax = _nextPuppeteer;
-		_nextPuppeteer = 0;
-		if (ax)
-			goto set_anim;*/
+		/*	} else if (_nextPuppeteer) {
+				ax = _nextPuppeteer;
+				_nextPuppeteer = 0;
+				if (ax)
+					goto set_anim;*/
 	}
 
 	if (consumeReadyMarkerCallbackLikeDos())
@@ -1107,12 +1105,12 @@ void Actor::animate() {
 		setAnimation(_puppeteer.offset());
 		return;
 	}
-/*	} else {
-		if (turnTo(kDirUp))
-			return;
-		_direction = kDirUp;
-		setAnimation(_puppeteer.offset());
-	}*/
+	/*	} else {
+			if (turnTo(kDirUp))
+				return;
+			_direction = kDirUp;
+			setAnimation(_puppeteer.offset());
+		}*/
 }
 
 Animation::Status Actor::tick() {
@@ -1171,7 +1169,7 @@ void Actor::toggleDebug() {
 }
 
 void Actor::readHeader(const byte *code) {
-	const byte * const headerBase = _base;
+	const byte *const headerBase = _base;
 	_interval = code[kOffsetInterval];
 	_ticksLeft = READ_LE_UINT16(code + kOffsetTicksLeft);
 	_zIndex = int8(code[kOffsetZIndex]);
@@ -1202,8 +1200,7 @@ void Actor::readHeader(const byte *code) {
 		0x00, 0x01, 0x02, 0x03, 0x0c, 0x0d, 0x0e, 0x0f,
 		0x11, 0x12, 0x13, 0x14, 0x15, 0x16,
 		0x17, 0x18, 0x5b, 0x5c, 0x63, 0x64, 0x65,
-		0x66, 0x68, 0x6b, 0x6c, 0x6d, 0x6e, 0x70
-	};
+		0x66, 0x68, 0x6b, 0x6c, 0x6d, 0x6e, 0x70};
 	for (uint i = 0; i < ARRAYSIZE(sparseFields); ++i)
 		setDosField(sparseFields[i], code[sparseFields[i]]);
 	_confused = dosField(0x64) != 0;
@@ -1227,8 +1224,7 @@ void Actor::callBacks() {
 			// carry set only when actor.field+0x6f == 0 and word +0x6b == 0.
 			// Do not use isFine() here; script PC can be clear while a
 			// queued walk is still in flight.
-			const bool ready = callback.hasRunMode ? animReadyLikeDos() :
-				(dosField(0x6f) == 0 && dosFieldWord(0x6b) == 0);
+			const bool ready = callback.hasRunMode ? animReadyLikeDos() : (dosField(0x6f) == 0 && dosFieldWord(0x6b) == 0);
 			if (!ready) {
 				pending.push(callback);
 				continue;
@@ -1264,7 +1260,7 @@ void Puppeteer::parse(const byte *data) {
 	_actorId = READ_LE_UINT16(data + kActorId);
 	_offset = READ_LE_UINT16(data + kMainCode);
 
-	assert (kTurnAnimators == kMoveAnimators + 16);
+	assert(kTurnAnimators == kMoveAnimators + 16);
 	const byte *d = data + kMoveAnimators;
 	for (int i = 0; i < 16; i++) {
 		_animators[i] = READ_LE_UINT16(d);
@@ -1273,7 +1269,7 @@ void Puppeteer::parse(const byte *data) {
 }
 
 static const Direction mixeddirs[] = {kDirUp, kDirRight, kDirDown, kDirLeft,
-									kDirUpRight, kDirDownRight, kDirDownLeft, kDirUpLeft};
+									  kDirUpRight, kDirDownRight, kDirDownLeft, kDirUpLeft};
 
 CodePointer Puppeteer::moveAnimator(Direction d) {
 	uint16 off = mainCodeOffset();
@@ -1338,20 +1334,20 @@ static Common::Array<Common::String> paginateSpeechText(const Common::String &te
 }
 
 Actor::Speech::Speech(Actor *parent, const Common::String &text, uint16 maxLines)
-		: _pages(paginateSpeechText(text, maxLines)), _pageIndex(0), _actor(parent),
-		  _anchor(parent->getSpeechPosition()), _color(parent->dosField(0x70)),
-		  _image(0) {
+	: _pages(paginateSpeechText(text, maxLines)), _pageIndex(0), _actor(parent),
+	  _anchor(parent->getSpeechPosition()), _color(parent->dosField(0x70)),
+	  _image(0) {
 	debugC(1, kDebugLevelActor, "adding speech \"%s\" (%u ticks) for %s at %d:%d",
-		text.c_str(), (uint)speechTicksForText(_pages[0]), parent->_debugInfo, _anchor.x, _anchor.y);
+		   text.c_str(), (uint)speechTicksForText(_pages[0]), parent->_debugInfo, _anchor.x, _anchor.y);
 	startPage(0);
 }
 
 Actor::Speech::Speech(Actor *parent, const Common::String &text, Common::Point overridePos, uint16 maxLines)
-		: _pages(paginateSpeechText(text, maxLines)), _pageIndex(0), _actor(parent),
-		  _anchor(overridePos), _color(parent->dosField(0x70)),
-		  _image(0) {
+	: _pages(paginateSpeechText(text, maxLines)), _pageIndex(0), _actor(parent),
+	  _anchor(overridePos), _color(parent->dosField(0x70)),
+	  _image(0) {
 	debugC(1, kDebugLevelActor, "adding speech \"%s\" (%u ticks) for %s at OVERRIDE %d:%d",
-		text.c_str(), (uint)speechTicksForText(_pages[0]), parent->_debugInfo, overridePos.x, overridePos.y);
+		   text.c_str(), (uint)speechTicksForText(_pages[0]), parent->_debugInfo, overridePos.x, overridePos.y);
 	startPage(0);
 }
 
@@ -1497,15 +1493,15 @@ Direction operator>>(Direction _a, Direction _b) {
 	return *reinterpret_cast<Direction *>(&a);
 }
 
-template <int opcode>
-Animation::Status Actor::opcodeHandler(){
+template<int opcode>
+Animation::Status Actor::opcodeHandler() {
 	return Animation::opcodeHandler<opcode>();
 }
 
 template<int N>
 void Actor::init_opcodes() {
 	_handlers[N] = &Interspective::Actor::opcodeHandler<N>;
-	init_opcodes<N-1>();
+	init_opcodes<N - 1>();
 }
 
 template<>
@@ -1515,7 +1511,8 @@ Animation::Status Actor::op(byte opcode) {
 	return (this->*_handlers[opcode])();
 }
 
-#define OPCODE(n) template<> Animation::Status Actor::opcodeHandler<n>()
+#define OPCODE(n) template<> \
+Animation::Status Actor::opcodeHandler<n>()
 
 // Actor opcode dispatch — the original ScummVM port wrote these without
 // reference to the DOS binary; many semantics here diverge from Ghidra's
@@ -1699,8 +1696,8 @@ OPCODE(0x15) {
 	if (Log.cursorMode() != 0x80) {
 		setDosField(0x68, 0);
 		debugC(3, kDebugLevelAnimation,
-			"actor opcode 0x15: PickAnimationSet — cursor_mode=%u != 0x80 → field+0x68 = 0",
-			Log.cursorMode());
+			   "actor opcode 0x15: PickAnimationSet — cursor_mode=%u != 0x80 → field+0x68 = 0",
+			   Log.cursorMode());
 		return kOk;
 	}
 
@@ -1722,42 +1719,51 @@ OPCODE(0x15) {
 	// adjusted_y = field+0x6 + sprite.hotTop
 	const int16 adjustedX = int16(position().x) - spriteHotLeft;
 	const int16 adjustedY = int16(position().y) + spriteHotTop;
-	const uint8 width  = dosField(0x17);   // BP in DOS
-	const uint8 height = dosField(0x18);   // BX in DOS
+	const uint8 width = dosField(0x17);  // BP in DOS
+	const uint8 height = dosField(0x18); // BX in DOS
 	// Bounding rect (DOS layout):
 	//   left = adjustedX
 	//   right = adjustedX + width
 	//   top = adjustedY - height
 	//   bottom = adjustedY
-	const int16 leftX  = adjustedX;
+	const int16 leftX = adjustedX;
 	const int16 rightX = adjustedX + int16(width);
-	const int16 topY   = adjustedY - int16(height);
-	const int16 botY   = adjustedY;
+	const int16 topY = adjustedY - int16(height);
+	const int16 botY = adjustedY;
 
 	uint8 target;
 	if (cursorY < topY) {
 		// Cursor above actor's rect.
-		if (cursorX < leftX)        target = 8;  // NW
-		else if (cursorX < rightX)  target = 1;  // N
-		else                   target = 2;  // NE
+		if (cursorX < leftX)
+			target = 8; // NW
+		else if (cursorX < rightX)
+			target = 1; // N
+		else
+			target = 2; // NE
 	} else if (cursorY > botY) {
 		// Cursor below actor's rect.
-		if (cursorX < leftX)        target = 6;  // SW
-		else if (cursorX < rightX)  target = 5;  // S
-		else                   target = 4;  // SE
+		if (cursorX < leftX)
+			target = 6; // SW
+		else if (cursorX < rightX)
+			target = 5; // S
+		else
+			target = 4; // SE
 	} else {
 		// Cursor in vertical band.
-		if (cursorX < leftX)        target = 7;  // W
-		else if (cursorX < rightX)  target = 0x63; // center
-		else                   target = 3;  // E
+		if (cursorX < leftX)
+			target = 7; // W
+		else if (cursorX < rightX)
+			target = 0x63; // center
+		else
+			target = 3; // E
 	}
 
 	const uint8 current = dosField(0x68);
 	if (current == 0x63 || target == 0x63 || target == current) {
 		setDosField(0x68, target);
 		debugC(3, kDebugLevelAnimation,
-			"actor opcode 0x15: PickAnimationSet snap target=%u current=%u",
-			target, current);
+			   "actor opcode 0x15: PickAnimationSet snap target=%u current=%u",
+			   target, current);
 		return kOk;
 	}
 	// Reproduces DOS 8-bit signed branches at 1000:6c79..0x6cba.
@@ -1782,8 +1788,8 @@ OPCODE(0x15) {
 	}
 	setDosField(0x68, next);
 	debugC(3, kDebugLevelAnimation,
-		"actor opcode 0x15: PickAnimationSet rect=(%d..%d, %d..%d) cursor=(%d,%d) target=%u current=%u → %u (delta=%d)",
-		leftX, rightX, topY, botY, cursorX, cursorY, target, current, next, int(delta));
+		   "actor opcode 0x15: PickAnimationSet rect=(%d..%d, %d..%d) cursor=(%d,%d) target=%u current=%u → %u (delta=%d)",
+		   leftX, rightX, topY, botY, cursorX, cursorY, target, current, next, int(delta));
 	return kOk;
 }
 
@@ -1801,13 +1807,13 @@ OPCODE(0x16) {
 	const uint8 animSet = dosField(0x68);
 	if (animSet == val) {
 		debugC(3, kDebugLevelAnimation,
-			"actor opcode 0x16: BranchIfAnimSetEquals val=%d field+0x68=%u → jump 0x%04x [DOS Op_17]",
-			val, animSet, off);
+			   "actor opcode 0x16: BranchIfAnimSetEquals val=%d field+0x68=%u → jump 0x%04x [DOS Op_17]",
+			   val, animSet, off);
 		_offset = off;
 	} else {
 		debugC(3, kDebugLevelAnimation,
-			"actor opcode 0x16: BranchIfAnimSetEquals val=%d field+0x68=%u (no match) [DOS Op_17]",
-			val, animSet);
+			   "actor opcode 0x16: BranchIfAnimSetEquals val=%d field+0x68=%u (no match) [DOS Op_17]",
+			   val, animSet);
 	}
 	return kOk;
 }
@@ -1826,11 +1832,11 @@ OPCODE(0x17) {
 	const uint8 mood = dosField(0x63);
 	if (mood == val) {
 		debugC(3, kDebugLevelAnimation, "actor opcode 0x17: BranchIfMoodEquals val=%d mood=%d → code offset 0x%04x [DOS Op_18]",
-			val, mood, off);
+			   val, mood, off);
 		setActorCodeOffset(off);
 	} else {
 		debugC(3, kDebugLevelAnimation, "actor opcode 0x17: BranchIfMoodEquals val=%d mood=%d (no match) [DOS Op_18]",
-			val, mood);
+			   val, mood);
 	}
 	return kOk;
 }
@@ -2000,7 +2006,7 @@ OPCODE(0x04) {
 	const uint16 word = READ_LE_UINT16(_resources->getGlobalWordVariable(offset / 2));
 	const uint8 interval = uint8(word);
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x04: SetIntervalFromGlobal var[%u/2]=0x%04x → %u [DOS Op_05]",
-		offset, word, interval);
+		   offset, word, interval);
 	setRawInterval(interval);
 	return kOk;
 }
@@ -2024,10 +2030,10 @@ OPCODE(0x05) {
 	const int8 dy = shiftByte();
 	const uint16 target = shift();
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x05: WalkRelativeWithFrame d=(%d,%d) target=%u [DOS Op_06]",
-		dx, dy, target);
+		   dx, dy, target);
 	setRawPosition(Common::Point(_position.x + dx, _position.y + dy));
-	setMainSprite(target);  // sprite ID write (DOS field+0x8 analog)
-	copyIntervalToTicks();   // DOS field+0xa = zero-extended field+0x10.
+	setMainSprite(target); // sprite ID write (DOS field+0x8 analog)
+	copyIntervalToTicks(); // DOS field+0xa = zero-extended field+0x10.
 	return kFrameDone;
 }
 
@@ -2066,7 +2072,7 @@ OPCODE(0x07) {
 	const uint16 offset = shift();
 	const uint16 target = READ_LE_UINT16(_resources->getGlobalWordVariable(offset / 2));
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x07: SetTargetFrameFromGlobal var[%u/2]=%u [DOS Op_08]",
-		offset, target);
+		   offset, target);
 	setMainSprite(target);
 	copyIntervalToTicks();
 	return kFrameDone;
@@ -2117,7 +2123,7 @@ OPCODE(0x0a) {
 	const uint16 y = shift();
 	const uint16 target = shift();
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x0a: WalkAbsoluteWithFrame (%u,%u) target=%u [DOS Op_0b]",
-		x, y, target);
+		   x, y, target);
 	setRawPosition(Common::Point((int16)x, (int16)y));
 	setMainSprite(target);
 	copyIntervalToTicks();
@@ -2157,7 +2163,7 @@ OPCODE(0x0e) {
 			const uint16 resume = dosFieldWord(0x0e);
 			_offset = resume;
 			debugC(4, kDebugLevelAnimation, "actor opcode 0x0e: DecrementTimer %u → %u, loop 0x%04x [DOS Op_0f]",
-				cur, next, resume);
+				   cur, next, resume);
 		} else {
 			debugC(4, kDebugLevelAnimation, "actor opcode 0x0e: DecrementTimer %u → 0, fall through [DOS Op_0f]", cur);
 		}
@@ -2247,7 +2253,7 @@ OPCODE(0x13) {
 	uint16 off = shift();
 	const uint16 roll = max ? uint16(Eng.getRandom(uint16(max - 1)) + 1) : 0;
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x13: BranchIfRandomMatch max=%u roll=%u off=0x%04x [DOS Op_14]",
-		max, roll, off);
+		   max, roll, off);
 	if (max != 0 && roll == max)
 		_offset = off;
 	return kOk;
@@ -2310,7 +2316,7 @@ OPCODE(0x21) {
 		cbOff = uint16(int32(_baseOffset) + int32(off));
 	setActorCallback(actorCodeSegmentTag(_base), cbOff);
 	debugC(2, kDebugLevelAnimation, "actor opcode 0x21: SetCallbackRelative off=%d → cbOff=0x%04x [DOS Op_22]",
-		off, cbOff);
+		   off, cbOff);
 	return kOk;
 }
 
@@ -2362,7 +2368,7 @@ OPCODE(0x0b) {
 	const uint16 sprite = shift();
 	const uint16 walkTarget = _nextFrame;
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x0b: FaceAndWalkWithFrame face=%u sprite=%u walkTarget=%u [DOS Op_0c]",
-		face, sprite, walkTarget);
+		   face, sprite, walkTarget);
 	setFrame(face);
 	if (walkTarget != 0xffff && _room == Log.currentRoom() && Log.room())
 		moveTo(walkTarget);
@@ -2402,7 +2408,7 @@ OPCODE(0x1b) {
 	if (!ok)
 		Log.setPendingError(0x0c);
 	debugC(2, kDebugLevelAnimation, "actor opcode 0x1b: QueueMoveSlotMode0 (a=%u,b=%u,c=%u) %s [DOS Op_1c]",
-		arg3, arg1, arg2, ok ? "queued" : "DROPPED (queue full)");
+		   arg3, arg1, arg2, ok ? "queued" : "DROPPED (queue full)");
 	return kOk;
 }
 
@@ -2416,8 +2422,8 @@ OPCODE(0x1c) {
 	if (!ok)
 		Log.setPendingError(0x0c);
 	debugC(2, kDebugLevelAnimation, "actor opcode 0x1c: QueueMoveSlotMode1 (a=%u,b=%u,c=%u) %s [DOS Op_1d]",
-		arg3, arg1, arg2, ok ? "queued" : "DROPPED (queue full)");
+		   arg3, arg1, arg2, ok ? "queued" : "DROPPED (queue full)");
 	return kOk;
 }
 
-} // end of namespace
+} // End of namespace Interspective

@@ -29,9 +29,8 @@
 namespace Interspective {
 
 static const PlainGameDescriptor interspectiveGames[] = {
-	{ "innocent", "Innocent Until Caught" },
-	{ 0, 0 }
-};
+	{"innocent", "Innocent Until Caught"},
+	{0, 0}};
 
 // Debug channel registration. Modern ScummVM expects channels to be
 // declared via getDebugChannels() on the MetaEngine — the legacy
@@ -40,45 +39,39 @@ static const PlainGameDescriptor interspectiveGames[] = {
 // dropped all messages and emitted "Engine does not support debug level
 // 'script'". Mirror the bitmask values from interspective/debug.h.
 static const DebugChannelDef debugFlagList[] = {
-	{kDebugLevelScript,    "script",    "bytecode scripts"},
-	{kDebugLevelGraphics,  "graphics",  "graphics handling"},
-	{kDebugLevelFlow,      "flow",      "game code flow status"},
+	{kDebugLevelScript, "script", "bytecode scripts"},
+	{kDebugLevelGraphics, "graphics", "graphics handling"},
+	{kDebugLevelFlow, "flow", "game code flow status"},
 	{kDebugLevelAnimation, "animation", "animations"},
-	{kDebugLevelValues,    "values",    "low-level Value manipulation"},
-	{kDebugLevelFiles,     "files",     "file input and output"},
-	{kDebugLevelEvents,    "events",    "event handling"},
-	{kDebugLevelMusic,     "music",     "music loading and playing"},
-	{kDebugLevelActor,     "actor",     "actor animation and behaviour"},
-	DEBUG_CHANNEL_END
-};
+	{kDebugLevelValues, "values", "low-level Value manipulation"},
+	{kDebugLevelFiles, "files", "file input and output"},
+	{kDebugLevelEvents, "events", "event handling"},
+	{kDebugLevelMusic, "music", "music loading and playing"},
+	{kDebugLevelActor, "actor", "actor animation and behaviour"},
+	DEBUG_CHANNEL_END};
 
 const ADGameDescription gameDescriptions[] = {
-	{
-		"innocent",
-		"",
-		AD_ENTRY1s("IUC_MAIN.DAT", nullptr, AD_NO_SIZE),
-		Common::EN_ANY,
-		Common::kPlatformDOS,
-		ADGF_TESTING | ADGF_NO_FLAGS,
-		GUIO0()
-	},
-	{
-		// Multilingual CD release: the per-language data ships as
-		// IUC_MAIN.<ext> / IUC_PROG.<ext> (ENG, DTL=German, FRN, ESP, ITL)
-		// instead of the single-language iuc_main.dat / iuc_prog.dat. Detected
-		// as UNK_LANG so the launcher offers a Language dropdown (see
-		// toDetectedGame below); the engine maps the chosen language to the
-		// file extension at load time (Engine::resolveDataFilenames).
-		"innocent",
-		"Multilingual",
-		AD_ENTRY1s("IUC_MAIN.ENG", nullptr, AD_NO_SIZE),
-		Common::UNK_LANG,
-		Common::kPlatformDOS,
-		ADGF_TESTING | ADGF_NO_FLAGS,
-		GUIO0()
-	},
-	AD_TABLE_END_MARKER
-};
+	{"innocent",
+	 "",
+	 AD_ENTRY1s("IUC_MAIN.DAT", nullptr, AD_NO_SIZE),
+	 Common::EN_ANY,
+	 Common::kPlatformDOS,
+	 ADGF_TESTING | ADGF_NO_FLAGS,
+	 GUIO0()},
+	{// Multilingual CD release: the per-language data ships as
+	 // IUC_MAIN.<ext> / IUC_PROG.<ext> (ENG, DTL=German, FRN, ESP, ITL)
+	 // instead of the single-language iuc_main.dat / iuc_prog.dat. Detected
+	 // as UNK_LANG so the launcher offers a Language dropdown (see
+	 // toDetectedGame below); the engine maps the chosen language to the
+	 // file extension at load time (Engine::resolveDataFilenames).
+	 "innocent",
+	 "Multilingual",
+	 AD_ENTRY1s("IUC_MAIN.ENG", nullptr, AD_NO_SIZE),
+	 Common::UNK_LANG,
+	 Common::kPlatformDOS,
+	 ADGF_TESTING | ADGF_NO_FLAGS,
+	 GUIO0()},
+	AD_TABLE_END_MARKER};
 
 } // End of namespace Interspective
 

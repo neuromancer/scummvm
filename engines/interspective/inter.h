@@ -41,7 +41,10 @@ class Engine;
 class Resources;
 class Graphics;
 
-#define UNIMPLEMENTED { error("type conversion unimplemented"); }
+#define UNIMPLEMENTED                           \
+	{                                           \
+		error("type conversion unimplemented"); \
+	}
 
 enum Status {
 	kReturned = 0,
@@ -84,10 +87,10 @@ public:
 
 	friend class Opcode;
 
-	template <int opcode>
+	template<int opcode>
 	OpResult opcodeHandler(ValueVector args, CodePointer current, CodePointer next);
 
-	template <int N>
+	template<int N>
 	void init_opcodes();
 
 	typedef OpResult (Interpreter::*OpcodeHandler)(ValueVector args, CodePointer current, CodePointer next);
@@ -112,8 +115,8 @@ private:
 
 	byte *_base;
 	uint16 _mode;
-	uint16 _runEntry;  // entry offset of current run(); DOS wait handlers use
-	                   // the per-opcode g_block_start_di/es snapshot instead.
+	uint16 _runEntry; // entry offset of current run(); DOS wait handlers use
+					  // the per-opcode g_block_start_di/es snapshot instead.
 
 public:
 	uint16 runEntry() const { return _runEntry; }

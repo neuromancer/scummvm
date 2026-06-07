@@ -39,7 +39,7 @@ class Exit;
 class Logic;
 
 class Room : public StaticInspectable {
-//
+	//
 public:
 	const Common::List<Exit *> &exits() const { return _exits; }
 
@@ -77,6 +77,6 @@ private:
 	DEBUG_INFO
 };
 
-}
+} // End of namespace Interspective
 
-#endif
+#endif // INTERSPECTIVE_ROOM_H

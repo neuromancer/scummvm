@@ -82,4 +82,4 @@ uint16 Room::nearestFrameTo(int16 x, int16 y) const {
 	return best;
 }
 
-}
+} // End of namespace Interspective

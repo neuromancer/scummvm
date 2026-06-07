@@ -47,29 +47,26 @@ enum {
 	kOpcodeMax = 0xfd
 };
 
-template <int opcode>
-Interpreter::OpResult Interpreter::opcodeHandler(ValueVector args, CodePointer current, CodePointer next){
+template<int opcode>
+Interpreter::OpResult Interpreter::opcodeHandler(ValueVector args, CodePointer current, CodePointer next) {
 	error("unhandled opcode %d [=0x%02x] at %s", opcode, opcode, +current);
 	return kThxBye;
 }
 
-
 template<int N>
 void Interpreter::init_opcodes() {
 	_handlers[N] = &Interspective::Interpreter::opcodeHandler<N>;
-	init_opcodes<N-1>();
+	init_opcodes<N - 1>();
 }
 
 template<>
 void Interpreter::init_opcodes<-1>() {}
 
-Interpreter::Interpreter(Logic *l, byte *base, const char *n) :
-		_logic(l),
-		_engine(l->engine()),
-		_resources(_engine->resources()),
-		_base(base),
-		_roomLoop(0)
-		{
+Interpreter::Interpreter(Logic *l, byte *base, const char *n) : _logic(l),
+																_engine(l->engine()),
+																_resources(_engine->resources()),
+																_base(base),
+																_roomLoop(0) {
 	init_opcodes<255>();
 	strncpy(_name, n, 100);
 	init();
@@ -206,7 +203,7 @@ Status Interpreter::run(uint16 offset, int ifDepth) {
 			if (pendingCode != log.lastErrorCode()) {
 				log.setLastErrorCode(pendingCode);
 				warning("Interspective ILL Error 0x%02x %s [opcode 0x%02x] — recovering (DOS DisplayIllError)",
-					pendingCode, log.opcodeModeName(), opcode);
+						pendingCode, log.opcodeModeName(), opcode);
 			}
 		}
 	}
@@ -236,10 +233,12 @@ Constant *Interpreter::readArgument<Constant>(byte *&code) {
 
 class GlobalByteVariable : public ByteVariable {
 public:
-	GlobalByteVariable(uint16 index, Resources *res) : ByteVariable(res->getGlobalByteVariable(index)), _index(index)  {}
+	GlobalByteVariable(uint16 index, Resources *res) : ByteVariable(res->getGlobalByteVariable(index)), _index(index) {}
 	virtual const char *operator+() const {
-		snprintf(_inspect, 27, "global byte variable %d [%d]", _index, byte(*this)); return _inspect;
+		snprintf(_inspect, 27, "global byte variable %d [%d]", _index, byte(*this));
+		return _inspect;
 	}
+
 private:
 	mutable char _inspect[27];
 	const uint16 _index;
@@ -249,8 +248,10 @@ class GlobalWordVariable : public WordVariable {
 public:
 	GlobalWordVariable(uint16 index, Resources *res) : WordVariable(res->getGlobalWordVariable(index)), _index(index) {}
 	virtual const char *operator+() const {
-		snprintf(_inspect, 33, "global word variable %d [%d]", _index, uint16(*this)); return _inspect;
+		snprintf(_inspect, 33, "global word variable %d [%d]", _index, uint16(*this));
+		return _inspect;
 	}
+
 private:
 	mutable char _inspect[33];
 	const uint16 _index;
@@ -271,9 +272,10 @@ public:
 	virtual Value &operator=(const Value &other) { return *this = uint16(other); }
 	virtual const char *operator+() const {
 		snprintf(_inspect, sizeof(_inspect), "record[%u:%u]+0x%02x/%u [%u]",
-			_selector, _id, _offset, _size, uint16(*this));
+				 _selector, _id, _offset, _size, uint16(*this));
 		return _inspect;
 	}
+
 private:
 	Logic *_logic;
 	uint8 _selector;
@@ -298,6 +300,7 @@ public:
 		snprintf(_inspect, sizeof(_inspect), "raw pointer 0x%04x", uint16(*this));
 		return _inspect;
 	}
+
 private:
 	byte *_base;
 	byte *_ptr;
@@ -330,10 +333,9 @@ CodePointer *Interpreter::readArgument<CodePointer>(byte *&code) {
 
 class ParametrizedString : public Value {
 public:
-	ParametrizedString(byte *translated, uint16 len, byte *raw, uint16 rawLength, byte *base) :
-			_raw(raw),
-			_rawLength(rawLength),
-			_base(base) {
+	ParametrizedString(byte *translated, uint16 len, byte *raw, uint16 rawLength, byte *base) : _raw(raw),
+																								_rawLength(rawLength),
+																								_base(base) {
 		memcpy(_translateBuf, translated, len);
 		_length = len;
 	}
@@ -345,6 +347,7 @@ public:
 	virtual byte *rawPointer() { return _raw; }
 	virtual byte *rawBase() { return _base; }
 	virtual uint16 rawLength() const { return _rawLength; }
+
 private:
 	byte _translateBuf[500];
 	uint16 _length;
@@ -379,7 +382,7 @@ ParametrizedString *Interpreter::readArgument<ParametrizedString>(byte *&code) {
 		case kStringGlobalWord:
 			offset = READ_LE_UINT16(code);
 			code += 2;
-			value = READ_LE_UINT16(_resources->getGlobalWordVariable(offset/2));
+			value = READ_LE_UINT16(_resources->getGlobalWordVariable(offset / 2));
 			str += snprintf(reinterpret_cast<char *>(str), 10, "%d", value);
 			break;
 		case kStringSetColour:
@@ -418,7 +421,8 @@ ParametrizedString *Interpreter::readArgument<ParametrizedString>(byte *&code) {
 		default:
 			if (ch == 5) { // menu option
 				*(str++) = ch;
-				while ((*(str++) = *(code++)) != 0);
+				while ((*(str++) = *(code++)) != 0)
+					;
 				*(str++) = *(code++);
 				*(str++) = *(code++);
 			} else
@@ -437,45 +441,45 @@ Value *Interpreter::getArgument(byte *&code) {
 	code += 2;
 
 	switch (argument_type) {
-		case kArgumentImmediate:
-			return readArgument<Constant>(code);
-		case kArgumentMainWord:
-			return readArgument<GlobalWordVariable>(code);
-		case kArgumentMainByte:
-			return readArgument<GlobalByteVariable>(code);
-		case kArgumentFieldByte:
-		case kArgumentFieldWord:
-		case kArgumentFieldWordAlt: {
-			const uint8 selector = code[0];
-			const uint8 offset = code[1];
-			const uint16 id = READ_LE_UINT16(code + 2);
-			code += 4;
-			const uint8 size = argument_type == kArgumentFieldByte ? 1 : 2;
-			debugC(4, kDebugLevelScript,
-				"read record field selector=%u id=%u offset=0x%02x size=%u as argument",
-				selector, id, offset, size);
-			return new DosRecordFieldVariable(_logic, selector, id, offset, size);
-		}
-		case kArgumentString:
-			return readArgument<ParametrizedString>(code);
-		case kArgumentList: {
-			byte *ptr = code;
-			while (*code != 0xff)
-				++code;
+	case kArgumentImmediate:
+		return readArgument<Constant>(code);
+	case kArgumentMainWord:
+		return readArgument<GlobalWordVariable>(code);
+	case kArgumentMainByte:
+		return readArgument<GlobalByteVariable>(code);
+	case kArgumentFieldByte:
+	case kArgumentFieldWord:
+	case kArgumentFieldWordAlt: {
+		const uint8 selector = code[0];
+		const uint8 offset = code[1];
+		const uint16 id = READ_LE_UINT16(code + 2);
+		code += 4;
+		const uint8 size = argument_type == kArgumentFieldByte ? 1 : 2;
+		debugC(4, kDebugLevelScript,
+			   "read record field selector=%u id=%u offset=0x%02x size=%u as argument",
+			   selector, id, offset, size);
+		return new DosRecordFieldVariable(_logic, selector, id, offset, size);
+	}
+	case kArgumentString:
+		return readArgument<ParametrizedString>(code);
+	case kArgumentList: {
+		byte *ptr = code;
+		while (*code != 0xff)
 			++code;
-			debugC(4, kDebugLevelScript, "read raw list at offset 0x%04x as argument",
-				uint16(ptr - _base));
-			return new RawPointerArgument(_base, ptr);
-		}
-		case kArgumentCode:
-			return readArgument<CodePointer>(code);
-		default:
-			error("don't know how to handle argument type 0x%02x", argument_type);
+		++code;
+		debugC(4, kDebugLevelScript, "read raw list at offset 0x%04x as argument",
+			   uint16(ptr - _base));
+		return new RawPointerArgument(_base, ptr);
+	}
+	case kArgumentCode:
+		return readArgument<CodePointer>(code);
+	default:
+		error("don't know how to handle argument type 0x%02x", argument_type);
 	}
 }
 
 const uint8 Interpreter::_argumentsCounts[] = {
-	#include "opcodes_nargs.data"
+#include "opcodes_nargs.data"
 };
 
 } // End of namespace Interspective

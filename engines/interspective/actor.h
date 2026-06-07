@@ -64,11 +64,11 @@ Direction operator>>(Direction a, Direction b);
 class Puppeteer {
 public:
 	enum Offsets {
-		kActorId =     		0,
-		kMainCode =    		2,
-		kMoveAnimators =    4,
+		kActorId = 0,
+		kMainCode = 2,
+		kMoveAnimators = 4,
 		kTurnAnimators = 0x14,
-		kSize = 		 0x24
+		kSize = 0x24
 	};
 	Puppeteer() : _offset(0), _actorId(0) {}
 	Puppeteer(const byte *data) { parse(data); }
@@ -89,7 +89,7 @@ private:
 };
 
 class Actor : public Animation {
-//
+	//
 public:
 	class Frame {
 	public:
@@ -231,7 +231,10 @@ public:
 		setDosFieldWord(0x6b, 0);
 	}
 	void setRawMainSprite(uint16 sprite) { setMainSprite(sprite); }
-	void setRawSpriteTarget(uint16 target) { setMainSprite(target); setRawTargetFrame(target); }
+	void setRawSpriteTarget(uint16 target) {
+		setMainSprite(target);
+		setRawTargetFrame(target);
+	}
 	void moveTo(uint16 f);
 	static Common::List<Frame> findPath(Frame from, uint16 to);
 
@@ -242,7 +245,10 @@ public:
 	// Used by Logic::doChangeRoom to keep the protagonist's _room in
 	// sync with _currentRoom so the gating in Actor::tick() doesn't
 	// short-circuit (see PLAN iter-27).
-	void forceRoom(uint16 r) { _room = r; setDosFieldWord(kOffsetRoom, r); }
+	void forceRoom(uint16 r) {
+		_room = r;
+		setDosFieldWord(kOffsetRoom, r);
+	}
 
 	// DOS-aligned room/frame placement that does NOT reset the actor's
 	// animation script. Mirrors the field assignments in
@@ -300,7 +306,10 @@ public:
 	bool isSpeaking() const;
 	const Common::String &speechText() const;
 	void stopSpeaking();
-	void setAttentionNeededLikeDos(bool v) { setDosField(0x65, v ? 1 : 0); _attentionNeeded = v; }
+	void setAttentionNeededLikeDos(bool v) {
+		setDosField(0x65, v ? 1 : 0);
+		_attentionNeeded = v;
+	}
 	void callMeWhenSilent(const CodePointer &cp);
 	void say(const Common::String &text, uint16 maxLines = 0);
 	void sayAtPos(const Common::String &text, Common::Point pos, uint16 maxLines = 0);
@@ -319,6 +328,7 @@ public:
 	void toggleDebug();
 
 	void setPuppeteer(const Puppeteer &p) { _puppeteer = p; }
+
 private:
 	Actor(const CodePointer &code);
 
@@ -423,8 +433,9 @@ public:
 	}
 	uint16 actorCallbackSeg() const { return _actorCallbackSeg; }
 	uint16 actorCallbackOff() const { return _actorCallbackOff; }
+
 private:
-	uint16 _id;  // 1-based DOS actor id
+	uint16 _id; // 1-based DOS actor id
 	Common::HashMap<uint8, uint8> _dosFields;
 	Common::Array<MoveSlot> _moveSlots;
 	uint16 _actorCallbackSeg, _actorCallbackOff;
@@ -452,10 +463,10 @@ private:
 
 	bool _debug;
 
-	template <int opcode>
+	template<int opcode>
 	Animation::Status opcodeHandler();
 
-	template <int N>
+	template<int N>
 	void init_opcodes();
 
 	virtual Animation::Status op(byte code);
@@ -466,6 +477,6 @@ private:
 	Speech _speech;
 };
 
-}
+} // End of namespace Interspective
 
-#endif
+#endif // INTERSPECTIVE_ACTOR_H

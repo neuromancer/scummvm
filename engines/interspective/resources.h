@@ -50,7 +50,7 @@ public:
 	}
 	void blit(const Surface *s, Common::Rect r, int transparent = -1, const byte (*tinted)[256] = 0);
 	void blit(const Surface *s, Common::Rect r, Common::Point srcOffset, int transparent = -1, const byte (*tinted)[256] = 0);
-	
+
 	void create(uint16 width, uint16 height) {
 		::Graphics::Surface::create(width, height, ::Graphics::PixelFormat::createFormatCLUT8());
 	}
@@ -126,7 +126,7 @@ public:
 	Sprite *loadSprite(uint16 id) const;
 	Sprite *getCursor() const;
 	Sprite **frames() { return _frames; }
-	Sprite * const *bubbles() const { return _bubbles; }
+	Sprite *const *bubbles() const { return _bubbles; }
 
 	void loadActors();
 	void loadFrames();
@@ -164,4 +164,4 @@ private:
 
 } // End of namespace Interspective
 
-#endif
+#endif // INTERSPECTIVE_RESOURCES_H

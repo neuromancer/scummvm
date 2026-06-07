@@ -44,11 +44,11 @@ public:
 	virtual const char *operator+() const { return _debugInfo; }
 
 protected:
-	#define DEBUG_INFO
+#define DEBUG_INFO
 	char _debugInfo[100];
 };
 
-template <typename T>
+template<typename T>
 class NumericInspectable : public Inspectable {
 public:
 	virtual ~NumericInspectable() {}
@@ -57,25 +57,26 @@ public:
 		return _debugInfo;
 	}
 	virtual operator T() const = 0;
+
 private:
 	mutable char _debugInfo[10];
 };
 
 enum DebugLevel {
-	kDebugLevelScript    = 1,
-	kDebugLevelGraphics  = 2,
-	kDebugLevelFlow		 = 4,
+	kDebugLevelScript = 1,
+	kDebugLevelGraphics = 2,
+	kDebugLevelFlow = 4,
 	kDebugLevelAnimation = 8,
-	kDebugLevelValues    = 16,
-	kDebugLevelFiles	 = 32,
-	kDebugLevelEvents	 = 64,
-	kDebugLevelMusic	 = 128,
-	kDebugLevelActor	 = 256,
-	kDebugLevelSound     = 512
+	kDebugLevelValues = 16,
+	kDebugLevelFiles = 32,
+	kDebugLevelEvents = 64,
+	kDebugLevelMusic = 128,
+	kDebugLevelActor = 256,
+	kDebugLevelSound = 512
 };
 
 const char *operator+(const Common::Rect &r);
 
-}
+} // End of namespace Interspective
 
-#endif
+#endif // INTERSPECTIVE_DEBUG_H

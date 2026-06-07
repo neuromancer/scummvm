@@ -33,11 +33,11 @@ struct SpriteInfo {
 	// safe fallback when an out-of-range sprite index is requested
 	// (Program::getSpriteInfo iter-29).
 	SpriteInfo() : left(0), top(0), width(0), height(0), image(0), hotLeft(0), hotTop(0) {}
-	SpriteInfo(const byte*, uint16 index);
+	SpriteInfo(const byte *, uint16 index);
 	uint16 left, top, width, height, image;
 	int8 hotLeft, hotTop;
 };
 
-}
+} // End of namespace Interspective
 
-#endif
+#endif // INTERSPECTIVE_SPRITE_H

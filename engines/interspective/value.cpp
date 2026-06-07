@@ -35,7 +35,8 @@ namespace Interspective {
 
 Value &WordVariable::operator=(uint16 value) {
 	debugC(1, kDebugLevelValues, "setting %s to %d", +*this, value);
-	WRITE_LE_UINT16(_ptr, value); return *this;
+	WRITE_LE_UINT16(_ptr, value);
+	return *this;
 }
 
 CodePointer::CodePointer(uint16 off, Interpreter *i) : _offset(off), _interpreter(i) {
@@ -80,7 +81,7 @@ template<>
 int16 &CodePointer::field<int16>(int16 &p, int off) const {
 	uint16 z;
 	field(z, off);
-	p = *reinterpret_cast<int16*>(&z);
+	p = *reinterpret_cast<int16 *>(&z);
 	return p;
 }
 
@@ -108,7 +109,10 @@ enum Foo_ {
 	Bar
 };
 
-#define ENAME(en, v, s) template<> const char *EnumName<en, v>::name() { return s; } enum {}
+#define ENAME(en, v, s)                               \
+	template<>                                        \
+	const char *EnumName<en, v>::name() { return s; } \
+	enum {}
 
 ENAME(Foo_, Bar, "baz");
 
@@ -116,4 +120,4 @@ typedef EnumPack<Foo_> Foo;
 
 Foo baz(Bar);
 
-} // of namespace Interspective
+} // End of namespace Interspective

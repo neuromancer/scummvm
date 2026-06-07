@@ -35,8 +35,8 @@
 #include "common/util.h"
 #include "graphics/cursorman.h"
 
-#include "interspective/animation.h"
 #include "interspective/actor.h"
+#include "interspective/animation.h"
 #include "interspective/debug.h"
 #include "interspective/debugger.h"
 #include "interspective/exit.h"
@@ -47,10 +47,8 @@
 #include "interspective/room.h"
 #include "interspective/util.h"
 
-using namespace std;
-
 namespace Common {
-	DECLARE_SINGLETON(Interspective::Graphics);
+DECLARE_SINGLETON(Interspective::Graphics);
 }
 
 namespace Interspective {
@@ -71,7 +69,7 @@ enum {
 };
 
 static uint16 inventoryObjectAtPointLikeDos(Logic *logic, Resources *resources,
-		const Common::Point &screen) {
+											const Common::Point &screen) {
 	if (!logic || !resources)
 		return 0;
 	if (screen.x < 128 || screen.x >= 310 || screen.y < 160 || screen.y >= 191)
@@ -83,8 +81,7 @@ static uint16 inventoryObjectAtPointLikeDos(Logic *logic, Resources *resources,
 		if (id == 0 || logic->getObjectRoom(id) != 0xffff)
 			continue;
 
-		const uint16 spriteId = uint16(logic->objectField(id, 8))
-			| (uint16(logic->objectField(id, 9)) << 8);
+		const uint16 spriteId = uint16(logic->objectField(id, 8)) | (uint16(logic->objectField(id, 9)) << 8);
 		if (spriteId == 0xffff)
 			continue;
 
@@ -150,8 +147,7 @@ void Graphics::init() {
 	// English/single-language build has no such glyphs, so keep its plain
 	// 0x20..0x7e font there.
 	const Common::Language lang = _engine ? _engine->language() : Common::UNK_LANG;
-	_extendedLatinFont = (lang == Common::DE_DEU || lang == Common::FR_FRA
-	                   || lang == Common::ES_ESP || lang == Common::IT_ITA);
+	_extendedLatinFont = (lang == Common::DE_DEU || lang == Common::FR_FRA || lang == Common::ES_ESP || lang == Common::IT_ITA);
 	loadInterface();
 }
 
@@ -177,7 +173,7 @@ void Graphics::paint() {
 	foreach (Paintable *, _paintables)
 		(*it)->paint(this);
 
-	unless (_afterRepaintHooks.empty()) {
+	unless(_afterRepaintHooks.empty()) {
 		debugC(3, kDebugLevelGraphics | kDebugLevelScript, "running hooks");
 		foreach (CodePointer, _afterRepaintHooks)
 			it->run();
@@ -194,8 +190,7 @@ void Graphics::paint() {
 
 void Graphics::paintExits() {
 	debugC(3, kDebugLevelFlow | kDebugLevelGraphics, "painting exits");
-	foreach_const (Exit *, _engine->logic()->room()->exits())
-		(*it)->paint(this);
+	foreach_const(Exit *, _engine->logic()->room()->exits())(*it)->paint(this);
 }
 
 static bool containsDosPoint(uint16 a, uint16 b, uint16 c, uint16 d, int16 x, int16 y) {
@@ -281,8 +276,7 @@ static void rebuildDrawCommandsLikeDos(Graphics *graphics, Logic *logic) {
 		const int16 y = logic->getObjectPosY(id);
 		if (x == -1 || y == -1)
 			continue;
-		const uint16 spriteId = uint16(logic->objectField(id, 6))
-			| (uint16(logic->objectField(id, 7)) << 8);
+		const uint16 spriteId = uint16(logic->objectField(id, 6)) | (uint16(logic->objectField(id, 7)) << 8);
 		if (spriteId == 0xffff)
 			continue;
 		const int16 layer = findObjectLayerLikeDos(logic, id, spriteId);
@@ -291,7 +285,7 @@ static void rebuildDrawCommandsLikeDos(Graphics *graphics, Logic *logic) {
 	}
 
 	debugC(3, kDebugLevelGraphics, "rebuilt %u draw commands [DOS AddDrawCommand]",
-		logic->drawCommandCount());
+		   logic->drawCommandCount());
 }
 
 static bool objectDrawShouldDeferLikeDos(Logic *logic, const Logic::DrawCommand &cmd) {
@@ -319,14 +313,11 @@ static bool objectDrawShouldDeferLikeDos(Logic *logic, const Logic::DrawCommand 
 
 static void paintDrawCommandLikeDos(Graphics *graphics, Logic *logic, const Logic::DrawCommand &cmd) {
 	if (cmd.type == 1) {
-		if (logic->dosRecordField(1, cmd.id, 0, 2) == logic->currentRoom()
-				&& logic->cellBit(cmd.id, 0)) {
+		if (logic->dosRecordField(1, cmd.id, 0, 2) == logic->currentRoom() && logic->cellBit(cmd.id, 0)) {
 			const uint16 spriteId = recordWord(logic, 1, cmd.id, 6);
 			Common::ScopedPtr<Sprite> sprite(logic->engine()->resources()->loadSprite(spriteId));
-			graphics->paint(sprite.get(), Common::Point(
-				int16(recordWord(logic, 1, cmd.id, 2)),
-				int16(recordWord(logic, 1, cmd.id, 4))),
-				Graphics::kPaintCameraRelative);
+			graphics->paint(sprite.get(), Common::Point(int16(recordWord(logic, 1, cmd.id, 2)), int16(recordWord(logic, 1, cmd.id, 4))),
+							Graphics::kPaintCameraRelative);
 		}
 		return;
 	}
@@ -334,20 +325,19 @@ static void paintDrawCommandLikeDos(Graphics *graphics, Logic *logic, const Logi
 	if (cmd.type != 2)
 		return;
 
-	const uint16 spriteId = uint16(logic->objectField(cmd.id, 6))
-		| (uint16(logic->objectField(cmd.id, 7)) << 8);
+	const uint16 spriteId = uint16(logic->objectField(cmd.id, 6)) | (uint16(logic->objectField(cmd.id, 7)) << 8);
 	if (spriteId == 0xffff)
 		return;
 
 	Common::ScopedPtr<Sprite> sprite(logic->engine()->resources()->loadSprite(spriteId));
 	graphics->paint(sprite.get(), Common::Point(logic->getObjectPosX(cmd.id), logic->getObjectPosY(cmd.id)),
-		Graphics::kPaintCameraRelative);
+					Graphics::kPaintCameraRelative);
 	logic->setObjectField(cmd.id, 0x10, uint8(MIN<int>(sprite->w, 255)));
 	logic->setObjectField(cmd.id, 0x11, uint8(MIN<int>(sprite->h, 255)));
 }
 
 static void paintAnimationsForLayerLikeDos(Graphics *graphics, const Common::List<Animation *> &animations,
-		int16 layer, bool actors) {
+										   int16 layer, bool actors) {
 	for (Common::List<Animation *>::const_iterator it = animations.begin(); it != animations.end(); ++it) {
 		Animation *anim = *it;
 		if (anim->isActor() != actors)
@@ -379,7 +369,7 @@ struct ActorDrawEntryLess {
 };
 
 static void paintActorAnimationsForLayerLikeDos(Graphics *graphics, Logic *logic, const Common::List<Animation *> &animations,
-		int16 layer) {
+												int16 layer) {
 	Common::Array<ActorDrawEntry> entries;
 	uint order = 0;
 	for (Common::List<Animation *>::const_iterator it = animations.begin(); it != animations.end(); ++it, ++order) {
@@ -414,7 +404,8 @@ void Graphics::prepareInterfacePalette() {
 }
 
 void Graphics::paintInterface() {
-	if (_fullscreen) return;
+	if (_fullscreen)
+		return;
 	debugC(3, kDebugLevelGraphics, "painting interface");
 	_framebuffer->blit(_interface, Common::Rect(0, 152, 320, 200), 0);
 	paintInterfaceMinimapLikeDos();
@@ -439,7 +430,7 @@ void Graphics::paintInterfaceMinimapLikeDos() {
 	// Op_e4 supplies optional exit markers gated by the room cell map.
 	Common::ScopedPtr<Sprite> mapSprite(_resources->loadSprite(logic->dialogClickGate()));
 	paint(mapSprite.get(), Common::Point(logic->dialogCursor0(), logic->dialogCursor1()),
-		kPaintPositionIsTop | kPaintNoDirty);
+		  kPaintPositionIsTop | kPaintNoDirty);
 
 	MainDat *mainDat = _resources->mainDat();
 	if (!mainDat)
@@ -459,7 +450,7 @@ void Graphics::paintInterfaceMinimapLikeDos() {
 
 		Common::ScopedPtr<Sprite> marker(_resources->loadSprite(markerSpriteId));
 		paint(marker.get(), Common::Point(entry.x0, entry.y0),
-			kPaintPositionIsTop | kPaintNoDirty);
+			  kPaintPositionIsTop | kPaintNoDirty);
 	}
 }
 
@@ -477,8 +468,7 @@ void Graphics::paintRoomCloseUpLikeDos() {
 	Logic *logic = _engine ? _engine->logic() : 0;
 	if (!logic)
 		return;
-	if (logic->cursorMode() != 0x80 || !logic->roomActive() || logic->noStep()
-			|| logic->canSkipCutscene() || !logic->inputEnabled()) {
+	if (logic->cursorMode() != 0x80 || !logic->roomActive() || logic->noStep() || logic->canSkipCutscene() || !logic->inputEnabled()) {
 		_roomCloseUpActive = false;
 		return;
 	}
@@ -505,9 +495,9 @@ void Graphics::paintRoomCloseUpLikeDos() {
 		Common::ScopedPtr<Sprite> leftHalf(_resources->loadSprite(mainDat->getEyeCloseUpSpriteId(false)));
 		Common::ScopedPtr<Sprite> rightHalf(_resources->loadSprite(mainDat->getEyeCloseUpSpriteId(true)));
 		paint(leftHalf.get(), Common::Point(kCloseUpFrameLeft, kCloseUpFrameTop),
-			kPaintPositionIsTop | kPaintNoDirty);
+			  kPaintPositionIsTop | kPaintNoDirty);
 		paint(rightHalf.get(), Common::Point(kCloseUpFrameRightLeft, kCloseUpFrameTop),
-			kPaintPositionIsTop | kPaintNoDirty);
+			  kPaintPositionIsTop | kPaintNoDirty);
 	}
 }
 
@@ -522,8 +512,7 @@ void Graphics::paintInventoryObjectsLikeDos() {
 		if (id == 0 || logic->getObjectRoom(id) != 0xffff)
 			continue;
 
-		const uint16 spriteId = uint16(logic->objectField(id, 8))
-			| (uint16(logic->objectField(id, 9)) << 8);
+		const uint16 spriteId = uint16(logic->objectField(id, 8)) | (uint16(logic->objectField(id, 9)) << 8);
 		if (spriteId == 0xffff)
 			continue;
 
@@ -552,8 +541,7 @@ void Graphics::paintInventoryCloseUpLikeDos() {
 	Logic *logic = _engine ? _engine->logic() : 0;
 	if (!logic || !_resources)
 		return;
-	if (logic->cursorMode() != 0x80 || !logic->roomActive() || logic->noStep()
-			|| logic->canSkipCutscene() || !logic->inputEnabled()) {
+	if (logic->cursorMode() != 0x80 || !logic->roomActive() || logic->noStep() || logic->canSkipCutscene() || !logic->inputEnabled()) {
 		_inventoryCloseUpObjectId = 0;
 		return;
 	}
@@ -568,8 +556,7 @@ void Graphics::paintInventoryCloseUpLikeDos() {
 		return;
 	}
 
-	const uint16 spriteId = uint16(logic->objectField(id, 8))
-		| (uint16(logic->objectField(id, 9)) << 8);
+	const uint16 spriteId = uint16(logic->objectField(id, 8)) | (uint16(logic->objectField(id, 9)) << 8);
 	if (spriteId == 0xffff)
 		return;
 
@@ -706,8 +693,7 @@ void Graphics::paintCursorSprite() {
 
 		// DOS DrawCursorSprite @ 1000:ba8d gets the carried object record
 		// and draws its word at offset +8, not the object id itself.
-		const uint16 spriteId = uint16(logic->objectField(id, 8))
-			| (uint16(logic->objectField(id, 9)) << 8);
+		const uint16 spriteId = uint16(logic->objectField(id, 8)) | (uint16(logic->objectField(id, 9)) << 8);
 		if (spriteId == 0xffff)
 			return;
 
@@ -864,7 +850,7 @@ void Graphics::paintSpeech() {
 					Sprite bubble;
 					bubble._hotPoint = Common::Point(0, 0);
 					Common::Rect rect = paintSpeechInBubble(Common::Point(_speechX, _speechY), _speechColor,
-						_speech, &bubble, _speechBubbleMode, true, _speechMaxLines);
+															_speech, &bubble, _speechBubbleMode, true, _speechMaxLines);
 					paint(&bubble, Common::Point(rect.left, rect.top), kPaintSemiTransparent | kPaintPositionIsTop);
 				} else {
 					Common::Rect rect = paintText(_speechX, _speechY, _speechColor, _speech, _framebuffer.get(), 0, 0, kPaintNoDirty);
@@ -876,7 +862,7 @@ void Graphics::paintSpeech() {
 				Sprite bubble;
 				bubble._hotPoint = Common::Point(0, 0);
 				Common::Rect rect = paintSpeechInBubble(Common::Point(_speechX, _speechY), _speechColor,
-					_speech, &bubble, _speechBubbleMode, true, _speechMaxLines);
+														_speech, &bubble, _speechBubbleMode, true, _speechMaxLines);
 				paint(&bubble, Common::Point(rect.left, rect.top), kPaintSemiTransparent | kPaintPositionIsTop);
 			} else {
 				Common::Rect rect = paintText(_speechX, _speechY, _speechColor, _speech, _framebuffer.get(), 0, 0, kPaintNoDirty);
@@ -1016,11 +1002,9 @@ static Common::Array<byte> normalizeBubbleInputLikeDos(const byte *string) {
 		uint extra = 0;
 		if (ch == kStringMove)
 			extra = 4;
-		else if (ch == kStringGlobalWord || ch == kStringCountSpacesIf0
-				|| ch == kStringCountSpacesIf1)
+		else if (ch == kStringGlobalWord || ch == kStringCountSpacesIf0 || ch == kStringCountSpacesIf1)
 			extra = 2;
-		else if (ch == kStringSetColour || ch == kStringAdvance
-				|| ch == kStringCenter)
+		else if (ch == kStringSetColour || ch == kStringAdvance || ch == kStringCenter)
 			extra = 1;
 
 		for (uint i = 0; i < extra && guard < 4096; ++i, ++guard)
@@ -1049,7 +1033,7 @@ static Common::Array<byte> normalizeBubbleInputLikeDos(const byte *string) {
 }
 
 static bool parseVerbBubbleChoices(byte *string, Common::Array<VerbBubbleChoice> &choices,
-		Common::String &displayText) {
+								   Common::String &displayText) {
 	const byte *p = string;
 	while (p && *p) {
 		if (*p != kStringMenuOption) {
@@ -1134,7 +1118,7 @@ static int16 verbBubbleFirstRowTop(const Common::Rect &bubbleRect, uint16 rows) 
 }
 
 static void positionVerbBubbleChoices(const Common::Rect &bubbleRect,
-		const Logic::FormattedBubble &metrics, Common::Array<VerbBubbleChoice> &choices) {
+									  const Logic::FormattedBubble &metrics, Common::Array<VerbBubbleChoice> &choices) {
 	(void)metrics;
 	const uint16 rows = MAX<uint16>(1, uint16(choices.size()));
 	int16 top = verbBubbleFirstRowTop(bubbleRect, rows);
@@ -1143,13 +1127,13 @@ static void positionVerbBubbleChoices(const Common::Rect &bubbleRect,
 		choices[i].textLeft = verbBubbleRowLeft(bubbleRect, rows, i);
 		choices[i].textTop = top;
 		choices[i].rect = Common::Rect(choices[i].textLeft, top,
-		                                choices[i].textLeft + lineWidth, top + Graphics::kLineHeight);
+									   choices[i].textLeft + lineWidth, top + Graphics::kLineHeight);
 		top += Graphics::kLineHeight;
 	}
 }
 
 static void positionInlineVerbBubbleChoices(Graphics *graphics, const Common::Rect &bubbleRect,
-		const byte *string, Common::Array<VerbBubbleChoice> &choices) {
+											const byte *string, Common::Array<VerbBubbleChoice> &choices) {
 	choices.clear();
 	if (!graphics || !string)
 		return;
@@ -1211,7 +1195,7 @@ static void positionInlineVerbBubbleChoices(Graphics *graphics, const Common::Re
 			choice.value = READ_LE_UINT16(p);
 			p += 2;
 			choice.rect = Common::Rect(choice.textLeft, choice.textTop,
-			                            currentLeft, currentTop + Graphics::kLineHeight);
+									   currentLeft, currentTop + Graphics::kLineHeight);
 			if (!choice.label.empty())
 				choices.push_back(choice);
 			break;
@@ -1239,14 +1223,14 @@ static void collectVerbBubbleLines(const byte *string, Common::Array<Common::Str
 }
 
 static void paintVerbBubbleLines(Graphics *graphics, const Common::Rect &bubbleRect,
-		const Common::Array<Common::String> &lines, byte colour) {
+								 const Common::Array<Common::String> &lines, byte colour) {
 	if (!graphics || lines.empty())
 		return;
 	const uint16 rows = uint16(lines.size());
 	int16 top = verbBubbleFirstRowTop(bubbleRect, rows);
 	for (uint i = 0; i < lines.size(); ++i) {
 		graphics->paintPlainTextLine(verbBubbleRowLeft(bubbleRect, rows, i), top, colour,
-			reinterpret_cast<const byte *>(lines[i].c_str()), false);
+									 reinterpret_cast<const byte *>(lines[i].c_str()), false);
 		top += Graphics::kLineHeight;
 	}
 }
@@ -1278,14 +1262,14 @@ static Common::Point verbBubbleAnchorForPalette(byte paletteMode) {
 }
 
 static void paintConversationPortraitSprite(Graphics *graphics, Resources *resources,
-		uint16 spriteId, Common::Point pos, Surface *dest) {
+											uint16 spriteId, Common::Point pos, Surface *dest) {
 	if (!resources || spriteId == 0xffff)
 		return;
 	Common::ScopedPtr<Sprite> sprite(resources->loadSprite(spriteId));
 	if (!sprite || sprite->w == 0 || sprite->h == 0)
 		return;
 	graphics->paint(sprite.get(), pos, dest,
-	                Graphics::kPaintPositionIsTop | Graphics::kPaintNoDirty);
+					Graphics::kPaintPositionIsTop | Graphics::kPaintNoDirty);
 }
 
 void Graphics::paintConversationBackdropLikeDos() {
@@ -1297,9 +1281,9 @@ void Graphics::paintConversationBackdropLikeDos() {
 	if (!logic)
 		return;
 	paintConversationPortraitSprite(this, _resources, logic->menuStashA(),
-	                                Common::Point(0, 0x17), _framebuffer.get());
+									Common::Point(0, 0x17), _framebuffer.get());
 	paintConversationPortraitSprite(this, _resources, logic->menuStashB(),
-	                                Common::Point(0xcb, 0x17), _framebuffer.get());
+									Common::Point(0xcb, 0x17), _framebuffer.get());
 }
 
 void Graphics::prepareConversationPaletteLikeDos() {
@@ -1313,7 +1297,7 @@ void Graphics::prepareConversationPaletteLikeDos() {
 	if (!logic || !_resources)
 		return;
 
-	const uint16 sprites[2] = { logic->menuStashA(), logic->menuStashB() };
+	const uint16 sprites[2] = {logic->menuStashA(), logic->menuStashB()};
 	for (uint i = 0; i < ARRAYSIZE(sprites); ++i) {
 		if (sprites[i] == 0xffff)
 			continue;
@@ -1369,19 +1353,19 @@ static void paintStashedVerbBubbleLikeDos(Graphics *graphics, Logic *logic, Surf
 	Sprite bubble;
 	bubble._hotPoint = Common::Point(0, 0);
 	Common::Rect bubbleRect = graphics->paintSpeechInBubble(Common::Point(0xe6, 0x5d), 0xf5,
-		reinterpret_cast<const byte *>(savedText.c_str()), &bubble, Graphics::kSpeechBubbleType1, true);
+															reinterpret_cast<const byte *>(savedText.c_str()), &bubble, Graphics::kSpeechBubbleType1, true);
 	graphics->paint(&bubble, Common::Point(bubbleRect.left, bubbleRect.top), dest,
-	                Graphics::kPaintSemiTransparent | Graphics::kPaintPositionIsTop);
+					Graphics::kPaintSemiTransparent | Graphics::kPaintPositionIsTop);
 }
 
 static void paintVerbBubbleConnectorsLikeDos(Graphics *graphics, Resources *resources,
-		byte paletteMode, Common::Point anchor, Surface *dest) {
+											 byte paletteMode, Common::Point anchor, Surface *dest) {
 	if (!graphics || !resources || !dest)
 		return;
 	if (paletteMode != 2 && paletteMode != 4)
 		return;
 
-	Sprite * const *bubbles = resources->bubbles();
+	Sprite *const *bubbles = resources->bubbles();
 	const Sprite *stem = bubbles[kBubbleVerbStem];           // DOS CS:[0x109], footer +0xaa
 	const Sprite *connector = bubbles[kBubbleVerbConnector]; // DOS CS:[0x107], footer +0xa8
 	if (!stem || !connector)
@@ -1423,25 +1407,26 @@ uint16 Graphics::askVerbBubbleLikeDos(byte paletteMode, byte *string, uint16 *se
 		Sprite bubble;
 		bubble._hotPoint = Common::Point(0, 0);
 		Common::Rect bubbleRect = paintSpeechInBubble(anchor, textColour,
-			reinterpret_cast<const byte *>(displayText.c_str()), &bubble, bubbleMode, false);
+													  reinterpret_cast<const byte *>(displayText.c_str()), &bubble, bubbleMode, false);
 		paint(&bubble, Common::Point(bubbleRect.left, bubbleRect.top),
-		      _framebuffer.get(), kPaintSemiTransparent | kPaintPositionIsTop);
+			  _framebuffer.get(), kPaintSemiTransparent | kPaintPositionIsTop);
 
 		positionVerbBubbleChoices(bubbleRect, metrics, choices);
 		const byte choiceColour = (paletteMode == 2 || paletteMode == 4)
-			? kVerbBubbleRawTextColour : textColour;
+									  ? kVerbBubbleRawTextColour
+									  : textColour;
 		for (uint i = 0; i < choices.size(); ++i)
 			paintPlainTextLine(choices[i].textLeft, choices[i].textTop, choiceColour,
-			                   reinterpret_cast<const byte *>(choices[i].label.c_str()), false);
+							   reinterpret_cast<const byte *>(choices[i].label.c_str()), false);
 		if (hover >= 0 && hover < int(choices.size()))
 			paintPlainTextLine(choices[hover].textLeft, choices[hover].textTop,
-			                   kSelectedOptionColour,
-			                   reinterpret_cast<const byte *>(choices[hover].label.c_str()), false);
+							   kSelectedOptionColour,
+							   reinterpret_cast<const byte *>(choices[hover].label.c_str()), false);
 		if (paletteMode == 4)
 			paintStashedVerbBubbleLikeDos(this, _engine ? _engine->logic() : 0, _framebuffer.get());
 
 		_system->copyRectToScreen(reinterpret_cast<byte *>(_framebuffer->getPixels()),
-		                          _framebuffer->pitch, 0, 0, 320, 200);
+								  _framebuffer->pitch, 0, 0, 320, 200);
 		_system->updateScreen();
 	};
 
@@ -1540,17 +1525,17 @@ uint16 Graphics::askVerbBubbleTextLikeDos(byte paletteMode, const byte *string, 
 		bubble._hotPoint = Common::Point(0, 0);
 		Common::Rect bubbleRect = paintSpeechInBubble(anchor, textColour, string, &bubble, bubbleMode, true);
 		paint(&bubble, Common::Point(bubbleRect.left, bubbleRect.top),
-		      _framebuffer.get(), kPaintSemiTransparent | kPaintPositionIsTop);
+			  _framebuffer.get(), kPaintSemiTransparent | kPaintPositionIsTop);
 		positionInlineVerbBubbleChoices(this, bubbleRect, string, choices);
 		if (hover >= 0 && hover < int(choices.size()))
 			paintPlainTextLine(choices[hover].textLeft, choices[hover].textTop,
-			                   kSelectedOptionColour,
-			                   reinterpret_cast<const byte *>(choices[hover].label.c_str()), false);
+							   kSelectedOptionColour,
+							   reinterpret_cast<const byte *>(choices[hover].label.c_str()), false);
 		if (paletteMode == 4)
 			paintStashedVerbBubbleLikeDos(this, _engine ? _engine->logic() : 0, _framebuffer.get());
 
 		_system->copyRectToScreen(reinterpret_cast<byte *>(_framebuffer->getPixels()),
-		                          _framebuffer->pitch, 0, 0, 320, 200);
+								  _framebuffer->pitch, 0, 0, 320, 200);
 		_system->updateScreen();
 	};
 
@@ -1646,9 +1631,9 @@ void Graphics::showVerbBubbleTextLikeDos(byte paletteMode, const byte *string, u
 		bubble._hotPoint = Common::Point(0, 0);
 		const bool rawLayout = paletteMode == 2 || paletteMode == 4;
 		Common::Rect bubbleRect = paintSpeechInBubble(anchor, textColour, string, &bubble, bubbleMode,
-			!rawLayout);
+													  !rawLayout);
 		paint(&bubble, Common::Point(bubbleRect.left, bubbleRect.top),
-		      _framebuffer.get(), kPaintSemiTransparent | kPaintPositionIsTop);
+			  _framebuffer.get(), kPaintSemiTransparent | kPaintPositionIsTop);
 		if (rawLayout) {
 			Common::Array<Common::String> lines;
 			collectVerbBubbleLines(string, lines);
@@ -1658,7 +1643,7 @@ void Graphics::showVerbBubbleTextLikeDos(byte paletteMode, const byte *string, u
 			paintStashedVerbBubbleLikeDos(this, _engine ? _engine->logic() : 0, _framebuffer.get());
 
 		_system->copyRectToScreen(reinterpret_cast<byte *>(_framebuffer->getPixels()),
-		                          _framebuffer->pitch, 0, 0, 320, 200);
+								  _framebuffer->pitch, 0, 0, 320, 200);
 		_system->updateScreen();
 	};
 
@@ -1744,7 +1729,7 @@ uint16 Graphics::ask(uint16 left, uint16 top, byte width, byte height, byte *str
 	};
 
 	Surface frame;
-	frame.create(width * kFrameTileWidth, height * kFrameTileHeight+4);
+	frame.create(width * kFrameTileWidth, height * kFrameTileHeight + 4);
 
 	Sprite **frames = _resources->frames();
 
@@ -1787,7 +1772,7 @@ uint16 Graphics::ask(uint16 left, uint16 top, byte width, byte height, byte *str
 	// (but it does look nicer this way)
 	paintText(10, 16, 254, string, &frame);
 
-	_system->copyRectToScreen(reinterpret_cast<byte *>(frame.getPixels()), frame.pitch, left, top, width * kFrameTileWidth, height * kFrameTileHeight+4);
+	_system->copyRectToScreen(reinterpret_cast<byte *>(frame.getPixels()), frame.pitch, left, top, width * kFrameTileWidth, height * kFrameTileHeight + 4);
 
 	showCursor();
 	bool done = false;
@@ -1798,7 +1783,7 @@ uint16 Graphics::ask(uint16 left, uint16 top, byte width, byte height, byte *str
 		_engine->debugger()->onFrame();
 		Common::Event event;
 		while (_engine->eventMan()->pollEvent(event)) {
-			switch(event.type) {
+			switch (event.type) {
 			case Common::EVENT_KEYDOWN:
 				if (event.kbd.keycode == Common::KEYCODE_ESCAPE)
 					done = true;
@@ -1833,7 +1818,7 @@ uint16 Graphics::ask(uint16 left, uint16 top, byte width, byte height, byte *str
 		} else if (clickDelay != 0) {
 			--clickDelay;
 		}
-		_system->delayMillis(1000/60);
+		_system->delayMillis(1000 / 60);
 	}
 
 	hideCursor();
@@ -1851,7 +1836,7 @@ void Graphics::paintSpeechBubbleColumn(Sprite *top, Sprite *fill, Common::Point 
 }
 
 Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const byte *string, Surface *bubble,
-                                           SpeechBubbleMode mode, bool renderText, uint16 forcedRows) {
+										   SpeechBubbleMode mode, bool renderText, uint16 forcedRows) {
 	int left = pos.x, top = pos.y;
 	debugC(1, kDebugLevelGraphics, "painting speech bubble \"%s\" at %d:%d", string, left, top);
 
@@ -1860,10 +1845,10 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const
 	const uint16 rows = forcedRows != 0 ? forcedRows : MAX<uint16>(1, metrics.rowCount);
 	const uint16 widthExtra = metrics.maxLineWidth;
 
-	Sprite * const *bubbles = _resources->bubbles();
+	Sprite *const *bubbles = _resources->bubbles();
 
 	const uint8 kNoBubblePart = 0xff;
-	uint8 bubble_indices[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8 };
+	uint8 bubble_indices[] = {0, 1, 2, 3, 4, 5, 6, 7, 8};
 
 	uint8 wadj = 0;
 	uint8 frameOffsetX = 0;
@@ -1999,7 +1984,7 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const
 	const uint16 horizontal_tiles = 1 + widthExtra / 4;
 
 	bubble->create(frameOffsetX + 65 + wadj + 4 * horizontal_tiles,
-		frameOffsetY + 54 + 6 * vertical_tiles);
+				   frameOffsetY + 54 + 6 * vertical_tiles);
 	// DOS draws bubble frame pieces straight into the video buffer with
 	// palette index 0 transparent. The C++ path composes a temporary
 	// sprite first, so initialize its untouched pixels to that same
@@ -2008,7 +1993,7 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const
 
 	Common::Point position(frameOffsetX + wadj, frameOffsetY);
 	paintSpeechBubbleColumn(bubble_indices[kBubbleTopLeft] == kNoBubblePart ? 0 : bubbles[bubble_indices[kBubbleTopLeft]],
-		bubbles[bubble_indices[kBubbleLeft]], position, vertical_tiles, bubble);
+							bubbles[bubble_indices[kBubbleLeft]], position, vertical_tiles, bubble);
 	position.x -= wadj;
 	paint(bubbles[bubble_indices[kBubbleBottomLeft]], position, bubble, kPaintPositionIsTop);
 
@@ -2022,7 +2007,7 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const
 
 	position.y = frameOffsetY;
 	paintSpeechBubbleColumn(bubble_indices[kBubbleTopRight] == kNoBubblePart ? 0 : bubbles[bubble_indices[kBubbleTopRight]],
-		bubbles[bubble_indices[kBubbleRight]], position, vertical_tiles, bubble);
+							bubbles[bubble_indices[kBubbleRight]], position, vertical_tiles, bubble);
 	paint(bubbles[bubble_indices[kBubbleBottomRight]], position, bubble, kPaintPositionIsTop);
 
 	if (topTailPart != kNoBubblePart)
@@ -2108,7 +2093,7 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const
 		top = 0;
 
 	Common::Rect rect(left - frameOffsetX, top - frameOffsetY,
-		left - frameOffsetX + bubble->w, top - frameOffsetY + bubble->h);
+					  left - frameOffsetX + bubble->w, top - frameOffsetY + bubble->h);
 	return rect;
 }
 
@@ -2122,7 +2107,7 @@ Common::Rect Graphics::paintText(uint16 left, uint16 top, byte colour, const byt
 
 	int opt;
 	while ((ch = *(string++))) {
-		switch(ch) {
+		switch (ch) {
 		case kStringMove:
 			current_left = READ_LE_UINT16(string);
 			string += 2;
@@ -2142,7 +2127,7 @@ Common::Rect Graphics::paintText(uint16 left, uint16 top, byte colour, const byt
 			current_left += *(string++);
 			break;
 		case kStringCenter:
-			current_left = (320 - calculateLineWidth(string))/2;
+			current_left = (320 - calculateLineWidth(string)) / 2;
 			break;
 		case '\n':
 		case '\r':
@@ -2153,7 +2138,8 @@ Common::Rect Graphics::paintText(uint16 left, uint16 top, byte colour, const byt
 		case kStringMenuOption:
 			opt = _mOption++;
 			_optionRects[opt] = paintText(current_left, current_top, kOptionColour, string, dest, 0, 0, flags);
-			while (*(string++));
+			while (*(string++))
+				;
 			_optionValues[opt] = READ_LE_UINT16(string);
 			debugC(2, kDebugLevelGraphics | kDebugLevelScript, "option value %d: 0x%x", opt, _optionValues[opt]);
 			string += 2;
@@ -2207,8 +2193,8 @@ void Graphics::paintStatusScreenTextLikeDos() {
 
 	for (Common::Array<StatusScreenTextEntry>::const_iterator it = _statusScreenText.begin(); it != _statusScreenText.end(); ++it)
 		paintText(it->left, it->top, it->colour,
-		          reinterpret_cast<const byte *>(it->text.c_str()),
-		          _framebuffer.get(), 0, 0, kPaintNoDirty);
+				  reinterpret_cast<const byte *>(it->text.c_str()),
+				  _framebuffer.get(), 0, 0, kPaintNoDirty);
 }
 
 void Graphics::paintMotionText(const byte *stream, uint16 length) {
@@ -2288,7 +2274,7 @@ Common::Rect Graphics::paintPlainTextLine(uint16 left, uint16 top, byte colour, 
 		if (ch == 0x04)
 			continue;
 		current_left += paintChar(current_left, top, colour, ch, _framebuffer.get(),
-			markDirty ? kPaintNormal : kPaintNoDirty);
+								  markDirty ? kPaintNormal : kPaintNoDirty);
 	}
 	return Common::Rect(left, top, current_left, top + kLineHeight);
 }
@@ -2304,14 +2290,13 @@ static const byte kExtendedLatinChars[] = {
 	0x84, 0x89, 0x8b, 0x94, 0x81, 0x8e, 0x45, 0xa0, 0x82, 0xa1,
 	0xa2, 0xa3, 0x41, 0x90, 0x85, 0x8a, 0x8d, 0x95, 0x97, 0x41,
 	0x45, 0x83, 0x88, 0x8c, 0x93, 0x96, 0x41, 0x45, 0xe1, 0x80,
-	0x87, 0xa5, 0xa4, 0xa8, 0xad, 0x99, 0x9a
-};
+	0x87, 0xa5, 0xa4, 0xa8, 0xad, 0x99, 0x9a};
 
 static byte translateExtendedLatin(byte ch) {
 	for (uint i = 0; i < ARRAYSIZE(kExtendedLatinChars); ++i)
 		if (kExtendedLatinChars[i] == ch)
-			return byte(0x7c + i);  // DOS helper @c77a: BL counts up from 0x7c
-	return 0;                       // not in the font -> caller substitutes '?'
+			return byte(0x7c + i); // DOS helper @c77a: BL counts up from 0x7c
+	return 0;                      // not in the font -> caller substitutes '?'
 }
 
 byte Graphics::clampChar(byte ch) const {
@@ -2350,7 +2335,7 @@ uint16 Graphics::getGlyphWidth(byte ch) const {
 	if (ch == ' ')
 		return 4;
 	else
-		return getGlyph(ch)->w-1;
+		return getGlyph(ch)->w - 1;
 }
 
 Sprite *Graphics::getGlyph(byte ch) const {
@@ -2373,7 +2358,8 @@ uint16 Graphics::paintChar(uint16 left, uint16 top, byte colour, byte ch, Surfac
 			paint(glyph, Common::Point(left, top + glyph->h), dest, flags);
 		w = glyph->w - 1;
 		delete glyph;
-	} else return 4;
+	} else
+		return 4;
 	return w;
 }
 
@@ -2400,7 +2386,8 @@ void Graphics::paint(const Sprite *sprite, Common::Point pos, Surface *dest, int
 	// same active-height clamp for camera-relative draws, and still clip small
 	// temporary surfaces against their own dimensions.
 	const int clipHeight = ((flags & kPaintCameraRelative) && dest == _framebuffer.get())
-		? MIN<int>(dest->h, screenHeight()) : dest->h;
+							   ? MIN<int>(dest->h, screenHeight())
+							   : dest->h;
 
 	// DOS clipping moves both the destination rectangle and the source offset.
 	const Common::Rect unclipped = r;
@@ -2492,14 +2479,14 @@ void Graphics::updateScreen() {
 		for (uint i = 0; i < rects.size(); ++i) {
 			const Common::Rect &r = rects[i];
 			_system->copyRectToScreen(reinterpret_cast<byte *>(_framebuffer->getBasePtr(r.left, r.top)),
-				_framebuffer->pitch, r.left, r.top, r.width(), r.height());
+									  _framebuffer->pitch, r.left, r.top, r.width(), r.height());
 		}
 		_previousDirtyRects = _dirtyRects;
 	}
 
 	if (_willFadein) {
 		debugC(3, kDebugLevelGraphics, "performing palette fade in range %u..%u",
-			_fadeStart, _fadeStart + _fadeCount);
+			   _fadeStart, _fadeStart + _fadeCount);
 		_willFadein = false;
 		fadeIn(0, _fadeStart, _fadeCount);
 		_inFade = false;
@@ -2545,12 +2532,12 @@ void Graphics::hookAfterRepaint(CodePointer &p) {
 }
 
 const char Graphics::_charwidths[] = {
-	#include "charwidths.data"
+#include "charwidths.data"
 };
 
 void Graphics::clearPalette(int offset, int count) {
 	byte pal[0x300];
-	Common::fill(pal, pal+0x300, 0);
+	Common::fill(pal, pal + 0x300, 0);
 	storePaletteTarget(pal, offset, count);
 	_system->getPaletteManager()->setPalette(pal, offset, count);
 }
@@ -2578,7 +2565,7 @@ void Graphics::updateTintedPalette() {
 	// 0xae/0xaf, 0xbe/0xbf, 0xce/0xcf, 0xde/0xdf.
 	for (int i = 0; i < 256; ++i) {
 		const byte *colour = _roomPalette + i * 3;
-		const byte luma = (30 * colour[0] + 60 * colour[1] + 10 * colour[2])/100;
+		const byte luma = (30 * colour[0] + 60 * colour[1] + 10 * colour[2]) / 100;
 
 		byte curr = 174;
 		byte best_diff = 255;
@@ -2643,7 +2630,7 @@ void Graphics::applyRoomChangeWipeLikeDos() {
 
 		if ((diag & 3) == 0) {
 			_system->copyRectToScreen(reinterpret_cast<byte *>(_framebuffer->getBasePtr(0, 0)),
-				_framebuffer->pitch, 0, 0, 320, viewHeight);
+									  _framebuffer->pitch, 0, 0, 320, viewHeight);
 			_system->updateScreen();
 			Eng.delay(1);
 		}
@@ -2654,7 +2641,7 @@ void Graphics::applyRoomChangeWipeLikeDos() {
 	// the newly loaded backdrop.
 	_framebuffer->fillRect(view, 0);
 	_system->copyRectToScreen(reinterpret_cast<byte *>(_framebuffer->getBasePtr(0, 0)),
-		_framebuffer->pitch, 0, 0, 320, viewHeight);
+							  _framebuffer->pitch, 0, 0, 320, viewHeight);
 	_system->updateScreen();
 	markFullRedraw();
 }
@@ -2699,7 +2686,7 @@ void Graphics::fadeIn(const byte *colours, uint start, uint num) {
 
 		_system->getPaletteManager()->setPalette((current), start, num);
 		_system->updateScreen();
-		Eng.delay(1000/25);
+		Eng.delay(1000 / 25);
 
 		if (Log.canSkipCutscene() && Eng.escapePressed()) {
 			Log.requestSkipCutscene();
@@ -2737,14 +2724,13 @@ bool Graphics::fadeOut(FadeFlags f) {
 		_system->getPaletteManager()->setPalette((current), offset, colours);
 		storePaletteTarget(current, offset, colours);
 		_system->updateScreen();
-		Eng.delay(1000/25);
+		Eng.delay(1000 / 25);
 
 		if (Log.canSkipCutscene() && Eng.escapePressed()) {
 			Log.requestSkipCutscene();
 			updateTintedPalette();
 			return false;
 		}
-
 	}
 	updateTintedPalette();
 	return true;
@@ -2797,8 +2783,8 @@ static byte *copySpeechText(const Common::String &page) {
 }
 
 void Graphics::sayAt(const byte *text, uint16 length, uint16 frames,
-                     uint16 x, uint16 y, byte color, uint16 maxLines,
-                     SpeechBubbleMode bubbleMode, bool forceBubble) {
+					 uint16 x, uint16 y, byte color, uint16 maxLines,
+					 SpeechBubbleMode bubbleMode, bool forceBubble) {
 	// Callers pass `length = strlen(text)` (no NUL counted). paintText
 	// scans with `while ((ch = *string++))` and needs a NUL terminator,
 	// so over-allocate by 1 and write a sentinel. Without this, paintText
@@ -2824,7 +2810,7 @@ void Graphics::sayAt(const byte *text, uint16 length, uint16 frames,
 			// queue entry until paintSpeech promotes it into _speech.
 			_speechQueue.push(e);
 			debugC(2, kDebugLevelGraphics, "queued speech at %u,%u (queue size %u)",
-				x, y, (uint)_speechQueue.size());
+				   x, y, (uint)_speechQueue.size());
 			continue;
 		}
 

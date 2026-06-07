@@ -25,11 +25,9 @@
 
 #include "common/hashmap.h"
 
-
 #include "common/file.h"
 #include "graphics/surface.h"
 
-#include "interspective/resources.h"
 #include "interspective/innocent.h"
 #include "interspective/inter.h"
 #include "interspective/logic.h"
@@ -37,13 +35,13 @@
 #include "interspective/mapfile.h"
 #include "interspective/prog_dat.h"
 #include "interspective/program.h"
+#include "interspective/resources.h"
 #include "interspective/sprite.h"
 
 using namespace Common;
-using namespace std;
 
 namespace Common {
-	DECLARE_SINGLETON(Interspective::Resources);
+DECLARE_SINGLETON(Interspective::Resources);
 }
 
 namespace Interspective {
@@ -92,21 +90,23 @@ void Surface::blit(const Surface *s, Common::Rect r, Common::Point srcOffset, in
 	if (transparent == -1 && !tinted) {
 		if (rw == s->pitch && rw == pitch && r.left == 0 && srcOffset.x == 0)
 			memmove(dest, src, rw * rh);
-		else for (int y = 0; y < rh; ++y) {
-			memmove(dest, src, rw);
-			dest += pitch;
+		else
+			for (int y = 0; y < rh; ++y) {
+				memmove(dest, src, rw);
+				dest += pitch;
+				src += s->pitch;
+			}
+	} else
+		for (int y = 0; y < rh; ++y) {
+			for (int x = 0; x < rw; ++x) {
+				if (tinted && src[x] == kSemitransparent)
+					dest[x] = (*tinted)[dest[x]];
+				else if (src[x] != transparent)
+					dest[x] = src[x];
+			}
 			src += s->pitch;
+			dest += pitch;
 		}
-	} else for (int y = 0; y < rh; ++y) {
-		for (int x = 0; x < rw; ++x) {
-			if (tinted && src[x] == kSemitransparent)
-				dest[x] = (*tinted)[dest[x]];
-			else if (src[x] != transparent)
-				dest[x] = src[x];
-		}
-		src += s->pitch;
-		dest += pitch;
-	}
 }
 
 void Resources::setEngine(Engine *vm) {
@@ -145,7 +145,7 @@ void Resources::load() {
 }
 
 void Resources::loadFrames() {
-	#define FRAME(p) _frames[p] = loadSprite(_main.get()->getFrameId(p))
+#define FRAME(p) _frames[p] = loadSprite(_main.get()->getFrameId(p))
 	FRAME(kFrameTopLeft);
 	FRAME(kFrameTop);
 	FRAME(kFrameTopRight);
@@ -155,11 +155,11 @@ void Resources::loadFrames() {
 	FRAME(kFrameBottomLeft);
 	FRAME(kFrameBottom);
 	FRAME(kFrameBottomRight);
-	#undef FRAME
+#undef FRAME
 }
 
 void Resources::loadSpeechBubbles() {
-	#define BUBBLE(p) _bubbles[p] = loadSprite(_main.get()->getBubbleId(p))
+#define BUBBLE(p) _bubbles[p] = loadSprite(_main.get()->getBubbleId(p))
 	BUBBLE(kBubbleTopLeft);
 	BUBBLE(kBubbleLeft);
 	BUBBLE(kBubbleBottomLeft);
@@ -176,7 +176,7 @@ void Resources::loadSpeechBubbles() {
 	BUBBLE(kBubbleTopRightPoint);
 	BUBBLE(kBubbleVerbConnector);
 	BUBBLE(kBubbleVerbStem);
-	#undef BUBBLE
+#undef BUBBLE
 }
 
 void Resources::init() {
@@ -257,8 +257,8 @@ void Resources::readPalette(Common::ReadStream *stream, byte *palette) {
 
 void Resources::loadImage(uint16 index, byte *target, uint32 size, byte *palette) const {
 	Common::ReadStream *file = imageStream(index);
-	(void) file->readUint16LE();
-	(void) file->readUint16LE(); // we know size alright
+	(void)file->readUint16LE();
+	(void)file->readUint16LE(); // we know size alright
 
 	decodeImage(file, target, size);
 
@@ -271,7 +271,7 @@ void Resources::loadImage(uint16 index, byte *target, uint32 size, byte *palette
 }
 
 Image *Resources::loadImage(uint16 index) const {
-	Image * img;
+	Image *img;
 	static Common::HashMap<uint16, Image *> cache;
 
 	if ((img = cache[index]))
@@ -280,7 +280,7 @@ Image *Resources::loadImage(uint16 index) const {
 	img = new Image;
 	img->create(320, 200);
 	assert(img->pitch == 320);
-	loadImage(index, reinterpret_cast<byte *>(img->getPixels()), 320*200);
+	loadImage(index, reinterpret_cast<byte *>(img->getPixels()), 320 * 200);
 	cache[index] = img;
 	return img;
 }
@@ -353,7 +353,6 @@ Surface *Resources::loadBackdrop(uint16 index, byte *palette) {
 
 	uint16 width = stream->readUint16LE();
 	uint16 height = stream->readUint16LE();
-
 
 	Surface *backdrop = new Surface;
 	backdrop->create(width, height);
@@ -438,7 +437,7 @@ void Sprite::recolour(byte colour) {
 }
 
 template<>
-Common::SharedPtr<Interspective::Sprite> &CodePointer::field<Common::SharedPtr<Interspective::Sprite> >(Common::SharedPtr<Interspective::Sprite> &p, int off) const {
+Common::SharedPtr<Interspective::Sprite> &CodePointer::field<Common::SharedPtr<Interspective::Sprite>>(Common::SharedPtr<Interspective::Sprite> &p, int off) const {
 	uint16 sprite;
 	field(sprite, off);
 	p = Common::SharedPtr<Interspective::Sprite>(_interpreter->resources()->loadSprite(sprite));

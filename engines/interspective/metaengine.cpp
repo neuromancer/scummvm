@@ -22,8 +22,8 @@
 #include "common/system.h"
 #include "graphics/surface.h"
 
-#include "interspective/innocent.h"
 #include "interspective/detection.h"
+#include "interspective/innocent.h"
 #include "interspective/logic.h"
 
 namespace Interspective {
@@ -45,8 +45,7 @@ public:
 
 	void getSavegameThumbnail(::Graphics::Surface &thumb) override {
 		Engine *engine = static_cast<Engine *>(g_engine);
-		if (engine && engine->logic() && engine->logic()->inStatusMode()
-				&& engine->statusSaveThumbnail()) {
+		if (engine && engine->logic() && engine->logic()->inStatusMode() && engine->statusSaveThumbnail()) {
 			thumb.copyFrom(*engine->statusSaveThumbnail());
 			return;
 		}
@@ -61,4 +60,4 @@ public:
 REGISTER_PLUGIN_DYNAMIC(INTERSPECTIVE, PLUGIN_TYPE_ENGINE, Interspective::InterspectiveMetaEngine);
 #else
 REGISTER_PLUGIN_STATIC(INTERSPECTIVE, PLUGIN_TYPE_ENGINE, Interspective::InterspectiveMetaEngine);
-#endif
+#endif // PLUGIN_ENABLED_DYNAMIC(INTERSPECTIVE)

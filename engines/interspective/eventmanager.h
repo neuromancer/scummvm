@@ -78,6 +78,6 @@ private:
 	bool _debug;
 };
 
-}
+} // End of namespace Interspective
 
-#endif
+#endif // INTERSPECTIVE_EVENTMANAGER_H

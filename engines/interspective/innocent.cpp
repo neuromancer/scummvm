@@ -27,16 +27,16 @@
 
 #include "audio/mididrv.h"
 #include "common/config-manager.h"
-#include "common/language.h"
-#include "common/debug.h"
 #include "common/debug-channels.h"
+#include "common/debug.h"
 #include "common/error.h"
-#include "common/file.h"
-#include "common/savefile.h"
-#include "common/serializer.h"
-#include "common/scummsys.h"
-#include "common/system.h"
 #include "common/events.h"
+#include "common/file.h"
+#include "common/language.h"
+#include "common/savefile.h"
+#include "common/scummsys.h"
+#include "common/serializer.h"
+#include "common/system.h"
 #include "engines/metaengine.h"
 #include "engines/util.h"
 #include "graphics/thumbnail.h"
@@ -69,13 +69,12 @@ struct VerbButtonRegion {
 };
 
 static const VerbButtonRegion kVerbButtonRegions[] = {
-	{ 65, 153,  79, 169, 3 },
-	{ 83, 153,  99, 169, 4 },
-	{101, 153, 117, 169, 5 },
-	{ 65, 172,  81, 188, 6 },
-	{ 83, 172,  99, 188, 7 },
-	{101, 172, 117, 188, 8 }
-};
+	{65, 153, 79, 169, 3},
+	{83, 153, 99, 169, 4},
+	{101, 153, 117, 169, 5},
+	{65, 172, 81, 188, 6},
+	{83, 172, 99, 188, 7},
+	{101, 172, 117, 188, 8}};
 
 static bool applyVerbButtonClickLikeDos(Logic *logic, const Common::Point &pos) {
 	if (!logic || logic->noStep() || logic->cursorMode() == 0x20)
@@ -188,7 +187,7 @@ struct MusicStateSyncResult {
 };
 
 static MusicStateSyncResult synchronizeMusicState(Common::Serializer &s, Resources *resources,
-		uint8 currentMusicMode, uint8 currentSfxMode) {
+												  uint8 currentMusicMode, uint8 currentSfxMode) {
 	MusicStateSyncResult result;
 	uint8 active = Music.isActive() ? 1 : 0;
 	uint16 currentTune = Music.currentTuneWord();
@@ -250,8 +249,7 @@ static MusicStateSyncResult synchronizeMusicState(Common::Serializer &s, Resourc
 
 } // End of anonymous namespace
 
-Engine::Engine(OSystem *syst) :
-		::Engine(syst) {
+Engine::Engine(OSystem *syst) : ::Engine(syst) {
 	_resources = &Res;
 	_resources->setEngine(this);
 	_graphics = &Graphics::instance();
@@ -464,20 +462,20 @@ Common::Error Engine::run() {
 			debugC(1, kDebugLevelFlow, "loaded startup save slot %d", startupSaveSlot);
 		} else {
 			warning("Interspective: failed to load startup save slot %d (%s); starting a new game",
-				startupSaveSlot, loadError.getDesc().c_str());
+					startupSaveSlot, loadError.getDesc().c_str());
 		}
 	}
 	if (!loadedStartupSave)
 		_logic->initCode();
 	_graphics->hideCursor();
-	while(!shouldQuit()) {
+	while (!shouldQuit()) {
 		handleEvents();
 		_logic->tick();
 		_logic->callAnimations();
 		_logic->runPostAnimationScripts();
 		_graphics->paint();
 		_graphics->syncCursorVisibility();
-//		_graphics->paintAnimations();
+		//		_graphics->paintAnimations();
 		const bool paused = _logic->paused();
 		if (!paused)
 			_graphics->updateScreen();
@@ -577,7 +575,7 @@ void Engine::applyKeyboardCursorMovementLikeDos() {
 void Engine::handleEvents() {
 	Common::Event event;
 	while (_eventMan->pollEvent(event)) {
-		switch(event.type) {
+		switch (event.type) {
 
 		case Common::EVENT_KEYDOWN: {
 			// DOS HandleSpecialKey @ 1000:b7d4. Alt+letter and Fn keys reach
@@ -608,8 +606,8 @@ void Engine::handleEvents() {
 				break;
 			}
 			const bool menuKey = kc == Common::KEYCODE_F8 ||
-				((mods & Common::KBD_CTRL) && (kc == Common::KEYCODE_c || kc == Common::KEYCODE_q)) ||
-				((mods & Common::KBD_ALT) && (kc == Common::KEYCODE_q || kc == Common::KEYCODE_x));
+								 ((mods & Common::KBD_CTRL) && (kc == Common::KEYCODE_c || kc == Common::KEYCODE_q)) ||
+								 ((mods & Common::KBD_ALT) && (kc == Common::KEYCODE_q || kc == Common::KEYCODE_x));
 			if (!event.kbdRepeat && menuKey) {
 				// F8 / Ctrl-C / Ctrl-Q / Alt-Q / Alt-X open the Continue/
 				// Restart/Exit system menu (DOS @ 1000:b82d), but only while
@@ -680,7 +678,7 @@ void Engine::handleEvents() {
 bool Engine::escapePressed() const {
 	Common::Event event;
 	while (_eventMan->pollEvent(event)) {
-		switch(event.type) {
+		switch (event.type) {
 
 		case Common::EVENT_KEYDOWN:
 			if (consumeEscapePress(event))
@@ -718,7 +716,7 @@ void Engine::initDosSoundConfig() {
 	_dosSfxEnabled = 2;
 
 	debugC(1, kDebugLevelMusic, "DOS sound config: music=%u sfx=%u mask=0x%02x (ScummVM-managed; innocent.ini ignored)",
-		_dosMusicEnabled, _dosSfxEnabled, dosSoundDeviceMask());
+		   _dosMusicEnabled, _dosSfxEnabled, dosSoundDeviceMask());
 }
 
 // Maps a ScummVM language to the multilingual CD's IUC_MAIN/IUC_PROG file
@@ -765,7 +763,7 @@ void Engine::resolveDataFilenames() {
 	}
 
 	debugC(1, kDebugLevelFiles, "Interspective data files: main=%s prog=%s (language=%s)",
-		_mainDatName.c_str(), _progDatName.c_str(), Common::getLanguageCode(_language));
+		   _mainDatName.c_str(), _progDatName.c_str(), Common::getLanguageCode(_language));
 }
 
 uint16 Engine::getRandom(uint16 max) const {

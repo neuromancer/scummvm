@@ -33,4 +33,4 @@ const char *operator+(const Common::Rect &r) {
 	return buf;
 }
 
-}
+} // End of namespace Interspective

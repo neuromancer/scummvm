@@ -70,6 +70,7 @@ public:
 	void setSpriteField(uint16 sprite);
 
 	friend class Program;
+
 private:
 	Exit(const CodePointer &code, uint16 id);
 	virtual ~Exit() {}
@@ -88,6 +89,6 @@ private:
 	bool _noSprite;
 };
 
-}
+} // End of namespace Interspective
 
-#endif
+#endif // INTERSPECTIVE_EXIT_H

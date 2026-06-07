@@ -26,9 +26,9 @@
 #ifndef INTERSPECTIVE_H
 #define INTERSPECTIVE_H
 
-#include "common/ptr.h"
 #include "common/keyboard.h"
 #include "common/language.h"
+#include "common/ptr.h"
 #include "common/random.h"
 #include "common/str.h"
 #include "engines/engine.h"
@@ -40,7 +40,7 @@ namespace Common {
 struct Event;
 class EventManager;
 
-}
+} // namespace Common
 
 namespace Graphics {
 struct Surface;

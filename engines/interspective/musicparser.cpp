@@ -25,18 +25,18 @@
 
 #include "interspective/musicparser.h"
 
+#include "audio/mididrv.h"
+#include "audio/mixer.h"
 #include "common/config-manager.h"
 #include "common/endian.h"
 #include "common/system.h"
-#include "audio/mididrv.h"
-#include "audio/mixer.h"
 
 #include "interspective/innocent.h"
 #include "interspective/resources.h"
 #include "interspective/util.h"
 
 namespace Common {
-	DECLARE_SINGLETON(Interspective::MusicParser);
+DECLARE_SINGLETON(Interspective::MusicParser);
 }
 
 namespace Interspective {
@@ -68,10 +68,10 @@ static uint16 midiTuneIndexForScriptTune(uint16 tuneIdx) {
 }
 
 MusicParser::MusicParser() : MidiParser(), _sfxPendingBeat(-1), _tune(0), _script(0), _musicType(MT_INVALID), _active(true),
-	_currentTuneWord(0), _driverCommandByte(0), _driverModeFlag(0),
-	_sfxDataSize(0), _sfxBeatCount(0), _sfxCurrentBeat(-1), _sfxBeatTicks(0),
-	_sfxTime(0), _sfxLastTick(0), _sfxPsecPerTick(500000 * 0x19 / 120), _sfxTick(0),
-	_sfxTunePlaying(false), _time(0), _lastTick(0), _tick(0) {
+							 _currentTuneWord(0), _driverCommandByte(0), _driverModeFlag(0),
+							 _sfxDataSize(0), _sfxBeatCount(0), _sfxCurrentBeat(-1), _sfxBeatTicks(0),
+							 _sfxTime(0), _sfxLastTick(0), _sfxPsecPerTick(500000 * 0x19 / 120), _sfxTick(0),
+							 _sfxTunePlaying(false), _time(0), _lastTick(0), _tick(0) {
 	memset(_sfxData, 0, sizeof(_sfxData));
 	clearSfxState();
 	const uint32 devTypes = MDT_MIDI | MDT_ADLIB | MDT_PREFER_GM;
@@ -79,7 +79,7 @@ MusicParser::MusicParser() : MidiParser(), _sfxPendingBeat(-1), _tune(0), _scrip
 	_musicType = MidiDriver::getMusicType(dev);
 	const Common::String devId = MidiDriver::getDeviceString(dev, MidiDriver::kDeviceId);
 	warning("Interspective music init: detected device id='%s' musicType=%d",
-		devId.c_str(), int(_musicType));
+			devId.c_str(), int(_musicType));
 
 	_midiDriver = MidiDriver::createMidi(dev);
 	if (!_midiDriver) {
@@ -93,7 +93,7 @@ MusicParser::MusicParser() : MidiParser(), _sfxPendingBeat(-1), _tune(0), _scrip
 		return;
 	}
 	warning("Interspective music init: MIDI driver opened OK; baseTempo=%u",
-		(uint)_midiDriver->getBaseTempo());
+			(uint)_midiDriver->getBaseTempo());
 
 	// Report current mixer volume so the user can confirm the music isn't being
 	// silenced upstream. Default in ScummVM is typically 192/256 (75%) but can
@@ -103,12 +103,12 @@ MusicParser::MusicParser() : MidiParser(), _sfxPendingBeat(-1), _tune(0), _scrip
 		const int musicVol = g_system->getMixer()->getVolumeForSoundType(Audio::Mixer::kMusicSoundType);
 		const int sfxVol = g_system->getMixer()->getVolumeForSoundType(Audio::Mixer::kSFXSoundType);
 		warning("Interspective music init: mixer volumes — music=%d/%d sfx=%d/%d (max=%d)",
-			musicVol, Audio::Mixer::kMaxMixerVolume,
-			sfxVol, Audio::Mixer::kMaxMixerVolume,
-			Audio::Mixer::kMaxMixerVolume);
+				musicVol, Audio::Mixer::kMaxMixerVolume,
+				sfxVol, Audio::Mixer::kMaxMixerVolume,
+				Audio::Mixer::kMaxMixerVolume);
 		if (musicVol == 0)
 			warning("Interspective music init: ★ MUSIC VOLUME IS 0 — that's why you hear nothing. "
-				"Adjust in ScummVM's Audio settings (or `music_volume` in scummvm.ini).");
+					"Adjust in ScummVM's Audio settings (or `music_volume` in scummvm.ini).");
 	} else {
 		warning("Interspective music init: g_system / mixer unavailable — can't read volume");
 	}
@@ -122,7 +122,7 @@ MusicParser::MusicParser() : MidiParser(), _sfxPendingBeat(-1), _tune(0), _scrip
 	setTimerRate(_midiDriver->getBaseTempo());
 	_midiDriver->setTimerCallback(this, &MusicParser::timerCallback);
 	warning("Interspective music init: timer callback registered (timerRate=%u µs)",
-		(uint)_timerRate);
+			(uint)_timerRate);
 }
 
 MusicParser::~MusicParser() {
@@ -137,8 +137,10 @@ MusicParser::~MusicParser() {
 	stopSfxNotes();
 	silence();
 	unloadMusic();
-	delete _tune; _tune = 0;
-	delete _script; _script = 0;
+	delete _tune;
+	_tune = 0;
+	delete _script;
+	_script = 0;
 	if (_midiDriver) {
 		_midiDriver->close();
 		setMidiDriver(0);
@@ -165,12 +167,13 @@ bool MusicParser::loadMusic(const byte *data, uint32 size) {
 	static int loadMusicCallCount = 0;
 	loadMusicCallCount++;
 	debugC(2, kDebugLevelMusic, "Interspective music: loadMusic called (#%d) data=%p size=%u",
-		loadMusicCallCount, (const void *)data, (unsigned)size);
+		   loadMusicCallCount, (const void *)data, (unsigned)size);
 
 	unloadMusic();
 	silence();
 	delete _script;
-	delete _tune; _tune = 0;
+	delete _tune;
+	_tune = 0;
 	_script = new MusicScript(const_cast<byte *>(data));
 
 	// Reset our custom music clock so tunes always start from tick 0. Without
@@ -190,11 +193,11 @@ bool MusicParser::loadMusic(const byte *data, uint32 size) {
 
 	_numTracks = 1;
 	_ppqn = 120;
-//	_clocksPerTick = 0x19;
+	//	_clocksPerTick = 0x19;
 	setTempo(500000 * 0x19);
 	setTrack(0);
 	warning("Interspective music: loadMusic complete — _psecPerTick=%u _ppqn=%u",
-		(uint)_psecPerTick, (uint)_ppqn);
+			(uint)_psecPerTick, (uint)_ppqn);
 	return true;
 }
 
@@ -224,7 +227,7 @@ void MusicParser::tick() {
 	if (!reportedFirstTick) {
 		reportedFirstTick = true;
 		warning("Interspective music: first MusicParser::tick fired (timerRate=%u psecPerTick=%u tune=%p)",
-			(uint)_timerRate, (uint)_psecPerTick, (const void *)_tune);
+				(uint)_timerRate, (uint)_psecPerTick, (const void *)_tune);
 	}
 
 	if (_tune && _tune->isPlaying()) {
@@ -232,7 +235,7 @@ void MusicParser::tick() {
 		if (!reportedFirstTuneTick) {
 			reportedFirstTuneTick = true;
 			warning("Interspective music: first Tune::tick about to fire (Music.getTick=%u)",
-				(uint)_tick);
+					(uint)_tick);
 		}
 		_tune->tick();
 		if (!_tune->isPlaying()) {
@@ -252,25 +255,25 @@ void MusicParser::tick() {
 static byte notes[8][4];
 
 enum {
-	kMidiNoteOff = 		  0x80,
-	kMidiNoteOn = 		  0x90,
+	kMidiNoteOff = 0x80,
+	kMidiNoteOn = 0x90,
 	kMidiChannelControl = 0xb0,
-	kMidiSetProgram = 	  0xc0
+	kMidiSetProgram = 0xc0
 };
 
 enum {
-	kMidiCtrlExpression = 	0xb,
+	kMidiCtrlExpression = 0xb,
 	kMidiCtrlAllNotesOff = 0x7b
 };
 
 enum {
-	kSetTempo =		 0x81,
-	kSetProgram = 	 0x82,
-	kCmdSetBeat =	 0x85,
+	kSetTempo = 0x81,
+	kSetProgram = 0x82,
+	kCmdSetBeat = 0x85,
 	kSetExpression = 0x89,
-	kCmdNoteOff =	 0x8b,
+	kCmdNoteOff = 0x8b,
 	kCmdCallScript = 0x8c,
-	kHangNote = 	 0xfe
+	kHangNote = 0xfe
 };
 
 void MusicParser::silence() {
@@ -319,7 +322,7 @@ bool MusicParser::playSfxTune(const byte *data, uint32 size) {
 	}
 
 	debugC(1, kDebugLevelSound, "Interspective music: Roland SFX tune bytes=%u beats=%u",
-		(uint)size, (uint)beatCount);
+		   (uint)size, (uint)beatCount);
 	return true;
 }
 
@@ -525,7 +528,7 @@ void MusicParser::execSfxCommand(uint8 command, uint8 parameter, uint8 channel, 
 		if (parameter != 0)
 			_sfxPsecPerTick = MAX<uint32>(1, (500000u * parameter) / 120u);
 		debugC(2, kDebugLevelSound, "Roland SFX tempo command %u psecPerTick=%u",
-			(uint)parameter, (uint)_sfxPsecPerTick);
+			   (uint)parameter, (uint)_sfxPsecPerTick);
 		break;
 	case kCmdCallScript:
 		// In the SFX records command 0x8c is embedded in the note stream,
@@ -567,7 +570,7 @@ void MusicParser::requestStopCurrent() {
 }
 
 void MusicParser::restoreSavedState(const byte *script, uint16 currentTuneWord, uint8 active,
-		uint8 driverCommandByte, uint8 driverModeFlag, uint16 beat, uint32 beatTicks) {
+									uint8 driverCommandByte, uint8 driverModeFlag, uint16 beat, uint32 beatTicks) {
 	Common::StackLock lock(_mutex);
 	_active = active != 0;
 	_driverCommandByte = driverCommandByte;
@@ -602,7 +605,7 @@ bool MusicParser::restartCurrentLikeDos() {
 	// the requested tune id already matches g_current_tune. ScummVM keeps
 	// the active tune resident, so there is no audible work to do here.
 	debugC(2, kDebugLevelMusic,
-		"Interspective music: block-change current tune reasserted (no reload)");
+		   "Interspective music: block-change current tune reasserted (no reload)");
 	return true;
 }
 
@@ -619,14 +622,13 @@ void MusicParser::setMaxVolume(uint8 dosMusicMode) {
 
 MusicScript::MusicScript() : _code(0) {}
 
-MusicScript::MusicScript(const byte *data) :
-	_code(data),
-	_offset(2) {}
+MusicScript::MusicScript(const byte *data) : _code(data),
+											 _offset(2) {}
 
 enum {
 	kJump = 0x96,
 	kSetBeat = 0x9a,
-	kStop =	   0x9b
+	kStop = 0x9b
 };
 
 void MusicScript::tick() {
@@ -641,7 +643,7 @@ void MusicScript::tick() {
 			debugC(2, kDebugLevelMusic, "will jump to music script at 0x%x", target);
 			if (target == _offset) {
 				warning("Interspective music: script kJump to self at offset 0x%x — stopping music",
-					(uint)_offset);
+						(uint)_offset);
 				Music.stopMusic();
 				return;
 			}
@@ -669,7 +671,7 @@ void MusicScript::tick() {
 			if (!reportedOnce) {
 				reportedOnce = true;
 				warning("Interspective music: unhandled script opcode 0x%02x at offset 0x%x — stopping music",
-					(uint)_code[_offset], (uint)_offset);
+						(uint)_code[_offset], (uint)_offset);
 			}
 			Music.stopMusic();
 			return;
@@ -680,7 +682,7 @@ void MusicScript::tick() {
 	// Fell through 256 jumps without a terminating opcode — malformed/cyclic
 	// script. Stop rather than risk spinning the timer thread.
 	warning("Interspective music: script exceeded 256 jumps at offset 0x%x — stopping music",
-		(uint)_offset);
+			(uint)_offset);
 	Music.stopMusic();
 }
 
@@ -688,7 +690,7 @@ Tune::Tune() : _currentBeat(-1) {}
 
 enum {
 	kTuneBeatCountOffset = 0x21,
-	kTuneHeaderSize =	   0x25
+	kTuneHeaderSize = 0x25
 };
 
 Tune::Tune(uint16 index) {
@@ -710,7 +712,7 @@ Tune::Tune(uint16 index) {
 	const byte *channels = beat + 8 * nbeats;
 
 	for (uint i = 0; i < _beats.size(); i++) {
-		debugC(2, kDebugLevelMusic, "found beat at offset 0x%x", beat - _data);
+		debugC(2, kDebugLevelMusic, "found beat at offset 0x%x", (uint)(beat - _data));
 		_beats[i] = Beat(beat, channels, _data);
 		beat += 8;
 	}
@@ -729,10 +731,10 @@ Tune::Tune(uint16 index) {
 
 	uint activeChannels = _beats.empty() ? 0 : _beats[0].activeChannels();
 	debugC(1, kDebugLevelMusic, "Tune %u: %u beats, %u active channels in beat 0",
-		index, (uint)_beats.size(), activeChannels);
+		   index, (uint)_beats.size(), activeChannels);
 	if (_beats.empty() || activeChannels == 0)
 		warning("Music tune %u loaded but has no playable content (beats=%u channels=%u)",
-			index, (uint)_beats.size(), activeChannels);
+				index, (uint)_beats.size(), activeChannels);
 }
 
 void Tune::setBeat(uint16 index) {
@@ -742,7 +744,7 @@ void Tune::setBeat(uint16 index) {
 		// word and should report "not playing" once the terminal beat is
 		// reached.
 		warning("Interspective music: Tune::setBeat(%u) >= beats=%u — stopping tune",
-			(uint)index, (uint)_beats.size());
+				(uint)index, (uint)_beats.size());
 		Music.stopMusic();
 		return;
 	}
@@ -781,7 +783,7 @@ void Tune::tick() {
 		if (!reportedBadBeat) {
 			reportedBadBeat = true;
 			warning("Interspective music: Tune::tick guarded out-of-range beat (currentBeat=%d, beats=%u)",
-				(int)_currentBeat, (uint)_beats.size());
+					(int)_currentBeat, (uint)_beats.size());
 		}
 		return;
 	}
@@ -800,7 +802,7 @@ Beat::Beat(const byte *def, const byte *channels, const byte *tune) {
 	for (int i = 0; i < 8; i++)
 		if (def[i]) {
 			uint16 off = 16 * def[i];
-			debugC(2, kDebugLevelMusic, "found channel at offset 0x%x", off + channels - tune);
+			debugC(2, kDebugLevelMusic, "found channel at offset 0x%x", (uint)(off + channels - tune));
 			_channels[i] = Channel(channels + off, tune, i + 2);
 		}
 }
@@ -838,8 +840,7 @@ Channel::Channel(const byte *def, const byte *tune, byte chanidx) {
 }
 
 void Channel::reset() {
-	unless (_active)
-		return;
+	unless(_active) return;
 
 	_not_initialized = true;
 	_initnote = 0;
@@ -849,8 +850,7 @@ void Channel::reset() {
 }
 
 void Channel::tick() {
-	unless (_active)
-		return;
+	unless(_active) return;
 
 	if (_not_initialized) {
 		for (byte i = 0; i < 4; i++)
@@ -864,8 +864,7 @@ void Channel::tick() {
 
 Note::Note() : _data(0), _begin(0) {}
 
-Note::Note(const byte *data, byte index) :
-	_data(data), _tick(0), _begin(data), _index(index) {}
+Note::Note(const byte *data, byte index) : _data(data), _tick(0), _begin(data), _index(index) {}
 
 void Note::setNote(byte n) {
 	notes[_channel - 2][_index] = n;
@@ -876,8 +875,7 @@ byte Note::note() const {
 }
 
 void Note::reset() {
-	unless (_data)
-		return;
+	unless(_data) return;
 
 	_tick = Music.getTick() + 1;
 	_data = _begin;
@@ -885,8 +883,7 @@ void Note::reset() {
 
 void Note::tick(byte channel) {
 	_channel = channel;
-	unless (_data && Music.getTick() == _tick)
-		return;
+	unless(_data && Music.getTick() == _tick) return;
 
 	if (_data[0] == kHangNote) {
 		_tick += _data[1];
@@ -901,20 +898,17 @@ void Note::tick(byte channel) {
 	_tick++;
 }
 
-
 MusicCommand::MusicCommand() : _command(0) {}
 
 bool MusicCommand::empty() const {
 	return _command == 0;
 }
 
-MusicCommand::MusicCommand(const byte *def) :
-	_command(def[0]),
-	_parameter(def[1]) {}
+MusicCommand::MusicCommand(const byte *def) : _command(def[0]),
+											  _parameter(def[1]) {}
 
 void MusicCommand::exec(byte channel, Note *note) {
-	unless (_command)
-		return;
+	unless(_command) return;
 
 	switch (_command) {
 
@@ -967,7 +961,7 @@ void MusicCommand::exec(byte channel, Note *note) {
 			// instead of dereferencing null in release builds.
 			if (!note) {
 				warning("Interspective music: note-on opcode 0x%02x in channel %d init slot ignored",
-					_command, channel);
+						_command, channel);
 				break;
 			}
 			debugC(2, kDebugLevelMusic, "play note %d at volume %d on %d", _command, _parameter, channel);
@@ -976,8 +970,8 @@ void MusicCommand::exec(byte channel, Note *note) {
 			if (!reportedFirstNote) {
 				reportedFirstNote = true;
 				warning("Interspective music: first NoteOn reached driver "
-					"(channel=%u pitch=%u velocity=%u)",
-					(uint)channel, (uint)_command, (uint)_parameter);
+						"(channel=%u pitch=%u velocity=%u)",
+						(uint)channel, (uint)_command, (uint)_parameter);
 			}
 
 			if (note->note()) {
@@ -995,4 +989,4 @@ void MusicCommand::exec(byte channel, Note *note) {
 	}
 }
 
-} // End of namespace
+} // End of namespace Interspective

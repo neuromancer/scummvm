@@ -52,7 +52,7 @@ enum {
 };
 
 Program::Program(Common::ReadStream &file, uint16 id)
-  :	_exits(0) {
+	: _exits(0) {
 	uint16 length = file.readUint16LE(); // for this length
 	if (length > 25000)
 		error("too large a program (%d)", length);
@@ -73,7 +73,7 @@ void Program::loadActors(Interpreter *in) {
 	uint16 actors = READ_LE_UINT16(_footer + kActors);
 	for (int i = 0; i < nactors; ++i) {
 		Actor *ac = new Actor(CodePointer(actors, in));
-		ac->setId(uint16(i + 1));  // DOS uses 1-based ids
+		ac->setId(uint16(i + 1)); // DOS uses 1-based ids
 		_actors.push_back(ac);
 		actors += Actor::Size;
 	}
@@ -123,12 +123,12 @@ SpriteInfo Program::getSpriteInfo(uint16 index) const {
 	// id (e.g. uninitialised script field, or main vs block id mismatch)
 	// runs straight off the end of _code and ASan-trips (iter-29).
 	const uint16 maxEntries = (spritemapOffset < _codeSize)
-		? (_codeSize - spritemapOffset) / 8
-		: 0;
+								  ? (_codeSize - spritemapOffset) / 8
+								  : 0;
 	if (index >= maxEntries) {
 		warning("Program::getSpriteInfo: index 0x%04x out of range "
-			"(spritemap@0x%04x, codeSize=0x%04x, max=%u) — returning empty",
-			(uint)index, (uint)spritemapOffset, (uint)_codeSize, (uint)maxEntries);
+				"(spritemap@0x%04x, codeSize=0x%04x, max=%u) — returning empty",
+				(uint)index, (uint)spritemapOffset, (uint)_codeSize, (uint)maxEntries);
 		return SpriteInfo();
 	}
 
@@ -151,7 +151,7 @@ void Program::loadExits(Interpreter *in) {
 
 	clearExits();
 
-	_exits = new Exit*[nexits];
+	_exits = new Exit *[nexits];
 
 	for (int i = 0; i < nexits; ++i) {
 		_exits[i] = new Exit(CodePointer(exits, in), uint16(i + 1));

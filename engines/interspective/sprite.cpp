@@ -52,4 +52,4 @@ SpriteInfo::SpriteInfo(const byte *spritemap, uint16 index) {
 	hotTop = *reinterpret_cast<const int8 *>(spritemap + kSpriteMapHotTop);
 }
 
-}
+} // End of namespace Interspective

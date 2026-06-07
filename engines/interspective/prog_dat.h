@@ -57,4 +57,4 @@ private:
 
 } // End of namespace Interspective
 
-#endif // INTERSPECTIVE_PROG_DAT
+#endif // INTERSPECTIVE_PROG_DAT_H

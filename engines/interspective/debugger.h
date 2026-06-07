@@ -39,7 +39,13 @@ public:
 	Debugger();
 	void setEngine(Engine *vm);
 
-	inline void opcodeStep() { if (_stepOpcodes) { _stepOpcodes = false; attach(); onFrame(); } }
+	inline void opcodeStep() {
+		if (_stepOpcodes) {
+			_stepOpcodes = false;
+			attach();
+			onFrame();
+		}
+	}
 	void clickHandler();
 
 private:
@@ -47,7 +53,7 @@ private:
 
 	Engine *_vm;
 
-	#define CMD(name) bool cmd_##name(int argc, const char **argv)
+#define CMD(name) bool cmd_##name(int argc, const char **argv)
 	bool cmd_setBackdrop(int argc, const char **argv);
 	bool cmd_paintText(int argc, const char **argv);
 	bool cmd_paintSprite(int argc, const char **argv);
@@ -59,7 +65,7 @@ private:
 	CMD(debugActor);
 	CMD(changeRoom);
 	CMD(jumpTo);
-	#undef CMD
+#undef CMD
 
 	bool _stepOpcodes;
 	bool _breakOnClickHandler;
@@ -69,4 +75,4 @@ private:
 
 } // End of namespace Interspective
 
-#endif // defined INTERSPECTIVE_DEBUGGER_H
+#endif // INTERSPECTIVE_DEBUGGER_H

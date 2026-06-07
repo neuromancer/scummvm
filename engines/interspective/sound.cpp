@@ -23,22 +23,22 @@
  *
  */
 
-#include "common/system.h"
+#include "audio/audiostream.h"
+#include "audio/decoders/raw.h"
+#include "audio/mixer.h"
 #include "common/debug.h"
 #include "common/endian.h"
 #include "common/file.h"
 #include "common/serializer.h"
 #include "common/str.h"
-#include "audio/audiostream.h"
-#include "audio/decoders/raw.h"
-#include "audio/mixer.h"
+#include "common/system.h"
 
-#include "interspective/sound.h"
 #include "interspective/debug.h"
 #include "interspective/innocent.h"
 #include "interspective/logic.h"
 #include "interspective/main_dat.h"
 #include "interspective/musicparser.h"
+#include "interspective/sound.h"
 #include "interspective/util.h"
 
 namespace Interspective {
@@ -86,7 +86,7 @@ static void appendSilence(Common::Array<byte> &out, uint32 samples) {
 }
 
 static bool parseVocSfxBlocks(const byte *data, uint32 size, Common::Array<byte> &pcm,
-		int &rate, bool &loop) {
+							  int &rate, bool &loop) {
 	uint32 pos = 0;
 	uint32 repeatStart = 0;
 	uint16 repeatCount = 0;
@@ -170,20 +170,19 @@ static bool parseVocSfxBlocks(const byte *data, uint32 size, Common::Array<byte>
 	return !pcm.empty();
 }
 
-Sound::Sound(Engine *engine) :
-	_engine(engine),
-	_state66fe(0),
-	_state6700(0),
-	_state6702(0),
-	_state6704(0),
-	_state6706(0),
-	_state6708(0),
-	_state670a(0),
-	_state670c(0),
-	_maxSfxId(0),
-	_maxSfxBankId(0),
-	_sfxMetadataLoaded(false),
-	_active(true) {
+Sound::Sound(Engine *engine) : _engine(engine),
+							   _state66fe(0),
+							   _state6700(0),
+							   _state6702(0),
+							   _state6704(0),
+							   _state6706(0),
+							   _state6708(0),
+							   _state670a(0),
+							   _state670c(0),
+							   _maxSfxId(0),
+							   _maxSfxBankId(0),
+							   _sfxMetadataLoaded(false),
+							   _active(true) {
 }
 
 Sound::~Sound() {
@@ -202,8 +201,8 @@ bool Sound::isSfxPlaying() const {
 	if (!g_system || !g_system->getMixer())
 		return Music.isSfxNotePlaying();
 	return g_system->getMixer()->isSoundHandleActive(_primaryHandle) ||
-	       g_system->getMixer()->isSoundHandleActive(_secondaryHandle) ||
-	       Music.isSfxNotePlaying();
+		   g_system->getMixer()->isSoundHandleActive(_secondaryHandle) ||
+		   Music.isSfxNotePlaying();
 }
 
 void Sound::synchronize(Common::Serializer &s) {
@@ -269,7 +268,7 @@ void Sound::loadSfxMetadata() const {
 	_sfxSamples.resize(entries);
 	if (dosSampleCount != entries)
 		warning("Sound::loadSfxMetadata: iuc_sdfx entries=%u, main.dat sample count=%u",
-			(uint)entries, (uint)dosSampleCount);
+				(uint)entries, (uint)dosSampleCount);
 
 	if (!main)
 		return;
@@ -292,9 +291,9 @@ void Sound::loadSfxMetadata() const {
 			const uint32 sampleIndex = sampleId - 1;
 			const uint32 end = (sampleId < bank.high) ? offsets[sampleIndex + 1] : bank.size;
 			if (sampleIndex < _sfxSamples.size() &&
-					offsets[sampleIndex] < bank.size &&
-					offsets[sampleIndex] < end &&
-					end <= bank.size) {
+				offsets[sampleIndex] < bank.size &&
+				offsets[sampleIndex] < end &&
+				end <= bank.size) {
 				_sfxSamples[sampleIndex].bank = bank.bank;
 				_sfxSamples[sampleIndex].offset = offsets[sampleIndex];
 				_sfxSamples[sampleIndex].end = end;
@@ -302,9 +301,9 @@ void Sound::loadSfxMetadata() const {
 			}
 		}
 		debugC(2, kDebugLevelSound,
-			"Sound::loadSfxMetadata: bank %u mode=%u range=(%u..%u] file=%s size=%u",
-			(uint)bank.bank, (uint)bank.mode, (uint)bank.low, (uint)bank.high,
-			bank.filename.c_str(), (uint)bank.size);
+			   "Sound::loadSfxMetadata: bank %u mode=%u range=(%u..%u] file=%s size=%u",
+			   (uint)bank.bank, (uint)bank.mode, (uint)bank.low, (uint)bank.high,
+			   bank.filename.c_str(), (uint)bank.size);
 	}
 }
 
@@ -451,7 +450,7 @@ bool Sound::playSfxSample(uint16 id, Audio::SoundHandle &handle) {
 	memcpy(buf, &pcm[0], pcm.size());
 
 	Audio::SeekableAudioStream *raw = Audio::makeRawStream(buf, pcm.size(),
-		rate, Audio::FLAG_UNSIGNED, DisposeAfterUse::YES);
+														   rate, Audio::FLAG_UNSIGNED, DisposeAfterUse::YES);
 	if (!raw) {
 		free(buf);
 		return false;
@@ -459,9 +458,9 @@ bool Sound::playSfxSample(uint16 id, Audio::SoundHandle &handle) {
 
 	Audio::AudioStream *stream = loop ? Audio::makeLoopingAudioStream(raw, 0) : raw;
 	g_system->getMixer()->playStream(Audio::Mixer::kSFXSoundType, &handle,
-		stream, -1, Audio::Mixer::kMaxChannelVolume, 0, DisposeAfterUse::YES);
+									 stream, -1, Audio::Mixer::kMaxChannelVolume, 0, DisposeAfterUse::YES);
 	debugC(1, kDebugLevelSound, "Sound::playSfxSample(%u) — %u bytes @ %d Hz%s",
-		id, pcm.size(), rate, loop ? " loop" : "");
+		   id, pcm.size(), rate, loop ? " loop" : "");
 	return true;
 }
 
@@ -484,8 +483,8 @@ bool Sound::playSfxSample(uint16 id, Audio::SoundHandle &handle) {
 //     [0x6700] = 0;                      ; clear secondary
 //   }
 //
-	// C++ port: track all the script-visible state. DOS only loads the
-	// bank here; the later DispatchSfxRangeCheck path starts playback.
+// C++ port: track all the script-visible state. DOS only loads the
+// bank here; the later DispatchSfxRangeCheck path starts playback.
 void Sound::playSfx(uint16 id) {
 	if (!isEnabled())
 		return;
@@ -506,12 +505,12 @@ void Sound::playSfx(uint16 id) {
 	_state670c = uint16(alignedSize);
 	_state6702 = low;
 	_state6704 = high;
-	_state66fe = id;    // cache new last-played id
-	_state6700 = 0;     // clear secondary
+	_state66fe = id; // cache new last-played id
+	_state6700 = 0;  // clear secondary
 
 	debugC(1, kDebugLevelSound,
-		"Sound::playSfx(%u) — loaded range [%u..%u] size=%u",
-		id, _state6702, _state6704, size);
+		   "Sound::playSfx(%u) — loaded range [%u..%u] size=%u",
+		   id, _state6702, _state6704, size);
 }
 
 // DOS Op_f1_handler @ 1000:5725:
@@ -529,7 +528,7 @@ void Sound::playSfx(uint16 id) {
 void Sound::playSfxPair(uint16 primaryId, uint16 secondaryId) {
 	if (!isEnabled())
 		return;
-	playSfx(primaryId);  // Op_f0 inline — handles primary
+	playSfx(primaryId); // Op_f0 inline — handles primary
 	playSecondarySfx(secondaryId);
 }
 
@@ -538,7 +537,7 @@ void Sound::playSecondarySfx(uint16 secondaryId) {
 		return;
 	if (secondaryId == _state6700) {
 		debugC(2, kDebugLevelSound,
-			"Sound::playSfxPair secondary %u — short-circuit", secondaryId);
+			   "Sound::playSfxPair secondary %u — short-circuit", secondaryId);
 		return;
 	}
 	uint16 low = 0;
@@ -557,8 +556,8 @@ void Sound::playSecondarySfx(uint16 secondaryId) {
 	_state6700 = secondaryId;
 
 	debugC(1, kDebugLevelSound,
-		"Sound::playSecondarySfx(%u) — loaded range [%u..%u] size=%u",
-		secondaryId, _state6706, _state6708, size);
+		   "Sound::playSecondarySfx(%u) — loaded range [%u..%u] size=%u",
+		   secondaryId, _state6706, _state6708, size);
 }
 
 // DOS Op_f2_handler @ 1000:575a:
@@ -567,13 +566,13 @@ void Sound::playSecondarySfx(uint16 secondaryId) {
 //   DispatchSfxRangeCheck();
 // DispatchSfxRangeCheck @ 1000:606d:
 //   if (g_sfx_active && g_sfx_enabled) {
-	//     if (arg == 0) tail-call driver command 8 (= stop);
+//     if (arg == 0) tail-call driver command 8 (= stop);
 //     else if (sfx-mode special path) {
 //       if ([0x66fe] == 0) RET;
 //       if (arg out of range [0x6702..0x6704] AND
 //           arg out of range [0x6706..0x6708] OR [0x6700]==0): RET;
-	//       if (g_sfx_active != 0) driver command 8 (stop);
-	//       driver command 0xe (play at queued offset).
+//       if (g_sfx_active != 0) driver command 8 (stop);
+//       driver command 0xe (play at queued offset).
 //     }
 //   }
 //
@@ -599,11 +598,11 @@ void Sound::rangeCheck(uint16 id) {
 	// short-circuit per DOS.
 	const bool inPrimaryRange = (id > _state6702 && id <= _state6704);
 	const bool inSecondaryRange = (_state6700 != 0 &&
-	                               id > _state6706 && id <= _state6708);
+								   id > _state6706 && id <= _state6708);
 	if (!inPrimaryRange && !inSecondaryRange) {
 		debugC(2, kDebugLevelSound,
-			"Sound::rangeCheck(%u) — out of range [%u..%u] / [%u..%u]; no replay",
-			id, _state6702, _state6704, _state6706, _state6708);
+			   "Sound::rangeCheck(%u) — out of range [%u..%u] / [%u..%u]; no replay",
+			   id, _state6702, _state6704, _state6706, _state6708);
 		return;
 	}
 	// Replay: DOS stops current playback only when [0x67b7] is nonzero,
@@ -622,8 +621,8 @@ void Sound::playQueuedLikeDos() {
 	// through DispatchSfxRangeCheck. Our resource backend loads samples on
 	// demand, so the room-change cache refresh is a no-op.
 	debugC(1, kDebugLevelSound,
-		"Sound::playQueuedLikeDos() — cache retained primary=%u secondary=%u",
-		_state66fe, _state6700);
+		   "Sound::playQueuedLikeDos() — cache retained primary=%u secondary=%u",
+		   _state66fe, _state6700);
 }
 
 void Sound::stopAll() {
@@ -634,4 +633,4 @@ void Sound::stopAll() {
 	Music.stopSfxNotes();
 }
 
-} // namespace Interspective
+} // End of namespace Interspective

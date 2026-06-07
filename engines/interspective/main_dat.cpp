@@ -35,7 +35,6 @@
 #include "interspective/util.h"
 
 using namespace Common;
-using namespace std;
 
 namespace Interspective {
 
@@ -57,45 +56,45 @@ MainDat::~MainDat() {
 }
 
 enum Offsets {
-	kProgEntriesCount0	= 0x06,
-	kProgEntriesCount1	= 0x08,
-	kProgramsMap		= 0x0A,
+	kProgEntriesCount0 = 0x06,
+	kProgEntriesCount1 = 0x08,
+	kProgramsMap = 0x0A,
 	// kPersonsCount = 0x0C → DOS CS:[0x6b]. Used by Op_7f as the bound
 	// for object id; effectively also the global object-state table size.
-	kPersonsCount       = 0x0C,
+	kPersonsCount = 0x0C,
 	// kGlobalObjectStateList = 0x0E → DOS CS:[0x6d]. Pointer (within the
 	// data segment) to an array of 18-byte object-state records. Each
 	// record's first uint16 is the object's current room id (0 = missing,
 	// 0xffff = unplaced). Op_18/Op_1b/Op_21/Op_7f read or write this field.
 	kGlobalObjectStateList = 0x0E,
-	kActorsCount		= 0x10,
-	kActors 			= 0x12,
-	kPuppeteersCount    = 0x14,
-	kPuppeteers         = 0x16,
-	kSpriteCount		= 0x18,
-	kSpriteMap			= 0x1A,
-	kImagesCount		= 0x1C,
-	kImageDirectory		= 0x1E,
-	kGraphicFileCount	= 0x20,
-	kGraphicFileNames	= 0x22,
-	kSfxSampleCount     = 0x24,
-	kSfxFileNames       = 0x26,
-	kSfxFileCount       = 0x28,
-	kTunesCount			= 0x2A,
-	kTunesDirectory		= 0x2C,
-	kMusicFileCount		= 0x2E,
-	kMusicFileNames		= 0x30,
-	kMaxGameScore		= 0x32,
-	kScoreEventCount	= 0x34,
-	kScoreEventTable	= 0x36,
-	kWordVars			= 0x3A,
-	kByteVars			= 0x3E,
-	kRoomLoopEntryPoint	= 0x40,
-	kEntryPoint			= 0x42,
-	kCharacterMap		= 0x48,
-	kCursors			= 0x54,
-	kMenuCursors		= 0x58,
-	kInterfaceImgIdx	= 0xB4,
+	kActorsCount = 0x10,
+	kActors = 0x12,
+	kPuppeteersCount = 0x14,
+	kPuppeteers = 0x16,
+	kSpriteCount = 0x18,
+	kSpriteMap = 0x1A,
+	kImagesCount = 0x1C,
+	kImageDirectory = 0x1E,
+	kGraphicFileCount = 0x20,
+	kGraphicFileNames = 0x22,
+	kSfxSampleCount = 0x24,
+	kSfxFileNames = 0x26,
+	kSfxFileCount = 0x28,
+	kTunesCount = 0x2A,
+	kTunesDirectory = 0x2C,
+	kMusicFileCount = 0x2E,
+	kMusicFileNames = 0x30,
+	kMaxGameScore = 0x32,
+	kScoreEventCount = 0x34,
+	kScoreEventTable = 0x36,
+	kWordVars = 0x3A,
+	kByteVars = 0x3E,
+	kRoomLoopEntryPoint = 0x40,
+	kEntryPoint = 0x42,
+	kCharacterMap = 0x48,
+	kCursors = 0x54,
+	kMenuCursors = 0x58,
+	kInterfaceImgIdx = 0xB4,
 
 	// DrawDialogChoices @ 1000:b2e8 uses these four main-footer sprites
 	// as mini-map exit markers, selected by Op_e4's second argument.
@@ -204,11 +203,11 @@ void MainDat::loadObjectStates() {
 	// Op_18/Op_1b/Op_21 read.
 	const uint16 count = personsCount();
 	const uint16 listOff = READ_LE_UINT16(_footer + kGlobalObjectStateList);
-	const uint16 stride = 0x12;  // 18 bytes per DOS GetObjectOffset
+	const uint16 stride = 0x12; // 18 bytes per DOS GetObjectOffset
 
 	if (listOff == 0 || count == 0) {
 		debugC(1, kDebugLevelFiles, "loadObjectStates: empty table (count=%u off=0x%04x) — skipping",
-			count, listOff);
+			   count, listOff);
 		return;
 	}
 
@@ -216,7 +215,7 @@ void MainDat::loadObjectStates() {
 	const uint32 endOff = uint32(listOff) + uint32(count) * stride;
 	if (endOff > _dataLen) {
 		warning("loadObjectStates: table overflow (off=0x%04x count=%u stride=%u, dataLen=%u) — skipping",
-			listOff, count, stride, _dataLen);
+				listOff, count, stride, _dataLen);
 		return;
 	}
 
@@ -230,16 +229,16 @@ void MainDat::loadObjectStates() {
 		// — store anyway so isObjectMissing() returns true correctly.
 		Log.setObjectRoom(id, room);
 		Log.setObjectPosition(id,
-			int16(READ_LE_UINT16(rec + 2)),
-			int16(READ_LE_UINT16(rec + 4)));
+							  int16(READ_LE_UINT16(rec + 2)),
+							  int16(READ_LE_UINT16(rec + 4)));
 		for (uint8 off = 6; off < stride; ++off)
 			Log.setObjectField(id, off, rec[off]);
 		if (room != 0)
 			++nonZero;
 	}
 	warning("MainDat::loadObjectStates: seeded %u objects (%u with non-zero room) "
-		"from footer offset 0x%04x [DOS CS:[0x6d]]",
-		count, nonZero, listOff);
+			"from footer offset 0x%04x [DOS CS:[0x6d]]",
+			count, nonZero, listOff);
 }
 
 void MainDat::loadActors(Interpreter *in) {
@@ -249,8 +248,8 @@ void MainDat::loadActors(Interpreter *in) {
 	_actors = new Actor *[nactors];
 	for (int i = 0; i < nactors; ++i) {
 		_actors[i] = new Actor(CodePointer(actors, in));
-		_actors[i]->setId(uint16(i + 1));  // DOS uses 1-based ids
-		_actors[i]->setPuppeteer(getPuppeteer(i+1));
+		_actors[i]->setId(uint16(i + 1)); // DOS uses 1-based ids
+		_actors[i]->setPuppeteer(getPuppeteer(i + 1));
 		actors += Actor::Size;
 	}
 }
@@ -263,7 +262,7 @@ Puppeteer MainDat::getPuppeteer(uint16 i) const {
 }
 
 void MainDat::parsePuppeteers() const {
-	assert (_puppeteers.empty());
+	assert(_puppeteers.empty());
 	uint16 count = READ_LE_UINT16(_footer + kPuppeteersCount);
 
 	byte *data = _data + READ_LE_UINT16(_footer + kPuppeteers);
@@ -300,7 +299,7 @@ byte *MainDat::imageDirectoryEntryLikeDos(uint16 index) const {
 	const int32 entryOffset = directoryOffset + entryDelta;
 	if (entryOffset < 0 || entryOffset + 3 >= int32(_dataLen)) {
 		warning("MainDat::imageDirectoryEntryLikeDos: id %u resolves outside iuc_main.dat (entryOff=%d)",
-			index, entryOffset);
+				index, entryOffset);
 		return 0;
 	}
 	return _data + entryOffset;
@@ -360,7 +359,7 @@ Common::List<Common::String> MainDat::musicFiles() const {
 	byte *data = _data + names_offset;
 	Common::List<Common::String> files;
 	for (; file_count > 0; file_count--) {
-		data += 2; // data set id
+		data += 2;           // data set id
 		byte type = *data++; // music type (1 - adlib, 4 - roland)
 		debugC(2, kDebugLevelFiles | kDebugLevelMusic, "found music file %s type %d", data, type);
 		files.push_back(Common::String(reinterpret_cast<char *>(data)));
@@ -403,8 +402,8 @@ Common::List<MainDat::SfxFile> MainDat::sfxFiles() const {
 			break;
 		++data;
 		file.high = (i + 1 == fileCount || data + 1 >= end)
-			? sfxSampleCount()
-			: READ_LE_UINT16(data);
+						? sfxSampleCount()
+						: READ_LE_UINT16(data);
 		files.push_back(file);
 	}
 
@@ -479,7 +478,7 @@ SpriteInfo MainDat::getSpriteInfo(uint16 index) const {
 }
 
 uint16 MainDat::getCursorSpriteId() const {
-//	uint16 offset = READ_LE_UINT16(_footer + kCursors);
+	//	uint16 offset = READ_LE_UINT16(_footer + kCursors);
 	uint16 sprite = 0x6c;
 	debugC(1, kDebugLevelGraphics | kDebugLevelFiles, "loading cursor STUB, sprite %d", sprite);
 	return sprite;
@@ -545,8 +544,8 @@ bool MainDat::cycleCursorOverlayAnimation(uint16 maskBit, uint16 &spriteId, uint
 	const uint16 recordOffset = READ_LE_UINT16(_footer + footerOffset);
 	if (recordOffset == 0 || uint32(recordOffset) + 8 > _dataLen) {
 		debugC(2, kDebugLevelGraphics | kDebugLevelFiles,
-			"cursor-overlay anim 0x%02x invalid record offset 0x%04x",
-			maskBit, recordOffset);
+			   "cursor-overlay anim 0x%02x invalid record offset 0x%04x",
+			   maskBit, recordOffset);
 		return false;
 	}
 
@@ -558,8 +557,8 @@ bool MainDat::cycleCursorOverlayAnimation(uint16 maskBit, uint16 &spriteId, uint
 	const uint32 spriteOffset = uint32(recordOffset) + 8 + uint32(frameIndex) * 2;
 	if (frameCount == 0 || spriteOffset + 2 > _dataLen) {
 		debugC(2, kDebugLevelGraphics | kDebugLevelFiles,
-			"cursor-overlay anim 0x%02x invalid frame count/index %u/%u at 0x%04x",
-			maskBit, frameIndex, frameCount, recordOffset);
+			   "cursor-overlay anim 0x%02x invalid frame count/index %u/%u at 0x%04x",
+			   maskBit, frameIndex, frameCount, recordOffset);
 		return false;
 	}
 
@@ -603,18 +602,21 @@ uint16 MainDat::getEyeCloseUpSpriteId(bool rightHalf) const {
 
 uint16 MainDat::getFrameId(FramePart part) const {
 	switch (part) {
-	#define PART(p) case p: return READ_LE_UINT16(_footer + p##Offset)
-	PART(kFrameBottom);
-	PART(kFrameBottomLeft);
-	PART(kFrameBottomRight);
-	PART(kFrameFill);
-	PART(kFrameLeft);
-	PART(kFrameRight);
-	PART(kFrameTop);
-	PART(kFrameTopLeft);
-	PART(kFrameTopRight);
-	#undef PART
-	default: assert(false);
+#define PART(p) \
+	case p:     \
+		return READ_LE_UINT16(_footer + p##Offset)
+		PART(kFrameBottom);
+		PART(kFrameBottomLeft);
+		PART(kFrameBottomRight);
+		PART(kFrameFill);
+		PART(kFrameLeft);
+		PART(kFrameRight);
+		PART(kFrameTop);
+		PART(kFrameTopLeft);
+		PART(kFrameTopRight);
+#undef PART
+	default:
+		assert(false);
 	}
 
 	return 0;
@@ -622,25 +624,28 @@ uint16 MainDat::getFrameId(FramePart part) const {
 
 uint16 MainDat::getBubbleId(SpeechBubblePart part) const {
 	switch (part) {
-	#define PART(p) case p: return READ_LE_UINT16(_footer + p##Offset)
-	PART(kBubbleTopLeft);
-	PART(kBubbleLeft);
-	PART(kBubbleBottomLeft);
-	PART(kBubbleTop);
-	PART(kBubbleFill);
-	PART(kBubbleBottom);
-	PART(kBubbleTopRight);
-	PART(kBubbleRight);
-	PART(kBubbleBottomRight);
+#define PART(p) \
+	case p:     \
+		return READ_LE_UINT16(_footer + p##Offset)
+		PART(kBubbleTopLeft);
+		PART(kBubbleLeft);
+		PART(kBubbleBottomLeft);
+		PART(kBubbleTop);
+		PART(kBubbleFill);
+		PART(kBubbleBottom);
+		PART(kBubbleTopRight);
+		PART(kBubbleRight);
+		PART(kBubbleBottomRight);
 
-	PART(kBubbleBottomLeftPoint);
-	PART(kBubbleBottomRightPoint);
-	PART(kBubbleTopLeftPoint);
-	PART(kBubbleTopRightPoint);
-	PART(kBubbleVerbConnector);
-	PART(kBubbleVerbStem);
-	#undef PART
-	default: assert(false);
+		PART(kBubbleBottomLeftPoint);
+		PART(kBubbleBottomRightPoint);
+		PART(kBubbleTopLeftPoint);
+		PART(kBubbleTopRightPoint);
+		PART(kBubbleVerbConnector);
+		PART(kBubbleVerbStem);
+#undef PART
+	default:
+		assert(false);
 	}
 
 	return 0;

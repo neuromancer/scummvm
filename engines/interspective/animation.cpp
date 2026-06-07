@@ -28,10 +28,10 @@
 #include "interspective/debug.h"
 #include "interspective/graphics.h"
 #include "interspective/innocent.h"
-#include "interspective/sound.h"
 #include "interspective/inter.h"
 #include "interspective/logic.h"
 #include "interspective/resources.h"
+#include "interspective/sound.h"
 #include "interspective/util.h"
 
 namespace Interspective {
@@ -67,38 +67,38 @@ public:
 	const Interspective::Sprite *sprite() const {
 		return _sprite.get();
 	}
+
 private:
 	Common::SharedPtr<Interspective::Sprite> _sprite;
 	Common::Point _position;
 	bool _isRelative;
 };
 
-template <int opcode>
-Animation::Status Animation::opcodeHandler(){
+template<int opcode>
+Animation::Status Animation::opcodeHandler() {
 	error("unhandled animation opcode %d [=0x%02x]", opcode, opcode);
 }
 
 template<int N>
 void Animation::init_opcodes() {
 	_handlers[N] = &Interspective::Animation::opcodeHandler<N>;
-	init_opcodes<N-1>();
+	init_opcodes<N - 1>();
 }
 
 template<>
 void Animation::init_opcodes<-1>() {}
 
-Animation::Animation(const CodePointer &code, Common::Point position) :
-	_position(position),
-	_offset(0),
-	_interval(1),
-	_ticksLeft(0),
-	_explicitFrameDelay(false),
-	_zIndex(-1),
-	_mainSpriteId(0xffff),
-	_counter(0),
-	_castTableRunner(false),
-	_debugInvalid(false),
-	_opRingIdx(0) {
+Animation::Animation(const CodePointer &code, Common::Point position) : _position(position),
+																		_offset(0),
+																		_interval(1),
+																		_ticksLeft(0),
+																		_explicitFrameDelay(false),
+																		_zIndex(-1),
+																		_mainSpriteId(0xffff),
+																		_counter(0),
+																		_castTableRunner(false),
+																		_debugInvalid(false),
+																		_opRingIdx(0) {
 	_base = code.code();
 	_baseOffset = code.offset();
 	_resources = code.interpreter()->resources();
@@ -148,8 +148,8 @@ Animation::Status Animation::tick() {
 				if (rel < 0)
 					continue;
 				written += snprintf(ctx + written, sizeof(ctx) - written,
-					"%s%02x", i == 0 ? "[" : (i == 1 ? "]" : " "),
-					*(_base + rel));
+									"%s%02x", i == 0 ? "[" : (i == 1 ? "]" : " "),
+									*(_base + rel));
 			}
 
 			// Dump the ring of last 16 dispatched opcodes — what was
@@ -161,19 +161,19 @@ Animation::Status Animation::tick() {
 				if (_opRing[idx].pc == 0xffff)
 					continue;
 				rwritten += snprintf(ring + rwritten, sizeof(ring) - rwritten,
-					"%s@%04x:%02x",
-					rwritten ? " " : "",
-					(uint)_opRing[idx].pc,
-					(uint)_opRing[idx].op);
+									 "%s@%04x:%02x",
+									 rwritten ? " " : "",
+									 (uint)_opRing[idx].pc,
+									 (uint)_opRing[idx].op);
 			}
 
 			error("invalid animation opcode 0x%02x while handling %s "
-				"(absolute file offset 0x%04x = base 0x%04x + pc 0x%04x;\n"
-				"  context: %s\n"
-				"  last 16 dispatched: %s)",
-				*(_base + _offset), _debugInfo,
-				(uint)(_baseOffset + _offset),
-				(uint)_baseOffset, (uint)_offset, ctx, ring);
+				  "(absolute file offset 0x%04x = base 0x%04x + pc 0x%04x;\n"
+				  "  context: %s\n"
+				  "  last 16 dispatched: %s)",
+				  *(_base + _offset), _debugInfo,
+				  (uint)(_baseOffset + _offset),
+				  (uint)_baseOffset, (uint)_offset, ctx, ring);
 		}
 
 		// Push to forensic ring before advancing — captures the byte that
@@ -219,8 +219,8 @@ bool Animation::castWaitCompleteLikeDos() const {
 }
 
 void Animation::handleTrigger() {
-	unless (_frameTrigger.isEmpty()) {
-//		Graf.updateScreen();
+	unless(_frameTrigger.isEmpty()) {
+		//		Graf.updateScreen();
 		Log.runLater(_frameTrigger);
 	}
 	_frameTrigger.reset();
@@ -229,7 +229,6 @@ void Animation::handleTrigger() {
 void Animation::runOnNextFrame(const CodePointer &cp) {
 	_frameTrigger = cp;
 }
-
 
 void Animation::setMainSprite(uint16 sprite) {
 	_mainSpriteId = sprite;
@@ -315,7 +314,7 @@ void Animation::setAnimationDosFieldWord(uint8 off, uint16 v) {
 
 static bool animationZoneContainsPoint(uint16 left, uint16 top, uint16 right, uint16 bottom, const Common::Point &p) {
 	return p.x >= int16(left) && p.x <= int16(right) &&
-		p.y >= int16(top) && p.y <= int16(bottom);
+		   p.y >= int16(top) && p.y <= int16(bottom);
 }
 
 void Animation::setPositionFromFrameLikeDos(uint8 frame) {
@@ -415,7 +414,8 @@ Animation::Status Animation::op(byte opcode) {
 	return (this->*_handlers[opcode])();
 }
 
-#define OPCODE(n) template<> Animation::Status Animation::opcodeHandler<n>()
+#define OPCODE(n) template<> \
+Animation::Status Animation::opcodeHandler<n>()
 
 OPCODE(0x00) {
 	// DOS ActorOp_01_ScriptEnd @ 1000:68d3 clears record words +0/+2
@@ -472,7 +472,7 @@ OPCODE(0x03) {
 
 OPCODE(0x04) {
 	uint16 offset = shift();
-	uint8 interval = uint8(READ_LE_UINT16(_resources->getGlobalWordVariable(offset/2)));
+	uint8 interval = uint8(READ_LE_UINT16(_resources->getGlobalWordVariable(offset / 2)));
 
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x04: set interval to %d (from var %d)", interval, offset / 2);
 
@@ -512,11 +512,11 @@ OPCODE(0x06) {
 
 OPCODE(0x07) {
 	uint16 var = shift();
-	uint16 sprite = READ_LE_UINT16(_resources->getGlobalWordVariable(var/2));
+	uint16 sprite = READ_LE_UINT16(_resources->getGlobalWordVariable(var / 2));
 
 	setMainSprite(sprite);
 
-	debugC(3, kDebugLevelAnimation, "anim opcode 0x07: set main sprite to %d (from global word 0x%04x), frame done", sprite, var/2);
+	debugC(3, kDebugLevelAnimation, "anim opcode 0x07: set main sprite to %d (from global word 0x%04x), frame done", sprite, var / 2);
 
 	return kFrameDone;
 }
@@ -556,7 +556,7 @@ OPCODE(0x0d) {
 	setAnimationDosFieldWord(0x0e, _offset);
 
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x0d: SetTimerAndSkip = %u, resume 0x%04x [DOS Op_0e]",
-		v, _offset);
+		   v, _offset);
 
 	return kOk;
 }
@@ -570,11 +570,11 @@ OPCODE(0x0e) {
 			const uint16 resume = animationDosFieldWord(0x0e);
 			_offset = resume;
 			debugC(3, kDebugLevelAnimation,
-				"anim opcode 0x0e: DecrementTimer %u → %u, loop 0x%04x [DOS Op_0f]",
-				cur, next, resume);
+				   "anim opcode 0x0e: DecrementTimer %u → %u, loop 0x%04x [DOS Op_0f]",
+				   cur, next, resume);
 		} else {
 			debugC(3, kDebugLevelAnimation,
-				"anim opcode 0x0e: DecrementTimer %u → 0, fall through [DOS Op_0f]", cur);
+				   "anim opcode 0x0e: DecrementTimer %u → 0, fall through [DOS Op_0f]", cur);
 		}
 	} else {
 		debugC(3, kDebugLevelAnimation, "anim opcode 0x0e: DecrementTimer already zero [DOS Op_0f]");
@@ -681,7 +681,8 @@ OPCODE(0x1b) {
 	if (!ok)
 		Log.setPendingError(0x0c);
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x1b: QueueMoveSlotMode0 "
-		"(a=%u,b=%u,c=%u) %s", arg1, arg2, arg3, ok ? "ok" : "overflow -> pending 0x0c");
+									"(a=%u,b=%u,c=%u) %s",
+		   arg1, arg2, arg3, ok ? "ok" : "overflow -> pending 0x0c");
 
 	return kOk;
 }
@@ -726,7 +727,7 @@ OPCODE(0x09) {
 	setAnimationDosFieldWord(0x04, x);
 	setAnimationDosFieldWord(0x06, y);
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x09: WalkAbsolute → _position = (%d, %d)",
-		int16(x), int16(y));
+		   int16(x), int16(y));
 	return kFrameDone;
 }
 
@@ -751,7 +752,8 @@ OPCODE(0x0b) {
 	setMainSprite(spriteId);
 	copyIntervalToTicksLikeDos();
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x0b: FaceAndWalkWithFrame → setMainSprite(%u) "
-		"[base Animation models LookupActorAndStartPath not-found branch]", spriteId);
+									"[base Animation models LookupActorAndStartPath not-found branch]",
+		   spriteId);
 	return kFrameDone;
 }
 
@@ -768,7 +770,7 @@ OPCODE(0x0c) {
 	setPositionFromFrameLikeDos(animationDosField(0x62));
 	copyIntervalToTicksLikeDos();
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x0c: FaceAndWalk "
-		"[base Animation models LookupActorAndStartPath not-found branch]");
+									"[base Animation models LookupActorAndStartPath not-found branch]");
 	return kFrameDone;
 }
 
@@ -785,7 +787,7 @@ OPCODE(0x14) {
 	// DOS behavior when no slot is found.
 	(void)shift();
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x14: WaitForSpeechSlot "
-		"[non-actor has no speech → fall through, matching DOS no-slot path]");
+									"[non-actor has no speech → fall through, matching DOS no-slot path]");
 	return kOk;
 }
 
@@ -796,8 +798,8 @@ OPCODE(0x15) {
 	if (Log.cursorMode() != 0x80) {
 		setAnimationDosField(0x68, 0);
 		debugC(3, kDebugLevelAnimation,
-			"anim opcode 0x15: PickAnimationSet cursor_mode=%u != 0x80 -> field+0x68 = 0",
-			Log.cursorMode());
+			   "anim opcode 0x15: PickAnimationSet cursor_mode=%u != 0x80 -> field+0x68 = 0",
+			   Log.cursorMode());
 		return kOk;
 	}
 
@@ -849,8 +851,8 @@ OPCODE(0x15) {
 	if (current == 0x63 || target == 0x63 || target == current) {
 		setAnimationDosField(0x68, target);
 		debugC(3, kDebugLevelAnimation,
-			"anim opcode 0x15: PickAnimationSet snap target=%u current=%u",
-			target, current);
+			   "anim opcode 0x15: PickAnimationSet snap target=%u current=%u",
+			   target, current);
 		return kOk;
 	}
 
@@ -876,8 +878,8 @@ OPCODE(0x15) {
 
 	setAnimationDosField(0x68, next);
 	debugC(3, kDebugLevelAnimation,
-		"anim opcode 0x15: PickAnimationSet rect=(%d..%d,%d..%d) cursor=(%d,%d) target=%u current=%u -> %u (delta=%d)",
-		leftX, rightX, topY, botY, cursorX, cursorY, target, current, next, int(delta));
+		   "anim opcode 0x15: PickAnimationSet rect=(%d..%d,%d..%d) cursor=(%d,%d) target=%u current=%u -> %u (delta=%d)",
+		   leftX, rightX, topY, botY, cursorX, cursorY, target, current, next, int(delta));
 	return kOk;
 }
 
@@ -892,10 +894,10 @@ OPCODE(0x16) {
 	if (current == val) {
 		_offset = jumpTarget;
 		debugC(3, kDebugLevelAnimation, "anim opcode 0x16: BranchIfAnimSetEquals current=%u val=%u -> jump 0x%04x",
-			current, val, jumpTarget);
+			   current, val, jumpTarget);
 	} else {
 		debugC(3, kDebugLevelAnimation,
-			"anim opcode 0x16: BranchIfAnimSetEquals current=%u val=%u -> no jump", current, val);
+			   "anim opcode 0x16: BranchIfAnimSetEquals current=%u val=%u -> no jump", current, val);
 	}
 	return kOk;
 }
@@ -926,10 +928,10 @@ OPCODE(0x17) {
 		_offset = 0;
 		setAnimationDosFieldWord(0x02, jumpTarget);
 		debugC(3, kDebugLevelAnimation, "anim opcode 0x17: BranchIfMoodEquals mood=%u val=%u -> rebase to 0x%04x",
-			mood, val, jumpTarget);
+			   mood, val, jumpTarget);
 	} else {
 		debugC(3, kDebugLevelAnimation,
-			"anim opcode 0x17: BranchIfMoodEquals mood=%u val=%u -> no jump", mood, val);
+			   "anim opcode 0x17: BranchIfMoodEquals mood=%u val=%u -> no jump", mood, val);
 	}
 	return kOk;
 }
@@ -955,7 +957,8 @@ OPCODE(0x1c) {
 	if (!ok)
 		Log.setPendingError(0x0c);
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x1c: QueueMoveSlotMode1 "
-		"(a=%u,b=%u,c=%u) %s", arg1, arg2, arg3, ok ? "ok" : "overflow -> pending 0x0c");
+									"(a=%u,b=%u,c=%u) %s",
+		   arg1, arg2, arg3, ok ? "ok" : "overflow -> pending 0x0c");
 	return kOk;
 }
 
@@ -963,7 +966,7 @@ OPCODE(0x1d) {
 	// DOS Op_1e ClearFlag14 @ 1000:6bcd: ES:[SI+0x14] = 0.
 	setAnimationDosField(0x14, 0);
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x1d: ClearFlag14 "
-		"[field+0x14 = 0]");
+									"[field+0x14 = 0]");
 	return kOk;
 }
 
@@ -971,7 +974,7 @@ OPCODE(0x1e) {
 	// DOS Op_1f ClearFlag15 @ 1000:6bd5: ES:[SI+0x15] = 0.
 	setAnimationDosField(0x15, 0);
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x1e: ClearFlag15 "
-		"[field+0x15 = 0]");
+									"[field+0x15 = 0]");
 	return kOk;
 }
 
@@ -979,7 +982,7 @@ OPCODE(0x1f) {
 	// DOS Op_20 SetFlag15 @ 1000:6bdd: ES:[SI+0x15] = 1.
 	setAnimationDosField(0x15, 1);
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x1f: SetFlag15 "
-		"[field+0x15 = 1]");
+									"[field+0x15 = 1]");
 	return kOk;
 }
 
@@ -991,9 +994,14 @@ OPCODE(0x20) {
 	const uint16 callbackPC = _baseOffset + _offset;
 	setAnimationDosFieldWord(0x5f, callbackPC);
 	setAnimationDosFieldWord(0x5d, animationCodeSegmentTag(_base));
-	(void)shift(); (void)shift(); (void)shift(); (void)shift(); (void)shift();
+	(void)shift();
+	(void)shift();
+	(void)shift();
+	(void)shift();
+	(void)shift();
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x20: SetCallbackPointer "
-		"cbSeg=0x%04x cbOff=0x%04x", animationDosFieldWord(0x5d), callbackPC);
+									"cbSeg=0x%04x cbOff=0x%04x",
+		   animationDosFieldWord(0x5d), callbackPC);
 	return kOk;
 }
 
@@ -1009,7 +1017,8 @@ OPCODE(0x21) {
 	setAnimationDosFieldWord(0x5f, cbOff);
 	setAnimationDosFieldWord(0x5d, animationCodeSegmentTag(_base));
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x21: SetCallbackRelative "
-		"off=%d cbSeg=0x%04x cbOff=0x%04x", off, animationDosFieldWord(0x5d), cbOff);
+									"off=%d cbSeg=0x%04x cbOff=0x%04x",
+		   off, animationDosFieldWord(0x5d), cbOff);
 	return kOk;
 }
 
@@ -1017,7 +1026,7 @@ OPCODE(0x22) {
 	// DOS Op_23 ClearCallback @ 1000:6c0a: ES:[SI+0x5d] = 0xffff.
 	setAnimationDosFieldWord(0x5d, 0xffff);
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x22: ClearCallback "
-		"[field+0x5d = 0xffff]");
+									"[field+0x5d = 0xffff]");
 	return kOk;
 }
 
@@ -1026,7 +1035,8 @@ OPCODE(0x23) {
 	const byte mood = uint8(embeddedByte());
 	setAnimationDosField(0x63, mood);
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x23: SetMood "
-		"[field+0x63 = %u]", mood);
+									"[field+0x63 = %u]",
+		   mood);
 	return kOk;
 }
 
@@ -1035,7 +1045,8 @@ OPCODE(0x24) {
 	const byte v = uint8(embeddedByte());
 	setAnimationDosField(0x65, v);
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x24: SetField65 "
-		"[field+0x65 = %u]", v);
+									"[field+0x65 = %u]",
+		   v);
 	return kOk;
 }
 
@@ -1052,4 +1063,4 @@ OPCODE(0x25) {
 	return kOk;
 }
 
-}
+} // End of namespace Interspective

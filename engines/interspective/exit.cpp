@@ -45,7 +45,7 @@ enum Offsets {
 };
 
 Exit::Exit(const CodePointer &c, uint16 id)
-  :	_sprite(), _spriteField(0xffff), _id(id), _enabled(false), _noSprite(false) {
+	: _sprite(), _spriteField(0xffff), _id(id), _enabled(false), _noSprite(false) {
 	debugC(4, kDebugLevelFiles, "loading exit from %s", +c);
 
 	c.field(_noSprite, kOffsetNoSprite);
@@ -75,7 +75,7 @@ Exit::Exit(const CodePointer &c, uint16 id)
 	c.field(offset, kOffsetClickHandler);
 	_clickHandler = CodePointer(offset, c.interpreter());
 
-	snprintf(_debugInfo, 100, "exit %u %s%s r%d z%d %s", _id, _noSprite ? "n" : "s" , +_rect, _room, _zIndex, +c);
+	snprintf(_debugInfo, 100, "exit %u %s%s r%d z%d %s", _id, _noSprite ? "n" : "s", +_rect, _room, _zIndex, +c);
 }
 
 void Exit::setSpriteField(uint16 sprite) {
@@ -125,4 +125,4 @@ bool Exit::clicked() {
 	return true;
 }
 
-} // end of namespace
+} // End of namespace Interspective

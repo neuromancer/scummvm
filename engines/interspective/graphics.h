@@ -49,9 +49,9 @@ class Sprite;
 class Graphics : public Common::Singleton<Graphics> {
 public:
 	Graphics() : _cursorPosition(160, 100), _hostCursorShown(false),
-	             _roomCloseUpActive(false), _roomCloseUpPoint(0, 0),
-	             _inventoryCloseUpObjectId(0),
-	             _conversationPaletteRestorePending(false) {}
+				 _roomCloseUpActive(false), _roomCloseUpPoint(0, 0),
+				 _inventoryCloseUpObjectId(0),
+				 _conversationPaletteRestorePending(false) {}
 
 	void setEngine(Engine *engine);
 
@@ -98,16 +98,16 @@ public:
 	// x/y in DOS units (Op_45..0x48 resolve arg0 into CX/x, arg1 into DX/y).
 	// color = 0xeb is the canonical DOS narrator color; 0xae is shadow.
 	enum SpeechBubbleMode {
-		kSpeechBubbleAuto = 0,   // actor-targeted slot: dispatch by screen quadrant
-		kSpeechBubbleType1 = 1,  // DOS RenderSpeechBubble / RenderSpeechBubbleTopLeft
-		kSpeechBubbleType2 = 2,  // DOS RenderSpeechBubbleBottomRight / RenderSpeechBubbleTopRight
-		kSpeechBubbleVerbTopLeft = 3,     // DOS ComputeBubbleRect_TopLeft + raw row layout
-		kSpeechBubbleVerbBottomLeft = 4   // DOS ComputeBubbleRect_BottomLeft + raw row layout
+		kSpeechBubbleAuto = 0,          // actor-targeted slot: dispatch by screen quadrant
+		kSpeechBubbleType1 = 1,         // DOS RenderSpeechBubble / RenderSpeechBubbleTopLeft
+		kSpeechBubbleType2 = 2,         // DOS RenderSpeechBubbleBottomRight / RenderSpeechBubbleTopRight
+		kSpeechBubbleVerbTopLeft = 3,   // DOS ComputeBubbleRect_TopLeft + raw row layout
+		kSpeechBubbleVerbBottomLeft = 4 // DOS ComputeBubbleRect_BottomLeft + raw row layout
 	};
 	void sayAt(const byte *text, uint16 length, uint16 frames,
-	           uint16 x, uint16 y, byte color, uint16 maxLines = 0,
-	           SpeechBubbleMode bubbleMode = kSpeechBubbleType1,
-	           bool forceBubble = false);
+			   uint16 x, uint16 y, byte color, uint16 maxLines = 0,
+			   SpeechBubbleMode bubbleMode = kSpeechBubbleType1,
+			   bool forceBubble = false);
 	bool isSaying() const { return _speech != 0 || !_speechQueue.empty(); }
 	void clearSpeech();
 	void runWhenSaid(const CodePointer &p);
@@ -139,8 +139,8 @@ public:
 
 	void paintSpeechBubbleColumn(Sprite *top, Sprite *fill, Common::Point &point, uint8 fill_tiles, Surface *dest);
 	Common::Rect paintSpeechInBubble(Common::Point pos, byte colour, const byte *string, Surface *dest,
-	                                 SpeechBubbleMode mode = kSpeechBubbleAuto, bool renderText = true,
-	                                 uint16 forcedRows = 0);
+									 SpeechBubbleMode mode = kSpeechBubbleAuto, bool renderText = true,
+									 uint16 forcedRows = 0);
 
 	void paintRect(const Common::Rect &r, byte colour = 235);
 
@@ -271,8 +271,8 @@ private:
 	// set), then pops the next entry from _speechQueue. The queue is FIFO.
 	byte *_speech;
 	uint16 _speechFramesLeft;
-	uint16 _speechX, _speechY;  // current narrator-bubble position
-	byte _speechColor;          // current narrator-bubble color
+	uint16 _speechX, _speechY; // current narrator-bubble position
+	byte _speechColor;         // current narrator-bubble color
 	uint16 _speechMaxLines;
 	bool _speechBubble;
 	SpeechBubbleMode _speechBubbleMode;
@@ -281,15 +281,15 @@ private:
 	bool _speechDoneCallbackHasMode;
 	struct SpeechEntry {
 		SpeechEntry() : text(0), length(0), x(0), y(0), frames(0), color(235), maxLines(0),
-		                bubble(false), bubbleMode(kSpeechBubbleType1),
-		                cbMode(0), cbHasMode(false) {}
-		byte *text;          // owned: caller transferred via say()
+						bubble(false), bubbleMode(kSpeechBubbleType1),
+						cbMode(0), cbHasMode(false) {}
+		byte *text; // owned: caller transferred via say()
 		uint16 length;
-		uint16 x, y;          // top-left coords (Op_47/0x48 narrator pos)
+		uint16 x, y; // top-left coords (Op_47/0x48 narrator pos)
 		uint16 frames;
-		byte color;           // text color (Op_47/0x48 color arg)
+		byte color; // text color (Op_47/0x48 color arg)
 		uint16 maxLines;
-		bool bubble;          // explicit speech-slot bubble vs raw subtitle text
+		bool bubble; // explicit speech-slot bubble vs raw subtitle text
 		SpeechBubbleMode bubbleMode;
 		CodePointer cb;
 		uint16 cbMode;

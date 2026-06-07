@@ -32,8 +32,8 @@
 #include "common/queue.h"
 #include "common/singleton.h"
 
-#include "audio/midiparser.h"
 #include "audio/mididrv.h"
+#include "audio/midiparser.h"
 
 #include "interspective/value.h"
 
@@ -133,6 +133,7 @@ public:
 	void tick();
 
 	friend class Note;
+
 private:
 	Common::Array<Beat> _beats;
 
@@ -152,6 +153,7 @@ public:
 	const byte *base() const { return _code; }
 
 	friend class Note;
+
 private:
 	const byte *_code;
 	uint16 _offset;
@@ -163,9 +165,9 @@ public:
 	~MusicParser();
 
 	bool loadMusic(const byte *data, uint32 size = 0) override;
-	static void timerCallback(void *data) { ((MusicParser *) data)->tick(); }
+	static void timerCallback(void *data) { ((MusicParser *)data)->tick(); }
 	void tick();
-	virtual uint32 getTick() { return _tick; }
+	uint32 getTick() override { return _tick; }
 	void setBeat(uint16 beat) { _tune->setBeat(beat); }
 	void silence();
 	void stopMusic();
@@ -183,8 +185,8 @@ public:
 	bool isActive() const { return _active; }
 	void setActive(bool active) { _active = active; }
 	void restoreSavedState(const byte *script, uint16 currentTuneWord, uint8 active,
-	                       uint8 driverCommandByte, uint8 driverModeFlag,
-	                       uint16 beat, uint32 beatTicks);
+						   uint8 driverCommandByte, uint8 driverModeFlag,
+						   uint16 beat, uint32 beatTicks);
 	bool playSfxTune(const byte *data, uint32 size);
 	void stopSfxNotes();
 	bool isSfxNotePlaying() const { return _sfxTunePlaying; }
@@ -208,7 +210,7 @@ private:
 		bool notInitialized;
 	};
 
-	void parseNextEvent(EventInfo &info) {  }
+	void parseNextEvent(EventInfo &info) override {}
 	bool setSfxBeat(uint16 beat);
 	void tickSfxTune();
 	void tickSfxNote(SfxNote &note, uint8 channel);
@@ -253,6 +255,6 @@ private:
 
 #define Music MusicParser::instance()
 
-}
+} // End of namespace Interspective
 
-#endif
+#endif // INTERSPECTIVE_MUSIC_H

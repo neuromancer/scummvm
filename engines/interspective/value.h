@@ -26,8 +26,8 @@
 #ifndef INTERSPECTIVE_VARIABLES_H
 #define INTERSPECTIVE_VARIABLES_H
 
-#include "common/endian.h"
 #include "common/array.h"
+#include "common/endian.h"
 
 #include "interspective/debug.h"
 
@@ -58,18 +58,32 @@ public:
 	virtual ValueType type() const { return kValueVoid; }
 
 	virtual operator uint16() const { return false; }
-	virtual int16 signd() const { const uint16 v = *this; return *reinterpret_cast<const int16 *>(&v); }
+	virtual int16 signd() const {
+		const uint16 v = *this;
+		return *reinterpret_cast<const int16 *>(&v);
+	}
 	virtual Value &operator=(uint16 value) { return *this; }
 	virtual Value &operator=(const Value &) { return *this; }
 	virtual bool operator==(const Value &other) { return uint16(*this) == other; }
 	virtual bool operator<(const Value &other) { return uint16(*this) < other; }
 	virtual bool operator>(const Value &other) { return other < *this; }
 	virtual Value &operator++() { return *this = uint16(*this) + 1; }
-	virtual uint16 operator++(int) { uint16 old = *this; ++*this; return old; }
+	virtual uint16 operator++(int) {
+		uint16 old = *this;
+		++*this;
+		return old;
+	}
 	virtual Value &operator--() { return *this = uint16(*this) - 1; }
-	virtual uint16 operator--(int) { uint16 old = *this; --*this; return old; }
+	virtual uint16 operator--(int) {
+		uint16 old = *this;
+		--*this;
+		return old;
+	}
 	template<typename T>
-	T operator-(T she) { T me = *this; return me - she; }
+	T operator-(T she) {
+		T me = *this;
+		return me - she;
+	}
 
 	virtual bool holdsCode() const { return false; }
 
@@ -95,6 +109,7 @@ public:
 
 	virtual operator uint16() const { return _value; }
 	virtual ValueType type() const { return kValueConstant; }
+
 private:
 	uint16 _value;
 };
@@ -102,8 +117,12 @@ private:
 class ByteVariable : public Value {
 public:
 	ByteVariable(byte *ptr) : _ptr(ptr) {}
-	virtual Value &operator=(uint16 value) { *_ptr = uint8(value); return *this; }
+	virtual Value &operator=(uint16 value) {
+		*_ptr = uint8(value);
+		return *this;
+	}
 	virtual operator uint16() const { return *_ptr; }
+
 private:
 	byte *_ptr;
 };
@@ -114,6 +133,7 @@ public:
 	virtual operator uint16() const { return READ_LE_UINT16(_ptr); }
 	virtual Value &operator=(uint16 value);
 	virtual Value &operator=(const Value &other) { return *this = uint16(other); }
+
 private:
 	byte *_ptr;
 };
@@ -126,6 +146,7 @@ public:
 	}
 	void push_back(Value *element) { _values.push_back(element); }
 	Value &operator[](uint8 idx) { return *_values[idx]; }
+
 private:
 	Common::Array<Value *> _values;
 };
@@ -142,7 +163,12 @@ public:
 	CodePointer(const CodePointer &c) : Value(), _offset(c._offset), _interpreter(c._interpreter) { init(); }
 	CodePointer(uint16 offset, Interpreter *interpreter);
 
-	CodePointer &operator=(const CodePointer &cp) { _offset = cp._offset; _interpreter = cp._interpreter; init(); return *this; }
+	CodePointer &operator=(const CodePointer &cp) {
+		_offset = cp._offset;
+		_interpreter = cp._interpreter;
+		init();
+		return *this;
+	}
 
 	virtual const char *operator+() const { return _inspect; }
 	virtual void run() const;
@@ -158,7 +184,8 @@ public:
 	virtual byte *rawPointer() { return _interpreter ? code() : nullptr; }
 	virtual byte *rawBase() { return _interpreter ? base() : nullptr; }
 
-	template<typename T> T &field(T &, int) const;
+	template<typename T>
+	T &field(T &, int) const;
 
 private:
 	void init();
@@ -169,41 +196,44 @@ private:
 
 template<typename Enum, int N>
 struct EnumName {
-static const char *name() {
-	assert(false);
-	return 0;
-}
+	static const char *name() {
+		assert(false);
+		return 0;
+	}
 
-static const char *findName(Enum a){
-	if (N == a)
-		return name();
-	else
-		return EnumName<Enum, N-1>::findName(a);
-}
+	static const char *findName(Enum a) {
+		if (N == a)
+			return name();
+		else
+			return EnumName<Enum, N - 1>::findName(a);
+	}
 };
 
 template<typename Enum>
 struct EnumName<Enum, -1> {
-static const char *findName(Enum a) {
-	assert(false);
-	return 0;
-}
+	static const char *findName(Enum a) {
+		assert(false);
+		return 0;
+	}
 };
-
 
 template<typename Enum>
 class EnumPack : public Inspectable {
 public:
 	EnumPack() {}
-	EnumPack(Enum a) : _a(a) {  }
-	const char *operator+() const { return EnumName<Enum,40>::findName(Enum(_a)); }
+	EnumPack(Enum a) : _a(a) {}
+	const char *operator+() const { return EnumName<Enum, 40>::findName(Enum(_a)); }
 	operator Enum() const { return _a; }
+
 private:
 	Enum _a;
 };
 
-#define ENAME(en, v, s) template<> const char *EnumName<en, v>::name() { return s; } enum {}
+#define ENAME(en, v, s)                               \
+	template<>                                        \
+	const char *EnumName<en, v>::name() { return s; } \
+	enum {}
 
-}
+} // End of namespace Interspective
 
-#endif
+#endif // INTERSPECTIVE_VARIABLES_H

@@ -46,6 +46,7 @@ protected:
 
 	Surface _s;
 	byte _pal[0x300];
+
 private:
 	Movie();
 	Movie(Common::ReadStream *);
@@ -60,6 +61,6 @@ private:
 	Common::ReadStream *_f;
 };
 
-}
+} // End of namespace Interspective
 
-#endif
+#endif // INTERSPECTIVE_MOVIE_H

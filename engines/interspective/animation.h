@@ -29,8 +29,8 @@
 #include "common/array.h"
 #include "common/hashmap.h"
 #include "common/list.h"
-#include "common/rect.h"
 #include "common/ptr.h"
+#include "common/rect.h"
 
 #include "interspective/value.h"
 
@@ -108,10 +108,10 @@ protected:
 
 	void handleTrigger();
 
-	template <int opcode>
+	template<int opcode>
 	Status opcodeHandler();
 
-	template <int N>
+	template<int N>
 	void init_opcodes();
 
 	virtual Status op(byte code);
@@ -152,7 +152,10 @@ protected:
 	// opcodes. Dumped by the "invalid opcode" error path so we can trace
 	// which prior handler over/under-consumed and walked the script PC
 	// off the rails.
-	struct OpRingEntry { uint16 pc; byte op; };
+	struct OpRingEntry {
+		uint16 pc;
+		byte op;
+	};
 	OpRingEntry _opRing[16];
 	uint8 _opRingIdx;
 
@@ -161,6 +164,6 @@ private:
 	OpcodeHandler _handlers[38];
 };
 
-}
+} // End of namespace Interspective
 
-#endif
+#endif // INTERSPECTIVE_ANIMATION_H

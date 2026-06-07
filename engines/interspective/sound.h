@@ -26,10 +26,10 @@
 #ifndef INTERSPECTIVE_SOUND_H
 #define INTERSPECTIVE_SOUND_H
 
+#include "audio/mixer.h"
 #include "common/array.h"
 #include "common/scummsys.h"
 #include "common/str.h"
-#include "audio/mixer.h"
 
 namespace Common {
 class Serializer;
@@ -160,14 +160,14 @@ private:
 	Audio::SoundHandle _primaryHandle;
 	Audio::SoundHandle _secondaryHandle;
 	// DOS state record at DS:0x66fe..0x670c:
-	uint16 _state66fe;   // current/last-played sfx id (pbRam0002324e)
-	uint16 _state6700;   // secondary sfx id (pbRam00023250)
-	uint16 _state6702;   // primary slot lo
-	uint16 _state6704;   // primary slot hi
-	uint16 _state6706;   // secondary slot lo
-	uint16 _state6708;   // secondary slot hi
-	uint16 _state670a;   // (unidentified)
-	uint16 _state670c;   // (unidentified)
+	uint16 _state66fe; // current/last-played sfx id (pbRam0002324e)
+	uint16 _state6700; // secondary sfx id (pbRam00023250)
+	uint16 _state6702; // primary slot lo
+	uint16 _state6704; // primary slot hi
+	uint16 _state6706; // secondary slot lo
+	uint16 _state6708; // secondary slot hi
+	uint16 _state670a; // (unidentified)
+	uint16 _state670c; // (unidentified)
 	mutable Common::Array<SfxBankInfo> _sfxBanks;
 	mutable Common::Array<SfxSampleInfo> _sfxSamples;
 	mutable uint16 _maxSfxId;
@@ -176,6 +176,6 @@ private:
 	bool _active;
 };
 
-} // namespace Interspective
+} // End of namespace Interspective
 
-#endif
+#endif // INTERSPECTIVE_SOUND_H

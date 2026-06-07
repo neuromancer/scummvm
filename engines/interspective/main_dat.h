@@ -134,6 +134,7 @@ public:
 	Puppeteer getPuppeteer(uint16 actorId) const;
 
 	friend class Resources;
+
 private:
 	void loadActors(Interpreter *);
 	enum {
@@ -156,4 +157,4 @@ private:
 
 } // End of namespace Interspective
 
-#endif
+#endif // INTERSPECTIVE_MAIN_DAT_H

@@ -38,16 +38,16 @@ static int32 entryOffsetLikeDos(uint16 index) {
 }
 
 void MapFile::readFile(SeekableReadStream &stream) {
-	/*uint32 actually_read = */stream.read(_data, 1200);
+	/*uint32 actually_read = */ stream.read(_data, 1200);
 
-//	_entryCount = actually_read / 4;
+	//	_entryCount = actually_read / 4;
 }
 
 uint32 MapFile::offsetOfEntry(uint16 index) {
 	const int32 offset = entryOffsetLikeDos(index);
 	if (offset < 0 || offset + 3 >= int32(sizeof(_data))) {
 		warning("MapFile::offsetOfEntry: id %u resolves outside %s (entryOff=%d)",
-			index, filename(), offset);
+				index, filename(), offset);
 		return 0;
 	}
 	return READ_LE_UINT32(_data + offset);

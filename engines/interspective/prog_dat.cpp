@@ -28,10 +28,10 @@
 #include "common/file.h"
 #include "common/util.h"
 
-#include "interspective/resources.h"
-#include "interspective/main_dat.h"
 #include "interspective/innocent.h"
+#include "interspective/main_dat.h"
 #include "interspective/program.h"
+#include "interspective/resources.h"
 
 using namespace Common;
 
@@ -63,13 +63,13 @@ void ProgDat::readFile(Common::SeekableReadStream &stream) {
 	uint16 total_entries = _resources->mainDat()->progEntriesCount0();
 	total_entries += _resources->mainDat()->progEntriesCount1();
 
-
 	_data = new byte[total_entries * 4];
-	(void) stream.read(_data, total_entries * 4);
+	(void)stream.read(_data, total_entries * 4);
 }
 
 Program *ProgDat::getScript(uint16 id) {
-	if (!id) return 0;
+	if (!id)
+		return 0;
 
 	uint32 offset = READ_LE_UINT32(_data + (id - 1) * 4);
 	_file.get()->seek(offset);

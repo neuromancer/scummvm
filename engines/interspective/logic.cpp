@@ -27,21 +27,21 @@
 #include "common/serializer.h"
 #include "common/util.h"
 
-#include "interspective/logic.h"
-#include "interspective/innocent.h"
-#include "interspective/inter.h"
+#include "interspective/animation.h"
 #include "interspective/exit.h"
 #include "interspective/graphics.h"
+#include "interspective/innocent.h"
+#include "interspective/inter.h"
+#include "interspective/logic.h"
 #include "interspective/musicparser.h"
 #include "interspective/program.h"
-#include "interspective/animation.h"
 #include "interspective/resources.h"
 #include "interspective/room.h"
 #include "interspective/sound.h"
 #include "interspective/util.h"
 
 namespace Common {
-	DECLARE_SINGLETON(Interspective::Logic);
+DECLARE_SINGLETON(Interspective::Logic);
 }
 
 namespace Interspective {
@@ -57,7 +57,7 @@ static SpriteInfo objectSpriteInfo(Resources *resources, Program *blockProgram, 
 // Default bubble formatter line-height. DOS stores the live value in
 // DAT_1000_885e; Op_fd can rewrite it before FormatBubbleText_Inner
 // computes text height.
-static const uint16 kBubbleLineHeight = 12;  // matches Graphics::kLineHeight
+static const uint16 kBubbleLineHeight = 12; // matches Graphics::kLineHeight
 
 static int16 stepCameraToward(int16 current, int16 target, int16 speed) {
 	const int16 delta = target - current;
@@ -418,8 +418,8 @@ bool Logic::setVerbModeFromHitRegionLikeDos(uint16 hitRegion) {
 	}
 
 	debugC(1, kDebugLevelEvents,
-		"verb hit region=%u -> cursor mode 0x%02x [DOS SetVerbModeFromHotkey]",
-		hitRegion, cursorMode);
+		   "verb hit region=%u -> cursor mode 0x%02x [DOS SetVerbModeFromHotkey]",
+		   hitRegion, cursorMode);
 	_hitTarget = hitRegion;
 	setCursorMode(cursorMode);
 	return true;
@@ -475,7 +475,7 @@ void Logic::cycleCursorModeByRightClickLikeDos() {
 		break;
 	}
 	debugC(2, kDebugLevelEvents, "right-click verb cycle: cursor mode 0x%02x -> 0x%02x",
-		_cursorMode, nextMode);
+		   _cursorMode, nextMode);
 	setCursorMode(nextMode);
 	_rightClickCycleCooldown = 4;
 }
@@ -501,7 +501,6 @@ uint16 Logic::updateAutoCloseTimerSpriteLikeDos() {
 
 	return _resources->mainDat()->getStatusButtonSpriteId(statusModeSprite);
 }
-
 
 void Logic::init() {
 	_toplevelInterpreter = Common::SharedPtr<Interpreter>(new Interpreter(this, _resources->mainBase(), "main code"));
@@ -529,13 +528,13 @@ void Logic::tick() {
 
 void Logic::runRoomLoop() {
 	if (_roomLoop.get()) {
-//		gDebugLevel--; // room loops aren't that interesting
+		//		gDebugLevel--; // room loops aren't that interesting
 		debugC(3, kDebugLevelScript | kDebugLevelFlow, ">>>running room loop code");
 		_roomLoop->run(kCodeRoomLoop);
 		debugC(3, kDebugLevelScript | kDebugLevelFlow, "<<<finished room loop code");
 		if (handleEscDuringScript())
 			return;
-//		gDebugLevel++;
+		//		gDebugLevel++;
 	}
 }
 
@@ -581,7 +580,7 @@ void Logic::callAnimations() {
 		debugC(4, kDebugLevelFlow | kDebugLevelAnimation, "running animations");
 	for (Common::List<Animation *>::iterator it = _animations.begin(); it != _animations.end();) {
 		if ((*it)->isActor()) {
-			Actor * const actor = static_cast<Actor *>(*it);
+			Actor *const actor = static_cast<Actor *>(*it);
 			if (_inStatusMode && actor->room() != _currentRoom) {
 				++it;
 				continue;
@@ -660,7 +659,7 @@ void Logic::registerCurrentRoomActorsLikeDos() {
 	const uint16 mainActors = _resources->mainDat()->actorsCount();
 	for (uint16 i = 0; i < mainActors; ++i) {
 		const uint16 id = i + 1;
-		Actor * const actor = _resources->mainDat()->actor(i);
+		Actor *const actor = _resources->mainDat()->actor(i);
 		if (!actor || actor->room() != _currentRoom || actor->dosFieldWord(Actor::kOffsetOffset) == 0)
 			continue;
 		registerActiveActorLikeDos(id);
@@ -673,7 +672,7 @@ void Logic::registerCurrentRoomActorsLikeDos() {
 	const uint16 blockActors = _blockProgram->actorsCount();
 	for (uint16 i = 0; i < blockActors; ++i) {
 		const uint16 id = uint16(mainActors + i + 1);
-		Actor * const actor = _blockProgram->actor(i);
+		Actor *const actor = _blockProgram->actor(i);
 		if (!actor || actor->room() != _currentRoom || actor->dosFieldWord(Actor::kOffsetOffset) == 0)
 			continue;
 		registerActiveActorLikeDos(id);
@@ -688,7 +687,7 @@ void Logic::refreshCurrentRoomActorFramesLikeDos() {
 	// queue outside the saved scalar fields, so this must run again after
 	// deserializing actors, not only during the initial room restart.
 	for (uint i = 0; i < _activeActorIds.size(); ++i) {
-		Actor * const ac = getActor(_activeActorIds[i]);
+		Actor *const ac = getActor(_activeActorIds[i]);
 		if (ac && ac->room() == _currentRoom && ac->frameId() != 0) {
 			const uint16 frame = ac->frameId();
 			const uint16 target = ac->targetFrameId();
@@ -1110,7 +1109,7 @@ void Logic::restartRoomLikeDos() {
 }
 
 void Logic::doChangeRoom() {
-	assert (_nextRoom);
+	assert(_nextRoom);
 
 	debugC(1, kDebugLevelFlow, "Interspective: changeRoom %u → %u", (uint)_currentRoom, (uint)_nextRoom);
 	const bool forceRestart = _forceRoomRestart;
@@ -1206,12 +1205,11 @@ void Logic::doChangeRoom() {
 		// valid for the popped scene to resume.
 		Program *oldProgram = _blockProgram.get();
 		const bool oldProgramPreserved =
-			(_savedScene && _savedScene->blockProgram == _blockProgram)
-			|| (_roomBackup.valid && _roomBackup.blockProgram == _blockProgram);
+			(_savedScene && _savedScene->blockProgram == _blockProgram) || (_roomBackup.valid && _roomBackup.blockProgram == _blockProgram);
 		if (oldProgram && !oldProgramPreserved) {
 			const byte *lo = oldProgram->codeBegin();
 			const byte *hi = oldProgram->codeEnd();
-			foreach(Animation *, _animations)
+			foreach (Animation *, _animations)
 				(*it)->dropBaseIfIn(lo, hi);
 		}
 
@@ -1223,7 +1221,7 @@ void Logic::doChangeRoom() {
 			} else {
 				setPendingError(0x07);
 				warning("Interspective: saved block %u image size %u does not match loaded block size %u",
-					(uint)newBlock, (uint)_loadBlockOverrideData.size(), (uint)_blockProgram->codeSize());
+						(uint)newBlock, (uint)_loadBlockOverrideData.size(), (uint)_blockProgram->codeSize());
 			}
 			_loadBlockOverrideData.clear();
 			_loadBlockOverrideId = 0xffff;
@@ -1255,7 +1253,7 @@ void Logic::doChangeRoom() {
 		// location is not found in any block; it never interprets offset 0.
 		setPendingError(0x07);
 		warning("Interspective: room %u has no handler in block %u",
-			(uint)_currentRoom, (uint)_currentBlock);
+				(uint)_currentRoom, (uint)_currentBlock);
 		return;
 	}
 	debugC(2, kDebugLevelScript, ">>>running room entry code for room %d", _currentRoom);
@@ -1306,8 +1304,8 @@ void Logic::queueDirtyObjectPlacementLikeDos(uint16 objId, int16 x, int16 y) {
 		slot.targetX = x;
 		slot.targetYMinusHeight = targetYMinusHeight;
 		debugC(2, kDebugLevelScript,
-			"queued dirty object placement slot %u: obj=%u current=%d,%d target=%d,%d",
-			i, objId, slot.currentX, slot.currentYMinusHeight, slot.targetX, slot.targetYMinusHeight);
+			   "queued dirty object placement slot %u: obj=%u current=%d,%d target=%d,%d",
+			   i, objId, slot.currentX, slot.currentYMinusHeight, slot.targetX, slot.targetYMinusHeight);
 		return;
 	}
 
@@ -1315,7 +1313,7 @@ void Logic::queueDirtyObjectPlacementLikeDos(uint16 objId, int16 x, int16 y) {
 	setObjectRoom(objId, uint16(_currentRoom));
 	setObjectPosition(objId, x, y);
 	debugC(1, kDebugLevelScript,
-		"dirty object placement table full; object %u placed directly", objId);
+		   "dirty object placement table full; object %u placed directly", objId);
 	setLogicDirty();
 }
 
@@ -1329,8 +1327,8 @@ void Logic::flushDirtyObjectPlacementsLikeDos(uint16 room) {
 		setObjectRoom(objId, room);
 		setObjectPosition(objId, slot.targetX, y);
 		debugC(2, kDebugLevelScript,
-			"flushed dirty object placement slot %u: obj=%u room=%u x=%d y=%d",
-			i, objId, room, slot.targetX, y);
+			   "flushed dirty object placement slot %u: obj=%u room=%u x=%d y=%d",
+			   i, objId, room, slot.targetX, y);
 		slot = DirtyObjectPlacement();
 		setLogicDirty();
 	}
@@ -1371,7 +1369,7 @@ void Logic::paintDirtyObjectPlacementsLikeDos(Graphics *graphics, int16 layer) {
 		}
 
 		if ((targetX < 0 || slot.currentX == targetX) &&
-				slot.currentYMinusHeight == slot.targetYMinusHeight) {
+			slot.currentYMinusHeight == slot.targetYMinusHeight) {
 			const uint16 objId = slot.objId;
 			const int16 y = int16(slot.targetYMinusHeight + int16(objectField(objId, 0x11)));
 			setObjectRoom(objId, uint16(_currentRoom));
@@ -1401,7 +1399,7 @@ void Logic::refreshObjectSpriteAndExitInfoLikeDos(uint16 objId) {
 	for (uint i = 0; i < _collisionZones.size(); ++i) {
 		const CollisionZone &z = _collisionZones[i];
 		if (int16(z.a) <= cx && cx <= int16(z.c) &&
-				int16(z.b) <= dy && dy <= int16(z.d)) {
+			int16(z.b) <= dy && dy <= int16(z.d)) {
 			low = uint8(z.slot);
 			break;
 		}
@@ -1411,7 +1409,7 @@ void Logic::refreshObjectSpriteAndExitInfoLikeDos(uint16 objId) {
 	for (uint i = 0; i < _zonesB.size(); ++i) {
 		const ZoneB &z = _zonesB[i];
 		if (int16(z.a) <= cx && cx <= int16(z.c) &&
-				int16(z.b) <= dy && dy <= int16(z.d)) {
+			int16(z.b) <= dy && dy <= int16(z.d)) {
 			high = uint8(z.var);
 			break;
 		}
@@ -1469,7 +1467,7 @@ void Logic::syncCodePointerLikeDos(Common::Serializer &s, CodePointer &p) const 
 			source = kSavedCodeBlock;
 		} else {
 			warning("Interspective: dropping save callback for stale interpreter %p at 0x%04x",
-				(void *)p.interpreter(), (uint)offset);
+					(void *)p.interpreter(), (uint)offset);
 			source = kSavedCodeNone;
 			offset = 0;
 		}
@@ -1526,7 +1524,7 @@ void Logic::syncQueuedRunsLikeDos(Common::Serializer &s) {
 			if (waitKind > DelayedRun::kWaitCastEntryInactive)
 				waitKind = DelayedRun::kWaitNone;
 			DelayedRun run(code, delay, queuedTick, runMode, hasRunMode != 0,
-				deferredMode, static_cast<DelayedRun::WaitKind>(waitKind), waitParam);
+						   deferredMode, static_cast<DelayedRun::WaitKind>(waitKind), waitParam);
 			run.canceled = canceled != 0;
 			_queued.push_back(run);
 		}
@@ -1572,9 +1570,7 @@ bool Logic::queueDeferred(const CodePointer &p) {
 			debugC(3, kDebugLevelScript, "will call deferred %s in mode 0x%02x", +p, mode);
 			// DOS RunDeferredScripts runs after init/new-room/new-block scripts
 			// but before the first object/speech paint of the tick.
-			const bool preDeferredPhase = _opcodeMode == kCodeInitial
-			                           || _opcodeMode == kCodeNewRoom
-			                           || _opcodeMode == kCodeNewBlock;
+			const bool preDeferredPhase = _opcodeMode == kCodeInitial || _opcodeMode == kCodeNewRoom || _opcodeMode == kCodeNewBlock;
 			const uint16 queuedTick = preDeferredPhase ? uint16(frameTicks() - 1) : frameTicks();
 			_queued.push_back(DelayedRun(p, 0, queuedTick, mode, true, mode));
 			return true;
@@ -1651,8 +1647,8 @@ bool Logic::disableObjectFlag1(uint16 id) {
 uint16 Logic::disableObjectFlag1ReturnAx(uint16 id) {
 	const uint16 exitCount = _blockProgram ? _blockProgram->exitsCount() : 0;
 	const uint16 axAfterCellRead = (int16(id) > int16(exitCount))
-		? id
-		: uint16(((id - 1) & 0xff00) | cellByte(id));
+									   ? id
+									   : uint16(((id - 1) & 0xff00) | cellByte(id));
 	disableObjectFlag1(id);
 	return axAfterCellRead;
 }
@@ -1761,8 +1757,8 @@ void Logic::captureRoomStateForStatusSaveLikeDos(RoomBackup &dst) const {
 	dst.scrollChanged = _scrollChanged;
 	dst.cursorMode = _cursorMode;
 	dst.fullscreen = _engine && _engine->graphics()
-		? _engine->graphics()->screenHeight() == 200
-		: !_roomActive;
+						 ? _engine->graphics()->screenHeight() == 200
+						 : !_roomActive;
 	dst.roomActive = _roomActive;
 	dst.noStep = _noStep;
 	dst.zones = _zones;
@@ -1851,8 +1847,8 @@ bool Logic::beginStatusSaveSnapshotLikeDos() {
 	_logicDirty = true;
 	_statusSaveOverrideActive = true;
 	debugC(2, kDebugLevelFlow,
-		"saving status screen through backed-up gameplay room %u",
-		(uint)_currentRoom);
+		   "saving status screen through backed-up gameplay room %u",
+		   (uint)_currentRoom);
 	return true;
 }
 
@@ -1879,9 +1875,9 @@ void Logic::enterStatusScreenLoopLikeDos() {
 	// here — that would diverge from the original.
 	if (_fullscreenGateActive || (graphics && graphics->palettePendingLikeDos())) {
 		debugC(2, kDebugLevelEvents,
-			"status screen entry ignored [DOS RunStatusScreenLoop gate: fullscreen=%d palette=%d]",
-			_fullscreenGateActive ? 1 : 0,
-			(graphics && graphics->palettePendingLikeDos()) ? 1 : 0);
+			   "status screen entry ignored [DOS RunStatusScreenLoop gate: fullscreen=%d palette=%d]",
+			   _fullscreenGateActive ? 1 : 0,
+			   (graphics && graphics->palettePendingLikeDos()) ? 1 : 0);
 		return;
 	}
 
@@ -2009,8 +2005,8 @@ void Logic::runPostMoveCallbackIfReady() {
 		return;
 
 	debugC(2, kDebugLevelScript,
-		"post-move callback firing: kind=%d cellId=%u arg0=%u arg1=%u",
-		int(cb.kind), cb.cellId, cb.arg0, cb.arg1);
+		   "post-move callback firing: kind=%d cellId=%u arg0=%u arg1=%u",
+		   int(cb.kind), cb.cellId, cb.arg0, cb.arg1);
 
 	switch (cb.kind) {
 	case PostMoveCallback::kDisableMoveOptionalEnable:
@@ -2484,7 +2480,7 @@ bool Logic::castTableRegister(uint16 id, int16 x, int16 y, Interpreter *interpre
 		if (e.active == 0) {
 			if (e.animation)
 				removeAnimation(e.animation);
-			e.active = 1;            // DOS stores caller seg; we use 1 (non-zero = active).
+			e.active = 1; // DOS stores caller seg; we use 1 (non-zero = active).
 			e.id = id;
 			e.x = x;
 			e.y = y;
@@ -2493,11 +2489,12 @@ bool Logic::castTableRegister(uint16 id, int16 x, int16 y, Interpreter *interpre
 			// Re-init the bookkeeping per DOS Op_c3. Ghidra's CastEntry
 			// layout is exact: raw[0]=bRect_w, raw[1]=bRect_h, and
 			// raw[2 + N]=p_data[N].
-			for (uint j = 0; j < 81; ++j) e.raw[j] = 0;
-			e.raw[0] = 0xff;          // bRect_w
-			e.raw[1] = 0xff;          // bRect_h
-			e.raw[8] = 1;             // p_data[6] — frame counter
-			e.raw[10] = 0xff;         // p_data[8] — sprite index
+			for (uint j = 0; j < 81; ++j)
+				e.raw[j] = 0;
+			e.raw[0] = 0xff;  // bRect_w
+			e.raw[1] = 0xff;  // bRect_h
+			e.raw[8] = 1;     // p_data[6] — frame counter
+			e.raw[10] = 0xff; // p_data[8] — sprite index
 			// p_data[0/1/2/3/7/10/12] remain zero from the clear above.
 			if (interpreter) {
 				e.animation = new Animation(CodePointer(id, interpreter), Common::Point(x, y));
@@ -2541,7 +2538,7 @@ bool Logic::castTableRegister(uint16 id, int16 x, int16 y, Interpreter *interpre
 // on the buggy wX values (or just don't observe them), divergent
 // behaviour would be bug-compatible only by reproducing.
 void Logic::castTableSetPos(uint16 id, int16 x, int16 y) {
-	(void)x;  // DOS bug: arg1 is clobbered before the write.
+	(void)x; // DOS bug: arg1 is clobbered before the write.
 	for (uint i = 0; i < _castTable.size(); ++i) {
 		CastEntry &e = _castTable[i];
 		if (e.id == id) {
@@ -2623,9 +2620,9 @@ bool Logic::castEntryActiveLikeDos(uint16 id) const {
 
 void Logic::runLaterWhenCastEntryInactive(uint16 id, const CodePointer &p) {
 	debugC(3, kDebugLevelScript, "will call %s when cast entry %u is inactive in mode 0x%02x",
-			+p, id, _opcodeMode);
+		   +p, id, _opcodeMode);
 	_queued.push_back(DelayedRun(p, 0, frameTicks(), _opcodeMode, true, 0,
-			DelayedRun::kWaitCastEntryInactive, id));
+								 DelayedRun::kWaitCastEntryInactive, id));
 }
 
 // DOS ResetCastTable @ 1000:671d clears only wActive + w_unk_02 for
@@ -2680,14 +2677,14 @@ void Logic::castTableClearAll() {
 // analog of DOS LookupCharSprite).
 Logic::FormattedBubble Logic::formatBubbleText(const byte *src) const {
 	FormattedBubble out;
-	out.lineCount = 1;          // DOS DAT_1000_94b5 init = 1
-	out.rowCount = 1;           // DOS DX init = 1
+	out.lineCount = 1; // DOS DAT_1000_94b5 init = 1
+	out.rowCount = 1;  // DOS DX init = 1
 	out.totalHeight = 0;
 	out.maxLineWidth = 0;
 	out.truncated = false;
 	const uint16 lineHeight = bubbleLineHeight();
 	if (!src) {
-		out.totalHeight = lineHeight * 2 + 2;  // DOS minimum
+		out.totalHeight = lineHeight * 2 + 2; // DOS minimum
 		return out;
 	}
 
@@ -2696,7 +2693,7 @@ Logic::FormattedBubble Logic::formatBubbleText(const byte *src) const {
 	int currentWidth = 0;
 	uint rowWidthPatch = 0;
 	bool rowFinished = false;
-	uint16 remaining = 0x1f4;   // DOS AX countdown in FormatBubbleText_Inner
+	uint16 remaining = 0x1f4; // DOS AX countdown in FormatBubbleText_Inner
 
 	auto startTextRow = [&]() {
 		out.text += char(kStringCenter);
@@ -2717,7 +2714,8 @@ Logic::FormattedBubble Logic::formatBubbleText(const byte *src) const {
 	// fixed 6 px width if Graphics isn't available (early-init path) —
 	// in normal gameplay g is always set.
 	auto charPixelWidth = [g](byte ch) -> uint16 {
-		if (g) return g->getGlyphWidth(ch);
+		if (g)
+			return g->getGlyphWidth(ch);
 		return 6;
 	};
 
@@ -2913,7 +2911,8 @@ Logic::FormattedBubble Logic::measureVerbBubbleText(const byte *src) const {
 	};
 
 	auto charPixelWidth = [g](byte ch) -> uint16 {
-		if (g) return g->getGlyphWidth(ch);
+		if (g)
+			return g->getGlyphWidth(ch);
 		return 6;
 	};
 
@@ -3060,9 +3059,7 @@ Common::String Logic::prepareTextStrippedForRender(const byte *src, bool *trunca
 bool Logic::cancelDeferred(const CodePointer &p) {
 	Common::List<DelayedRun>::iterator it = _queued.begin();
 	while (it != _queued.end()) {
-		if (!it->canceled && it->deferredMode != 0
-				&& it->code.offset() == p.offset()
-				&& it->code.interpreter() == p.interpreter()) {
+		if (!it->canceled && it->deferredMode != 0 && it->code.offset() == p.offset() && it->code.interpreter() == p.interpreter()) {
 			debugC(3, kDebugLevelScript, "cancel deferred %s mode 0x%02x", +p, it->deferredMode);
 			const bool selfCancel = _runningQueuedMode != 0 && it->deferredMode == _runningQueuedMode;
 			resetQueuedRunMode(it->deferredMode);
@@ -3075,10 +3072,11 @@ bool Logic::cancelDeferred(const CodePointer &p) {
 }
 
 void Logic::runQueued() {
-	if (_queued.empty()) return;
+	if (_queued.empty())
+		return;
 
-	Interpreter * const liveTopLevel = _toplevelInterpreter.get();
-	Interpreter * const liveBlock = _blockInterpreter.get();
+	Interpreter *const liveTopLevel = _toplevelInterpreter.get();
+	Interpreter *const liveBlock = _blockInterpreter.get();
 
 	Common::Queue<Common::List<DelayedRun>::iterator> toRemove;
 	const uint16 entriesAtStart = uint16(_queued.size());
@@ -3094,14 +3092,14 @@ void Logic::runQueued() {
 			debugC(3, kDebugLevelScript, "deferred fresh %s until next tick", +current->code);
 		} else if (current->delay) {
 			debugC(3, kDebugLevelScript, "delayed %s, delay now %d", +current->code,
-					current->delay);
+				   current->delay);
 			current->delay--;
 		} else if (current->waitKind == DelayedRun::kWaitCastEntryInactive &&
-				castEntryActiveLikeDos(current->waitParam)) {
+				   castEntryActiveLikeDos(current->waitParam)) {
 			debugC(3, kDebugLevelScript, "queued %s waits for cast entry %u",
-					+current->code, current->waitParam);
+				   +current->code, current->waitParam);
 		} else if (current->deferredMode != 0 &&
-				dispatchReadyActorRoomScriptWaitMode(current->deferredMode)) {
+				   dispatchReadyActorRoomScriptWaitMode(current->deferredMode)) {
 			// DOS RunDeferredScripts always calls RunScriptByMode before it
 			// decides whether to interpret the deferred entry. A type-0
 			// room-script slot that becomes ready is consumed in that call,
@@ -3111,20 +3109,20 @@ void Logic::runQueued() {
 				toRemove.push(current);
 			} else if (!hasQueuedRunMode(current->deferredMode)) {
 				debugC(3, kDebugLevelScript,
-						"clearing deferred mode 0x%02x after actor room-script slot completed",
-						current->deferredMode);
+					   "clearing deferred mode 0x%02x after actor room-script slot completed",
+					   current->deferredMode);
 				current->canceled = true;
 				toRemove.push(current);
 			} else {
 				debugC(3, kDebugLevelScript, "keeping deferred %s while mode 0x%02x is armed",
-						+current->code, current->deferredMode);
+					   +current->code, current->deferredMode);
 			}
 		} else if (current->deferredMode != 0 && hasQueuedRunMode(current->deferredMode)) {
 			// DOS RunDeferredScripts first services the per-mode room-script
 			// slot via RunScriptByMode. The deferred entry itself does not
 			// run while that slot is still armed.
 			debugC(3, kDebugLevelScript, "deferred %s waits for mode 0x%02x room-script slot",
-					+current->code, current->deferredMode);
+				   +current->code, current->deferredMode);
 		} else {
 			Interpreter *target = current->code.interpreter();
 			if (target != liveTopLevel && target != liveBlock) {
@@ -3151,18 +3149,18 @@ void Logic::runQueued() {
 				current->canceled = true;
 			if (completedDeferredRoomSlot && !hasQueuedRunMode(current->runMode)) {
 				for (Common::List<DelayedRun>::iterator deferred = _queued.begin();
-						deferred != _queued.end(); ++deferred) {
+					 deferred != _queued.end(); ++deferred) {
 					if (!deferred->canceled && deferred->deferredMode == current->runMode) {
 						debugC(3, kDebugLevelScript,
-								"clearing deferred mode 0x%02x after room-script slot completed",
-								current->runMode);
+							   "clearing deferred mode 0x%02x after room-script slot completed",
+							   current->runMode);
 						deferred->canceled = true;
 					}
 				}
 			}
 			if (current->deferredMode != 0 && hasQueuedRunMode(current->deferredMode)) {
 				debugC(3, kDebugLevelScript, "keeping deferred %s while mode 0x%02x is armed",
-						+current->code, current->deferredMode);
+					   +current->code, current->deferredMode);
 			} else {
 				toRemove.push(current);
 			}
@@ -3255,10 +3253,10 @@ void Logic::runStatusScreenScriptsLikeDos() {
 		return;
 
 	debugC(3, kDebugLevelScript | kDebugLevelFlow,
-		">>>running status refresh code for room %u", (uint)_currentRoom);
+		   ">>>running status refresh code for room %u", (uint)_currentRoom);
 	_blockInterpreter->run(handler, kCodeStatusRefresh);
 	debugC(3, kDebugLevelScript | kDebugLevelFlow,
-		"<<<finished status refresh code for room %u", (uint)_currentRoom);
+		   "<<<finished status refresh code for room %u", (uint)_currentRoom);
 }
 
 void Logic::addAnimation(Animation *anim) {
@@ -3716,7 +3714,7 @@ bool Logic::allocActorSpeechAt(Actor *actor, const Common::String &text, Common:
 	slot->refY = uint16(pos.y);
 	slot->color = actor->dosField(0x70);
 	debugC(1, kDebugLevelActor, "alloc speech slot owner=%u at %d:%d maxLines=%u text=\"%s\"",
-		slot->owner, pos.x, pos.y, maxLines, text.c_str());
+		   slot->owner, pos.x, pos.y, maxLines, text.c_str());
 	if (!initSpeechSlot(*slot, text, maxLines))
 		clearSpeechSlot(*slot);
 	return slot->framesLeft != 0;
@@ -3746,7 +3744,7 @@ void Logic::activateActorSpeechAfterPostMoveLikeDos(Actor *actor) {
 }
 
 bool Logic::allocNarratorSpeech(const byte *text, uint16 length, uint16 x, uint16 y,
-                                byte color, uint16 maxLines, uint8 type) {
+								byte color, uint16 maxLines, uint8 type) {
 	if (!text || length == 0)
 		return false;
 
@@ -3764,7 +3762,7 @@ bool Logic::allocNarratorSpeech(const byte *text, uint16 length, uint16 x, uint1
 	slot->color = color;
 	Common::String copied(reinterpret_cast<const char *>(text), length);
 	debugC(1, kDebugLevelGraphics, "alloc narrator speech slot type=%u ownerRoom=%u at %u:%u color=%u maxLines=%u text=\"%s\"",
-		type, uint16(_currentRoom), x, y, color, maxLines, copied.c_str());
+		   type, uint16(_currentRoom), x, y, color, maxLines, copied.c_str());
 	_uiTextSpeechSlot = uint16(slot - &_speechSlots[0]);
 	if (!initSpeechSlot(*slot, copied, maxLines))
 		clearSpeechSlot(*slot);
@@ -3899,7 +3897,8 @@ void Logic::paintSpeechSlots(Graphics *g) {
 			if (owner == uint16(_currentRoom)) {
 				shouldDraw = true;
 				mode = slot.type == Graphics::kSpeechBubbleType2
-					? Graphics::kSpeechBubbleType2 : Graphics::kSpeechBubbleType1;
+						   ? Graphics::kSpeechBubbleType2
+						   : Graphics::kSpeechBubbleType1;
 			}
 		} else {
 			if (owner == 0xffff)
@@ -3924,9 +3923,9 @@ void Logic::paintSpeechSlots(Graphics *g) {
 			Sprite bubble;
 			bubble._hotPoint = Common::Point(0, 0);
 			Common::Rect rect = g->paintSpeechInBubble(Common::Point(left, top), slot.color,
-				reinterpret_cast<const byte *>(slot.text.c_str()), &bubble, mode, true, slot.maxLines);
+													   reinterpret_cast<const byte *>(slot.text.c_str()), &bubble, mode, true, slot.maxLines);
 			g->paint(&bubble, Common::Point(rect.left, rect.top),
-				Graphics::kPaintSemiTransparent | Graphics::kPaintPositionIsTop);
+					 Graphics::kPaintSemiTransparent | Graphics::kPaintPositionIsTop);
 		}
 
 		if (slot.framesLeft != 0)
@@ -3976,7 +3975,7 @@ void Logic::cancelDeferredScriptsForInterpreter(Interpreter *interpreter) {
 	for (Common::List<DelayedRun>::iterator it = _queued.begin(); it != _queued.end();) {
 		if (!it->canceled && it->deferredMode != 0 && it->code.interpreter() == interpreter) {
 			debugC(3, kDebugLevelScript, "cancel deferred for room restart %s mode 0x%02x",
-					+it->code, it->deferredMode);
+				   +it->code, it->deferredMode);
 			resetQueuedRunMode(it->deferredMode);
 			it = _queued.erase(it);
 		} else {
@@ -4015,7 +4014,8 @@ bool Logic::redirectDeferredMode(uint16 mode, const CodePointer &target) {
 }
 
 void Logic::skipCutscene() {
-	if (_skipPoint.isEmpty()) return;
+	if (_skipPoint.isEmpty())
+		return;
 
 	const CodePointer target = _skipPoint;
 	const uint16 proc = _escBreakProc;
@@ -4038,12 +4038,9 @@ void Logic::skipCutscene() {
 }
 
 Animation *Logic::animation(uint16 offset) const {
-	foreach_const (Animation *, _animations)
-		if ((*it)->baseOffset() == offset)
-			return (*it);
+	foreach_const(Animation *, _animations) if ((*it)->baseOffset() == offset) return (*it);
 
 	return 0;
 }
-
 
 } // End of namespace Interspective

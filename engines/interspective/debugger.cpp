@@ -29,8 +29,8 @@
 #include "common/rect.h"
 
 #include "interspective/actor.h"
-#include "interspective/exit.h"
 #include "interspective/eventmanager.h"
+#include "interspective/exit.h"
 #include "interspective/graphics.h"
 #include "interspective/innocent.h"
 #include "interspective/logic.h"
@@ -39,16 +39,16 @@
 #include "interspective/util.h"
 
 namespace Common {
-	DECLARE_SINGLETON(Interspective::Debugger);
+DECLARE_SINGLETON(Interspective::Debugger);
 }
 
 namespace Interspective {
 //
 
 Debugger::Debugger()
-  :	_stepOpcodes(false),
-	_breakOnClickHandler(false),
-	_vm(0) {
+	: _stepOpcodes(false),
+	  _breakOnClickHandler(false),
+	  _vm(0) {
 	registerCmd("setBackdrop", WRAP_METHOD(Debugger, cmd_setBackdrop));
 	registerCmd("paintText", WRAP_METHOD(Debugger, cmd_paintText));
 	registerCmd("listExits", WRAP_METHOD(Debugger, cmd_listExits));
@@ -129,7 +129,7 @@ CMD(showClickable) {
 
 CMD(listExits) {
 	debugPrintf("Room exits:\n");
-	foreach_const (Exit *, logic()->room()->exits())
+	foreach_const(Exit *, logic()->room()->exits())
 		debugPrintf("  %s\n", +(**it));
 	debugPrintf("\n");
 	return true;

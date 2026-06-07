@@ -30,8 +30,8 @@
 
 #include "interspective/debug.h"
 #include "interspective/graphics.h"
-#include "interspective/logic.h"
 #include "interspective/innocent.h"
+#include "interspective/logic.h"
 #include "interspective/resources.h"
 
 namespace Interspective {
@@ -82,28 +82,28 @@ bool Movie::play() {
 }
 
 bool Movie::findKeyFrame() {
-	(void) _f->readUint32LE(); // size of block, we don't want that
+	(void)_f->readUint32LE(); // size of block, we don't want that
 	_iFrames = _f->readUint16LE();
 	return !_f->eos();
 }
 
 void Movie::loadKeyFrame() {
-	(void) _f->readUint16LE(); // no idea what that is
+	(void)_f->readUint16LE(); // no idea what that is
 
 	uint16 w, h;
 	w = _f->readUint16LE();
 	h = _f->readUint16LE();
-	assert (w == 320 && h == 200);
+	assert(w == 320 && h == 200);
 
 	Resources::decodeImage(_f, reinterpret_cast<byte *>(_s.getPixels()), w * h);
 
-	(void) _f->readByte();
+	(void)_f->readByte();
 	Resources::readPalette(_f, _pal);
 	_iFrames--;
 }
 
 void Movie::loadIFrame() {
-	(void) _f->readUint16LE();
+	(void)_f->readUint16LE();
 
 	byte skipB, skipW;
 	skipB = _f->readByte();
@@ -150,4 +150,4 @@ void Movie::delay() {
 	Engine::instance().delay(40 * _delay);
 }
 
-} // end of namespace Interspective
+} // End of namespace Interspective
