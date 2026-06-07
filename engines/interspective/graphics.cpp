@@ -194,11 +194,11 @@ static bool containsDosPoint(uint16 a, uint16 b, uint16 c, uint16 d, int16 x, in
 }
 
 static uint16 recordWord(const Logic *logic, uint8 selector, uint16 id, uint8 off) {
-	return logic->dosRecordField(selector, id, off, 2);
+	return logic->recordField(selector, id, off, 2);
 }
 
 static bool exitIsNoSprite(const Logic *logic, uint16 id) {
-	return logic->dosRecordField(1, id, 0x0a, 1) != 0;
+	return logic->recordField(1, id, 0x0a, 1) != 0;
 }
 
 static int16 normalizeLayer(int16 layer) {
@@ -250,7 +250,7 @@ static void rebuildDrawCommands(Graphics *graphics, Logic *logic) {
 
 	Program *program = logic->blockProgram();
 	for (uint16 id = 1; id <= program->exitsCount(); ++id) {
-		if (logic->dosRecordField(1, id, 0, 2) != logic->currentRoom())
+		if (logic->recordField(1, id, 0, 2) != logic->currentRoom())
 			continue;
 		if (!logic->cellBit(id, 0))
 			continue;
@@ -259,7 +259,7 @@ static void rebuildDrawCommands(Graphics *graphics, Logic *logic) {
 				return;
 			continue;
 		}
-		if (!logic->addDrawCommand(1, id, int8(logic->dosRecordField(1, id, 0x0b, 1))))
+		if (!logic->addDrawCommand(1, id, int8(logic->recordField(1, id, 0x0b, 1))))
 			return;
 	}
 
@@ -292,13 +292,13 @@ static bool objectDrawShouldDefer(Logic *logic, const Logic::DrawCommand &cmd) {
 	if (!protagonist)
 		return false;
 
-	const uint16 spriteId = protagonist->dosFieldWord(Actor::kOffsetMainSprite);
+	const uint16 spriteId = protagonist->fieldWord(Actor::kOffsetMainSprite);
 	if (spriteId == 0xffff)
 		return false;
 
 	SpriteInfo info = logic->engine()->resources()->getSpriteInfo(spriteId);
-	const int16 minX = int16(protagonist->position().x - int16(protagonist->dosField(0x17)));
-	const int16 maxX = int16(protagonist->position().x + int16(protagonist->dosField(0x17)));
+	const int16 minX = int16(protagonist->position().x - int16(protagonist->field(0x17)));
+	const int16 maxX = int16(protagonist->position().x + int16(protagonist->field(0x17)));
 	const int16 minY = int16(protagonist->position().y + int16(info.hotTop));
 	const int16 maxY = int16(minY + 6);
 	const int16 x = logic->getObjectPosX(cmd.id);
@@ -309,7 +309,7 @@ static bool objectDrawShouldDefer(Logic *logic, const Logic::DrawCommand &cmd) {
 
 static void paintDrawCommand(Graphics *graphics, Logic *logic, const Logic::DrawCommand &cmd) {
 	if (cmd.type == 1) {
-		if (logic->dosRecordField(1, cmd.id, 0, 2) == logic->currentRoom() && logic->cellBit(cmd.id, 0)) {
+		if (logic->recordField(1, cmd.id, 0, 2) == logic->currentRoom() && logic->cellBit(cmd.id, 0)) {
 			const uint16 spriteId = recordWord(logic, 1, cmd.id, 6);
 			Common::ScopedPtr<Sprite> sprite(logic->engine()->resources()->loadSprite(spriteId));
 			graphics->paint(sprite.get(), Common::Point(int16(recordWord(logic, 1, cmd.id, 2)), int16(recordWord(logic, 1, cmd.id, 4))),
@@ -377,9 +377,9 @@ static void paintActorAnimationsForLayer(Graphics *graphics, Logic *logic, const
 			continue;
 		if (normalizeLayer(anim->zIndex()) != layer)
 			continue;
-		if (!anim->hasDosMainSpriteForDraw())
+		if (!anim->hasMainSpriteForDraw())
 			continue;
-		entries.push_back(ActorDrawEntry(anim, anim->dosDrawY(), order));
+		entries.push_back(ActorDrawEntry(anim, anim->drawY(), order));
 	}
 
 	Common::sort(entries.begin(), entries.end(), ActorDrawEntryLess());

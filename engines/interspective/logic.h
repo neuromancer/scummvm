@@ -276,7 +276,7 @@ public:
 	// Sparse storage for DOS object record fields not first-class
 	// members of Logic. Keyed by (objId, fieldOffset). Used by Op_67
 	// (WriteObjectFieldSized) for offsets beyond room/x/y. Mirrors
-	// Actor::_dosFields semantics — absent keys read as 0.
+	// Actor::_recordFields semantics — absent keys read as 0.
 	uint8 objectField(uint16 objId, uint8 off) const {
 		Common::HashMap<uint32, uint8>::const_iterator it = _objectFields.find((uint32(objId) << 8) | off);
 		return it == _objectFields.end() ? 0 : it->_value;
@@ -299,8 +299,8 @@ public:
 		else
 			_exitFields[key] = v;
 	}
-	uint16 dosRecordField(uint8 selector, uint16 id, uint8 off, uint8 size) const;
-	void setDosRecordField(uint8 selector, uint16 id, uint8 off, uint8 size, uint16 value);
+	uint16 recordField(uint8 selector, uint16 id, uint8 off, uint8 size) const;
+	void setRecordField(uint8 selector, uint16 id, uint8 off, uint8 size, uint16 value);
 
 	// Per room-program-group, per-entity cell byte. DOS ResetCellMap fills
 	// the whole room-cell buffer with 1, and ReadCellByteAtOffset selects

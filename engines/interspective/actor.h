@@ -201,28 +201,28 @@ public:
 	uint8 interval() const { return uint8(_interval); }
 	void setRawPosition(Common::Point p) {
 		_position = p;
-		setDosFieldWord(kOffsetLeft, uint16(p.x));
-		setDosFieldWord(kOffsetTop, uint16(p.y));
+		setFieldWord(kOffsetLeft, uint16(p.x));
+		setFieldWord(kOffsetTop, uint16(p.y));
 	}
 	void setRawTicksLeft(uint16 ticks) {
 		_ticksLeft = ticks;
-		setDosFieldWord(kOffsetTicksLeft, ticks);
+		setFieldWord(kOffsetTicksLeft, ticks);
 	}
 	void setRawInterval(uint8 interval) {
 		_interval = int8(interval);
-		setDosField(kOffsetInterval, interval);
+		setField(kOffsetInterval, interval);
 	}
 	void setRawFrame(uint16 frame) {
 		_frame = frame;
-		setDosField(0x61, uint8(frame));
+		setField(0x61, uint8(frame));
 	}
 	void setRawTargetFrame(uint16 frame) {
 		_nextFrame = frame;
-		setDosField(0x62, uint8(frame));
+		setField(0x62, uint8(frame));
 	}
 	void clearMoveQueue() {
 		_framequeue.clear();
-		setDosFieldWord(0x6b, 0);
+		setFieldWord(0x6b, 0);
 	}
 	void setRawMainSprite(uint16 sprite) { setMainSprite(sprite); }
 	void setRawSpriteTarget(uint16 target) {
@@ -241,7 +241,7 @@ public:
 	// short-circuit.
 	void forceRoom(uint16 r) {
 		_room = r;
-		setDosFieldWord(kOffsetRoom, r);
+		setFieldWord(kOffsetRoom, r);
 	}
 
 	// DOS-aligned room/frame placement that does NOT reset the actor's
@@ -301,7 +301,7 @@ public:
 	const Common::String &speechText() const;
 	void stopSpeaking();
 	void setAttentionNeeded(bool v) {
-		setDosField(0x65, v ? 1 : 0);
+		setField(0x65, v ? 1 : 0);
 		_attentionNeeded = v;
 	}
 	void callMeWhenSilent(const CodePointer &cp);
@@ -336,7 +336,7 @@ private:
 	void animate();
 	void updateZoneAtPoint();
 	void resetActorStateFields();
-	void mirrorFirstClassFieldsToDosRecord();
+	void syncStateToRecordFields();
 	void registerActiveIfCurrentRoom();
 	bool consumeReadyMarkerCallback();
 	bool turnTo(Direction);
@@ -360,22 +360,22 @@ private:
 	// touches these per-actor flag bytes. Sparse → absent keys read as 0
 	// (matches DOS post-init state).
 public:
-	uint8 dosField(uint8 off) const {
-		Common::HashMap<uint8, uint8>::const_iterator it = _dosFields.find(off);
-		return it == _dosFields.end() ? 0 : it->_value;
+	uint8 field(uint8 off) const {
+		Common::HashMap<uint8, uint8>::const_iterator it = _recordFields.find(off);
+		return it == _recordFields.end() ? 0 : it->_value;
 	}
-	uint16 dosFieldWord(uint8 off) const {
-		return uint16(dosField(off)) | (uint16(dosField(uint8(off + 1))) << 8);
+	uint16 fieldWord(uint8 off) const {
+		return uint16(field(off)) | (uint16(field(uint8(off + 1))) << 8);
 	}
-	void setDosField(uint8 off, uint8 v) {
+	void setField(uint8 off, uint8 v) {
 		if (v == 0)
-			_dosFields.erase(off);
+			_recordFields.erase(off);
 		else
-			_dosFields[off] = v;
+			_recordFields[off] = v;
 	}
-	void setDosFieldWord(uint8 off, uint16 v) {
-		setDosField(off, uint8(v & 0xff));
-		setDosField(uint8(off + 1), uint8(v >> 8));
+	void setFieldWord(uint8 off, uint16 v) {
+		setField(off, uint8(v & 0xff));
+		setField(uint8(off + 1), uint8(v >> 8));
 	}
 
 	// DOS actor's 8-slot move queue at field+0x19 (32 bytes total: 8 entries
@@ -399,17 +399,17 @@ public:
 		const uint slotIndex = _moveSlots.size();
 		_moveSlots.push_back(slot);
 		const uint8 off = uint8(0x19 + slotIndex * 8);
-		setDosFieldWord(off, slot.a);
-		setDosFieldWord(uint8(off + 2), slot.b);
-		setDosFieldWord(uint8(off + 4), slot.c);
-		setDosFieldWord(uint8(off + 6), slot.mode);
+		setFieldWord(off, slot.a);
+		setFieldWord(uint8(off + 2), slot.b);
+		setFieldWord(uint8(off + 4), slot.c);
+		setFieldWord(uint8(off + 6), slot.mode);
 		return true;
 	}
 	const Common::Array<MoveSlot> &moveSlots() const { return _moveSlots; }
 	void clearMoveSlots() {
 		_moveSlots.clear();
 		for (uint i = 0; i < 8; ++i)
-			setDosFieldWord(uint8(0x19 + i * 8), 0xffff);
+			setFieldWord(uint8(0x19 + i * 8), 0xffff);
 	}
 
 	// DOS callback (field+0x5d/0x5f). Set by Op_21/Op_22, cleared by Op_23.
@@ -418,19 +418,19 @@ public:
 	void setActorCallback(uint16 segment, uint16 offset) {
 		_actorCallbackSeg = segment;
 		_actorCallbackOff = offset;
-		setDosFieldWord(0x5d, segment);
-		setDosFieldWord(0x5f, offset);
+		setFieldWord(0x5d, segment);
+		setFieldWord(0x5f, offset);
 	}
 	void clearActorCallback() {
 		_actorCallbackSeg = 0xffff;
-		setDosFieldWord(0x5d, 0xffff);
+		setFieldWord(0x5d, 0xffff);
 	}
 	uint16 actorCallbackSeg() const { return _actorCallbackSeg; }
 	uint16 actorCallbackOff() const { return _actorCallbackOff; }
 
 private:
 	uint16 _id; // 1-based DOS actor id
-	Common::HashMap<uint8, uint8> _dosFields;
+	Common::HashMap<uint8, uint8> _recordFields;
 	Common::Array<MoveSlot> _moveSlots;
 	uint16 _actorCallbackSeg, _actorCallbackOff;
 

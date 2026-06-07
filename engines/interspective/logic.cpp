@@ -67,11 +67,11 @@ static int16 stepCameraToward(int16 current, int16 target, int16 speed) {
 	return current + step;
 }
 
-static inline uint8 dosWordByte(uint16 value, uint8 baseOff, uint8 off) {
+static inline uint8 recordWordByte(uint16 value, uint8 baseOff, uint8 off) {
 	return uint8((value >> ((off - baseOff) * 8)) & 0xff);
 }
 
-static inline uint16 dosWordWithByte(uint16 oldValue, uint8 baseOff, uint8 off, uint8 value) {
+static inline uint16 recordWordWithByte(uint16 oldValue, uint8 baseOff, uint8 off, uint8 value) {
 	const uint shift = uint(off - baseOff) * 8;
 	return uint16((oldValue & ~(0xffu << shift)) | (uint16(value) << shift));
 }
@@ -134,7 +134,7 @@ static int16 cameraMaxOrigin(uint16 backdropSize, uint16 viewportSize) {
 
 static void setActorCallbackWordDirect(Actor *actor, uint16 callback) {
 	if (actor)
-		actor->setDosFieldWord(0x69, callback);
+		actor->setFieldWord(0x69, callback);
 }
 
 static void moveActorToTargetFrame(Logic *logic, Actor *actor, uint16 frame) {
@@ -149,7 +149,7 @@ static void moveActorToTargetFrame(Logic *logic, Actor *actor, uint16 frame) {
 		if (actor->room() == logic->currentRoom() && actor->frameId() != 0)
 			actor->setRawTargetFrame(uint8(frame));
 		actor->moveTo(frame);
-		if (actor->dosField(0x6f) != 0)
+		if (actor->field(0x6f) != 0)
 			logic->setPostMoveTargetFrameMirror(uint8(actor->frameId()));
 		return;
 	}
@@ -656,7 +656,7 @@ void Logic::registerCurrentRoomActors() {
 	for (uint16 i = 0; i < mainActors; ++i) {
 		const uint16 id = i + 1;
 		Actor *const actor = _resources->mainDat()->actor(i);
-		if (!actor || actor->room() != _currentRoom || actor->dosFieldWord(Actor::kOffsetOffset) == 0)
+		if (!actor || actor->room() != _currentRoom || actor->fieldWord(Actor::kOffsetOffset) == 0)
 			continue;
 		registerActiveActor(id);
 		actor->prepareRoomEntryActiveActor();
@@ -669,7 +669,7 @@ void Logic::registerCurrentRoomActors() {
 	for (uint16 i = 0; i < blockActors; ++i) {
 		const uint16 id = uint16(mainActors + i + 1);
 		Actor *const actor = _blockProgram->actor(i);
-		if (!actor || actor->room() != _currentRoom || actor->dosFieldWord(Actor::kOffsetOffset) == 0)
+		if (!actor || actor->room() != _currentRoom || actor->fieldWord(Actor::kOffsetOffset) == 0)
 			continue;
 		registerActiveActor(id);
 		actor->prepareRoomEntryActiveActor();
@@ -694,7 +694,7 @@ void Logic::refreshCurrentRoomActorFrames() {
 	}
 }
 
-uint16 Logic::dosRecordField(uint8 selector, uint16 id, uint8 off, uint8 size) const {
+uint16 Logic::recordField(uint8 selector, uint16 id, uint8 off, uint8 size) const {
 	uint8 lo = 0;
 	uint8 hi = 0;
 
@@ -704,13 +704,13 @@ uint16 Logic::dosRecordField(uint8 selector, uint16 id, uint8 off, uint8 size) c
 		if (!exit)
 			return 0;
 		if (off == 0 || off == 1)
-			lo = dosWordByte(exit->room(), 0, off);
+			lo = recordWordByte(exit->room(), 0, off);
 		else if (off == 2 || off == 3)
-			lo = dosWordByte(uint16(exit->position().x), 2, off);
+			lo = recordWordByte(uint16(exit->position().x), 2, off);
 		else if (off == 4 || off == 5)
-			lo = dosWordByte(uint16(exit->position().y), 4, off);
+			lo = recordWordByte(uint16(exit->position().y), 4, off);
 		else if (off == 6 || off == 7)
-			lo = dosWordByte(exit->spriteField(), 6, off);
+			lo = recordWordByte(exit->spriteField(), 6, off);
 		else if (off == 0x0a)
 			lo = exit->noSprite() ? 1 : 0;
 		else if (off == 0x0b)
@@ -719,42 +719,42 @@ uint16 Logic::dosRecordField(uint8 selector, uint16 id, uint8 off, uint8 size) c
 			lo = exitField(id, off);
 		if (size == 1)
 			return lo;
-		hi = dosRecordField(selector, id, uint8(off + 1), 1);
+		hi = recordField(selector, id, uint8(off + 1), 1);
 		return uint16(lo) | (uint16(hi) << 8);
 	}
 	case 2:
 		if (off == 0 || off == 1)
-			lo = dosWordByte(getObjectRoom(id), 0, off);
+			lo = recordWordByte(getObjectRoom(id), 0, off);
 		else if (off == 2 || off == 3)
-			lo = dosWordByte(uint16(getObjectPosX(id)), 2, off);
+			lo = recordWordByte(uint16(getObjectPosX(id)), 2, off);
 		else if (off == 4 || off == 5)
-			lo = dosWordByte(uint16(getObjectPosY(id)), 4, off);
+			lo = recordWordByte(uint16(getObjectPosY(id)), 4, off);
 		else
 			lo = objectField(id, off);
 		if (size == 1)
 			return lo;
-		hi = dosRecordField(selector, id, uint8(off + 1), 1);
+		hi = recordField(selector, id, uint8(off + 1), 1);
 		return uint16(lo) | (uint16(hi) << 8);
 	case 3: {
 		Actor *actor = getActor(id);
 		if (!actor)
 			return 0;
 		if (off == Actor::kOffsetLeft || off == Actor::kOffsetLeft + 1)
-			lo = dosWordByte(uint16(actor->position().x), Actor::kOffsetLeft, off);
+			lo = recordWordByte(uint16(actor->position().x), Actor::kOffsetLeft, off);
 		else if (off == Actor::kOffsetTop || off == Actor::kOffsetTop + 1)
-			lo = dosWordByte(uint16(actor->position().y), Actor::kOffsetTop, off);
+			lo = recordWordByte(uint16(actor->position().y), Actor::kOffsetTop, off);
 		else if (off == Actor::kOffsetMainSprite || off == Actor::kOffsetMainSprite + 1)
-			lo = dosWordByte(actor->mainSpriteId(), Actor::kOffsetMainSprite, off);
+			lo = recordWordByte(actor->mainSpriteId(), Actor::kOffsetMainSprite, off);
 		else if (off == Actor::kOffsetTicksLeft || off == Actor::kOffsetTicksLeft + 1)
-			lo = dosWordByte(uint16(actor->ticksLeft()), Actor::kOffsetTicksLeft, off);
+			lo = recordWordByte(uint16(actor->ticksLeft()), Actor::kOffsetTicksLeft, off);
 		else if (off == Actor::kOffsetInterval)
 			lo = actor->interval();
 		else if (off == 0x5d || off == 0x5e)
-			lo = dosWordByte(actor->actorCallbackSeg(), 0x5d, off);
+			lo = recordWordByte(actor->actorCallbackSeg(), 0x5d, off);
 		else if (off == 0x5f || off == 0x60)
-			lo = dosWordByte(actor->actorCallbackOff(), 0x5f, off);
+			lo = recordWordByte(actor->actorCallbackOff(), 0x5f, off);
 		else if (off == Actor::kOffsetRoom || off == Actor::kOffsetRoom + 1)
-			lo = dosWordByte(actor->room(), Actor::kOffsetRoom, off);
+			lo = recordWordByte(actor->room(), Actor::kOffsetRoom, off);
 		else if (off == 0x61)
 			lo = uint8(actor->frameId());
 		else if (off == 0x62)
@@ -762,10 +762,10 @@ uint16 Logic::dosRecordField(uint8 selector, uint16 id, uint8 off, uint8 size) c
 		else if (off == 0x65 && actor->isMoving())
 			lo = 1;
 		else
-			lo = actor->dosField(off);
+			lo = actor->field(off);
 		if (size == 1)
 			return lo;
-		hi = dosRecordField(selector, id, uint8(off + 1), 1);
+		hi = recordField(selector, id, uint8(off + 1), 1);
 		return uint16(lo) | (uint16(hi) << 8);
 	}
 	default:
@@ -774,7 +774,7 @@ uint16 Logic::dosRecordField(uint8 selector, uint16 id, uint8 off, uint8 size) c
 	}
 }
 
-void Logic::setDosRecordField(uint8 selector, uint16 id, uint8 off, uint8 size, uint16 value) {
+void Logic::setRecordField(uint8 selector, uint16 id, uint8 off, uint8 size, uint16 value) {
 	const uint8 count = size == 1 ? 1 : 2;
 	for (uint8 i = 0; i < count; ++i) {
 		const uint8 byteOff = uint8(off + i);
@@ -785,17 +785,17 @@ void Logic::setDosRecordField(uint8 selector, uint16 id, uint8 off, uint8 size, 
 			if (!exit)
 				return;
 			if (byteOff == 0 || byteOff == 1)
-				exit->setRoom(dosWordWithByte(exit->room(), 0, byteOff, byteValue));
+				exit->setRoom(recordWordWithByte(exit->room(), 0, byteOff, byteValue));
 			else if (byteOff == 2 || byteOff == 3) {
 				Common::Point p = exit->position();
-				p.x = int16(dosWordWithByte(uint16(p.x), 2, byteOff, byteValue));
+				p.x = int16(recordWordWithByte(uint16(p.x), 2, byteOff, byteValue));
 				exit->setPosition(p);
 			} else if (byteOff == 4 || byteOff == 5) {
 				Common::Point p = exit->position();
-				p.y = int16(dosWordWithByte(uint16(p.y), 4, byteOff, byteValue));
+				p.y = int16(recordWordWithByte(uint16(p.y), 4, byteOff, byteValue));
 				exit->setPosition(p);
 			} else if (byteOff == 6 || byteOff == 7)
-				exit->setSpriteField(dosWordWithByte(exit->spriteField(), 6, byteOff, byteValue));
+				exit->setSpriteField(recordWordWithByte(exit->spriteField(), 6, byteOff, byteValue));
 			else if (byteOff == 0x0a)
 				exit->setNoSprite(byteValue != 0);
 			else if (byteOff == 0x0b)
@@ -806,12 +806,12 @@ void Logic::setDosRecordField(uint8 selector, uint16 id, uint8 off, uint8 size, 
 		}
 		case 2:
 			if (byteOff == 0 || byteOff == 1)
-				setObjectRoom(id, dosWordWithByte(getObjectRoom(id), 0, byteOff, byteValue));
+				setObjectRoom(id, recordWordWithByte(getObjectRoom(id), 0, byteOff, byteValue));
 			else if (byteOff == 2 || byteOff == 3) {
-				const int16 x = int16(dosWordWithByte(uint16(getObjectPosX(id)), 2, byteOff, byteValue));
+				const int16 x = int16(recordWordWithByte(uint16(getObjectPosX(id)), 2, byteOff, byteValue));
 				setObjectPosition(id, x, getObjectPosY(id));
 			} else if (byteOff == 4 || byteOff == 5) {
-				const int16 y = int16(dosWordWithByte(uint16(getObjectPosY(id)), 4, byteOff, byteValue));
+				const int16 y = int16(recordWordWithByte(uint16(getObjectPosY(id)), 4, byteOff, byteValue));
 				setObjectPosition(id, getObjectPosX(id), y);
 			} else
 				setObjectField(id, byteOff, byteValue);
@@ -820,27 +820,27 @@ void Logic::setDosRecordField(uint8 selector, uint16 id, uint8 off, uint8 size, 
 			Actor *actor = getActor(id);
 			if (!actor)
 				return;
-			actor->setDosField(byteOff, byteValue);
+			actor->setField(byteOff, byteValue);
 			if (byteOff == Actor::kOffsetLeft || byteOff == Actor::kOffsetLeft + 1) {
 				Common::Point p = actor->position();
-				p.x = int16(dosWordWithByte(uint16(p.x), Actor::kOffsetLeft, byteOff, byteValue));
+				p.x = int16(recordWordWithByte(uint16(p.x), Actor::kOffsetLeft, byteOff, byteValue));
 				actor->setRawPosition(p);
 			} else if (byteOff == Actor::kOffsetTop || byteOff == Actor::kOffsetTop + 1) {
 				Common::Point p = actor->position();
-				p.y = int16(dosWordWithByte(uint16(p.y), Actor::kOffsetTop, byteOff, byteValue));
+				p.y = int16(recordWordWithByte(uint16(p.y), Actor::kOffsetTop, byteOff, byteValue));
 				actor->setRawPosition(p);
 			} else if (byteOff == Actor::kOffsetMainSprite || byteOff == Actor::kOffsetMainSprite + 1)
-				actor->setRawMainSprite(dosWordWithByte(actor->mainSpriteId(), Actor::kOffsetMainSprite, byteOff, byteValue));
+				actor->setRawMainSprite(recordWordWithByte(actor->mainSpriteId(), Actor::kOffsetMainSprite, byteOff, byteValue));
 			else if (byteOff == Actor::kOffsetTicksLeft || byteOff == Actor::kOffsetTicksLeft + 1)
-				actor->setRawTicksLeft(dosWordWithByte(uint16(actor->ticksLeft()), Actor::kOffsetTicksLeft, byteOff, byteValue));
+				actor->setRawTicksLeft(recordWordWithByte(uint16(actor->ticksLeft()), Actor::kOffsetTicksLeft, byteOff, byteValue));
 			else if (byteOff == Actor::kOffsetInterval)
 				actor->setRawInterval(byteValue);
 			else if (byteOff == 0x5d || byteOff == 0x5e)
-				actor->setActorCallback(dosWordWithByte(actor->actorCallbackSeg(), 0x5d, byteOff, byteValue), actor->actorCallbackOff());
+				actor->setActorCallback(recordWordWithByte(actor->actorCallbackSeg(), 0x5d, byteOff, byteValue), actor->actorCallbackOff());
 			else if (byteOff == 0x5f || byteOff == 0x60)
-				actor->setActorCallback(actor->actorCallbackSeg(), dosWordWithByte(actor->actorCallbackOff(), 0x5f, byteOff, byteValue));
+				actor->setActorCallback(actor->actorCallbackSeg(), recordWordWithByte(actor->actorCallbackOff(), 0x5f, byteOff, byteValue));
 			else if (byteOff == Actor::kOffsetRoom || byteOff == Actor::kOffsetRoom + 1)
-				actor->forceRoom(dosWordWithByte(actor->room(), Actor::kOffsetRoom, byteOff, byteValue));
+				actor->forceRoom(recordWordWithByte(actor->room(), Actor::kOffsetRoom, byteOff, byteValue));
 			else if (byteOff == 0x61)
 				actor->setRawFrame(byteValue);
 			else if (byteOff == 0x62)
@@ -982,7 +982,7 @@ void Logic::updateScrollPosition() {
 			}
 
 			int16 dxCandidate = int16(speedX * 2);
-			const uint8 actorWidth = protag->dosField(0x17);
+			const uint8 actorWidth = protag->field(0x17);
 			if (actorScreenX <= int16(actorWidth)) {
 				_scrollDx = int16(-dxCandidate);
 			} else if (actorScreenX >= int16(0x13f - actorWidth)) {
@@ -996,7 +996,7 @@ void Logic::updateScrollPosition() {
 			}
 
 			int16 dyCandidate = int16(speedY * 2);
-			const uint8 actorHeight = protag->dosField(0x18);
+			const uint8 actorHeight = protag->field(0x18);
 			if (actorScreenY <= int16(actorHeight)) {
 				_scrollDy = int16(-dyCandidate);
 			} else if (actorScreenY >= screenMaxY) {
@@ -1986,9 +1986,9 @@ void Logic::runPostMoveCallbackIfReady() {
 		return;
 	if (!_protagonist)
 		return;
-	if (_protagonist->dosField(0x6f) != 0)
+	if (_protagonist->field(0x6f) != 0)
 		return;
-	if (_protagonist->dosField(0x65) == 0)
+	if (_protagonist->field(0x65) == 0)
 		return;
 
 	PostMoveCallback cb = _postMoveCallback;
@@ -2338,10 +2338,10 @@ bool Logic::sendActorToEntityByType(Actor *walker, uint16 targetId, uint16 entit
 			setPendingError(0x14);
 			return false;
 		}
-		const int16 exitX = int16(dosRecordField(1, targetId, 2, 2));
-		const int16 exitY = int16(dosRecordField(1, targetId, 4, 2));
-		if (dosRecordField(1, targetId, 0x0a, 1) == 0) {
-			const uint16 spriteId = dosRecordField(1, targetId, 6, 2);
+		const int16 exitX = int16(recordField(1, targetId, 2, 2));
+		const int16 exitY = int16(recordField(1, targetId, 4, 2));
+		if (recordField(1, targetId, 0x0a, 1) == 0) {
+			const uint16 spriteId = recordField(1, targetId, 6, 2);
 			const SpriteInfo info = objectSpriteInfo(_resources, _blockProgram.get(), spriteId);
 			targetX = int16(exitX + int16(info.width) / 2);
 		} else {
@@ -3704,7 +3704,7 @@ bool Logic::allocActorSpeechAt(Actor *actor, const Common::String &text, Common:
 	slot->owner = actorGlobalId(actor);
 	slot->refX = uint16(pos.x);
 	slot->refY = uint16(pos.y);
-	slot->color = actor->dosField(0x70);
+	slot->color = actor->field(0x70);
 	debugC(1, kDebugLevelActor, "alloc speech slot owner=%u at %d:%d maxLines=%u text=\"%s\"",
 		   slot->owner, pos.x, pos.y, maxLines, text.c_str());
 	if (!initSpeechSlot(*slot, text, maxLines))

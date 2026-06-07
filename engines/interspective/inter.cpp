@@ -253,16 +253,16 @@ private:
 	const uint16 _index;
 };
 
-class DosRecordFieldVariable : public Value {
+class RecordFieldVariable : public Value {
 public:
-	DosRecordFieldVariable(Logic *logic, uint8 selector, uint16 id, uint8 offset, uint8 size)
+	RecordFieldVariable(Logic *logic, uint8 selector, uint16 id, uint8 offset, uint8 size)
 		: _logic(logic), _selector(selector), _id(id), _offset(offset), _size(size) {}
 	virtual operator uint16() const {
-		return _logic ? _logic->dosRecordField(_selector, _id, _offset, _size) : 0;
+		return _logic ? _logic->recordField(_selector, _id, _offset, _size) : 0;
 	}
 	virtual Value &operator=(uint16 value) {
 		if (_logic)
-			_logic->setDosRecordField(_selector, _id, _offset, _size, value);
+			_logic->setRecordField(_selector, _id, _offset, _size, value);
 		return *this;
 	}
 	virtual Value &operator=(const Value &other) { return *this = uint16(other); }
@@ -454,7 +454,7 @@ Value *Interpreter::getArgument(byte *&code) {
 		debugC(4, kDebugLevelScript,
 			   "read record field selector=%u id=%u offset=0x%02x size=%u as argument",
 			   selector, id, offset, size);
-		return new DosRecordFieldVariable(_logic, selector, id, offset, size);
+		return new RecordFieldVariable(_logic, selector, id, offset, size);
 	}
 	case kArgumentString:
 		return readArgument<ParametrizedString>(code);

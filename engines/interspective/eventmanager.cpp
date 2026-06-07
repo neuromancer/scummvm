@@ -54,7 +54,7 @@ struct HitTarget {
 static HitTarget findBestHitTarget(Logic &logic, Common::Point world);
 
 static uint16 recordWord(const Logic &logic, uint8 selector, uint16 id, uint8 off) {
-	return logic.dosRecordField(selector, id, off, 2);
+	return logic.recordField(selector, id, off, 2);
 }
 
 static bool spriteContainsWorldPoint(Resources *resources, uint16 spriteId,
@@ -135,7 +135,7 @@ static HitTarget hitDrawCommandAtPoint(Logic &logic, Common::Point world) {
 		const Logic::DrawCommand &cmd = commands[i];
 		if (cmd.type == 1) {
 			Exit *exit = logic.blockProgram() ? logic.blockProgram()->getExit(cmd.id) : 0;
-			if (!exit || logic.dosRecordField(1, cmd.id, 0, 2) != logic.currentRoom() || !logic.cellBit(cmd.id, 0))
+			if (!exit || logic.recordField(1, cmd.id, 0, 2) != logic.currentRoom() || !logic.cellBit(cmd.id, 0))
 				continue;
 			const uint16 spriteId = recordWord(logic, 1, cmd.id, 6);
 			const Common::Point pos(
@@ -185,10 +185,10 @@ static HitTarget hitNoSpriteExitAtPoint(Logic &logic, Common::Point world) {
 
 		const int16 left = int16(recordWord(logic, 1, id, 2));
 		const int16 top = int16(recordWord(logic, 1, id, 4));
-		const int16 right = int16(left + int16(logic.dosRecordField(1, id, 6, 1)));
-		const int16 bottom = int16(top + int16(logic.dosRecordField(1, id, 7, 1)));
+		const int16 right = int16(left + int16(logic.recordField(1, id, 6, 1)));
+		const int16 bottom = int16(top + int16(logic.recordField(1, id, 7, 1)));
 		const Common::Rect area(left, top, right, bottom);
-		const int16 z = int16(int8(logic.dosRecordField(1, id, 0x0b, 1)));
+		const int16 z = int16(int8(logic.recordField(1, id, 0x0b, 1)));
 		if (containsDosInclusive(area, world) && z < best.z) {
 			best.type = 1;
 			best.id = id;

@@ -62,8 +62,8 @@ public:
 	virtual bool isActor() const { return false; }
 	bool scriptActive() const { return _base != 0; }
 	uint16 mainSpriteId() const { return _mainSpriteId; }
-	bool hasDosMainSpriteForDraw() const { return _mainSpriteId != 0xffff && _mainSprite.get(); }
-	int16 dosDrawY() const { return int16(_position.y); }
+	bool hasMainSpriteForDraw() const { return _mainSpriteId != 0xffff && _mainSprite.get(); }
+	int16 drawY() const { return int16(_position.y); }
 	bool castWaitComplete() const;
 	int8 zIndex() const { return _zIndex; }
 	void setCastTableRunner(bool v) { _castTableRunner = v; }
@@ -86,10 +86,10 @@ protected:
 	uint16 shift();
 	int8 shiftByte();
 	int8 embeddedByte() const;
-	uint8 animationDosField(uint8 off) const;
-	uint16 animationDosFieldWord(uint8 off) const;
-	void setAnimationDosField(uint8 off, uint8 v);
-	void setAnimationDosFieldWord(uint8 off, uint16 v);
+	uint8 animationField(uint8 off) const;
+	uint16 animationFieldWord(uint8 off) const;
+	void setAnimationField(uint8 off, uint8 v);
+	void setAnimationFieldWord(uint8 off, uint16 v);
 	void setPositionFromFrame(uint8 frame);
 	void copyAnimationIntervalToTicks();
 	void clearAnimationMoveSlots();
@@ -132,7 +132,7 @@ protected:
 	/** offset of the animation from the start of its codeblock */
 	uint16 _baseOffset;
 	CodePointer _frameTrigger;
-	Common::HashMap<uint8, uint8> _animationDosFields;
+	Common::HashMap<uint8, uint8> _animationFields;
 	struct AnimationMoveSlot {
 		AnimationMoveSlot() : a(0), b(0), c(0), mode(0) {}
 		AnimationMoveSlot(uint16 _a, uint16 _b, uint16 _c, uint8 _mode)
