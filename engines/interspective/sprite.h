@@ -28,7 +28,7 @@ namespace Interspective {
 
 struct SpriteInfo {
 	enum {
-		kSpriteMapRecordSize = 8
+		kSpriteMapRecordSize = 10
 	};
 
 	// Default-construct an empty sprite — width=0/height=0, used as a
