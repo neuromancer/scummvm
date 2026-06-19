@@ -30,6 +30,7 @@
 #include "common/system.h"
 #include "common/util.h"
 #include "graphics/cursorman.h"
+#include "graphics/font.h"
 
 #include "interspective/actor.h"
 #include "interspective/animation.h"
@@ -48,6 +49,81 @@ DECLARE_SINGLETON(Interspective::Graphics);
 }
 
 namespace Interspective {
+
+enum {
+	kFontChangeableColour = 235
+};
+
+class InterspectiveFont : public ::Graphics::Font {
+public:
+	InterspectiveFont(const Graphics *graphics, Resources *resources)
+		: _graphics(graphics), _resources(resources) {}
+
+	Common::String getFontName() const override { return "Interspective DOS font"; }
+	int getFontHeight() const override { return Graphics::kLineHeight; }
+
+	int getMaxCharWidth() const override {
+		int maxWidth = 4;
+		for (uint32 ch = '!'; ch <= 0x9e; ++ch)
+			maxWidth = MAX(maxWidth, getCharWidth(ch));
+		return maxWidth;
+	}
+
+	int getCharWidth(uint32 chr) const override {
+		Common::ScopedPtr<Sprite> glyph(loadGlyph(chr));
+		return glyph ? MAX<int>(0, glyph->w - 1) : 4;
+	}
+
+	Common::Rect getBoundingBox(uint32 chr) const override {
+		Common::ScopedPtr<Sprite> glyph(loadGlyph(chr));
+		if (!glyph)
+			return Common::Rect();
+		return Common::Rect(-glyph->_hotPoint.x, glyph->_hotPoint.y,
+							-glyph->_hotPoint.x + glyph->w,
+							glyph->_hotPoint.y + glyph->h);
+	}
+
+	void drawChar(::Graphics::Surface *dst, uint32 chr, int x, int y, uint32 color) const override {
+		if (!dst)
+			return;
+
+		Common::ScopedPtr<Sprite> glyph(loadGlyph(chr));
+		if (!glyph)
+			return;
+
+		Common::Rect destRect(glyph->w, glyph->h);
+		destRect.moveTo(Common::Point(x - glyph->_hotPoint.x, y + glyph->_hotPoint.y));
+		Common::Rect clipped = destRect;
+		clipped.clip(dst->w, dst->h);
+		if (clipped.isEmpty())
+			return;
+
+		const int srcX = clipped.left - destRect.left;
+		const int srcY = clipped.top - destRect.top;
+		const byte textColor = byte(color & 0xff);
+
+		for (int row = 0; row < clipped.height(); ++row) {
+			const byte *src = reinterpret_cast<const byte *>(glyph->getBasePtr(srcX, srcY + row));
+			byte *dest = reinterpret_cast<byte *>(dst->getBasePtr(clipped.left, clipped.top + row));
+			for (int col = 0; col < clipped.width(); ++col) {
+				if (src[col] == 0)
+					continue;
+				dest[col] = src[col] == kFontChangeableColour ? textColor : src[col];
+			}
+		}
+	}
+
+private:
+	Sprite *loadGlyph(uint32 chr) const {
+		if (!_graphics || !_resources || chr > 0xff)
+			return nullptr;
+		const byte ch = _graphics->clampChar(byte(chr));
+		return _resources->getGlyph(ch);
+	}
+
+	const Graphics *_graphics;
+	Resources *_resources;
+};
 
 enum {
 	kInterfaceTop = 152,
@@ -132,6 +208,7 @@ void Graphics::setEngine(Engine *engine) {
 	_fullscreen = false;
 	_fullRedrawPending = true;
 	_extendedLatinFont = false;
+	_font.reset();
 }
 
 void Graphics::init() {
@@ -144,6 +221,7 @@ void Graphics::init() {
 	// 0x20..0x7e font there.
 	const Common::Language lang = _engine ? _engine->language() : Common::UNK_LANG;
 	_extendedLatinFont = (lang == Common::DE_DEU || lang == Common::FR_FRA || lang == Common::ES_ESP || lang == Common::IT_ITA);
+	_font.reset(new InterspectiveFont(this, _resources));
 	loadInterface();
 }
 
@@ -2381,35 +2459,44 @@ uint16 Graphics::calculateLineWidth(const byte *string) const {
 }
 
 uint16 Graphics::getGlyphWidth(byte ch) const {
-	if (ch == ' ')
-		return 4;
-	else
-		return getGlyph(ch)->w - 1;
-}
-
-Sprite *Graphics::getGlyph(byte ch) const {
-	// TODO perhaps cache or sth
-	ch = clampChar(ch);
-	if (ch == ' ')
-		return 0; // space has no glyph, just width 4
-	return _resources->getGlyph(ch);
+	return _font ? uint16(_font->getCharWidth(ch)) : 4;
 }
 
 /**
  * @returns char width
  */
 uint16 Graphics::paintChar(uint16 left, uint16 top, byte colour, byte ch, Surface *dest, int flags) const {
-	Sprite *glyph = getGlyph(ch);
-	int w;
-	if (glyph) {
-		glyph->recolour(colour);
-		if (dest)
-			paint(glyph, Common::Point(left, top + glyph->h), dest, flags);
-		w = glyph->w - 1;
-		delete glyph;
-	} else
+	if (!_font)
 		return 4;
-	return w;
+
+	Common::Point pos(left, top);
+	if (flags & kPaintCameraRelative) {
+		const Logic *logic = _engine ? _engine->logic() : 0;
+		if (logic) {
+			pos.x = int16(pos.x - logic->cameraX());
+			pos.y = int16(pos.y - logic->cameraY());
+		}
+	}
+
+	Common::Rect bounds = _font->getBoundingBox(ch);
+	if (flags & kPaintPositionIsTop)
+		pos.y = int16(pos.y + bounds.height());
+	bounds.translate(pos.x, pos.y);
+	const uint16 width = uint16(_font->getCharWidth(ch));
+
+	if (dest && !bounds.isEmpty()) {
+		_font->drawChar(dest, ch, pos.x, pos.y, colour);
+		if (dest == _framebuffer.get() && !(flags & kPaintNoDirty)) {
+			const int clipHeight = ((flags & kPaintCameraRelative) && dest == _framebuffer.get())
+									   ? MIN<int>(dest->h, screenHeight())
+									   : dest->h;
+			bounds.clip(dest->w, clipHeight);
+			if (!bounds.isEmpty())
+				markDirtyRect(bounds);
+		}
+	}
+
+	return width;
 }
 
 void Graphics::paint(const Sprite *sprite, Common::Point pos, Surface *dest, int flags) const {
@@ -2711,10 +2798,6 @@ void Graphics::pop(Paintable *p) {
 void Graphics::hookAfterRepaint(CodePointer &p) {
 	_afterRepaintHooks.push_back(p);
 }
-
-const char Graphics::_charwidths[] = {
-#include "charwidths.data"
-};
 
 void Graphics::clearPalette(int offset, int count) {
 	byte pal[0x300];

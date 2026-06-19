@@ -30,6 +30,8 @@
 #include "common/singleton.h"
 #include "common/str.h"
 
+#include "graphics/font.h"
+
 #include "interspective/types.h"
 #include "interspective/value.h"
 
@@ -38,6 +40,7 @@ class OSystem;
 namespace Interspective {
 
 class Engine;
+class InterspectiveFont;
 class Resources;
 class Surface;
 class Sprite;
@@ -189,9 +192,10 @@ public:
 	};
 
 private:
+	friend class InterspectiveFont;
+
 	byte clampChar(byte ch) const;
 	uint16 calculateLineWidth(const byte *string) const;
-	Sprite *getGlyph(byte ch) const;
 	void prepareConversationPalette();
 	void beginConversationModal();
 	void finishConversationModal();
@@ -220,8 +224,7 @@ private:
 	bool _hostCursorShown;
 	Common::SharedPtr<Surface> _backdrop;
 	Common::SharedPtr<Surface> _framebuffer;
-
-	static const char _charwidths[];
+	Common::ScopedPtr<::Graphics::Font> _font;
 
 private:
 	void clearPalette(int start = 0, int count = 256);
