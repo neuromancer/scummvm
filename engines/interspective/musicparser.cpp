@@ -286,6 +286,21 @@ void MusicParser::silence() {
 	memset(notes, 0, sizeof(notes));
 }
 
+void MusicParser::stopMusicNotesNotInSlots(const bool activeSlots[8][4]) {
+	for (int channel = 0; channel < 8; channel++) {
+		for (int slot = 0; slot < 4; slot++) {
+			if (!notes[channel][slot] || activeSlots[channel][slot])
+				continue;
+
+			debugC(2, kDebugLevelMusic, "turning off orphaned note %d on channel %d slot %d",
+				   (uint)notes[channel][slot], channel + 2, slot);
+			if (_driver)
+				_driver->send((channel + 2) | kMidiNoteOff, notes[channel][slot], 0);
+			notes[channel][slot] = 0;
+		}
+	}
+}
+
 bool MusicParser::playSfxTune(const byte *data, uint32 size) {
 	Common::StackLock lock(_mutex);
 	enum {
@@ -621,15 +636,19 @@ MusicScript::MusicScript(const byte *data) : _code(data),
 											 _offset(2) {}
 
 enum {
+	kControl94 = 0x94,
+	kControl95 = 0x95,
 	kJump = 0x96,
+	kControl97 = 0x97,
 	kSetBeat = 0x9a,
 	kStop = 0x9b
 };
 
 void MusicScript::tick() {
-	// Bounded: only kJump continues the loop; every other opcode returns. A
-	// cyclic/self-referential jump (in malformed data) would otherwise spin
-	// forever on the MIDI timer thread. Cap the chain and bail to stopMusic.
+	// Bounded: jumps and control opcodes continue the loop; beat/stop opcodes
+	// return. A cyclic/self-referential jump (in malformed data) would
+	// otherwise spin forever on the MIDI timer thread. Cap the chain and bail
+	// to stopMusic.
 	for (int guard = 0; guard < 256; ++guard) {
 		switch (_code[_offset]) {
 
@@ -645,6 +664,29 @@ void MusicScript::tick() {
 			_offset = target;
 			break;
 		}
+
+		case kControl94:
+		case kControl95:
+			// Op_f4 @ 1000:57aa only seeds the resident music driver's script
+			// pointer and tune word; these control opcodes are consumed by that
+			// driver. They do not emit a beat directly, so continue to the next
+			// script command instead of treating valid shipped data as fatal.
+			debugC(2, kDebugLevelMusic,
+				   "will consume music script control 0x%02x at 0x%x args=%02x %02x %02x %02x %02x",
+				   (uint)_code[_offset], (uint)_offset,
+				   (uint)_code[_offset + 1], (uint)_code[_offset + 2],
+				   (uint)_code[_offset + 3], (uint)_code[_offset + 4],
+				   (uint)_code[_offset + 5]);
+			_offset += 6;
+			break;
+
+		case kControl97:
+			debugC(2, kDebugLevelMusic,
+				   "will consume music script control 0x97 at 0x%x args=%02x %02x %02x",
+				   (uint)_offset, (uint)_code[_offset + 1],
+				   (uint)_code[_offset + 2], (uint)_code[_offset + 3]);
+			_offset += 4;
+			break;
 
 		case kSetBeat:
 			debugC(2, kDebugLevelMusic, "will set beat to %d", _code[_offset + 1]);
@@ -743,6 +785,12 @@ void Tune::setBeat(uint16 index) {
 		Music.stopMusic();
 		return;
 	}
+	bool activeSlots[8][4];
+	memset(activeSlots, 0, sizeof(activeSlots));
+	for (int channel = 0; channel < 8; channel++)
+		for (int slot = 0; slot < 4; slot++)
+			activeSlots[channel][slot] = _beats[index].hasNoteSlot(channel, slot);
+	Music.stopMusicNotesNotInSlots(activeSlots);
 	_currentBeat = index;
 	_beats[_currentBeat].reset();
 	_beatticks = 0;
@@ -802,6 +850,10 @@ Beat::Beat(const byte *def, const byte *channels, const byte *tune) {
 		}
 }
 
+bool Beat::hasNoteSlot(byte channel, byte note) const {
+	return channel < 8 && _channels[channel].hasNoteSlot(note);
+}
+
 void Beat::reset(uint32 start) {
 	for (int i = 0; i < 8; i++)
 		_channels[i].reset();
@@ -832,6 +884,10 @@ Channel::Channel(const byte *def, const byte *tune, byte chanidx) {
 	_not_initialized = true;
 	_initnote = 0;
 	_chanidx = chanidx;
+}
+
+bool Channel::hasNoteSlot(byte index) const {
+	return _active && index < 4 && _notes[index].isActive();
 }
 
 void Channel::reset() {

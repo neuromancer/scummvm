@@ -67,6 +67,7 @@ public:
 	void tick(byte channel);
 	byte note() const;
 	void setNote(byte n);
+	bool isActive() const { return _begin != 0; }
 
 private:
 	void checkDelta() const;
@@ -86,6 +87,7 @@ public:
 	uint32 delta() const;
 	void reset();
 	byte index() const { return _chanidx; }
+	bool hasNoteSlot(byte index) const;
 	void tick();
 
 private:
@@ -101,6 +103,7 @@ class Beat {
 public:
 	Beat();
 	Beat(const byte *def, const byte *channels, const byte *tune);
+	bool hasNoteSlot(byte channel, byte note) const;
 	uint activeChannels() const {
 		uint n = 0;
 		for (int i = 0; i < 8; i++)
@@ -191,6 +194,7 @@ public:
 	bool isSfxNotePlaying() const { return _sfxTunePlaying; }
 
 	friend class Note;
+	friend class Tune;
 	friend class MusicCommand;
 
 private:
@@ -210,6 +214,7 @@ private:
 	};
 
 	void parseNextEvent(EventInfo &info) override {}
+	void stopMusicNotesNotInSlots(const bool activeSlots[8][4]);
 	bool setSfxBeat(uint16 beat);
 	void tickSfxTune();
 	void tickSfxNote(SfxNote &note, uint8 channel);
