@@ -271,6 +271,10 @@ enum {
 	kHangNote = 0xfe
 };
 
+static uint8 clampMidiControllerValue(uint8 value) {
+	return MIN<uint8>(value, 127);
+}
+
 void MusicParser::silence() {
 	debugC(2, kDebugLevelMusic, "turning off all notes");
 	if (!_driver) {
@@ -520,7 +524,7 @@ void MusicParser::execSfxCommand(uint8 command, uint8 parameter, uint8 channel, 
 		if (_musicType == MT_ADLIB)
 			_driver->send(channel | kMidiChannelControl, MidiDriver::MIDI_CONTROLLER_VOLUME, parameter / 2);
 		else
-			_driver->send(channel | kMidiChannelControl, kMidiCtrlExpression, parameter / 2);
+			_driver->send(channel | kMidiChannelControl, kMidiCtrlExpression, clampMidiControllerValue(parameter));
 		break;
 	case kCmdNoteOff:
 		if (note && note->playing && note->note != 0)
@@ -969,11 +973,16 @@ void MusicCommand::exec(byte channel, Note *note) {
 		break;
 
 	case kSetExpression:
-		debugC(2, kDebugLevelMusic, "set expression on channel %d to %d", channel, _parameter);
-		if (Music._musicType == MT_ADLIB)
+		if (Music._musicType == MT_ADLIB) {
+			debugC(2, kDebugLevelMusic, "set expression on channel %d to %d (AdLib volume %d)",
+				   channel, _parameter, _parameter / 2);
 			Music._driver->send(channel | kMidiChannelControl, MidiDriver::MIDI_CONTROLLER_VOLUME, _parameter / 2);
-		else
-			Music._driver->send(channel | kMidiChannelControl, kMidiCtrlExpression, _parameter / 2);
+		} else {
+			const uint8 value = clampMidiControllerValue(_parameter);
+			debugC(2, kDebugLevelMusic, "set expression on channel %d to %d (MIDI expression %d)",
+				   channel, _parameter, value);
+			Music._driver->send(channel | kMidiChannelControl, kMidiCtrlExpression, value);
+		}
 		break;
 
 	case kCmdNoteOff:
