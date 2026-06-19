@@ -1306,6 +1306,7 @@ private:
 					   roomActive(true), noStep(false), actorFrameCount(0), drawCommandCount(0),
 					   postMoveTargetFrameMirror(0), escBreakProc(0), escBreakSrcPC(0), escBreakPending(false),
 					   nextRoom(0), forceRoomRestart(false), uiTextSpeechSlot(0xffff),
+					   dialogCursor0(0), dialogCursor1(0), dialogClickGate(0),
 					   inStatusMode(false), enteringStatusScreen(false), stepPending(false),
 					   logicDirty(false), autoCloseTimer(0) {}
 		bool valid;
@@ -1338,6 +1339,9 @@ private:
 		uint16 actorFrameCount;
 		Common::Array<OverlayEntry> overlayQueue;
 		Common::Array<AnimListEntry> animList;
+		uint16 dialogCursor0;
+		uint16 dialogCursor1;
+		uint16 dialogClickGate;
 		Common::Array<DrawCommand> drawCommands;
 		Common::Array<uint16> visibleNoSpriteExits;
 		uint16 drawCommandCount;

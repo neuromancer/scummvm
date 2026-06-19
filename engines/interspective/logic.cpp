@@ -1826,6 +1826,9 @@ void Logic::captureRoomStateForStatusSave(RoomBackup &dst) const {
 	dst.actorFrameCount = _actorFrameCount;
 	dst.overlayQueue = _overlayQueue;
 	dst.animList = _animList;
+	dst.dialogCursor0 = _dialogCursor0;
+	dst.dialogCursor1 = _dialogCursor1;
+	dst.dialogClickGate = _dialogClickGate;
 	dst.drawCommands = _drawCommands;
 	dst.visibleNoSpriteExits = _visibleNoSpriteExits;
 	dst.drawCommandCount = _drawCommandCount;
@@ -1880,6 +1883,9 @@ void Logic::applyRoomStateForStatusSave(const RoomBackup &src) {
 	_actorFrameCount = src.actorFrameCount;
 	_overlayQueue = src.overlayQueue;
 	_animList = src.animList;
+	_dialogCursor0 = src.dialogCursor0;
+	_dialogCursor1 = src.dialogCursor1;
+	_dialogClickGate = src.dialogClickGate;
 	_drawCommands = src.drawCommands;
 	_visibleNoSpriteExits = src.visibleNoSpriteExits;
 	_drawCommandCount = src.drawCommandCount;
@@ -2026,6 +2032,9 @@ void Logic::restoreRoomFromBackup() {
 		_actorFrameCount = _roomBackup.actorFrameCount;
 		_overlayQueue = _roomBackup.overlayQueue;
 		_animList = _roomBackup.animList;
+		_dialogCursor0 = _roomBackup.dialogCursor0;
+		_dialogCursor1 = _roomBackup.dialogCursor1;
+		_dialogClickGate = _roomBackup.dialogClickGate;
 		_drawCommands = _roomBackup.drawCommands;
 		_visibleNoSpriteExits = _roomBackup.visibleNoSpriteExits;
 		_drawCommandCount = _roomBackup.drawCommandCount;
@@ -3592,11 +3601,27 @@ void Logic::synchronize(Common::Serializer &s) {
 		if (currentRoom != 0 && currentRoom != 0xffff)
 			changeRoom(currentRoom);
 
+		const uint16 rebuiltDialogCursor0 = _dialogCursor0;
+		const uint16 rebuiltDialogCursor1 = _dialogCursor1;
+		const uint16 rebuiltDialogClickGate = _dialogClickGate;
+
 		// Room-entry scripts rebuild transient cast/animation/minimap state
 		// from the restored persistent maps. Reapply serialized scalar and
 		// actor-frame state afterwards because doChangeRoom() resets the same
 		// DOS globals while entering the room.
 		applyLoadedScalarState();
+		if (_dialogClickGate == 0 && rebuiltDialogClickGate != 0) {
+			// Saves made via the status screen before RoomBackup carried these
+			// fields could store the gameplay room with the status screen's
+			// zeroed minimap gate. Keep the room-entry rebuilt gate so loading
+			// an existing save matches the state reached after a room restart.
+			_dialogCursor0 = rebuiltDialogCursor0;
+			_dialogCursor1 = rebuiltDialogCursor1;
+			_dialogClickGate = rebuiltDialogClickGate;
+			debugC(2, kDebugLevelFlow,
+				   "restore kept rebuilt minimap gate=%u at (%u,%u)",
+				   _dialogClickGate, _dialogCursor0, _dialogCursor1);
+		}
 		_actorFrameZero = loadedActorFrameZero;
 		_actorFrameTable = loadedActorFrameTable;
 		_actorFrameCount = MIN<uint16>(loadedActorFrameCount, uint16(_actorFrameTable.size()));
