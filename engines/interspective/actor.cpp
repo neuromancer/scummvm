@@ -473,30 +473,44 @@ void Actor::updateZoneAtPoint() {
 		return;
 
 	uint8 bl = 0;
+	int matchedCollisionZone = -1;
 	const Common::Array<Logic::CollisionZone> &collisionZones = Log.collisionZones();
 	for (uint i = 0; i < collisionZones.size(); ++i) {
 		const Logic::CollisionZone &z = collisionZones[i];
 		if (!zoneContainsPoint(z.a, z.b, z.c, z.d, _position))
 			continue;
 		bl = uint8(uint16(z.slot) & 0xff);
+		matchedCollisionZone = int(i);
 		break;
 	}
 
 	uint8 bh = 0;
+	int matchedZoneB = -1;
 	const Common::Array<Logic::ZoneB> &zonesB = Log.zonesB();
 	for (uint i = 0; i < zonesB.size(); ++i) {
 		const Logic::ZoneB &z = zonesB[i];
 		if (!zoneContainsPoint(z.a, z.b, z.c, z.d, _position))
 			continue;
 		bh = uint8(z.var & 0xff);
+		matchedZoneB = int(i);
 		break;
 	}
 
+	const uint8 previousLayer = recordDrawLayer();
+	const uint8 previousSecondaryZone = recordByte(kOffsetSecondaryZone);
 	setSecondaryZone(bh);
 	if (!autoZoneLayerEnabled())
 		bl = recordDrawLayer();
 	setRecordDrawLayer(bl);
 	_zIndex = int8(bl);
+	if (previousLayer != bl || previousSecondaryZone != bh) {
+		debugC(4, kDebugLevelActor | kDebugLevelGraphics,
+			   "DOS UpdateActorAnimation/FindZoneAtPoint: actor %u pos=(%d,%d) frame=%u "
+			   "autoZone=%u layer %d->%d secondary %u->%u zoneA=%d zoneB=%d",
+			   _id, _position.x, _position.y, _frame,
+			   autoZoneLayerEnabled() ? 1 : 0, int8(previousLayer), int8(bl),
+			   previousSecondaryZone, bh, matchedCollisionZone, matchedZoneB);
+	}
 }
 
 void Actor::callMe(const CodePointer &code) {
@@ -675,6 +689,19 @@ void Actor::setFrame(uint16 frame) {
 	Frame f(Log.room()->getFrame(frame));
 	setRawPosition(f.position());
 	debugC(5, kDebugLevelActor, "actor set to frame %d, position %d:%d", f.index(), _position.x, _position.y);
+}
+
+uint16 Actor::drawModeForLayer(int16 layer) const {
+	// DOS CollectActorAnimSlots @ 1000:6568..6579 builds the BX passed to
+	// BlitSpriteToScreen: BL is the current layer pass, BH is field+0x13.
+	// Field +0x15 can clear BH, and field +0x14 can clear BL.
+	uint8 bl = uint8(layer < 0 ? 0xff : layer);
+	uint8 bh = recordByte(kOffsetSecondaryZone);
+	if (recordByte(kOffsetFlag15) == 0)
+		bh = 0;
+	if (recordByte(kOffsetFlag14) == 0)
+		bl = 0;
+	return uint16(bl) | (uint16(bh) << 8);
 }
 
 Common::List<Actor::Frame> Actor::findPath(Actor::Frame from, uint16 to) {
@@ -1379,33 +1406,26 @@ Common::Point Actor::getSpeechPosition() const {
 	return speechPosition;
 }
 
-static bool actorMainSpriteVisibleDimensions(const Interspective::Sprite *sprite, Common::Point pos, uint16 screenHeight, uint8 &width, uint8 &height) {
-	if (!sprite)
-		return false;
-
-	const int32 screenX = int32(pos.x) - int32(Log.cameraX());
-	const int32 screenY = int32(pos.y) - int32(Log.cameraY());
-	const int32 left = screenX - int32(sprite->_hotPoint.x);
-	const int32 top = screenY - int32(sprite->h) + int32(sprite->_hotPoint.y);
-	const int32 right = left + int32(sprite->w);
-	const int32 bottom = top + int32(sprite->h);
-
-	const int32 clippedLeft = left < 0 ? 0 : left;
-	const int32 clippedTop = top < 0 ? 0 : top;
-	const int32 clippedRight = right > 320 ? 320 : right;
-	const int32 clippedBottom = bottom > int32(screenHeight) ? int32(screenHeight) : bottom;
-
-	if (clippedRight <= clippedLeft || clippedBottom <= clippedTop)
-		return false;
-
-	const int32 clippedWidth = clippedRight - clippedLeft;
-	const int32 clippedHeight = clippedBottom - clippedTop;
-	width = uint8(clippedWidth > 0xff ? 0xff : clippedWidth);
-	height = uint8(clippedHeight > 0xff ? 0xff : clippedHeight);
-	return true;
+void Actor::paint(Graphics *g) {
+	paint(g, 0);
 }
 
-void Actor::paint(Graphics *g) {
+static void paintActorMoveSlotWithDrawMode(Graphics *g, Resources *resources, const Actor::MoveSlot &slot,
+										   const Common::Point &base, uint16 drawMode) {
+	if (slot.a == 0xffff)
+		return;
+
+	Common::Point pos;
+	if (slot.mode == 0)
+		pos = Common::Point(int16(slot.b), int16(slot.c));
+	else
+		pos = Common::Point(base.x + int16(slot.b), base.y + int16(slot.c));
+
+	Common::SharedPtr<Interspective::Sprite> sprite(resources->loadSprite(slot.a));
+	g->paintLayerScaledSprite(sprite.get(), pos, drawMode, Graphics::kPaintCameraRelative);
+}
+
+void Actor::paint(Graphics *g, uint16 drawMode) {
 	if (_room != Log.currentRoom())
 		return;
 	if (!_base)
@@ -1413,19 +1433,20 @@ void Actor::paint(Graphics *g) {
 	if (!hasMainSpriteForDraw())
 		return;
 
-	Animation::paint(g);
+	Common::Rect drawn = g->paintLayerScaledSprite(_mainSprite.get(), _position, drawMode, Graphics::kPaintCameraRelative);
+
+	paintAnimationMoveSlots(g);
 
 	for (uint i = 0; i < _moveSlots.size(); ++i) {
 		const MoveSlot &slot = _moveSlots[i];
-		paintMoveSlot(g, slot.a, slot.b, slot.c, slot.mode, _position);
+		paintActorMoveSlotWithDrawMode(g, _resources, slot, _position, drawMode);
 	}
 
-	uint8 width = 0;
-	uint8 height = 0;
-	if (actorMainSpriteVisibleDimensions(_mainSprite.get(), _position, g->screenHeight(), width, height)) {
+	if (!drawn.isEmpty()) {
 		// DOS DrawActorAnimSlot @ 1000:6633 / 1000:663b copies g_blit_last_w/h
 		// into actor fields +0x17/+0x18 after drawing the main sprite.
-		setVisibleDimensions(width, height);
+		setVisibleDimensions(uint8(MIN<int>(drawn.width(), 255)),
+							 uint8(MIN<int>(drawn.height(), 255)));
 	}
 }
 

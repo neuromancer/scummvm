@@ -155,6 +155,10 @@ public:
 		paint(sprite, Common::Point(left, top), dest, flags);
 	}
 	void paint(const Sprite *sprite, Common::Point pos, Surface *s, int flags = kPaintNormal) const;
+	Common::Rect paintLayerScaledSprite(const Sprite *sprite, Common::Point pos, uint16 drawMode, int flags = kPaintNormal) const {
+		return paintLayerScaledSprite(sprite, pos, drawMode, _framebuffer.get(), flags);
+	}
+	Common::Rect paintLayerScaledSprite(const Sprite *sprite, Common::Point pos, uint16 drawMode, Surface *dest, int flags = kPaintNormal) const;
 
 	Common::Point cursorPosition() const;
 	void setCursorPosition(Common::Point pos);

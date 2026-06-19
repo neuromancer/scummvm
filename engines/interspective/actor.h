@@ -339,6 +339,7 @@ public:
 
 	Animation::Status tick();
 	void paint(Graphics *g);
+	void paint(Graphics *g, uint16 drawMode);
 	void paintSpeech(Graphics *g);
 	void synchronize(Common::Serializer &s);
 	void syncWaitCallbacks(Common::Serializer &s);
@@ -348,6 +349,7 @@ public:
 	void setPuppeteer(const Puppeteer &p) { _puppeteer = p; }
 	uint8 visibleSpriteWidth() const { return recordByte(kOffsetVisibleSpriteWidth); }
 	uint8 visibleSpriteHeight() const { return recordByte(kOffsetVisibleSpriteHeight); }
+	uint16 drawModeForLayer(int16 layer) const;
 	uint8 speechColor() const { return recordByte(kOffsetSpeechColor); }
 	bool movementWaitActive() const { return recordByte(kOffsetMovementWaitActive) != 0; }
 	void setMovementWaitActive(bool active) { setRecordByte(kOffsetMovementWaitActive, active ? 1 : 0); }

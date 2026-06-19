@@ -312,6 +312,10 @@ static void paintDrawCommand(Graphics *graphics, Logic *logic, const Logic::Draw
 		if (logic->recordField(1, cmd.id, 0, 2) == logic->currentRoom() && logic->cellBit(cmd.id, 0)) {
 			const uint16 spriteId = recordWord(logic, 1, cmd.id, 6);
 			Common::ScopedPtr<Sprite> sprite(logic->engine()->resources()->loadSprite(spriteId));
+			debugC(5, kDebugLevelGraphics,
+				   "DOS DrawObjectsAtActorY: draw exit %u sprite=%u layer=%d pos=(%d,%d)",
+				   cmd.id, spriteId, normalizeLayer(cmd.layer),
+				   int16(recordWord(logic, 1, cmd.id, 2)), int16(recordWord(logic, 1, cmd.id, 4)));
 			graphics->paint(sprite.get(), Common::Point(int16(recordWord(logic, 1, cmd.id, 2)), int16(recordWord(logic, 1, cmd.id, 4))),
 							Graphics::kPaintCameraRelative);
 		}
@@ -326,6 +330,10 @@ static void paintDrawCommand(Graphics *graphics, Logic *logic, const Logic::Draw
 		return;
 
 	Common::ScopedPtr<Sprite> sprite(logic->engine()->resources()->loadSprite(spriteId));
+	debugC(5, kDebugLevelGraphics,
+		   "DOS DrawObjectsAtActorY: draw object %u sprite=%u layer=%d pos=(%d,%d)",
+		   cmd.id, spriteId, normalizeLayer(cmd.layer),
+		   logic->getObjectPosX(cmd.id), logic->getObjectPosY(cmd.id));
 	graphics->paint(sprite.get(), Common::Point(logic->getObjectPosX(cmd.id), logic->getObjectPosY(cmd.id)),
 					Graphics::kPaintCameraRelative);
 	logic->setObjectField(cmd.id, 0x10, uint8(MIN<int>(sprite->w, 255)));
@@ -379,12 +387,23 @@ static void paintActorAnimationsForLayer(Graphics *graphics, Logic *logic, const
 			continue;
 		if (!anim->hasMainSpriteForDraw())
 			continue;
+		debugC(5, kDebugLevelActor | kDebugLevelGraphics,
+			   "DOS CollectActorAnimSlots: actor %u layer=%d drawY=%d frame=%u pos=(%d,%d)",
+			   logic->actorGlobalId(actor), layer, anim->drawY(), actor->frameId(),
+			   actor->position().x, actor->position().y);
 		entries.push_back(ActorDrawEntry(anim, anim->drawY(), order));
 	}
 
 	Common::sort(entries.begin(), entries.end(), ActorDrawEntryLess());
-	for (uint i = 0; i < entries.size(); ++i)
-		entries[i].anim->paint(graphics);
+	for (uint i = 0; i < entries.size(); ++i) {
+		Actor *actor = static_cast<Actor *>(entries[i].anim);
+		const uint16 drawMode = actor->drawModeForLayer(layer);
+		debugC(5, kDebugLevelActor | kDebugLevelGraphics,
+			   "DOS DrawActorAnimSlot: actor %u layer=%d sortedY=%d frame=%u pos=(%d,%d) mode=0x%04x",
+			   logic->actorGlobalId(actor), layer, entries[i].y, actor->frameId(),
+			   actor->position().x, actor->position().y, drawMode);
+		actor->paint(graphics, drawMode);
+	}
 }
 
 void Graphics::loadInterface() {
@@ -2399,6 +2418,133 @@ void Graphics::paint(const Sprite *sprite, Common::Point pos, Surface *dest, int
 	if (dest == _framebuffer.get() && !(flags & kPaintNoDirty))
 		markDirtyRect(r);
 	dest->blit(sprite, r, srcOffset, 0, (flags & kPaintSemiTransparent) ? &_tintedPalette : 0);
+}
+
+Common::Rect Graphics::paintLayerScaledSprite(const Sprite *sprite, Common::Point pos, uint16 drawMode, Surface *dest, int flags) const {
+	if (drawMode == 0) {
+		paint(sprite, pos, dest, flags);
+		if (flags & kPaintCameraRelative) {
+			const Logic *logic = _engine ? _engine->logic() : 0;
+			if (logic) {
+				pos.x = int16(pos.x - logic->cameraX());
+				pos.y = int16(pos.y - logic->cameraY());
+			}
+		}
+
+		Common::Rect r(sprite->w, sprite->h);
+		r.moveTo(pos);
+		if (!(flags & kPaintPositionIsTop))
+			r.translate(0, -sprite->h);
+		if (!(flags & kPaintIgnoreHotPoint))
+			r.translate(-sprite->_hotPoint.x, sprite->_hotPoint.y);
+		const int clipHeight = ((flags & kPaintCameraRelative) && dest == _framebuffer.get())
+								   ? MIN<int>(dest->h, screenHeight())
+								   : dest->h;
+		r.clip(dest->w, clipHeight);
+		return r;
+	}
+
+	debugC(4, kDebugLevelGraphics,
+		   "painting DOS layer-scaled sprite at %d:%d (+%d:%d) [%dx%d] mode=0x%04x",
+		   pos.x, pos.y, sprite->_hotPoint.x, sprite->_hotPoint.y, sprite->w, sprite->h, drawMode);
+
+	if (flags & kPaintCameraRelative) {
+		const Logic *logic = _engine ? _engine->logic() : 0;
+		if (logic) {
+			pos.x = int16(pos.x - logic->cameraX());
+			pos.y = int16(pos.y - logic->cameraY());
+		}
+	}
+
+	Common::Rect unscaled(sprite->w, sprite->h);
+	unscaled.moveTo(pos);
+	if (!(flags & kPaintPositionIsTop))
+		unscaled.translate(0, -sprite->h);
+	if (!(flags & kPaintIgnoreHotPoint))
+		unscaled.translate(-sprite->_hotPoint.x, sprite->_hotPoint.y);
+
+	static const byte kLayerScaleRows[9][16] = {
+		{ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 },
+		{ 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1 },
+		{ 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1 },
+		{ 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0 },
+		{ 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1 },
+		{ 1, 1, 1, 0, 1, 1, 0, 0, 1, 1, 1, 0, 1, 1, 0, 0 },
+		{ 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0 },
+		{ 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0 },
+		{ 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0 }
+	};
+	static const byte kLayerScaleCols[9][16] = {
+		{ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 },
+		{ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0 },
+		{ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0 },
+		{ 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1 },
+		{ 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1 },
+		{ 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0 },
+		{ 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0 },
+		{ 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1 },
+		{ 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1 }
+	};
+
+	const uint8 bl = uint8(drawMode & 0xff);
+	const uint8 bh = uint8(drawMode >> 8);
+	const uint pattern = bl < 4 ? 0 : MIN<uint>(bl - 3, 8);
+	const uint8 recolorOffset = uint8(bh << 4);
+
+	uint16 scaledWidth = 0;
+	for (int x = 0; x < sprite->w; ++x)
+		if (kLayerScaleCols[pattern][x & 0x0f])
+			++scaledWidth;
+
+	uint16 scaledHeight = 0;
+	for (int y = 0; y < sprite->h; ++y)
+		if (kLayerScaleRows[pattern][y & 0x0f])
+			++scaledHeight;
+
+	Common::Rect scaled(unscaled.left, unscaled.bottom - scaledHeight,
+						unscaled.left + scaledWidth, unscaled.bottom);
+	const int clipHeight = ((flags & kPaintCameraRelative) && dest == _framebuffer.get())
+							   ? MIN<int>(dest->h, screenHeight())
+							   : dest->h;
+	Common::Rect clipped = scaled;
+	clipped.clip(dest->w, clipHeight);
+	if (clipped.isEmpty())
+		return clipped;
+
+	if (dest == _framebuffer.get() && !(flags & kPaintNoDirty))
+		markDirtyRect(clipped);
+
+	byte *destPixels = reinterpret_cast<byte *>(dest->getPixels());
+	const byte *srcPixels = reinterpret_cast<const byte *>(sprite->getPixels());
+	int destY = scaled.bottom - 1;
+	for (int srcY = sprite->h - 1, rowPattern = 0; srcY >= 0; --srcY, rowPattern = (rowPattern + 1) & 0x0f) {
+		if (!kLayerScaleRows[pattern][rowPattern])
+			continue;
+
+		int destX = scaled.left;
+		const byte *src = srcPixels + srcY * sprite->pitch;
+		byte *dst = (destY >= clipped.top && destY < clipped.bottom) ? destPixels + destY * dest->pitch : 0;
+		for (int srcX = 0, colPattern = 0; srcX < sprite->w; ++srcX, colPattern = (colPattern + 1) & 0x0f) {
+			if (!kLayerScaleCols[pattern][colPattern])
+				continue;
+
+			if (dst && destX >= clipped.left && destX < clipped.right) {
+				byte color = src[srcX];
+				if (color != 0) {
+					if (recolorOffset != 0 && (color & 0x0f) != 0) {
+						color = uint8(color - recolorOffset);
+						if (color < 0xa0)
+							color = 0xae;
+					}
+					dst[destX] = color;
+				}
+			}
+			++destX;
+		}
+		--destY;
+	}
+
+	return clipped;
 }
 
 Common::Point Graphics::cursorPosition() const {
