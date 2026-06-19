@@ -2642,10 +2642,11 @@ OPCODE(0xc7) {
 	byte *movieName = static_cast<byte *>(a[0]);
 	debugC(2, kDebugLevelScript, "opcode 0xc7: play movie %s with slowness %u",
 		   movieName ? reinterpret_cast<char *>(movieName) : "(null)", frameDelay);
-	Movie *m = Movie::fromFile(reinterpret_cast<char *>(movieName));
-	m->setFrameDelay(frameDelay);
-	m->play();
-	delete m;
+	Common::ScopedPtr<Movie> movie = Movie::fromFile(reinterpret_cast<char *>(movieName));
+	if (movie) {
+		movie->setFrameDelay(frameDelay);
+		movie->play();
+	}
 	Log.resetMovieGraphicSlots();
 	if (_graphics) {
 		_graphics->clearFramebuffer();

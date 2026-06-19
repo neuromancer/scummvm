@@ -22,6 +22,7 @@
 #ifndef INTERSPECTIVE_MOVIE_H
 #define INTERSPECTIVE_MOVIE_H
 
+#include "common/ptr.h"
 #include "common/stream.h"
 
 #include "interspective/resources.h"
@@ -31,7 +32,7 @@ namespace Interspective {
 class Movie {
 public:
 	virtual ~Movie();
-	static Movie *fromFile(const char *name);
+	static Common::ScopedPtr<Movie> fromFile(const char *name);
 	void setFrameDelay(uint delay);
 	bool play();
 
@@ -45,17 +46,17 @@ protected:
 
 private:
 	Movie();
-	Movie(Common::ReadStream *);
+	Movie(Common::ScopedPtr<Common::ReadStream> stream);
 	Movie(const Movie &);
 	Movie &operator=(const Movie &);
 
 	bool findKeyFrame();
-	void loadKeyFrame();
-	void loadIFrame();
+	bool loadKeyFrame();
+	bool loadIFrame();
 
 	int _delay;
 	int _iFrames;
-	Common::ReadStream *_f;
+	Common::ScopedPtr<Common::ReadStream> _f;
 };
 
 } // End of namespace Interspective

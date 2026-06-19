@@ -23,6 +23,7 @@
 
 #include "common/file.h"
 #include "common/system.h"
+#include "common/util.h"
 
 #include "interspective/debug.h"
 #include "interspective/graphics.h"
@@ -33,28 +34,41 @@
 namespace Interspective {
 //
 
-Movie *Movie::fromFile(const char *name) {
-	Common::File *f = new Common::File;
-	f->open(name);
-	return new Movie(f);
+Common::ScopedPtr<Movie> Movie::fromFile(const char *name) {
+	if (!name || !*name) {
+		debugC(1, kDebugLevelGraphics, "movie open skipped: empty filename");
+		return Common::ScopedPtr<Movie>();
+	}
+
+	Common::ScopedPtr<Common::File> file(new Common::File);
+	if (!file->open(name)) {
+		debugC(1, kDebugLevelGraphics, "movie open failed: %s", name);
+		return Common::ScopedPtr<Movie>();
+	}
+
+	Common::ScopedPtr<Common::ReadStream> stream(file.release());
+	return Common::ScopedPtr<Movie>(new Movie(Common::move(stream)));
 }
 
-Movie::Movie(Common::ReadStream *s) : _delay(0), _iFrames(0), _f(s) {}
+Movie::Movie(Common::ScopedPtr<Common::ReadStream> stream)
+	: _delay(0), _iFrames(0), _f(Common::move(stream)) {}
 
-Movie::~Movie() {
-	delete _f;
-}
+Movie::~Movie() {}
 
 void Movie::setFrameDelay(uint jiffies) {
 	_delay = jiffies;
 }
 
 bool Movie::play() {
+	if (!_f)
+		return false;
+
 	_s.create(320, 200);
 
 	debugC(4, kDebugLevelGraphics, "creating movie");
 	while (findKeyFrame()) {
-		loadKeyFrame();
+		if (!loadKeyFrame())
+			return false;
 
 		setPalette();
 		showFrame();
@@ -69,7 +83,8 @@ bool Movie::play() {
 				debugC(2, kDebugLevelGraphics, "movie interrupted by quit");
 				return false;
 			}
-			loadIFrame();
+			if (!loadIFrame())
+				return false;
 			showFrame();
 			delay();
 		}
@@ -78,34 +93,50 @@ bool Movie::play() {
 }
 
 bool Movie::findKeyFrame() {
+	if (!_f || _f->eos() || _f->err())
+		return false;
+
 	(void)_f->readUint32LE(); // size of block, we don't want that
 	_iFrames = _f->readUint16LE();
-	return !_f->eos();
+	return !_f->eos() && !_f->err();
 }
 
-void Movie::loadKeyFrame() {
+bool Movie::loadKeyFrame() {
 	(void)_f->readUint16LE(); // no idea what that is
 
 	uint16 w;
 	uint16 h;
 	w = _f->readUint16LE();
 	h = _f->readUint16LE();
-	assert(w == 320 && h == 200);
+	if (w != 320 || h != 200) {
+		debugC(1, kDebugLevelGraphics, "movie key frame has invalid size %ux%u", w, h);
+		return false;
+	}
 
-	Resources::decodeImage(_f, reinterpret_cast<byte *>(_s.getPixels()), w * h);
+	Resources::decodeImage(_f.get(), reinterpret_cast<byte *>(_s.getPixels()), w * h);
 
 	(void)_f->readByte();
-	Resources::readPalette(_f, _pal);
+	Resources::readPalette(_f.get(), _pal);
+	if (_f->eos() || _f->err()) {
+		debugC(1, kDebugLevelGraphics, "movie key frame read failed");
+		return false;
+	}
+
 	_iFrames--;
+	return true;
 }
 
-void Movie::loadIFrame() {
+bool Movie::loadIFrame() {
 	(void)_f->readUint16LE();
 
 	byte skipB;
 	byte skipW;
 	skipB = _f->readByte();
 	skipW = _f->readByte();
+	if (_f->eos() || _f->err()) {
+		debugC(1, kDebugLevelGraphics, "movie inter frame header read failed");
+		return false;
+	}
 
 	assert(_s.pitch == 320);
 
@@ -114,16 +145,43 @@ void Movie::loadIFrame() {
 
 	while (left) {
 		byte b = _f->readByte();
+		if (_f->eos() || _f->err()) {
+			debugC(1, kDebugLevelGraphics, "movie inter frame read failed");
+			return false;
+		}
 
-		uint16 s;
-		if (b == skipB && (s = _f->readByte())) {
-			dest += s;
-			left -= s;
-			continue;
-		} else if (b == skipW && (s = _f->readUint16LE())) {
-			dest += s;
-			left -= s;
-			continue;
+		if (b == skipB) {
+			const uint16 skip = _f->readByte();
+			if (_f->eos() || _f->err()) {
+				debugC(1, kDebugLevelGraphics, "movie byte skip read failed");
+				return false;
+			}
+			if (skip != 0) {
+				if (skip > left) {
+					debugC(1, kDebugLevelGraphics, "movie byte skip overruns frame (%u > %d)", skip, left);
+					return false;
+				}
+				dest += skip;
+				left -= skip;
+				continue;
+			}
+		}
+
+		if (b == skipW) {
+			const uint16 skip = _f->readUint16LE();
+			if (_f->eos() || _f->err()) {
+				debugC(1, kDebugLevelGraphics, "movie word skip read failed");
+				return false;
+			}
+			if (skip != 0) {
+				if (skip > left) {
+					debugC(1, kDebugLevelGraphics, "movie word skip overruns frame (%u > %d)", skip, left);
+					return false;
+				}
+				dest += skip;
+				left -= skip;
+				continue;
+			}
 		}
 
 		*dest++ = b;
@@ -131,6 +189,7 @@ void Movie::loadIFrame() {
 	}
 
 	_iFrames--;
+	return true;
 }
 
 void Movie::showFrame() {
