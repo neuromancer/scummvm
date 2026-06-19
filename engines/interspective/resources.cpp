@@ -84,6 +84,15 @@ void Surface::blit(const Surface *s, Common::Rect r, Common::Point srcOffset, in
 	int rw = r.width();
 	int rh = r.height();
 
+	if (!tinted && s != this) {
+		const Common::Rect srcRect(srcOffset.x, srcOffset.y, srcOffset.x + rw, srcOffset.y + rh);
+		if (transparent == -1)
+			copyRectToSurface(*s, r.left, r.top, srcRect);
+		else
+			copyRectToSurfaceWithKey(*s, r.left, r.top, srcRect, transparent);
+		return;
+	}
+
 	if (transparent == -1 && !tinted) {
 		if (rw == s->pitch && rw == pitch && r.left == 0 && srcOffset.x == 0)
 			memmove(dest, src, rw * rh);
@@ -93,17 +102,19 @@ void Surface::blit(const Surface *s, Common::Rect r, Common::Point srcOffset, in
 				dest += pitch;
 				src += s->pitch;
 			}
-	} else
-		for (int y = 0; y < rh; ++y) {
-			for (int x = 0; x < rw; ++x) {
-				if (tinted && src[x] == kSemitransparent)
-					dest[x] = (*tinted)[dest[x]];
-				else if (src[x] != transparent)
-					dest[x] = src[x];
-			}
-			src += s->pitch;
-			dest += pitch;
+		return;
+	}
+
+	for (int y = 0; y < rh; ++y) {
+		for (int x = 0; x < rw; ++x) {
+			if (tinted && src[x] == kSemitransparent)
+				dest[x] = (*tinted)[dest[x]];
+			else if (src[x] != transparent)
+				dest[x] = src[x];
 		}
+		src += s->pitch;
+		dest += pitch;
+	}
 }
 
 void Resources::setEngine(Engine *vm) {
