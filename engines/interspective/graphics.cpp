@@ -2514,35 +2514,40 @@ Common::Rect Graphics::paintLayerScaledSprite(const Sprite *sprite, Common::Poin
 	if (dest == _framebuffer.get() && !(flags & kPaintNoDirty))
 		markDirtyRect(clipped);
 
-	byte *destPixels = reinterpret_cast<byte *>(dest->getPixels());
+	Surface transformed;
+	transformed.create(scaledWidth, scaledHeight);
+	transformed.fillRect(Common::Rect(0, 0, scaledWidth, scaledHeight), 0);
+
 	const byte *srcPixels = reinterpret_cast<const byte *>(sprite->getPixels());
-	int destY = scaled.bottom - 1;
+	int transformedY = scaledHeight - 1;
 	for (int srcY = sprite->h - 1, rowPattern = 0; srcY >= 0; --srcY, rowPattern = (rowPattern + 1) & 0x0f) {
 		if (!kLayerScaleRows[pattern][rowPattern])
 			continue;
 
-		int destX = scaled.left;
+		int transformedX = 0;
 		const byte *src = srcPixels + srcY * sprite->pitch;
-		byte *dst = (destY >= clipped.top && destY < clipped.bottom) ? destPixels + destY * dest->pitch : 0;
+		byte *dst = reinterpret_cast<byte *>(transformed.getBasePtr(0, transformedY));
 		for (int srcX = 0, colPattern = 0; srcX < sprite->w; ++srcX, colPattern = (colPattern + 1) & 0x0f) {
 			if (!kLayerScaleCols[pattern][colPattern])
 				continue;
 
-			if (dst && destX >= clipped.left && destX < clipped.right) {
-				byte color = src[srcX];
-				if (color != 0) {
-					if (recolorOffset != 0 && (color & 0x0f) != 0) {
-						color = uint8(color - recolorOffset);
-						if (color < 0xa0)
-							color = 0xae;
-					}
-					dst[destX] = color;
+			byte color = src[srcX];
+			if (color != 0) {
+				if (recolorOffset != 0 && (color & 0x0f) != 0) {
+					color = uint8(color - recolorOffset);
+					if (color < 0xa0)
+						color = 0xae;
 				}
+				dst[transformedX] = color;
 			}
-			++destX;
+			++transformedX;
 		}
-		--destY;
+		--transformedY;
 	}
+
+	const Common::Rect transformedClip(clipped.left - scaled.left, clipped.top - scaled.top,
+									   clipped.right - scaled.left, clipped.bottom - scaled.top);
+	dest->copyRectToSurfaceWithKey(transformed, clipped.left, clipped.top, transformedClip, 0);
 
 	return clipped;
 }
