@@ -23,6 +23,7 @@
 
 #include "common/endian.h"
 #include "common/list.h"
+#include "common/str.h"
 #include "common/util.h"
 
 #include "interspective/debugger.h"
@@ -64,7 +65,7 @@ Interpreter::Interpreter(Logic *l, byte *base, const char *n) : _logic(l),
 																_base(base),
 																_roomLoop(0) {
 	init_opcodes<255>();
-	strncpy(_name, n, 100);
+	Common::strlcpy(_name, n ? n : "", sizeof(_name));
 	init();
 }
 
