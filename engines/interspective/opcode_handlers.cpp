@@ -228,16 +228,10 @@ static void setActorTargetMarker(Actor *actor) {
 	}
 }
 
-static bool sendActorToCurrentEntityCarryClear(Actor *protag) {
-	// SendActorToTarget @ 1000:7323 returns carry set for the normal
-	// protagonist path through MoveActorToTargetExit @ 1000:70da,
-	// including the "already at target frame" case. The visible carry-clear
-	// path in MoveProtagonistToEntity @ 1000:737e is the unplaced object
-	// sentinel (object room == 0xffff), which returns before starting a walk.
-	const bool unplacedObject = Log.gameState() == 2 && Log.getObjectRoom(Log.currentEntityId()) == 0xffff;
+static bool sendActorToCurrentEntityStartedWalk(Actor *protag) {
 	if (!Log.sendActorToCurrentEntity(protag))
 		return false;
-	return unplacedObject;
+	return protag && protag->isMoving();
 }
 
 static MainSpeechTargetResult speakAsMainAfterOptionalTargetWalk(Actor *protag,
@@ -245,8 +239,12 @@ static MainSpeechTargetResult speakAsMainAfterOptionalTargetWalk(Actor *protag,
 	if (Log.inStatusMode() || Log.hitTarget() != 0)
 		return kMainSpeechContinue;
 
-	const bool carryClear = sendActorToCurrentEntityCarryClear(protag);
-	if (!carryClear)
+	// DOS Op_3f calls SendActorToTarget and, when the approach walk is
+	// queued, allocates the protagonist speech slot inactive before arming
+	// callback 0x9be9. Re-running the opcode after the walk loses that
+	// dormant-slot behavior for look-at-pickable-object scripts.
+	const bool startedWalk = sendActorToCurrentEntityStartedWalk(protag);
+	if (!startedWalk)
 		return kMainSpeechContinue;
 
 	if (Log.gameState() == 2)
@@ -3385,7 +3383,7 @@ OPCODE(0x29) {
 		debugC(2, kDebugLevelScript,
 			   "opcode 0x29: walk current entity, then place protag room %s frame %s",
 			   +a[0], +a[1]);
-		if (sendActorToCurrentEntityCarryClear(Log.protagonist())) {
+		if (sendActorToCurrentEntityStartedWalk(Log.protagonist())) {
 			Log.setPostMoveCallback(
 				Logic::PostMoveCallback::kPlaceProtagonistAfterMove,
 				uint16(a[0]),
@@ -3402,7 +3400,7 @@ OPCODE(0x2a) {
 		debugC(2, kDebugLevelScript,
 			   "opcode 0x2a: walk current entity, then place protag room %s frame %s next %s",
 			   +a[0], +a[1], +a[2]);
-		if (sendActorToCurrentEntityCarryClear(Log.protagonist())) {
+		if (sendActorToCurrentEntityStartedWalk(Log.protagonist())) {
 			Log.setPostMoveCallback(
 				Logic::PostMoveCallback::kPlaceProtagonistAfterMove,
 				uint16(a[0]),
