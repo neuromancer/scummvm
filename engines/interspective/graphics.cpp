@@ -195,7 +195,8 @@ void Graphics::setEngine(Engine *engine) {
 	Common::fill(_conversationSavedPalette, _conversationSavedPalette + sizeof(_conversationSavedPalette), 0);
 	_conversationPaletteRestorePending = false;
 
-	_speech = 0;
+	_speechText.clear();
+	_speechActive = false;
 	_speechFramesLeft = 0;
 	_speechX = 0;
 	_speechY = 0;
@@ -939,10 +940,13 @@ void Graphics::paintSpeech() {
 	if (_engine->logic()->escBreakPending())
 		return;
 
-	if (_speech) {
+	if (_speechActive) {
+		bool decrementSpeechFrames = false;
+
 		if (!_speechFramesLeft) {
-			delete[] _speech;
-			_speech = 0;
+			_speechText.clear();
+			_speechActive = false;
+
 			CodePointer cb = _speechDoneCallback;
 			const uint16 cbMode = _speechDoneCallbackMode;
 			const bool cbHasMode = _speechDoneCallbackHasMode;
@@ -961,7 +965,8 @@ void Graphics::paintSpeech() {
 			// before the new one starts (matches DOS behaviour).
 			if (!_speechQueue.empty()) {
 				SpeechEntry next = _speechQueue.pop();
-				_speech = next.text;
+				_speechText = next.text;
+				_speechActive = true;
 				_speechFramesLeft = next.frames;
 				_speechX = next.x;
 				_speechY = next.y;
@@ -972,30 +977,27 @@ void Graphics::paintSpeech() {
 				_speechDoneCallback = next.cb;
 				_speechDoneCallbackMode = next.cbMode;
 				_speechDoneCallbackHasMode = next.cbHasMode;
-				if (_speechBubble) {
-					Sprite bubble;
-					bubble._hotPoint = Common::Point(0, 0);
-					Common::Rect rect = paintSpeechInBubble(Common::Point(_speechX, _speechY), _speechColor,
-															_speech, &bubble, _speechBubbleMode, true, _speechMaxLines);
-					paint(&bubble, Common::Point(rect.left, rect.top), kPaintSemiTransparent | kPaintPositionIsTop);
-				} else {
-					Common::Rect rect = paintText(_speechX, _speechY, _speechColor, _speech, _framebuffer.get(), 0, 0, kPaintNoDirty);
-					markDirtyRect(rect);
-				}
 			}
 		} else {
+			decrementSpeechFrames = true;
+		}
+
+		if (_speechActive) {
+			const byte *speech = reinterpret_cast<const byte *>(_speechText.c_str());
 			if (_speechBubble) {
 				Sprite bubble;
 				bubble._hotPoint = Common::Point(0, 0);
 				Common::Rect rect = paintSpeechInBubble(Common::Point(_speechX, _speechY), _speechColor,
-														_speech, &bubble, _speechBubbleMode, true, _speechMaxLines);
+														speech, &bubble, _speechBubbleMode, true, _speechMaxLines);
 				paint(&bubble, Common::Point(rect.left, rect.top), kPaintSemiTransparent | kPaintPositionIsTop);
 			} else {
-				Common::Rect rect = paintText(_speechX, _speechY, _speechColor, _speech, _framebuffer.get(), 0, 0, kPaintNoDirty);
+				Common::Rect rect = paintText(_speechX, _speechY, _speechColor, speech, _framebuffer.get(), 0, 0, kPaintNoDirty);
 				markDirtyRect(rect);
 			}
-			_speechFramesLeft--;
 		}
+
+		if (decrementSpeechFrames)
+			_speechFramesLeft--;
 	}
 
 	_engine->logic()->paintSpeechSlots(this);
@@ -3039,25 +3041,14 @@ static Common::Array<Common::String> paginateSpeechText(const byte *text, uint16
 	return pages;
 }
 
-static byte *copySpeechText(const Common::String &page) {
-	byte *buf = new byte[page.size() + 1];
-	memcpy(buf, page.c_str(), page.size());
-	buf[page.size()] = 0;
-	return buf;
-}
-
 void Graphics::sayAt(const byte *text, uint16 length, uint16 frames,
 					 uint16 x, uint16 y, byte color, uint16 maxLines,
 					 SpeechBubbleMode bubbleMode, bool forceBubble) {
-	// Callers pass `length = strlen(text)` (no NUL counted). paintText
-	// scans with `while ((ch = *string++))` and needs a NUL terminator,
-	// so over-allocate by 1 and write a sentinel. Without this, paintText
-	// reads past the end of the heap allocation.
 	Common::Array<Common::String> pages = paginateSpeechText(text, length, maxLines);
 	bool started = false;
 	for (uint i = 0; i < pages.size(); ++i) {
 		SpeechEntry e;
-		e.text = copySpeechText(pages[i]);
+		e.text = pages[i];
 		e.length = uint16(pages[i].size());
 		e.frames = frames;
 		e.x = x;
@@ -3067,17 +3058,17 @@ void Graphics::sayAt(const byte *text, uint16 length, uint16 frames,
 		e.bubble = forceBubble || maxLines != 0 || x != 0 || y != 0;
 		e.bubbleMode = bubbleMode;
 
-		if (_speech || i != 0) {
+		if (_speechActive || i != 0) {
 			// Queue this utterance to play after the current one (and any
-			// already-queued ones) finish. The text buffer is owned by the
-			// queue entry until paintSpeech promotes it into _speech.
+			// already-queued ones) finish.
 			_speechQueue.push(e);
 			debugC(2, kDebugLevelGraphics, "queued speech at %u,%u (queue size %u)",
 				   x, y, (uint)_speechQueue.size());
 			continue;
 		}
 
-		_speech = e.text;
+		_speechText = e.text;
+		_speechActive = true;
 		_speechFramesLeft = e.frames;
 		_speechX = e.x;
 		_speechY = e.y;
@@ -3093,8 +3084,8 @@ void Graphics::sayAt(const byte *text, uint16 length, uint16 frames,
 }
 
 void Graphics::clearSpeech() {
-	delete[] _speech;
-	_speech = 0;
+	_speechText.clear();
+	_speechActive = false;
 	_speechFramesLeft = 0;
 	_speechX = 0;
 	_speechY = 0;
@@ -3105,11 +3096,7 @@ void Graphics::clearSpeech() {
 	_speechDoneCallback.reset();
 	_speechDoneCallbackMode = 0;
 	_speechDoneCallbackHasMode = false;
-
-	while (!_speechQueue.empty()) {
-		SpeechEntry entry = _speechQueue.pop();
-		delete[] entry.text;
-	}
+	_speechQueue.clear();
 }
 
 void Graphics::runWhenSaid(const CodePointer &cb) {

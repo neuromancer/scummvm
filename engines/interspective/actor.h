@@ -25,6 +25,7 @@
 #include "common/array.h"
 #include "common/endian.h"
 #include "common/hashmap.h"
+#include "common/ptr.h"
 #include "common/queue.h"
 #include "common/rect.h"
 
@@ -136,7 +137,7 @@ public:
 
 	class Speech {
 	public:
-		Speech() : _pageIndex(0), _ticksLeft(0), _color(0), _image(0) {}
+		Speech() : _pageIndex(0), _ticksLeft(0), _color(0) {}
 		~Speech();
 		Speech(Actor *parent, const Common::String &text, uint16 maxLines);
 		// Variant for Op_40/0x42/0x44: use the target-speech paging mode
@@ -145,6 +146,7 @@ public:
 		bool active() const { return !_text.empty(); }
 		const Common::String &text() const { return _text; }
 		void callWhenDone(const CodePointer &cp);
+		void clear();
 		void paint(Graphics *g);
 		void tick();
 
@@ -166,7 +168,7 @@ public:
 		Common::Point _anchor;
 		byte _color;
 		Common::Rect _rect;
-		Interspective::Sprite *_image;
+		Common::ScopedPtr<Interspective::Sprite> _image;
 	};
 
 	friend class MainDat;

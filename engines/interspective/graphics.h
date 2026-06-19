@@ -108,7 +108,7 @@ public:
 			   uint16 x, uint16 y, byte color, uint16 maxLines = 0,
 			   SpeechBubbleMode bubbleMode = kSpeechBubbleType1,
 			   bool forceBubble = false);
-	bool isSaying() const { return _speech != 0 || !_speechQueue.empty(); }
+	bool isSaying() const { return _speechActive || !_speechQueue.empty(); }
 	void clearSpeech();
 	void runWhenSaid(const CodePointer &p);
 
@@ -273,10 +273,11 @@ private:
 	// CP437-encoded — see clampChar / translateExtendedLatin.
 	bool _extendedLatinFont;
 
-	// Active speech bubble. _speech is the text being painted; when
+	// Active speech bubble. _speechText is the text being painted; when
 	// _speechFramesLeft hits 0 the painter invokes _speechDoneCallback (if
 	// set), then pops the next entry from _speechQueue. The queue is FIFO.
-	byte *_speech;
+	Common::String _speechText;
+	bool _speechActive;
 	uint16 _speechFramesLeft;
 	uint16 _speechX; // current narrator-bubble position
 	uint16 _speechY;
@@ -288,10 +289,10 @@ private:
 	uint16 _speechDoneCallbackMode;
 	bool _speechDoneCallbackHasMode;
 	struct SpeechEntry {
-		SpeechEntry() : text(0), length(0), x(0), y(0), frames(0), color(235), maxLines(0),
+		SpeechEntry() : length(0), x(0), y(0), frames(0), color(235), maxLines(0),
 						bubble(false), bubbleMode(kSpeechBubbleType1),
 						cbMode(0), cbHasMode(false) {}
-		byte *text; // owned: caller transferred via say()
+		Common::String text;
 		uint16 length;
 		uint16 x; // top-left coords (Op_47/0x48 narrator pos)
 		uint16 y;

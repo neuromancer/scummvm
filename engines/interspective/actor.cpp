@@ -459,7 +459,7 @@ void Actor::synchronize(Common::Serializer &s) {
 	_debugInvalid = false;
 	_callBacks.clear();
 	_roomCallbacks.clear();
-	_speech = Speech();
+	_speech.clear();
 	syncWaitCallbacks(s);
 
 	switch (baseSource) {
@@ -692,7 +692,7 @@ const Common::String &Actor::speechText() const {
 
 void Actor::stopSpeaking() {
 	Log.clearSpeechForOwner(Log.actorGlobalId(this));
-	_speech = Speech();
+	_speech.clear();
 }
 
 void Actor::callMeWhenSilent(const CodePointer &cp) {
@@ -710,6 +710,18 @@ void Actor::sayAtPos(const Common::String &text, Common::Point pos, uint16 maxLi
 Actor::Speech::~Speech() {
 	// Destruction is used for ESC/room cleanup too; DOS ResetSpeechSlots
 	// drops pending speech callbacks instead of dispatching them.
+}
+
+void Actor::Speech::clear() {
+	_pages.clear();
+	_pageIndex = 0;
+	_text.clear();
+	_cb.clear();
+	_ticksLeft = 0;
+	_anchor = Common::Point();
+	_color = 0;
+	_rect = Common::Rect();
+	_image.reset();
 }
 
 bool Actor::scriptingWaitActive() const {
@@ -1376,8 +1388,7 @@ static Common::Array<Common::String> paginateSpeechText(const Common::String &te
 
 Actor::Speech::Speech(Actor *parent, const Common::String &text, uint16 maxLines)
 	: _pages(paginateSpeechText(text, maxLines)), _pageIndex(0),
-	  _anchor(parent->getSpeechPosition()), _color(parent->speechColor()),
-	  _image(0) {
+	  _anchor(parent->getSpeechPosition()), _color(parent->speechColor()) {
 	debugC(1, kDebugLevelActor, "adding speech \"%s\" (%u ticks) for %s at %d:%d",
 		   text.c_str(), (uint)speechTicksForText(_pages[0]), parent->_debugInfo, _anchor.x, _anchor.y);
 	startPage(0);
@@ -1385,8 +1396,7 @@ Actor::Speech::Speech(Actor *parent, const Common::String &text, uint16 maxLines
 
 Actor::Speech::Speech(Actor *parent, const Common::String &text, Common::Point overridePos, uint16 maxLines)
 	: _pages(paginateSpeechText(text, maxLines)), _pageIndex(0),
-	  _anchor(overridePos), _color(parent->speechColor()),
-	  _image(0) {
+	  _anchor(overridePos), _color(parent->speechColor()) {
 	debugC(1, kDebugLevelActor, "adding speech \"%s\" (%u ticks) for %s at OVERRIDE %d:%d",
 		   text.c_str(), (uint)speechTicksForText(_pages[0]), parent->_debugInfo, overridePos.x, overridePos.y);
 	startPage(0);
@@ -1397,13 +1407,12 @@ void Actor::Speech::callWhenDone(const CodePointer &cp) {
 }
 
 void Actor::Speech::startPage(uint page) {
-	delete _image;
 	_pageIndex = page;
 	_text = _pages[_pageIndex];
 	_ticksLeft = speechTicksForText(_text);
-	_image = new Interspective::Sprite;
+	_image.reset(new Interspective::Sprite);
 	_image->_hotPoint = Common::Point(0, 0);
-	_rect = Graf.paintSpeechInBubble(_anchor, _color, reinterpret_cast<const byte *>(_text.c_str()), _image);
+	_rect = Graf.paintSpeechInBubble(_anchor, _color, reinterpret_cast<const byte *>(_text.c_str()), _image.get());
 }
 
 void Actor::Speech::tick() {
@@ -1491,10 +1500,10 @@ void Actor::paintSpeech(Graphics *) {
 }
 
 void Actor::Speech::paint(Graphics *g) {
-	if (_text.empty())
+	if (_text.empty() || !_image)
 		return;
 
-	g->paint(_image, Common::Point(_rect.left, _rect.top), Graphics::kPaintSemiTransparent | Graphics::kPaintPositionIsTop);
+	g->paint(_image.get(), Common::Point(_rect.left, _rect.top), Graphics::kPaintSemiTransparent | Graphics::kPaintPositionIsTop);
 }
 
 Direction Actor::Frame::operator-(const Actor::Frame &other) const {
