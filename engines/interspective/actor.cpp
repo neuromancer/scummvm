@@ -52,9 +52,12 @@ Actor::Actor(const CodePointer &code) : Animation(code, Common::Point()), _id(0)
 	_actorCallbackSeg = 0xffff;
 	_actorCallbackOff = 0xffff;
 
-	byte *header = code.code();
-	_base = header - code.offset();
-	readHeader(header);
+	byte *header = code.interpreter() ? code.interpreter()->rawCodeChecked(code.offset(), Size) : 0;
+	_base = header ? header - code.offset() : 0;
+	if (header)
+		readHeader(header);
+	else
+		_baseOffset = _offset = _frame = _nextFrame = _room = 0;
 	snprintf(_debugInfo, 50, "actor at %s", +code);
 
 	Engine::instance().logic()->addAnimation(this);
@@ -97,8 +100,7 @@ void Actor::setAnimation(uint16 offset) {
 	// for those paths, then stores DS:DI into fields +0/+2 and clears BP.
 	// Do not preserve a previous block/cast segment here; only explicit
 	// CodePointer callers (Op_b9/Op_be/etc.) may select block code.
-	byte *base = Log.mainInterpreter() ? Log.mainInterpreter()->rawCode(0) : 0;
-	_base = base ? base + offset : 0;
+	_base = Log.mainInterpreter() ? Log.mainInterpreter()->rawCodeChecked(offset) : 0;
 	_baseOffset = _base ? offset : 0;
 	_offset = 0;
 	resetActorStateFields();
@@ -192,15 +194,19 @@ void Actor::prepareRoomEntryActiveActor() {
 	const uint16 codeOffset = recordScriptBase();
 	const bool blockSegment = segment == 1 || ((segment & 0xc000) == 0x4000);
 	const bool mainSegment = segment == 0 ||
-							 segment == actorCodeSegmentTag(Log.mainInterpreter() ? Log.mainInterpreter()->rawCode(0) : 0);
+							 segment == actorCodeSegmentTag(Log.mainInterpreter() ? Log.mainInterpreter()->rawCodeChecked(0) : 0);
 	if (blockSegment || mainSegment) {
 		Interpreter *const interp = blockSegment ? Log.blockInterpreter() : Log.mainInterpreter();
-		byte *const segmentBase = interp ? interp->rawCode(0) : 0;
+		byte *const segmentBase = interp ? interp->rawCodeChecked(0) : 0;
 		if (segmentBase) {
-			_base = segmentBase + codeOffset;
-			_baseOffset = codeOffset;
-			_offset = scriptPc();
-			setRecordScriptPointer(actorCodeSegmentTag(segmentBase), codeOffset, _offset);
+			_base = interp->rawCodeChecked(codeOffset);
+			if (_base) {
+				_baseOffset = codeOffset;
+				_offset = scriptPc();
+				setRecordScriptPointer(actorCodeSegmentTag(segmentBase), codeOffset, _offset);
+			} else {
+				_baseOffset = _offset = 0;
+			}
 		}
 	}
 	setMood(0);
@@ -464,10 +470,10 @@ void Actor::synchronize(Common::Serializer &s) {
 
 	switch (baseSource) {
 	case 1:
-		_base = Log.mainInterpreter() ? Log.mainInterpreter()->rawCode(baseOffset) : 0;
+		_base = Log.mainInterpreter() ? Log.mainInterpreter()->rawCodeChecked(baseOffset) : 0;
 		break;
 	case 2:
-		_base = Log.blockInterpreter() ? Log.blockInterpreter()->rawCode(baseOffset) : 0;
+		_base = Log.blockInterpreter() ? Log.blockInterpreter()->rawCodeChecked(baseOffset) : 0;
 		break;
 	default:
 		_base = 0;
@@ -1231,14 +1237,19 @@ void Actor::readHeader(const byte *code) {
 	_offset = READ_LE_UINT16(code + kOffsetScriptPc);
 	if (segment != 0) {
 		byte *segmentBase = const_cast<byte *>(headerBase);
-		const uint16 mainSegment = actorCodeSegmentTag(Log.mainInterpreter() ? Log.mainInterpreter()->rawCode(0) : 0);
-		const uint16 blockSegment = actorCodeSegmentTag(Log.blockInterpreter() ? Log.blockInterpreter()->rawCode(0) : 0);
-		if (segment == mainSegment && Log.mainInterpreter())
-			segmentBase = Log.mainInterpreter()->rawCode(0);
-		else if ((segment == 1 || segment == blockSegment) && Log.blockInterpreter())
-			segmentBase = Log.blockInterpreter()->rawCode(0);
-		_base = segmentBase + codeOffset;
-		_baseOffset = codeOffset;
+		Interpreter *segmentInterpreter = 0;
+		const uint16 mainSegment = actorCodeSegmentTag(Log.mainInterpreter() ? Log.mainInterpreter()->rawCodeChecked(0) : 0);
+		const uint16 blockSegment = actorCodeSegmentTag(Log.blockInterpreter() ? Log.blockInterpreter()->rawCodeChecked(0) : 0);
+		if (segment == mainSegment && Log.mainInterpreter()) {
+			segmentInterpreter = Log.mainInterpreter();
+			segmentBase = Log.mainInterpreter()->rawCodeChecked(0);
+		} else if ((segment == 1 || segment == blockSegment) && Log.blockInterpreter()) {
+			segmentInterpreter = Log.blockInterpreter();
+			segmentBase = Log.blockInterpreter()->rawCodeChecked(0);
+		}
+		_base = segmentInterpreter ? segmentInterpreter->rawCodeChecked(codeOffset)
+								   : (segmentBase ? segmentBase + codeOffset : 0);
+		_baseOffset = _base ? codeOffset : 0;
 	} else {
 		_base = 0;
 		_baseOffset = _offset = 0;

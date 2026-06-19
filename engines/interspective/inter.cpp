@@ -24,6 +24,7 @@
 #include "common/endian.h"
 #include "common/list.h"
 #include "common/str.h"
+#include "common/textconsole.h"
 #include "common/util.h"
 
 #include "interspective/debugger.h"
@@ -79,8 +80,14 @@ Interpreter::~Interpreter() {
 }
 
 void Interpreter::tick() {
-	if (_roomLoop)
-		run(_roomLoop - _base, kCodeRoomLoop);
+	if (_roomLoop) {
+		if (!containsCodePointer(_roomLoop)) {
+			warning("Interspective: room-loop pointer outside %s code segment", name());
+			_roomLoop = 0;
+			return;
+		}
+		run(uint16(_roomLoop - _base), kCodeRoomLoop);
+	}
 }
 
 void Interpreter::setRoomLoop(byte *code) {
@@ -95,6 +102,34 @@ void Interpreter::setRoomLoop(byte *code) {
 
 void Interpreter::init() {
 	_graphics = _engine->graphics();
+}
+
+bool Interpreter::containsCodeRange(uint16 offset, uint16 size) const {
+	if (!_base)
+		return false;
+	return offset <= _codeSize && size <= _codeSize - offset;
+}
+
+bool Interpreter::containsCodePointer(const byte *ptr, uint16 size) const {
+	if (!_base || !ptr)
+		return false;
+
+	const uintptr base = reinterpret_cast<uintptr>(_base);
+	const uintptr address = reinterpret_cast<uintptr>(ptr);
+	if (address < base)
+		return false;
+
+	const uintptr offset = address - base;
+	return offset <= _codeSize && size <= _codeSize - offset;
+}
+
+byte *Interpreter::rawCodeChecked(uint16 offset, uint16 size) const {
+	if (!containsCodeRange(offset, size)) {
+		warning("Interspective: code range 0x%04x+%u outside %s segment size %u",
+				offset, uint(size), name(), uint(_codeSize));
+		return 0;
+	}
+	return _base + offset;
 }
 
 Status Interpreter::run(uint16 offset, OpcodeMode mode) {
@@ -123,12 +158,23 @@ Status Interpreter::run(uint16 offset) {
 }
 
 Status Interpreter::run(uint16 offset, int ifDepth) {
+	if (!containsCodeRange(offset)) {
+		warning("Interspective: refusing to run invalid %s code offset 0x%04x",
+				name(), offset);
+		return kInvalidOpcode;
+	}
+
 	byte *last;
 	byte *code;
-	last = code = _base + offset;
+	last = code = rawCodeChecked(offset);
 
 	int if_depth = ifDepth;
 	while (true) {
+		if (!containsCodePointer(code)) {
+			warning("Interspective: bytecode pointer escaped %s segment", name());
+			return kInvalidOpcode;
+		}
+
 		byte opcode = *code;
 		last = code;
 
@@ -142,11 +188,23 @@ Status Interpreter::run(uint16 offset, int ifDepth) {
 
 		ValueVector args;
 
-		for (uint i = 0; i < nargs; i++)
+		for (uint i = 0; i < nargs; i++) {
+			if (!containsCodePointer(code, 2)) {
+				warning("Interspective: truncated argument list in %s at offset 0x%04x",
+						name(), uint16(last - _base));
+				return kInvalidOpcode;
+			}
 			args.push_back(getArgument(code));
+		}
 
-		if (nargs == 0)
+		if (nargs == 0) {
+			if (!containsCodePointer(code, 2)) {
+				warning("Interspective: truncated zero-argument opcode in %s at offset 0x%04x",
+						name(), uint16(last - _base));
+				return kInvalidOpcode;
+			}
 			code += 2;
+		}
 
 		OpResult result(kThxBye);
 
@@ -181,6 +239,11 @@ Status Interpreter::run(uint16 offset, int ifDepth) {
 			Interpreter *target = result.address.interpreter();
 			if (target && target != this)
 				return target->run(result.address.offset(), if_depth);
+			if (!containsCodeRange(result.address.offset())) {
+				warning("Interspective: invalid jump target 0x%04x in %s",
+						result.address.offset(), name());
+				return kInvalidOpcode;
+			}
 			code = _base + result.address.offset();
 			break;
 		}
@@ -224,6 +287,11 @@ enum ArgumentTypes {
 
 template<>
 Constant *Interpreter::readArgument<Constant>(byte *&code) {
+	if (!containsCodePointer(code, 2)) {
+		warning("Interspective: truncated immediate argument in %s", name());
+		code = _base + _codeSize;
+		return new Constant(0);
+	}
 	uint16 value = READ_LE_UINT16(code);
 	code += 2;
 	debugC(4, kDebugLevelScript, "read constant value %d as argument", value);
@@ -308,6 +376,11 @@ private:
 
 template<>
 GlobalByteVariable *Interpreter::readArgument<GlobalByteVariable>(byte *&code) {
+	if (!containsCodePointer(code, 2)) {
+		warning("Interspective: truncated global byte argument in %s", name());
+		code = _base + _codeSize;
+		return new GlobalByteVariable(0, _resources);
+	}
 	uint16 index = READ_LE_UINT16(code);
 	code += 2;
 	debugC(4, kDebugLevelScript, "read global byte variable %d as argument", index);
@@ -316,6 +389,11 @@ GlobalByteVariable *Interpreter::readArgument<GlobalByteVariable>(byte *&code) {
 
 template<>
 GlobalWordVariable *Interpreter::readArgument<GlobalWordVariable>(byte *&code) {
+	if (!containsCodePointer(code, 2)) {
+		warning("Interspective: truncated global word argument in %s", name());
+		code = _base + _codeSize;
+		return new GlobalWordVariable(0, _resources);
+	}
 	uint16 index = READ_LE_UINT16(code) / 2;
 	code += 2;
 	debugC(4, kDebugLevelScript, "read global word variable %d as argument", index);
@@ -324,6 +402,11 @@ GlobalWordVariable *Interpreter::readArgument<GlobalWordVariable>(byte *&code) {
 
 template<>
 CodePointer *Interpreter::readArgument<CodePointer>(byte *&code) {
+	if (!containsCodePointer(code, 2)) {
+		warning("Interspective: truncated code-pointer argument in %s", name());
+		code = _base + _codeSize;
+		return new CodePointer();
+	}
 	uint16 offset = READ_LE_UINT16(code);
 	code += 2;
 	debugC(4, kDebugLevelScript, "read code offset 0x%04x as argument", offset);
@@ -490,7 +573,8 @@ ParametrizedString *Interpreter::readArgument<ParametrizedString>(byte *&code) {
 	byte *raw = code;
 	uint16 translatedLength = 0;
 	uint16 rawLength = 0;
-	if (!decodeParametrizedString(_resources, _base, code, 0, translateBuf, sizeof(translateBuf),
+	const byte *end = _base + _codeSize;
+	if (!decodeParametrizedString(_resources, _base, code, end, translateBuf, sizeof(translateBuf),
 								  translatedLength, raw, rawLength))
 		error("malformed parametrized string argument");
 
@@ -623,6 +707,11 @@ bool Interpreter::extractFirstStatusOverlayLine(uint16 offset, Common::String &t
 }
 
 Value *Interpreter::getArgument(byte *&code) {
+	if (!containsCodePointer(code, 2)) {
+		warning("Interspective: argument descriptor outside %s code segment", name());
+		return new Constant(0);
+	}
+
 	uint8 argument_type = code[1];
 	code += 2;
 
@@ -636,6 +725,11 @@ Value *Interpreter::getArgument(byte *&code) {
 	case kArgumentFieldByte:
 	case kArgumentFieldWord:
 	case kArgumentFieldWordAlt: {
+		if (!containsCodePointer(code, 4)) {
+			warning("Interspective: truncated record-field argument in %s", name());
+			code = _base + _codeSize;
+			return new Constant(0);
+		}
 		const uint8 selector = code[0];
 		const uint8 offset = code[1];
 		const uint16 id = READ_LE_UINT16(code + 2);
@@ -650,8 +744,12 @@ Value *Interpreter::getArgument(byte *&code) {
 		return readArgument<ParametrizedString>(code);
 	case kArgumentList: {
 		byte *ptr = code;
-		while (*code != 0xff)
+		while (containsCodePointer(code) && *code != 0xff)
 			++code;
+		if (!containsCodePointer(code)) {
+			warning("Interspective: unterminated list argument in %s", name());
+			return new RawPointerArgument(_base, ptr);
+		}
 		++code;
 		debugC(4, kDebugLevelScript, "read raw list at offset 0x%04x as argument",
 			   uint16(ptr - _base));

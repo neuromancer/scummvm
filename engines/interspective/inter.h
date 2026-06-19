@@ -94,6 +94,9 @@ public:
 	const char *name() const { return _name; }
 
 	byte *rawCode(uint16 offset) const { return _base + offset; }
+	bool containsCodeRange(uint16 offset, uint16 size = 1) const;
+	bool containsCodePointer(const byte *ptr, uint16 size = 1) const;
+	byte *rawCodeChecked(uint16 offset, uint16 size = 1) const;
 	uint16 codeSize() const { return _codeSize; }
 	bool extractFirstStatusOverlayLine(uint16 offset, Common::String &text);
 

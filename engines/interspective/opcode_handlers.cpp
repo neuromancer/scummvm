@@ -1952,6 +1952,33 @@ static bool dosIdIsNonPositive(uint16 id) {
 	return int16(id) <= 0;
 }
 
+static byte *checkedCodeTablePtr(Interpreter *bank, uint32 offset, uint16 size) {
+	if (!bank)
+		return 0;
+	if (offset > 0xffff) {
+		warning("Interspective: table offset 0x%08x outside %s code segment",
+				uint(offset), bank->name());
+		return 0;
+	}
+	return bank->rawCodeChecked(uint16(offset), size);
+}
+
+static bool readCodeTableWord(Interpreter *bank, uint32 offset, uint16 &value) {
+	byte *ptr = checkedCodeTablePtr(bank, offset, 2);
+	if (!ptr)
+		return false;
+	value = READ_LE_UINT16(ptr);
+	return true;
+}
+
+static bool writeCodeTableWord(Interpreter *bank, uint32 offset, uint16 value) {
+	byte *ptr = checkedCodeTablePtr(bank, offset, 2);
+	if (!ptr)
+		return false;
+	WRITE_LE_UINT16(ptr, value);
+	return true;
+}
+
 OPCODE(0x60) {
 	// DOS Op_60_handler @ 1000:40c4: sets g_walk_speed_flag=1, then
 	// jumps into Op_5f's shared table lookup. The flag makes
@@ -1962,25 +1989,28 @@ OPCODE(0x60) {
 	const uint16 fieldOffset = uint16(a[2]);
 	const uint16 offset = static_cast<CodePointer &>(a[0]).offset();
 	uint16 value = 0xffff;
-	byte *pos = _logic->blockInterpreter() ? _logic->blockInterpreter()->rawCode(offset) : nullptr;
-	if (!pos) {
+	Interpreter *bank = _logic->blockInterpreter();
+	uint16 width = 0;
+	if (!readCodeTableWord(bank, offset, width) || width == 0) {
 		a[3] = value;
 		return kThxBye;
 	}
-	const uint16 width = READ_LE_UINT16(pos);
-	pos += 2;
+	uint32 pos = uint32(offset) + 2;
 	while (true) {
-		const uint16 index = READ_LE_UINT16(pos);
+		uint16 index = 0xffff;
+		if (!readCodeTableWord(bank, pos, index))
+			break;
 		if (index == 0xffff) {
 			value = index;
 			break;
 		}
 		pos += 2;
 		if (index == searchKey) {
-			value = READ_LE_UINT16(pos + fieldOffset);
+			if (!readCodeTableWord(bank, pos + fieldOffset, value))
+				value = 0xffff;
 			break;
 		}
-		pos += width * 2;
+		pos += uint32(width) * 2;
 	}
 
 	a[3] = value;
@@ -2938,7 +2968,9 @@ OPCODE(0xf4) {
 	// offset is always relative to the main interpreter — music scripts live
 	// in the global file, not in per-block bytecode.
 	const uint16 scriptOff = static_cast<CodePointer &>(a[0]).offset();
-	const byte *script = Log.mainInterpreter()->rawCode(scriptOff);
+	const byte *script = Log.mainInterpreter() ? Log.mainInterpreter()->rawCodeChecked(scriptOff, 2) : 0;
+	if (!script)
+		return kThxBye;
 	const uint16 tune = READ_LE_UINT16(script);
 	debugC(1, kDebugLevelScript, "opcode 0xf4: play music script at main offset 0x%04x", scriptOff);
 	if (tune == 0)
@@ -4100,22 +4132,24 @@ OPCODE(0x5f) {
 	const uint16 searchKey = uint16(a[1]);
 	const uint16 fieldOffset = uint16(a[2]);
 	const uint16 offset = static_cast<CodePointer &>(a[0]).offset();
-	byte *base = _logic->mainInterpreter() ? _logic->mainInterpreter()->rawCode(offset) : nullptr;
+	Interpreter *bank = _logic->mainInterpreter();
 	uint16 value = 0xffff;
-	if (base) {
-		byte *pos = base;
-		const uint16 width = READ_LE_UINT16(pos);
-		pos += 2;
+	uint16 width = 0;
+	if (readCodeTableWord(bank, offset, width) && width != 0) {
+		uint32 pos = uint32(offset) + 2;
 		while (true) {
-			const uint16 index = READ_LE_UINT16(pos);
+			uint16 index = 0xffff;
+			if (!readCodeTableWord(bank, pos, index))
+				break;
 			if (index == 0xffff)
 				break;
 			pos += 2;
 			if (index == searchKey) {
-				value = READ_LE_UINT16(pos + fieldOffset);
+				if (!readCodeTableWord(bank, pos + fieldOffset, value))
+					value = 0xffff;
 				break;
 			}
-			pos += width * 2;
+			pos += uint32(width) * 2;
 		}
 	}
 	a[3] = value;
@@ -4248,30 +4282,29 @@ static void doTableLookupAssign(Logic *logic, ValueVector &a, Interpreter *bank,
 	const uint16 searchKey = uint16(a[1]);
 	const uint16 fieldOffset = uint16(a[2]);
 	const uint16 offset = static_cast<CodePointer &>(a[0]).offset();
-	byte *base = bank ? bank->rawCode(offset) : nullptr;
-	if (!base) {
+	uint16 width = 0;
+	if (!readCodeTableWord(bank, offset, width)) {
 		logic->setPendingError(0x1a);
 		return;
 	}
-	byte *pos = base;
-	const uint16 width = READ_LE_UINT16(pos);
 	if (width == 0) {
 		logic->setPendingError(0x1a);
 		return;
 	}
-	pos += 2;
+	uint32 pos = uint32(offset) + 2;
 	bool matched = false;
 	while (true) {
-		const uint16 index = READ_LE_UINT16(pos);
+		uint16 index = 0xffff;
+		if (!readCodeTableWord(bank, pos, index))
+			break;
 		if (index == 0xffff)
 			break;
 		pos += 2;
 		if (index == searchKey) {
-			WRITE_LE_UINT16(pos + fieldOffset, segValue);
-			matched = true;
+			matched = writeCodeTableWord(bank, pos + fieldOffset, segValue);
 			break;
 		}
-		pos += width * 2;
+		pos += uint32(width) * 2;
 	}
 	if (!matched)
 		logic->setPendingError(0x1a);

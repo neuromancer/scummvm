@@ -437,7 +437,8 @@ template<>
 Common::SharedPtr<Interspective::Sprite> &CodePointer::field<Common::SharedPtr<Interspective::Sprite>>(Common::SharedPtr<Interspective::Sprite> &p, int off) const {
 	uint16 sprite;
 	field(sprite, off);
-	p = Common::SharedPtr<Interspective::Sprite>(_interpreter->resources()->loadSprite(sprite));
+	p = _interpreter ? Common::SharedPtr<Interspective::Sprite>(_interpreter->resources()->loadSprite(sprite))
+					 : Common::SharedPtr<Interspective::Sprite>();
 	return p;
 }
 

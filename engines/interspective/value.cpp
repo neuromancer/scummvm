@@ -22,6 +22,7 @@
 #include "interspective/value.h"
 
 #include "common/rect.h"
+#include "common/textconsole.h"
 
 #include "interspective/inter.h"
 #include "interspective/util.h"
@@ -55,21 +56,39 @@ void CodePointer::run() const {
 }
 
 void CodePointer::run(OpcodeMode mode) const {
-	if (_offset)
+	if (_offset && _interpreter)
 		_interpreter->run(_offset, mode);
 }
 
 byte *CodePointer::code() const {
-	return _interpreter->rawCode(_offset);
+	return _interpreter ? _interpreter->rawCodeChecked(_offset) : 0;
 }
 
 byte *CodePointer::base() const {
-	return _interpreter->rawCode(0);
+	return _interpreter ? _interpreter->rawCodeChecked(0) : 0;
+}
+
+static byte *checkedCodePointerField(const CodePointer &ptr, int off, uint16 size) {
+	Interpreter *interpreter = ptr.interpreter();
+	if (!interpreter) {
+		warning("Interspective: field read through null code pointer");
+		return 0;
+	}
+
+	const int32 absolute = int32(ptr.offset()) + off;
+	if (absolute < 0 || absolute > 0xffff) {
+		warning("Interspective: field offset %d outside %s code pointer 0x%04x",
+				off, interpreter->name(), ptr.offset());
+		return 0;
+	}
+
+	return interpreter->rawCodeChecked(uint16(absolute), size);
 }
 
 template<>
 uint16 &CodePointer::field<uint16>(uint16 &p, int off) const {
-	p = READ_LE_UINT16(code() + off);
+	byte *field = checkedCodePointerField(*this, off, 2);
+	p = field ? READ_LE_UINT16(field) : 0;
 	return p;
 }
 
@@ -90,7 +109,8 @@ Common::Point &CodePointer::field<Common::Point>(Common::Point &p, int off) cons
 
 template<>
 byte &CodePointer::field<byte>(byte &p, int off) const {
-	p = *(code() + off);
+	byte *field = checkedCodePointerField(*this, off, 1);
+	p = field ? *field : 0;
 	return p;
 }
 

@@ -2697,7 +2697,7 @@ bool Logic::castEntryActive(uint16 id) const {
 			return !e.animation->castWaitComplete();
 		if (READ_LE_UINT16(e.raw + 2) == 0 && e.interpreter) {
 			const uint16 scriptOffset = uint16(READ_LE_UINT16(e.raw + 4) + id);
-			byte *script = e.interpreter->rawCode(scriptOffset);
+			byte *script = e.interpreter->rawCodeChecked(scriptOffset);
 			if (script && *script == 0xff)
 				return false;
 		}
