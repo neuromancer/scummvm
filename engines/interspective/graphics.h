@@ -45,6 +45,7 @@ class Sprite;
 class Graphics : public Common::Singleton<Graphics> {
 public:
 	Graphics() : _cursorPosition(160, 100), _hostCursorShown(false),
+				 _interfaceOverlayAnimationMask(0),
 				 _roomCloseUpActive(false), _roomCloseUpPoint(0, 0),
 				 _inventoryCloseUpObjectId(0),
 				 _conversationPaletteRestorePending(false) {}
@@ -127,7 +128,7 @@ public:
 	uint16 plainTextLineWidth(const byte *string) const;
 	Common::Rect paintPlainTextLine(uint16 left, uint16 top, byte colour, const byte *string, bool markDirty = true);
 	bool setStatusOverlayText(const byte *text);
-	void setInterfaceOverlaySprite(uint16 maskBit, uint16 spriteId, uint16 x, uint16 y);
+	void setInterfaceOverlayAnimationMask(uint16 mask);
 	void setRoomCloseUp(Common::Point point);
 	void clearRoomCloseUp();
 	void setInventoryCloseUpObject(uint16 objectId);
@@ -201,6 +202,7 @@ private:
 	void paintInventoryObjects();
 	void paintInventoryCloseUp();
 	void paintInterfaceOverlaySprites();
+	void setInterfaceOverlaySprite(uint16 maskBit, uint16 spriteId, uint16 x, uint16 y);
 	void paintAutoCloseTimer();
 	void paintStatusOverlayText();
 	void paintStatusScreenText();
@@ -248,6 +250,7 @@ private:
 		uint16 y;
 	};
 	Common::Array<InterfaceOverlaySprite> _interfaceOverlaySprites;
+	uint16 _interfaceOverlayAnimationMask;
 	Common::Array<Common::String> _statusOverlayLines;
 	struct StatusScreenTextEntry {
 		StatusScreenTextEntry() : left(0), top(0), colour(0) {}

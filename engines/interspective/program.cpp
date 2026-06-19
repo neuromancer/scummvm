@@ -163,6 +163,20 @@ Exit *Program::getExit(uint16 index) const {
 	return _exits[index - 1];
 }
 
+bool Program::getExitRecordField(uint16 index, uint8 off, uint8 size, uint16 &value) const {
+	value = 0;
+	if (index == 0 || index > _exitsCount || size == 0 || size > 2 || off + size > Exit::Size)
+		return false;
+
+	const uint16 exits = READ_LE_UINT16(_footer + kExits);
+	const uint32 fieldOffset = uint32(exits) + uint32(index - 1) * Exit::Size + off;
+	if (fieldOffset + size > _codeSize)
+		return false;
+
+	value = size == 1 ? _code[fieldOffset] : READ_LE_UINT16(_code + fieldOffset);
+	return true;
+}
+
 bool Program::getExitRoomWord(uint16 index, uint16 &room) const {
 	if (index == 0)
 		return false;

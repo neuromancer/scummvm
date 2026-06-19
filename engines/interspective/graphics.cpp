@@ -592,6 +592,18 @@ void Graphics::paintInventoryCloseUp() {
 	paint(sprite.get(), topLeft, kPaintPositionIsTop | kPaintNoDirty | kPaintIgnoreHotPoint);
 }
 
+void Graphics::setInterfaceOverlayAnimationMask(uint16 mask) {
+	_interfaceOverlayAnimationMask = mask;
+	for (uint i = 0; i < _interfaceOverlaySprites.size();) {
+		if ((_interfaceOverlaySprites[i].maskBit & mask) != 0) {
+			++i;
+		} else {
+			_interfaceOverlaySprites.remove_at(i);
+		}
+	}
+	debugC(2, kDebugLevelGraphics, "interface overlay animation mask=0x%02x [DOS Op_28]", mask);
+}
+
 void Graphics::setInterfaceOverlaySprite(uint16 maskBit, uint16 spriteId, uint16 x, uint16 y) {
 	for (uint i = 0; i < _interfaceOverlaySprites.size(); ++i) {
 		InterfaceOverlaySprite &overlay = _interfaceOverlaySprites[i];
@@ -615,15 +627,34 @@ void Graphics::paintInterfaceOverlaySprites() {
 	Logic *logic = _engine ? _engine->logic() : 0;
 	if (!logic || logic->cursorMode() != 0x80) {
 		_interfaceOverlaySprites.clear();
+		_interfaceOverlayAnimationMask = 0;
+		return;
+	}
+	if (!_resources || !_resources->mainDat() || _interfaceOverlayAnimationMask == 0) {
+		_interfaceOverlaySprites.clear();
 		return;
 	}
 
-	for (uint i = 0; i < _interfaceOverlaySprites.size(); ++i) {
-		const InterfaceOverlaySprite &overlay = _interfaceOverlaySprites[i];
-		if (overlay.spriteId == 0xffff)
+	// CycleAllAnimationsByMask @ 1000:c8a1 visits the five verb-overlay
+	// animation records in this fixed order and advances each selected slot
+	// before DrawCursorSprite/CopyBackBufferToScreen present the frame.
+	const uint16 animationBits[] = {0x01, 0x02, 0x10, 0x04, 0x08};
+	for (uint i = 0; i < ARRAYSIZE(animationBits); ++i) {
+		const uint16 maskBit = animationBits[i];
+		if ((_interfaceOverlayAnimationMask & maskBit) == 0)
 			continue;
-		Common::ScopedPtr<Sprite> sprite(_resources->loadSprite(overlay.spriteId));
-		paint(sprite.get(), Common::Point(overlay.x, overlay.y), kPaintPositionIsTop | kPaintNoDirty);
+
+		uint16 spriteId = 0;
+		uint16 x = 0;
+		uint16 y = 0;
+		if (!_resources->mainDat()->cycleCursorOverlayAnimation(maskBit, spriteId, x, y))
+			continue;
+		setInterfaceOverlaySprite(maskBit, spriteId, x, y);
+		debugC(4, kDebugLevelGraphics,
+			   "interface overlay anim bit=0x%02x sprite=%u pos=(%u,%u)",
+			   maskBit, spriteId, x, y);
+		Common::ScopedPtr<Sprite> sprite(_resources->loadSprite(spriteId));
+		paint(sprite.get(), Common::Point(x, y), kPaintPositionIsTop | kPaintNoDirty);
 	}
 }
 

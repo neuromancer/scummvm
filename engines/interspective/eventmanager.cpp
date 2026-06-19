@@ -326,13 +326,31 @@ static bool runEntityScript(Logic &logic, const HitTarget &target, OpcodeMode mo
 	logic.setCurrentEntityId(target.id);
 
 	if (target.type == 1) {
-		if (!target.exitPtr)
+		if (target.exitPtr) {
+			debugC(1, kDebugLevelEvents,
+				   "entity target type 1 id %u runs exit click handler in mode 0x%02x",
+				   target.id, uint(mode));
+			logic.resetRoomScriptSlot(mode);
+			return target.exitPtr->clicked();
+		}
+
+		uint16 scriptOffset = 0;
+		if (!logic.blockProgram() || !logic.blockProgram()->getExitRecordField(target.id, 8, 2, scriptOffset)) {
+			logic.setPendingError(0x1b);
 			return false;
+		}
+		if (!logic.cellBit(target.id, 0)) {
+			debugC(3, kDebugLevelEvents,
+				   "raw exit %u click ignored: current-room cell bit 0 clear",
+				   target.id);
+			return false;
+		}
 		debugC(1, kDebugLevelEvents,
-			   "entity target type 1 id %u runs exit click handler in mode 0x%02x",
-			   target.id, uint(mode));
+			   "entity target type 1 id %u runs raw exit script 0x%04x in mode 0x%02x [DOS DispatchEntityClick]",
+			   target.id, scriptOffset, uint(mode));
 		logic.resetRoomScriptSlot(mode);
-		return target.exitPtr->clicked();
+		CodePointer(scriptOffset, logic.blockInterpreter()).run(mode);
+		return true;
 	}
 
 	Interpreter *interpreter = 0;

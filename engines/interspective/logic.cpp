@@ -702,8 +702,10 @@ uint16 Logic::recordField(uint8 selector, uint16 id, uint8 off, uint8 size) cons
 	switch (selector) {
 	case 1: {
 		Exit *exit = _blockProgram ? _blockProgram->getExit(id) : 0;
-		if (!exit)
-			return 0;
+		if (!exit) {
+			uint16 raw = 0;
+			return (_blockProgram && _blockProgram->getExitRecordField(id, off, size, raw)) ? raw : 0;
+		}
 		if (off == 0 || off == 1)
 			lo = recordWordByte(exit->room(), 0, off);
 		else if (off == 2 || off == 3)

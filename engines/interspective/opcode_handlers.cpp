@@ -3331,27 +3331,15 @@ OPCODE(0x28) {
 	debugC(2, kDebugLevelScript, "opcode 0x28: cursor==0x80, anim mask=%s text=%s",
 		   +a[0], +a[1]);
 
-	// Side effect 1: CycleAllAnimationsByMask @ 1000:c8a1 advances 5
+	// Side effect 1: CycleAllAnimationsByMask @ 1000:c8a1 advances five
 	// cursor-overlay animation slots based on arg0 bits (1, 2, 0x10,
 	// 4, 8), in slot order CS:[0xa9], [0xab], [0xaf], [0xad], [0xb1].
-	// Each selected slot advances its frame index and redraws the old frame
-	// at the slot's x/y via DrawSprite @ 1000:a748.
+	// DOS draws directly into its back buffer here; ScummVM redraws the
+	// interface each frame, so Graphics advances the armed mask during
+	// paintInterfaceOverlaySprites().
 	const uint16 mask = uint16(a[0]);
 	debugC(2, kDebugLevelScript, "opcode 0x28: cycle cursor-overlay anims mask=0x%02x", mask);
-	const uint16 animationBits[] = {0x01, 0x02, 0x10, 0x04, 0x08};
-	for (uint i = 0; i < ARRAYSIZE(animationBits); ++i) {
-		if ((mask & animationBits[i]) == 0)
-			continue;
-		uint16 spriteId = 0;
-		uint16 x = 0;
-		uint16 y = 0;
-		if (_logic->resources()->mainDat()->cycleCursorOverlayAnimation(animationBits[i], spriteId, x, y)) {
-			_graphics->setInterfaceOverlaySprite(animationBits[i], spriteId, x, y);
-			Sprite *sprite = _logic->resources()->loadSprite(spriteId);
-			_graphics->paint(sprite, Common::Point(x, y), Graphics::kPaintPositionIsTop);
-			delete sprite;
-		}
-	}
+	_graphics->setInterfaceOverlayAnimationMask(mask);
 
 	const byte *text = a[1].rawPointer();
 	if (!text)
