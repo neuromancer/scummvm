@@ -101,19 +101,4 @@ bool &CodePointer::field<bool>(bool &p, int off) const {
 	return p = b;
 }
 
-enum Foo_ {
-	Bar
-};
-
-#define ENAME(en, v, s)                               \
-	template<>                                        \
-	const char *EnumName<en, v>::name() { return s; } \
-	enum {}
-
-ENAME(Foo_, Bar, "baz");
-
-typedef EnumPack<Foo_> Foo;
-
-Foo baz(Bar);
-
 } // End of namespace Interspective

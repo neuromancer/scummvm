@@ -1060,7 +1060,7 @@ void Actor::animate() {
 	}
 	const bool readyMarkerActive = (readyMarker() != 0 || readyCallbackOffset() != 0) &&
 								   walkQueueLength() == 0 && _framequeue.empty();
-	unless(_attentionNeeded || _confused || queuedWalkReady || readyMarkerActive /* || _timedOut*/) return;
+	unless(_attentionNeeded || _confused || queuedWalkReady || readyMarkerActive) return;
 
 	// DOS UpdateActors @ 1000:6d3a keeps queued walking alive through
 	// word field +0x6b. Actor byte +0x65 is an attention latch that
@@ -1090,16 +1090,7 @@ void Actor::animate() {
 			return;
 		_direction = _nextDirection;
 		_nextDirection = kDirNone;
-		/*		ax = _nextPuppeteer;
-				_nextPuppeteer = 0;
-				if (ax)
-					goto set_anim;*/
 		setAnimation(_puppeteer.offset());
-		/*	} else if (_nextPuppeteer) {
-				ax = _nextPuppeteer;
-				_nextPuppeteer = 0;
-				if (ax)
-					goto set_anim;*/
 	}
 
 	if (consumeReadyMarkerCallback())
@@ -1113,12 +1104,6 @@ void Actor::animate() {
 		setAnimation(_puppeteer.offset());
 		return;
 	}
-	/*	} else {
-			if (turnTo(kDirUp))
-				return;
-			_direction = kDirUp;
-			setAnimation(_puppeteer.offset());
-		}*/
 }
 
 Animation::Status Actor::tick() {
@@ -1339,7 +1324,7 @@ static Common::Array<Common::String> paginateSpeechText(const Common::String &te
 }
 
 Actor::Speech::Speech(Actor *parent, const Common::String &text, uint16 maxLines)
-	: _pages(paginateSpeechText(text, maxLines)), _pageIndex(0), _actor(parent),
+	: _pages(paginateSpeechText(text, maxLines)), _pageIndex(0),
 	  _anchor(parent->getSpeechPosition()), _color(parent->speechColor()),
 	  _image(0) {
 	debugC(1, kDebugLevelActor, "adding speech \"%s\" (%u ticks) for %s at %d:%d",
@@ -1348,7 +1333,7 @@ Actor::Speech::Speech(Actor *parent, const Common::String &text, uint16 maxLines
 }
 
 Actor::Speech::Speech(Actor *parent, const Common::String &text, Common::Point overridePos, uint16 maxLines)
-	: _pages(paginateSpeechText(text, maxLines)), _pageIndex(0), _actor(parent),
+	: _pages(paginateSpeechText(text, maxLines)), _pageIndex(0),
 	  _anchor(overridePos), _color(parent->speechColor()),
 	  _image(0) {
 	debugC(1, kDebugLevelActor, "adding speech \"%s\" (%u ticks) for %s at OVERRIDE %d:%d",

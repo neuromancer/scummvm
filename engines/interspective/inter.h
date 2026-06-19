@@ -37,11 +37,6 @@ class Engine;
 class Resources;
 class Graphics;
 
-#define UNIMPLEMENTED                           \
-	{                                           \
-		error("type conversion unimplemented"); \
-	}
-
 enum Status {
 	kReturned = 0,
 	kInvalidOpcode = 1

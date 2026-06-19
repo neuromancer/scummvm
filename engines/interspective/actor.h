@@ -136,7 +136,7 @@ public:
 
 	class Speech {
 	public:
-		Speech() : _pageIndex(0), _ticksLeft(0), _actor(0), _color(0), _image(0) {}
+		Speech() : _pageIndex(0), _ticksLeft(0), _color(0), _image(0) {}
 		~Speech();
 		Speech(Actor *parent, const Common::String &text, uint16 maxLines);
 		// Variant for Op_40/0x42/0x44: use the target-speech paging mode
@@ -163,7 +163,6 @@ public:
 		Common::String _text;
 		Common::Queue<SpeechCallback> _cb;
 		uint16 _ticksLeft;
-		Actor *_actor;
 		Common::Point _anchor;
 		byte _color;
 		Common::Rect _rect;
