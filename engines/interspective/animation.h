@@ -226,6 +226,10 @@ private:
 	OpcodeHandler _handlers[38];
 };
 
+ENAME(Animation::Status_, Animation::kOk, "ok");
+ENAME(Animation::Status_, Animation::kRemove, "remove");
+ENAME(Animation::Status_, Animation::kFrameDone, "frame done");
+
 } // End of namespace Interspective
 
 #endif // INTERSPECTIVE_ANIMATION_H

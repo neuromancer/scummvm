@@ -228,7 +228,7 @@ private:
 
 #define ENAME(en, v, s)                               \
 	template<>                                        \
-	const char *EnumName<en, v>::name() { return s; }
+	inline const char *EnumName<en, v>::name() { return s; }
 
 } // End of namespace Interspective
 

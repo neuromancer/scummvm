@@ -32,10 +32,6 @@
 
 namespace Interspective {
 //
-ENAME(Animation::Status_, Animation::kOk, "ok");
-ENAME(Animation::Status_, Animation::kRemove, "remove");
-ENAME(Animation::Status_, Animation::kFrameDone, "frame done");
-
 static uint16 animationCodeSegmentTag(const byte *base) {
 	if (base && Log.blockProgram() && Log.blockProgram()->contains(base))
 		return uint16(0x4000 + (Log.currentBlock() & 0x3fff));
