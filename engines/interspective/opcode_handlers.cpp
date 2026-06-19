@@ -2946,8 +2946,9 @@ OPCODE(0xf4) {
 	static int op_f4_calls = 0;
 	op_f4_calls++;
 	if (op_f4_calls <= 3)
-		warning("Interspective music: opcode 0xf4 emitted (call #%d, script offset 0x%04x)",
-				op_f4_calls, scriptOff);
+		debugC(1, kDebugLevelMusic | kDebugLevelScript,
+			   "Interspective music: opcode 0xf4 emitted (call #%d, script offset 0x%04x)",
+			   op_f4_calls, scriptOff);
 	Music.loadMusic(script);
 	return kThxBye;
 }
@@ -5350,7 +5351,7 @@ OPCODE(0x97) {
 	if (b.active) {
 		// Re-entry without intervening Op_98. DOS would just overwrite
 		// the slot; we match.
-		warning("opcode 0x97: cutscene backup already active — overwriting");
+		debugC(2, kDebugLevelScript, "opcode 0x97: cutscene backup already active — overwriting");
 	}
 	b.active = true;
 	b.targetFrame = uint8(protag->targetFrameId());

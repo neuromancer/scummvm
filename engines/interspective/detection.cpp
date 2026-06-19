@@ -48,6 +48,7 @@ static const DebugChannelDef debugFlagList[] = {
 	{kDebugLevelEvents, "events", "event handling"},
 	{kDebugLevelMusic, "music", "music loading and playing"},
 	{kDebugLevelActor, "actor", "actor animation and behaviour"},
+	{kDebugLevelSound, "sound", "sound effects loading and playback"},
 	DEBUG_CHANNEL_END};
 
 const ADGameDescription gameDescriptions[] = {

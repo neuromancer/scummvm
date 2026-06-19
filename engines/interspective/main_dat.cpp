@@ -232,9 +232,10 @@ void MainDat::loadObjectStates() {
 		if (room != 0)
 			++nonZero;
 	}
-	warning("MainDat::loadObjectStates: seeded %u objects (%u with non-zero room) "
-			"from footer offset 0x%04x [DOS CS:[0x6d]]",
-			count, nonZero, listOff);
+	debugC(1, kDebugLevelFiles,
+		   "MainDat::loadObjectStates: seeded %u objects (%u with non-zero room) "
+		   "from footer offset 0x%04x [DOS CS:[0x6d]]",
+		   count, nonZero, listOff);
 }
 
 void MainDat::loadActors(Interpreter *in) {

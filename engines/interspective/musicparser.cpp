@@ -74,8 +74,8 @@ MusicParser::MusicParser() : MidiParser(), _sfxPendingBeat(-1), _tune(0), _scrip
 	MidiDriver::DeviceHandle dev = MidiDriver::detectDevice(devTypes);
 	_musicType = MidiDriver::getMusicType(dev);
 	const Common::String devId = MidiDriver::getDeviceString(dev, MidiDriver::kDeviceId);
-	warning("Interspective music init: detected device id='%s' musicType=%d",
-			devId.c_str(), int(_musicType));
+	debugC(1, kDebugLevelMusic, "Interspective music init: detected device id='%s' musicType=%d",
+		   devId.c_str(), int(_musicType));
 
 	_midiDriver = MidiDriver::createMidi(dev);
 	if (!_midiDriver) {
@@ -88,8 +88,8 @@ MusicParser::MusicParser() : MidiParser(), _sfxPendingBeat(-1), _tune(0), _scrip
 		warning("Interspective music init: MidiDriver::open failed (%d) — music will be silent", openResult);
 		return;
 	}
-	warning("Interspective music init: MIDI driver opened OK; baseTempo=%u",
-			(uint)_midiDriver->getBaseTempo());
+	debugC(1, kDebugLevelMusic, "Interspective music init: MIDI driver opened OK; baseTempo=%u",
+		   (uint)_midiDriver->getBaseTempo());
 
 	// Report current mixer volume so the user can confirm the music isn't being
 	// silenced upstream. Default in ScummVM is typically 192/256 (75%) but can
@@ -98,15 +98,16 @@ MusicParser::MusicParser() : MidiParser(), _sfxPendingBeat(-1), _tune(0), _scrip
 	if (g_system && g_system->getMixer()) {
 		const int musicVol = g_system->getMixer()->getVolumeForSoundType(Audio::Mixer::kMusicSoundType);
 		const int sfxVol = g_system->getMixer()->getVolumeForSoundType(Audio::Mixer::kSFXSoundType);
-		warning("Interspective music init: mixer volumes — music=%d/%d sfx=%d/%d (max=%d)",
-				musicVol, Audio::Mixer::kMaxMixerVolume,
-				sfxVol, Audio::Mixer::kMaxMixerVolume,
-				Audio::Mixer::kMaxMixerVolume);
+		debugC(1, kDebugLevelMusic | kDebugLevelSound,
+			   "Interspective music init: mixer volumes — music=%d/%d sfx=%d/%d (max=%d)",
+			   musicVol, Audio::Mixer::kMaxMixerVolume,
+			   sfxVol, Audio::Mixer::kMaxMixerVolume,
+			   Audio::Mixer::kMaxMixerVolume);
 		if (musicVol == 0)
 			warning("Interspective music init: ★ MUSIC VOLUME IS 0 — that's why you hear nothing. "
 					"Adjust in ScummVM's Audio settings (or `music_volume` in scummvm.ini).");
 	} else {
-		warning("Interspective music init: g_system / mixer unavailable — can't read volume");
+		debugC(1, kDebugLevelMusic, "Interspective music init: g_system / mixer unavailable — can't read volume");
 	}
 
 	// MidiParser::setMidiDriver only sets _driver — doesn't touch the driver's
@@ -117,8 +118,8 @@ MusicParser::MusicParser() : MidiParser(), _sfxPendingBeat(-1), _tune(0), _scrip
 	setMidiDriver(_midiDriver);
 	setTimerRate(_midiDriver->getBaseTempo());
 	_midiDriver->setTimerCallback(this, &MusicParser::timerCallback);
-	warning("Interspective music init: timer callback registered (timerRate=%u µs)",
-			(uint)_timerRate);
+	debugC(1, kDebugLevelMusic, "Interspective music init: timer callback registered (timerRate=%u µs)",
+		   (uint)_timerRate);
 }
 
 MusicParser::~MusicParser() {
@@ -182,7 +183,7 @@ bool MusicParser::loadMusic(const byte *data, uint32 size) {
 	uint16 tuneIdx = _script->getTune();
 	_currentTuneWord = tuneIdx;
 	const uint16 midiTuneIdx = midiTuneIndexForScriptTune(tuneIdx);
-	warning("Interspective music: loadMusic tune index = %u (data tune %u)", tuneIdx, midiTuneIdx);
+	debugC(1, kDebugLevelMusic, "Interspective music: loadMusic tune index = %u (data tune %u)", tuneIdx, midiTuneIdx);
 	_tune = new Tune(midiTuneIdx);
 
 	_numTracks = 1;
@@ -190,8 +191,8 @@ bool MusicParser::loadMusic(const byte *data, uint32 size) {
 	//	_clocksPerTick = 0x19;
 	setTempo(500000 * 0x19);
 	setTrack(0);
-	warning("Interspective music: loadMusic complete — _psecPerTick=%u _ppqn=%u",
-			(uint)_psecPerTick, (uint)_ppqn);
+	debugC(2, kDebugLevelMusic, "Interspective music: loadMusic complete — _psecPerTick=%u _ppqn=%u",
+		   (uint)_psecPerTick, (uint)_ppqn);
 	return true;
 }
 
@@ -220,16 +221,16 @@ void MusicParser::tick() {
 	static bool reportedFirstTick = false;
 	if (!reportedFirstTick) {
 		reportedFirstTick = true;
-		warning("Interspective music: first MusicParser::tick fired (timerRate=%u psecPerTick=%u tune=%p)",
-				(uint)_timerRate, (uint)_psecPerTick, (const void *)_tune);
+		debugC(1, kDebugLevelMusic, "Interspective music: first MusicParser::tick fired (timerRate=%u psecPerTick=%u tune=%p)",
+			   (uint)_timerRate, (uint)_psecPerTick, (const void *)_tune);
 	}
 
 	if (_tune && _tune->isPlaying()) {
 		static bool reportedFirstTuneTick = false;
 		if (!reportedFirstTuneTick) {
 			reportedFirstTuneTick = true;
-			warning("Interspective music: first Tune::tick about to fire (Music.getTick=%u)",
-					(uint)_tick);
+			debugC(1, kDebugLevelMusic, "Interspective music: first Tune::tick about to fire (Music.getTick=%u)",
+				   (uint)_tick);
 		}
 		_tune->tick();
 		if (!_tune->isPlaying()) {
@@ -737,8 +738,8 @@ void Tune::setBeat(uint16 index) {
 		// the modeled DOS current-tune word too; CheckMusicPlaying polls that
 		// word and should report "not playing" once the terminal beat is
 		// reached.
-		warning("Interspective music: Tune::setBeat(%u) >= beats=%u — stopping tune",
-				(uint)index, (uint)_beats.size());
+		debugC(2, kDebugLevelMusic, "Interspective music: Tune::setBeat(%u) >= beats=%u — stopping tune",
+			   (uint)index, (uint)_beats.size());
 		Music.stopMusic();
 		return;
 	}
@@ -963,9 +964,10 @@ void MusicCommand::exec(byte channel, Note *note) {
 			static bool reportedFirstNote = false;
 			if (!reportedFirstNote) {
 				reportedFirstNote = true;
-				warning("Interspective music: first NoteOn reached driver "
-						"(channel=%u pitch=%u velocity=%u)",
-						(uint)channel, (uint)_command, (uint)_parameter);
+				debugC(1, kDebugLevelMusic,
+					   "Interspective music: first NoteOn reached driver "
+					   "(channel=%u pitch=%u velocity=%u)",
+					   (uint)channel, (uint)_command, (uint)_parameter);
 			}
 
 			if (note->note()) {
