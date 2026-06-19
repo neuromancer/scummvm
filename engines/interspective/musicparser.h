@@ -153,6 +153,8 @@ public:
 	void tick();
 	uint16 getTune() const { return READ_LE_UINT16(_code); }
 	const byte *base() const { return _code; }
+	uint16 offset() const { return _offset; }
+	void setOffset(uint16 offset) { _offset = offset; }
 
 	friend class Note;
 
@@ -180,8 +182,10 @@ public:
 	bool hasCurrentTune() const { return _currentTuneWord != 0; }
 	uint16 currentTuneWord() const { return _currentTuneWord; }
 	const byte *currentScriptBase() const { return _script ? _script->base() : 0; }
+	uint16 currentScriptOffset() const { return _script ? _script->offset() : 0; }
 	uint16 currentBeat() const { return _tune ? _tune->beatId() : 0xffff; }
 	uint32 currentBeatTicks() const { return _tune ? _tune->beatTicks() : 0; }
+	uint8 currentTempoParameter() const;
 	uint8 driverCommandByte() const { return _driverCommandByte; }
 	uint8 driverModeFlag() const { return _driverModeFlag; }
 	bool isActive() const { return _active; }

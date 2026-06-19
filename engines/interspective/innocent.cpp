@@ -194,6 +194,8 @@ static MusicStateSyncResult synchronizeMusicState(Common::Serializer &s, Resourc
 	uint16 scriptOffset = 0xffff;
 	uint16 beat = Music.currentBeat();
 	uint32 beatTicks = Music.currentBeatTicks();
+	const uint16 musicScriptCursor = Music.currentScriptOffset();
+	const uint8 musicTempoParameter = Music.currentTempoParameter();
 	uint8 commandByte = Music.driverCommandByte();
 	uint8 modeFlag = Music.driverModeFlag();
 	uint8 savedMusicMode = currentMusicMode;
@@ -207,6 +209,13 @@ static MusicStateSyncResult synchronizeMusicState(Common::Serializer &s, Resourc
 		const uintptr scriptAddr = reinterpret_cast<uintptr>(scriptBase);
 		if (scriptAddr >= mainAddr && scriptAddr < mainAddr + mainSize)
 			scriptOffset = uint16(scriptAddr - mainAddr);
+	}
+	if (!s.isLoading()) {
+		// The low six bits are the DOS beat tick (0..63). Preserve the save stream
+		// shape while carrying the resident-driver tempo/script cursor needed
+		// to restore music at the same speed after a reload.
+		beatTicks = (beatTicks & 0x3f) | (uint32(musicTempoParameter) << 8) |
+					(uint32(musicScriptCursor) << 16);
 	}
 
 	s.syncAsByte(active);

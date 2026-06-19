@@ -568,6 +568,14 @@ bool MusicParser::isPlaying() const {
 	return _tune && _tune->isPlaying();
 }
 
+uint8 MusicParser::currentTempoParameter() const {
+	if (!_tempo)
+		return 0;
+
+	const uint32 parameter = (_tempo + 250000) / 500000;
+	return (uint8)MAX<uint32>(1, MIN<uint32>(255, parameter));
+}
+
 void MusicParser::stopMusic() {
 	Common::StackLock lock(_mutex);
 	_currentTuneWord = 0;
@@ -586,6 +594,9 @@ void MusicParser::requestStopCurrent() {
 void MusicParser::restoreSavedState(const byte *script, uint16 currentTuneWord, uint8 active,
 									uint8 driverCommandByte, uint8 driverModeFlag, uint16 beat, uint32 beatTicks) {
 	Common::StackLock lock(_mutex);
+	const uint32 savedBeatTicks = beatTicks & 0x3f;
+	const uint8 savedTempoParameter = (beatTicks >> 8) & 0xff;
+	const uint16 savedScriptOffset = beatTicks >> 16;
 	_active = active != 0;
 	_driverCommandByte = driverCommandByte;
 	_driverModeFlag = driverModeFlag;
@@ -606,7 +617,16 @@ void MusicParser::restoreSavedState(const byte *script, uint16 currentTuneWord, 
 	_driverCommandByte = driverCommandByte;
 	_driverModeFlag = driverModeFlag;
 	if (_tune)
-		_tune->restorePosition(beat, beatTicks);
+		_tune->restorePosition(beat, savedBeatTicks);
+	if (_script && savedScriptOffset != 0)
+		_script->setOffset(savedScriptOffset);
+	if (savedTempoParameter != 0)
+		setTempo(500000 * savedTempoParameter);
+	debugC(1, kDebugLevelMusic,
+		   "Interspective music: restored saved state tune=%u beat=%u beatTicks=%u scriptOffset=0x%04x tempo=%u psecPerTick=%u",
+		   (uint)_currentTuneWord, (uint)beat, (uint)savedBeatTicks,
+		   (uint)(_script ? _script->offset() : 0),
+		   (uint)currentTempoParameter(), (uint)_psecPerTick);
 }
 
 bool MusicParser::restartCurrent() {
@@ -806,9 +826,10 @@ void Tune::restorePosition(uint16 beat, uint32 beatTicks) {
 		return;
 	}
 
+	const uint32 savedBeatTicks = beatTicks % 64;
 	_currentBeat = beat;
 	_beats[_currentBeat].reset();
-	_beatticks = beatTicks % 64;
+	_beatticks = savedBeatTicks;
 }
 
 void Tune::stop() {
