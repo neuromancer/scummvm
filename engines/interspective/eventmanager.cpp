@@ -25,6 +25,7 @@
 #include "interspective/debug.h"
 #include "interspective/exit.h"
 #include "interspective/graphics.h"
+#include "interspective/inter.h"
 #include "interspective/logic.h"
 #include "interspective/main_dat.h"
 #include "interspective/program.h"
@@ -387,6 +388,58 @@ static bool runEntityScript(Logic &logic, const HitTarget &target, OpcodeMode mo
 	return true;
 }
 
+static bool resolveHitTargetScript(Logic &logic, const HitTarget &target, Interpreter *&interpreter, uint16 &scriptOffset) {
+	interpreter = 0;
+	scriptOffset = 0;
+	if (target.type == 0)
+		return false;
+
+	if (target.type == 1) {
+		if (!logic.cellBit(target.id, 0))
+			return false;
+		if (target.exitPtr) {
+			const CodePointer &handler = target.exitPtr->clickHandler();
+			if (handler.isEmpty())
+				return false;
+			interpreter = handler.interpreter();
+			scriptOffset = handler.offset();
+			return interpreter != 0;
+		}
+
+		if (!logic.blockProgram() || !logic.blockProgram()->getExitRecordField(target.id, 8, 2, scriptOffset))
+			return false;
+		interpreter = logic.blockInterpreter();
+		return interpreter != 0;
+	}
+
+	if (target.type == 2) {
+		if (!logic.resources() || !logic.resources()->mainDat() ||
+			target.id == 0 || target.id > logic.resources()->mainDat()->personsCount())
+			return false;
+		interpreter = logic.mainInterpreter();
+		scriptOffset = recordWord(logic, 2, target.id, 0x0a);
+		return interpreter != 0;
+	}
+
+	if (target.type == 3) {
+		if (!logic.resources() || !logic.resources()->mainDat())
+			return false;
+		uint16 actorCount = logic.resources()->mainDat()->actorsCount();
+		if (logic.blockProgram())
+			actorCount += logic.blockProgram()->actorsCount();
+		if (target.id == 0 || target.id > actorCount)
+			return false;
+
+		interpreter = target.id <= logic.resources()->mainDat()->actorsCount()
+						  ? logic.mainInterpreter()
+						  : logic.blockInterpreter();
+		scriptOffset = recordWord(logic, 3, target.id, 0x5b);
+		return interpreter != 0;
+	}
+
+	return false;
+}
+
 static bool handleMinimapExitClick(Logic &logic, Common::Point screen) {
 	if (logic.cursorMode() == 0x80 || logic.dialogClickGate() == 0 || logic.inStatusMode())
 		return false;
@@ -593,6 +646,37 @@ void EventManager::clicked(Common::Point pos) {
 		logic.setPostMoveCallback(savedCallback);
 		logic.resetRoomScriptSlot(kCodeItem);
 	}
+}
+
+Common::String EventManager::hoverObjectName(Common::Point pos) const {
+	Logic &logic = Logic::instance();
+	if (!logic.roomActive() || logic.canSkipCutscene() || logic.noStep() || !logic.inputEnabled())
+		return Common::String();
+	if (logic.cursorMode() == 0 || logic.cursorMode() == 0x80)
+		return Common::String();
+	if (logic.cursorMode() == 0x10)
+		return Common::String();
+
+	const int16 hitRegion = hitRegionAtPoint(pos);
+	if (hitRegion != 0 && hitRegion != 1)
+		return Common::String();
+
+	const HitTarget target = findHitTargetForRegion(logic, hitRegion, pos);
+	if (target.type == 0)
+		return Common::String();
+
+	Interpreter *interpreter = 0;
+	uint16 scriptOffset = 0;
+	if (!resolveHitTargetScript(logic, target, interpreter, scriptOffset))
+		return Common::String();
+
+	Common::String text;
+	if (!interpreter->extractFirstStatusOverlayLine(scriptOffset, text))
+		return Common::String();
+
+	debugC(4, kDebugLevelEvents, "hover label target type=%u id=%u script=0x%04x text='%s'",
+		   target.type, target.id, scriptOffset, text.c_str());
+	return text;
 }
 
 void EventManager::push(Clickable *c) {

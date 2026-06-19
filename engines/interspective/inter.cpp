@@ -59,10 +59,11 @@ void Interpreter::init_opcodes() {
 template<>
 void Interpreter::init_opcodes<-1>() {}
 
-Interpreter::Interpreter(Logic *l, byte *base, const char *n) : _logic(l),
+Interpreter::Interpreter(Logic *l, byte *base, uint16 codeSize, const char *n) : _logic(l),
 																_engine(l->engine()),
 																_resources(_engine->resources()),
 																_base(base),
+																_codeSize(codeSize),
 																_roomLoop(0) {
 	init_opcodes<255>();
 	Common::strlcpy(_name, n ? n : "", sizeof(_name));
@@ -354,42 +355,74 @@ private:
 	byte *_base;
 };
 
-template<>
-ParametrizedString *Interpreter::readArgument<ParametrizedString>(byte *&code) {
-	byte translateBuf[500];
-	byte ch;
+static bool canReadBytes(const byte *code, const byte *end, uint count) {
+	return !end || (code && code <= end && uint(end - code) >= count);
+}
+
+static bool appendDecodedByte(byte *&dst, byte *dstEnd, byte value) {
+	if (dst >= dstEnd)
+		return false;
+	*dst++ = value;
+	return true;
+}
+
+static bool decodeParametrizedString(Resources *resources, byte *base, byte *&code, const byte *end,
+									 byte *translateBuf, uint16 translateBufSize,
+									 uint16 &translatedLength, byte *&raw, uint16 &rawLength) {
 	byte *str = translateBuf;
-	byte *raw = code;
-	uint16 offset;
-	uint16 value;
+	byte *const strEnd = translateBuf + translateBufSize - 1;
+	raw = code;
 	bool rawTerminated = false;
-	while (!rawTerminated && (ch = *(code++))) {
-		assert(str - translateBuf < 500);
+
+	while (!rawTerminated) {
+		if (!canReadBytes(code, end, 1))
+			return false;
+		const byte ch = *(code++);
+		if (ch == 0)
+			break;
+
+		uint16 offset = 0;
+		uint16 value = 0;
 		switch (ch) {
 		case 14:
 		case kStringMove:
-			*(str++) = ch;
-			*(str++) = *(code++);
-			*(str++) = *(code++);
-			*(str++) = *(code++);
-			*(str++) = *(code++);
+			if (!canReadBytes(code, end, 4) ||
+				!appendDecodedByte(str, strEnd, ch) ||
+				!appendDecodedByte(str, strEnd, *(code++)) ||
+				!appendDecodedByte(str, strEnd, *(code++)) ||
+				!appendDecodedByte(str, strEnd, *(code++)) ||
+				!appendDecodedByte(str, strEnd, *(code++)))
+				return false;
 			break;
 		case kStringAdvance:
-			*(str++) = ch;
-			*(str++) = *(code++);
+			if (!canReadBytes(code, end, 1) ||
+				!appendDecodedByte(str, strEnd, ch) ||
+				!appendDecodedByte(str, strEnd, *(code++)))
+				return false;
 			break;
-		case kStringGlobalWord:
+		case kStringGlobalWord: {
+			if (!resources || !canReadBytes(code, end, 2))
+				return false;
 			offset = READ_LE_UINT16(code);
 			code += 2;
-			value = READ_LE_UINT16(_resources->getGlobalWordVariable(offset / 2));
-			str += snprintf(reinterpret_cast<char *>(str), 10, "%d", value);
+			value = READ_LE_UINT16(resources->getGlobalWordVariable(offset / 2));
+			const uint remaining = uint(strEnd - str);
+			const int written = snprintf(reinterpret_cast<char *>(str), remaining + 1, "%d", value);
+			if (written < 0 || uint(written) > remaining)
+				return false;
+			str += written;
 			break;
+		}
 		case kStringSetColour:
-			*(str++) = ch;
-			*(str++) = *(code++);
+			if (!canReadBytes(code, end, 1) ||
+				!appendDecodedByte(str, strEnd, ch) ||
+				!appendDecodedByte(str, strEnd, *(code++)))
+				return false;
 			break;
 		case kStringCountSpacesIf0:
 		case kStringCountSpacesIf1: {
+			if (!resources || !canReadBytes(code, end, 2))
+				return false;
 			// DOS FormatBubbleText_Inner consumes a two-byte global-byte
 			// offset after these conditional markers and skips forward to
 			// STX (0x02) when the condition matches. The raw string remains
@@ -397,10 +430,12 @@ ParametrizedString *Interpreter::readArgument<ParametrizedString>(byte *&code) {
 			// contain text that survives the same condition.
 			offset = READ_LE_UINT16(code);
 			code += 2;
-			const byte state = *_resources->getGlobalByteVariable(offset);
+			const byte state = *resources->getGlobalByteVariable(offset);
 			const bool skip = (ch == kStringCountSpacesIf0) ? (state == 0) : (state != 0);
 			if (skip) {
 				while (true) {
+					if (!canReadBytes(code, end, 1))
+						return false;
 					const byte skipped = *(code++);
 					if (skipped == 0) {
 						rawTerminated = true;
@@ -415,24 +450,176 @@ ParametrizedString *Interpreter::readArgument<ParametrizedString>(byte *&code) {
 		case kStringCountSpacesTerminate:
 			break;
 		case '\r':
-			*(str++) = '\n';
+			if (!appendDecodedByte(str, strEnd, '\n'))
+				return false;
 			break;
 		default:
-			if (ch == 5) { // menu option
-				*(str++) = ch;
-				while ((*(str++) = *(code++)) != 0)
-					;
-				*(str++) = *(code++);
-				*(str++) = *(code++);
-			} else
-				*(str++) = ch;
+			if (ch == kStringMenuOption) {
+				if (!appendDecodedByte(str, strEnd, ch))
+					return false;
+				while (true) {
+					if (!canReadBytes(code, end, 1))
+						return false;
+					const byte optionCh = *(code++);
+					if (!appendDecodedByte(str, strEnd, optionCh))
+						return false;
+					if (optionCh == 0)
+						break;
+				}
+				if (!canReadBytes(code, end, 2) ||
+					!appendDecodedByte(str, strEnd, *(code++)) ||
+					!appendDecodedByte(str, strEnd, *(code++)))
+					return false;
+			} else if (!appendDecodedByte(str, strEnd, ch)) {
+				return false;
+			}
 		}
 	}
-	*str++ = 0;
+
+	if (!appendDecodedByte(str, translateBuf + translateBufSize, 0))
+		return false;
+	translatedLength = uint16(str - translateBuf);
+	rawLength = uint16(code - raw);
+	(void)base;
+	return true;
+}
+
+template<>
+ParametrizedString *Interpreter::readArgument<ParametrizedString>(byte *&code) {
+	byte translateBuf[500];
+	byte *raw = code;
+	uint16 translatedLength = 0;
+	uint16 rawLength = 0;
+	if (!decodeParametrizedString(_resources, _base, code, 0, translateBuf, sizeof(translateBuf),
+								  translatedLength, raw, rawLength))
+		error("malformed parametrized string argument");
 
 	debugC(4, kDebugLevelScript, "read parametrized string '%s' as argument", translateBuf);
 
-	return new ParametrizedString(translateBuf, str - translateBuf, raw, uint16(code - raw), _base);
+	return new ParametrizedString(translateBuf, translatedLength, raw, rawLength, _base);
+}
+
+static bool scanBytecodeArgument(Resources *resources, byte *base, byte *&code, const byte *end, Common::String *stringOut) {
+	if (!canReadBytes(code, end, 2))
+		return false;
+
+	const uint8 argumentType = code[1];
+	code += 2;
+
+	switch (argumentType) {
+	case kArgumentImmediate:
+	case kArgumentMainWord:
+	case kArgumentMainByte:
+	case kArgumentCode:
+		if (!canReadBytes(code, end, 2))
+			return false;
+		code += 2;
+		return true;
+	case kArgumentFieldByte:
+	case kArgumentFieldWord:
+	case kArgumentFieldWordAlt:
+		if (!canReadBytes(code, end, 4))
+			return false;
+		code += 4;
+		return true;
+	case kArgumentString: {
+		byte translateBuf[500];
+		byte *raw = 0;
+		uint16 translatedLength = 0;
+		uint16 rawLength = 0;
+		if (!decodeParametrizedString(resources, base, code, end, translateBuf, sizeof(translateBuf),
+									  translatedLength, raw, rawLength))
+			return false;
+		if (stringOut)
+			*stringOut = Common::String(reinterpret_cast<const char *>(translateBuf));
+		return true;
+	}
+	case kArgumentList:
+		while (true) {
+			if (!canReadBytes(code, end, 1))
+				return false;
+			if (*(code++) == 0xff)
+				return true;
+		}
+	default:
+		return false;
+	}
+}
+
+static Common::String plainFirstLineForHover(const Common::String &text) {
+	Common::String line;
+	const byte *p = reinterpret_cast<const byte *>(text.c_str());
+	while (*p) {
+		const byte ch = *p++;
+		if (ch == '\r' || ch == '\n')
+			break;
+		switch (ch) {
+		case kStringMove:
+		case 14:
+			p += 4;
+			break;
+		case kStringSetColour:
+		case kStringAdvance:
+		case kStringCenter:
+			++p;
+			break;
+		case kStringDefaultColour:
+		case 4:
+		case kStringCountSpacesTerminate:
+			break;
+		default:
+			if (ch >= 0x20)
+				line += char(ch);
+			break;
+		}
+	}
+	line.trim();
+	return line;
+}
+
+bool Interpreter::extractFirstStatusOverlayLine(uint16 offset, Common::String &text) {
+	text.clear();
+	if (!_base || offset >= _codeSize)
+		return false;
+
+	byte *code = _base + offset;
+	const byte *end = _base + _codeSize;
+	enum {
+		kMaxScannedOpcodes = 512
+	};
+
+	for (uint scanned = 0; scanned < kMaxScannedOpcodes; ++scanned) {
+		if (!canReadBytes(code, end, 1))
+			return false;
+
+		const byte opcode = *code;
+		if (opcode > kOpcodeMax)
+			return false;
+
+		const uint8 nargs = _argumentsCounts[opcode];
+		Common::String statusText;
+		if (nargs == 0) {
+			if (!canReadBytes(code, end, 2))
+				return false;
+			code += 2;
+		} else {
+			for (uint i = 0; i < nargs; ++i) {
+				const bool captureStatusText = opcode == 0x28 && i == 1;
+				if (!scanBytecodeArgument(_resources, _base, code, end,
+										  captureStatusText ? &statusText : 0))
+					return false;
+			}
+		}
+
+		if (opcode == 0x28) {
+			text = plainFirstLineForHover(statusText);
+			return !text.empty();
+		}
+		if (opcode == 0x01)
+			return false;
+	}
+
+	return false;
 }
 
 Value *Interpreter::getArgument(byte *&code) {

@@ -26,6 +26,7 @@
 
 #include "common/algorithm.h"
 #include "common/array.h"
+#include "common/config-manager.h"
 #include "common/events.h"
 #include "common/system.h"
 #include "common/util.h"
@@ -36,6 +37,7 @@
 #include "interspective/animation.h"
 #include "interspective/debug.h"
 #include "interspective/debugger.h"
+#include "interspective/eventmanager.h"
 #include "interspective/exit.h"
 #include "interspective/innocent.h"
 #include "interspective/logic.h"
@@ -255,10 +257,12 @@ void Graphics::paint() {
 		_afterRepaintHooks.clear();
 	}
 
-	if (!logic->paused())
+	if (!logic->paused()) {
 		paintCursorSprite();
-	else
+		paintCursorObjectName();
+	} else {
 		debugC(3, kDebugLevelGraphics, "skipping cursor paint while paused");
+	}
 
 	debugC(3, kDebugLevelFlow | kDebugLevelGraphics, "<<<end paint procedure");
 }
@@ -860,6 +864,37 @@ void Graphics::paintCursorSprite() {
 		int16(cursorPosition().x - sprite->_hotPoint.x),
 		int16(cursorPosition().y - sprite->_hotPoint.y));
 	paint(sprite.get(), topLeft, kPaintPositionIsTop | kPaintIgnoreHotPoint);
+}
+
+void Graphics::paintCursorObjectName() {
+	if (!ConfMan.getBool("show_hover_labels"))
+		return;
+
+	Logic *logic = _engine ? _engine->logic() : 0;
+	if (!logic || logic->cursorMode() == 0x80)
+		return;
+
+	const Common::String text = EventManager::instance().hoverObjectName(cursorPosition());
+	if (text.empty())
+		return;
+
+	const byte *line = reinterpret_cast<const byte *>(text.c_str());
+	const uint16 width = plainTextLineWidth(line);
+	const Common::Point cursor = cursorPosition();
+	int left = cursor.x - int(width) / 2;
+	int top = cursor.y + 11;
+
+	if (left + int(width) + 1 > 320)
+		left = 320 - int(width) - 1;
+	if (left < 0)
+		left = 0;
+	if (top + kLineHeight + 1 > 200)
+		top = cursor.y - kLineHeight - 5;
+	if (top < 0)
+		top = 0;
+
+	paintPlainTextLine(uint16(left + 1), uint16(top + 1), 0xae, line);
+	paintPlainTextLine(uint16(left), uint16(top), 0xeb, line);
 }
 
 void Graphics::setBackdrop(uint16 id) {

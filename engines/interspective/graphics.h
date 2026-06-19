@@ -209,6 +209,7 @@ private:
 	void setInterfaceOverlaySprite(uint16 maskBit, uint16 spriteId, uint16 x, uint16 y);
 	void paintAutoCloseTimer();
 	void paintStatusOverlayText();
+	void paintCursorObjectName();
 	void paintStatusScreenText();
 
 	/**

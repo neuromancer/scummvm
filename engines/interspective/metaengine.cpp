@@ -20,6 +20,7 @@
  */
 
 #include "common/system.h"
+#include "common/translation.h"
 #include "graphics/surface.h"
 
 #include "interspective/detection.h"
@@ -28,10 +29,29 @@
 
 namespace Interspective {
 
+static const ADExtraGuiOptionsMap optionsList[] = {
+	{
+		GAMEOPTION_SHOW_HOVER_LABELS,
+		{
+			_s("Show object labels"),
+			_s("Shows the name of the object under the cursor next to the cursor."),
+			"show_hover_labels",
+			false,
+			0,
+			0
+		}
+	},
+	AD_EXTRA_GUI_OPTIONS_TERMINATOR
+};
+
 class InterspectiveMetaEngine : public AdvancedMetaEngine<ADGameDescription> {
 public:
 	const char *getName() const override {
 		return "interspective";
+	}
+
+	const ADExtraGuiOptionsMap *getAdvancedExtraGuiOptions() const override {
+		return Interspective::optionsList;
 	}
 
 	Common::Error createInstance(OSystem *syst, ::Engine **engine, const ADGameDescription *gd) const override {

@@ -28,6 +28,8 @@ namespace Interspective {
 
 extern const ADGameDescription gameDescriptions[];
 
+#define GAMEOPTION_SHOW_HOVER_LABELS GUIO_GAMEOPTIONS1
+
 } // End of namespace Interspective
 
 #endif // INTERSPECTIVE_DETECTION_H

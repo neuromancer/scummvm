@@ -24,6 +24,7 @@
 
 #include "common/list.h"
 #include "common/rect.h"
+#include "common/str.h"
 #include "common/util.h"
 
 #include "interspective/value.h"
@@ -60,7 +61,7 @@ private:
 	};
 
 public:
-	Interpreter(Logic *l, byte *base, const char *name);
+	Interpreter(Logic *l, byte *base, uint16 codeSize, const char *name);
 	~Interpreter();
 
 	void init();
@@ -93,6 +94,8 @@ public:
 	const char *name() const { return _name; }
 
 	byte *rawCode(uint16 offset) const { return _base + offset; }
+	uint16 codeSize() const { return _codeSize; }
+	bool extractFirstStatusOverlayLine(uint16 offset, Common::String &text);
 
 	friend class CodePointer;
 
@@ -105,6 +108,7 @@ private:
 	T *readArgument(byte *&code);
 
 	byte *_base;
+	uint16 _codeSize;
 	uint16 _mode;
 	uint16 _runEntry; // entry offset of current run(); DOS wait handlers use
 					  // the per-opcode g_block_start_di/es snapshot instead.

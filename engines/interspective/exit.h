@@ -64,6 +64,7 @@ public:
 	void setNoSprite(bool noSprite);
 	uint16 spriteField() const { return _spriteField; }
 	void setSpriteField(uint16 sprite);
+	const CodePointer &clickHandler() const { return _clickHandler; }
 
 	friend class Program;
 

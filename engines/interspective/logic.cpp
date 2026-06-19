@@ -526,7 +526,8 @@ uint16 Logic::updateAutoCloseTimerSprite() {
 }
 
 void Logic::init() {
-	_toplevelInterpreter = Common::SharedPtr<Interpreter>(new Interpreter(this, _resources->mainBase(), "main code"));
+	_toplevelInterpreter = Common::SharedPtr<Interpreter>(
+		new Interpreter(this, _resources->mainBase(), _resources->mainDat()->dataSize(), "main code"));
 }
 
 void Logic::initCode() {
@@ -1273,7 +1274,8 @@ void Logic::doChangeRoom() {
 		char buf[100];
 		snprintf(buf, 100, "block %d code", newBlock);
 
-		_blockInterpreter = Common::SharedPtr<Interpreter>(new Interpreter(this, _blockProgram->base(), buf));
+		_blockInterpreter = Common::SharedPtr<Interpreter>(
+			new Interpreter(this, _blockProgram->base(), _blockProgram->codeSize(), buf));
 		_blockProgram->loadActors(_blockInterpreter.get());
 		_blockProgram->loadExits(_blockInterpreter.get());
 
@@ -1731,7 +1733,7 @@ CodePointer Logic::switchToScene(uint16 sceneId, const CodePointer &resumePC) {
 	snprintf(buf, sizeof(buf), "scene %u code", sceneId);
 	_sceneProgramKeepAlive = Common::SharedPtr<Program>(_resources->loadSceneCodeBlock(sceneId));
 	_sceneInterpreterKeepAlive = Common::SharedPtr<Interpreter>(
-		new Interpreter(this, _sceneProgramKeepAlive->base(), buf));
+		new Interpreter(this, _sceneProgramKeepAlive->base(), _sceneProgramKeepAlive->codeSize(), buf));
 
 	_currentBlock = uint16(_resources->mainDat()->roomProgramCount() + sceneId);
 	_blockProgram = _sceneProgramKeepAlive;

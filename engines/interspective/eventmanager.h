@@ -25,6 +25,7 @@
 #include "common/list.h"
 #include "common/rect.h"
 #include "common/singleton.h"
+#include "common/str.h"
 
 #include "interspective/types.h"
 
@@ -57,6 +58,7 @@ class EventManager : public Common::Singleton<EventManager>, public Paintable {
 public:
 	EventManager() : _debug(false) {}
 	void clicked(Common::Point pos);
+	Common::String hoverObjectName(Common::Point pos) const;
 
 	void paint(Graphics *g) const;
 	byte zIndex() const { return 0; }

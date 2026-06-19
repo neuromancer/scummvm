@@ -58,7 +58,7 @@ const ADGameDescription gameDescriptions[] = {
 	 Common::EN_ANY,
 	 Common::kPlatformDOS,
 	 ADGF_TESTING | ADGF_NO_FLAGS,
-	 GUIO0()},
+	 GUIO1(GAMEOPTION_SHOW_HOVER_LABELS)},
 	{// Multilingual CD release: the per-language data ships as
 	 // IUC_MAIN.<ext> / IUC_PROG.<ext> (ENG, DTL=German, FRN, ESP, ITL)
 	 // instead of the single-language iuc_main.dat / iuc_prog.dat. Detected
@@ -71,7 +71,7 @@ const ADGameDescription gameDescriptions[] = {
 	 Common::UNK_LANG,
 	 Common::kPlatformDOS,
 	 ADGF_TESTING | ADGF_NO_FLAGS,
-	 GUIO0()},
+	 GUIO1(GAMEOPTION_SHOW_HOVER_LABELS)},
 	AD_TABLE_END_MARKER};
 
 } // End of namespace Interspective
