@@ -633,7 +633,8 @@ static bool showFormattedModalTextAndWait(const Logic::FormattedBubble &fb,
 			atRowStart = false;
 			continue;
 		}
-		visible += char(ch);
+		const char out = char(ch);
+		visible.append(&out, &out + 1);
 		atRowStart = (ch == '\r' || ch == '\n');
 	}
 	const byte *out = reinterpret_cast<const byte *>(visible.c_str());
@@ -658,7 +659,8 @@ static Common::String stripFormattedRowCenterRecords(const Logic::FormattedBubbl
 			atRowStart = false;
 			continue;
 		}
-		visible += char(ch);
+		const char out = char(ch);
+		visible.append(&out, &out + 1);
 		atRowStart = (ch == '\r' || ch == '\n');
 	}
 	return visible;
@@ -736,6 +738,10 @@ struct RawModalChoice {
 	bool terminal;
 
 	RawModalChoice() : target(0xffff), terminal(false) {}
+};
+
+enum {
+	kVerbBubbleStashedSelection = 0xfffe
 };
 
 static bool runFormattedChoiceModal(const Logic::FormattedBubble &fb,
@@ -855,6 +861,10 @@ static bool runRawChoiceListModal(const byte *src, uint16 *selectedIndex, uint16
 		return false;
 
 	target = runEncodedChoiceModal(&encoded[0], choiceCount, maxTextWidth, selectedIndex);
+	if (selectedIndex && *selectedIndex == kVerbBubbleStashedSelection && target != 0xffff) {
+		debugC(1, kDebugLevelScript, "stashed formatted modal choice selected target=0x%04x", target);
+		return true;
+	}
 	if (!selectedIndex || *selectedIndex == 0xffff || *selectedIndex >= rawChoices.size()) {
 		debugC(1, kDebugLevelScript, "raw modal choice cancelled");
 		target = 0xffff;
@@ -909,7 +919,8 @@ static bool runFormattedChoiceModal(const Logic::FormattedBubble &fb,
 
 	if (!formattedTextIsPureChoiceList(visible)) {
 		target = Graf.askVerbBubbleText(Log.modalState().paletteMode,
-										reinterpret_cast<const byte *>(visible.c_str()), selectedIndex);
+										reinterpret_cast<const byte *>(visible.c_str()), selectedIndex,
+										Log.modalState().menuChoiceCount);
 		debugC(1, kDebugLevelScript, "inline formatted modal choice selected index=%u target=0x%04x",
 			   selectedIndex ? *selectedIndex : 0xffff, target);
 		return true;

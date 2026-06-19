@@ -114,7 +114,8 @@ public:
 
 	uint16 ask(uint16 left, uint16 top, byte width, byte height, byte *string, uint16 *selectedIndex = 0);
 	uint16 askVerbBubble(byte paletteMode, byte *string, uint16 *selectedIndex = 0);
-	uint16 askVerbBubbleText(byte paletteMode, const byte *string, uint16 *selectedIndex = 0);
+	uint16 askVerbBubbleText(byte paletteMode, const byte *string, uint16 *selectedIndex = 0,
+							  uint16 timeoutFrames = 0);
 	void showVerbBubbleText(byte paletteMode, const byte *string, uint16 frames);
 	Common::Rect paintText(uint16 left, uint16 top, byte colour, const byte *string) {
 		return paintText(left, top, colour, string, _framebuffer.get(), 0, 0, 0);

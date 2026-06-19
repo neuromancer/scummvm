@@ -1080,7 +1080,8 @@ static uint16 _optionValues[10];
 enum {
 	kOptionColour = 254,
 	kVerbBubbleRawTextColour = 0xdb,
-	kSelectedOptionColour = 227
+	kSelectedOptionColour = 227,
+	kVerbBubbleStashedSelection = 0xfffe
 };
 
 static bool modalOptionAt(Common::Point p, uint16 left, uint16 top, uint16 *selectedIndex, uint16 &value) {
@@ -1195,7 +1196,7 @@ static Common::Array<byte> normalizeBubbleInput(const byte *string) {
 	return out;
 }
 
-static bool parseVerbBubbleChoices(byte *string, Common::Array<VerbBubbleChoice> &choices,
+static bool parseVerbBubbleChoices(const byte *string, Common::Array<VerbBubbleChoice> &choices,
 								   Common::String &displayText) {
 	const byte *p = string;
 	while (p && *p) {
@@ -1244,6 +1245,18 @@ static int verbBubbleChoiceAt(Common::Point p, const Common::Array<VerbBubbleCho
 		if (choices[i].rect.contains(p))
 			return int(i);
 	return -1;
+}
+
+static bool modalQuitRequested(Engine *engine) {
+	return engine && engine->shouldQuit();
+}
+
+static bool handleModalQuitEvent(Engine *engine, const Common::Event &event) {
+	if (event.type != Common::EVENT_QUIT && event.type != Common::EVENT_RETURN_TO_LAUNCHER)
+		return false;
+	if (engine)
+		engine->quitGame();
+	return true;
 }
 
 static int verbBubbleRowShift(uint16 rows) {
@@ -1505,7 +1518,10 @@ static byte verbBubbleTextColourForPalette(byte paletteMode) {
 	return 0xeb;
 }
 
-static void paintStashedVerbBubble(Graphics *graphics, Logic *logic, Surface *dest) {
+static void paintStashedVerbBubble(Graphics *graphics, Logic *logic, Surface *dest,
+								   int hover, Common::Array<VerbBubbleChoice> *choicesOut) {
+	if (choicesOut)
+		choicesOut->clear();
 	if (!graphics || !logic || !dest)
 		return;
 
@@ -1519,6 +1535,16 @@ static void paintStashedVerbBubble(Graphics *graphics, Logic *logic, Surface *de
 															reinterpret_cast<const byte *>(savedText.c_str()), &bubble, Graphics::kSpeechBubbleType1, true);
 	graphics->paint(&bubble, Common::Point(bubbleRect.left, bubbleRect.top), dest,
 					Graphics::kPaintSemiTransparent | Graphics::kPaintPositionIsTop);
+
+	Common::Array<VerbBubbleChoice> localChoices;
+	Common::Array<VerbBubbleChoice> &choices = choicesOut ? *choicesOut : localChoices;
+	positionInlineVerbBubbleChoices(graphics, bubbleRect,
+									reinterpret_cast<const byte *>(savedText.c_str()), choices);
+
+	if (hover >= 0 && hover < int(choices.size()))
+		graphics->paintPlainTextLine(choices[hover].textLeft, choices[hover].textTop,
+									 kSelectedOptionColour,
+									 reinterpret_cast<const byte *>(choices[hover].label.c_str()), false);
 }
 
 static void paintVerbBubbleConnectors(Graphics *graphics, Resources *resources,
@@ -1552,6 +1578,7 @@ uint16 Graphics::askVerbBubble(byte paletteMode, byte *string, uint16 *selectedI
 		*selectedIndex = 0xffff;
 
 	Common::Array<VerbBubbleChoice> choices;
+	Common::Array<VerbBubbleChoice> stashedChoices;
 	Common::String displayText;
 	if (!parseVerbBubbleChoices(string, choices, displayText))
 		return 0xffff;
@@ -1563,7 +1590,7 @@ uint16 Graphics::askVerbBubble(byte paletteMode, byte *string, uint16 *selectedI
 
 	beginConversationModal();
 
-	auto paintModalFrame = [&](int hover) {
+	auto paintModalFrame = [&](int hover, int stashedHover) {
 		paintConversationBackdrop();
 		paintVerbBubbleConnectors(this, _resources, paletteMode, anchor, _framebuffer.get());
 
@@ -1586,7 +1613,8 @@ uint16 Graphics::askVerbBubble(byte paletteMode, byte *string, uint16 *selectedI
 							   kSelectedOptionColour,
 							   reinterpret_cast<const byte *>(choices[hover].label.c_str()), false);
 		if (paletteMode == 4)
-			paintStashedVerbBubble(this, _engine ? _engine->logic() : 0, _framebuffer.get());
+			paintStashedVerbBubble(this, _engine ? _engine->logic() : 0, _framebuffer.get(),
+								   stashedHover, &stashedChoices);
 
 		_system->copyRectToScreen(reinterpret_cast<byte *>(_framebuffer->getPixels()),
 								  _framebuffer->pitch, 0, 0, 320, 200);
@@ -1598,16 +1626,43 @@ uint16 Graphics::askVerbBubble(byte paletteMode, byte *string, uint16 *selectedI
 	uint16 result = 0xffff;
 	uint8 clickDelay = 10;
 	int hover = -1;
-	paintModalFrame(hover);
+	int stashedHover = -1;
+	paintModalFrame(hover, stashedHover);
 
-	while (!done) {
+	auto updateHover = [&](Common::Point p) {
+		stashedHover = (paletteMode == 4) ? verbBubbleChoiceAt(p, stashedChoices) : -1;
+		hover = (stashedHover >= 0) ? -1 : verbBubbleChoiceAt(p, choices);
+	};
+
+	auto acceptHover = [&]() -> bool {
+		if (stashedHover >= 0) {
+			if (selectedIndex)
+				*selectedIndex = kVerbBubbleStashedSelection;
+			result = stashedChoices[stashedHover].value;
+			return true;
+		}
+		if (hover >= 0) {
+			if (selectedIndex)
+				*selectedIndex = uint16(hover);
+			result = choices[hover].value;
+			return true;
+		}
+		return false;
+	};
+
+	while (!done && !modalQuitRequested(_engine)) {
 		_engine->debugger()->onFrame();
 		Common::Event event;
 		while (_engine->eventMan()->pollEvent(event)) {
+			if (handleModalQuitEvent(_engine, event)) {
+				result = 0xffff;
+				done = true;
+				break;
+			}
 			switch (event.type) {
 			case Common::EVENT_MOUSEMOVE:
 				setCursorPosition(event.mouse);
-				hover = verbBubbleChoiceAt(event.mouse, choices);
+				updateHover(event.mouse);
 				break;
 			case Common::EVENT_KEYDOWN:
 				if (event.kbd.keycode == Common::KEYCODE_ESCAPE)
@@ -1628,13 +1683,9 @@ uint16 Graphics::askVerbBubble(byte paletteMode, byte *string, uint16 *selectedI
 				break;
 			case Common::EVENT_LBUTTONDOWN:
 				setCursorPosition(event.mouse);
-				hover = verbBubbleChoiceAt(event.mouse, choices);
-				if (clickDelay == 0 && hover >= 0) {
-					if (selectedIndex)
-						*selectedIndex = uint16(hover);
-					result = choices[hover].value;
-					done = true;
-				}
+				updateHover(event.mouse);
+				if (clickDelay == 0)
+					done = acceptHover();
 				break;
 			default:
 				break;
@@ -1646,19 +1697,14 @@ uint16 Graphics::askVerbBubble(byte paletteMode, byte *string, uint16 *selectedI
 		if (!done && clickDelay == 0 && (_engine->eventMan()->getButtonState() & 1)) {
 			const Common::Point mouse = _engine->eventMan()->getMousePos();
 			setCursorPosition(mouse);
-			hover = verbBubbleChoiceAt(mouse, choices);
-			if (hover >= 0) {
-				if (selectedIndex)
-					*selectedIndex = uint16(hover);
-				result = choices[hover].value;
-				done = true;
-			}
+			updateHover(mouse);
+			done = acceptHover();
 		} else if (clickDelay != 0) {
 			--clickDelay;
 		}
 
 		if (!done)
-			paintModalFrame(hover);
+			paintModalFrame(hover, stashedHover);
 		_system->delayMillis(1000 / 60);
 	}
 
@@ -1667,7 +1713,8 @@ uint16 Graphics::askVerbBubble(byte paletteMode, byte *string, uint16 *selectedI
 	return result;
 }
 
-uint16 Graphics::askVerbBubbleText(byte paletteMode, const byte *string, uint16 *selectedIndex) {
+uint16 Graphics::askVerbBubbleText(byte paletteMode, const byte *string, uint16 *selectedIndex,
+								   uint16 timeoutFrames) {
 	if (selectedIndex)
 		*selectedIndex = 0xffff;
 	if (!string || !*string)
@@ -1677,10 +1724,11 @@ uint16 Graphics::askVerbBubbleText(byte paletteMode, const byte *string, uint16 
 	const Common::Point anchor = verbBubbleAnchorForPalette(paletteMode);
 	const byte textColour = verbBubbleTextColourForPalette(paletteMode);
 	Common::Array<VerbBubbleChoice> choices;
+	Common::Array<VerbBubbleChoice> stashedChoices;
 
 	beginConversationModal();
 
-	auto paintModalFrame = [&](int hover) {
+	auto paintModalFrame = [&](int hover, int stashedHover) {
 		paintConversationBackdrop();
 		paintVerbBubbleConnectors(this, _resources, paletteMode, anchor, _framebuffer.get());
 
@@ -1695,7 +1743,8 @@ uint16 Graphics::askVerbBubbleText(byte paletteMode, const byte *string, uint16 
 							   kSelectedOptionColour,
 							   reinterpret_cast<const byte *>(choices[hover].label.c_str()), false);
 		if (paletteMode == 4)
-			paintStashedVerbBubble(this, _engine ? _engine->logic() : 0, _framebuffer.get());
+			paintStashedVerbBubble(this, _engine ? _engine->logic() : 0, _framebuffer.get(),
+								   stashedHover, &stashedChoices);
 
 		_system->copyRectToScreen(reinterpret_cast<byte *>(_framebuffer->getPixels()),
 								  _framebuffer->pitch, 0, 0, 320, 200);
@@ -1707,16 +1756,44 @@ uint16 Graphics::askVerbBubbleText(byte paletteMode, const byte *string, uint16 
 	uint16 result = 0xffff;
 	uint8 clickDelay = 10;
 	int hover = -1;
-	paintModalFrame(hover);
+	int stashedHover = -1;
+	uint16 framesLeft = timeoutFrames;
+	paintModalFrame(hover, stashedHover);
 
-	while (!done) {
+	auto updateHover = [&](Common::Point p) {
+		stashedHover = (paletteMode == 4) ? verbBubbleChoiceAt(p, stashedChoices) : -1;
+		hover = (stashedHover >= 0) ? -1 : verbBubbleChoiceAt(p, choices);
+	};
+
+	auto acceptHover = [&]() -> bool {
+		if (stashedHover >= 0) {
+			if (selectedIndex)
+				*selectedIndex = kVerbBubbleStashedSelection;
+			result = stashedChoices[stashedHover].value;
+			return true;
+		}
+		if (hover >= 0) {
+			if (selectedIndex)
+				*selectedIndex = uint16(hover);
+			result = choices[hover].value;
+			return true;
+		}
+		return false;
+	};
+
+	while (!done && !modalQuitRequested(_engine)) {
 		_engine->debugger()->onFrame();
 		Common::Event event;
 		while (_engine->eventMan()->pollEvent(event)) {
+			if (handleModalQuitEvent(_engine, event)) {
+				result = 0xffff;
+				done = true;
+				break;
+			}
 			switch (event.type) {
 			case Common::EVENT_MOUSEMOVE:
 				setCursorPosition(event.mouse);
-				hover = verbBubbleChoiceAt(event.mouse, choices);
+				updateHover(event.mouse);
 				break;
 			case Common::EVENT_KEYDOWN:
 				if (event.kbd.keycode == Common::KEYCODE_ESCAPE)
@@ -1737,13 +1814,9 @@ uint16 Graphics::askVerbBubbleText(byte paletteMode, const byte *string, uint16 
 				break;
 			case Common::EVENT_LBUTTONDOWN:
 				setCursorPosition(event.mouse);
-				hover = verbBubbleChoiceAt(event.mouse, choices);
-				if (clickDelay == 0 && hover >= 0) {
-					if (selectedIndex)
-						*selectedIndex = uint16(hover);
-					result = choices[hover].value;
-					done = true;
-				}
+				updateHover(event.mouse);
+				if (clickDelay == 0)
+					done = acceptHover();
 				break;
 			default:
 				break;
@@ -1755,19 +1828,23 @@ uint16 Graphics::askVerbBubbleText(byte paletteMode, const byte *string, uint16 
 		if (!done && clickDelay == 0 && (_engine->eventMan()->getButtonState() & 1)) {
 			const Common::Point mouse = _engine->eventMan()->getMousePos();
 			setCursorPosition(mouse);
-			hover = verbBubbleChoiceAt(mouse, choices);
-			if (hover >= 0) {
-				if (selectedIndex)
-					*selectedIndex = uint16(hover);
-				result = choices[hover].value;
-				done = true;
-			}
+			updateHover(mouse);
+			done = acceptHover();
 		} else if (clickDelay != 0) {
 			--clickDelay;
 		}
 
+		if (!done && timeoutFrames != 0) {
+			if (framesLeft <= 1) {
+				result = 0xffff;
+				done = true;
+			} else {
+				--framesLeft;
+			}
+		}
+
 		if (!done)
-			paintModalFrame(hover);
+			paintModalFrame(hover, stashedHover);
 		_system->delayMillis(1000 / 60);
 	}
 
@@ -1803,7 +1880,7 @@ void Graphics::showVerbBubbleText(byte paletteMode, const byte *string, uint16 f
 			paintVerbBubbleLines(this, bubbleRect, lines, kVerbBubbleRawTextColour);
 		}
 		if (paletteMode == 4)
-			paintStashedVerbBubble(this, _engine ? _engine->logic() : 0, _framebuffer.get());
+			paintStashedVerbBubble(this, _engine ? _engine->logic() : 0, _framebuffer.get(), -1, 0);
 
 		_system->copyRectToScreen(reinterpret_cast<byte *>(_framebuffer->getPixels()),
 								  _framebuffer->pitch, 0, 0, 320, 200);
@@ -1818,6 +1895,10 @@ void Graphics::showVerbBubbleText(byte paletteMode, const byte *string, uint16 f
 		Common::Event event;
 		bool done = false;
 		while (_engine->eventMan()->pollEvent(event)) {
+			if (handleModalQuitEvent(_engine, event)) {
+				done = true;
+				break;
+			}
 			switch (event.type) {
 			case Common::EVENT_MOUSEMOVE:
 				setCursorPosition(event.mouse);
@@ -1844,6 +1925,8 @@ void Graphics::showVerbBubbleText(byte paletteMode, const byte *string, uint16 f
 			setCursorPosition(_engine->eventMan()->getMousePos());
 			done = true;
 		}
+		if (!done && modalQuitRequested(_engine))
+			done = true;
 		if (done)
 			break;
 		paintModalFrame();
@@ -1941,11 +2024,16 @@ uint16 Graphics::ask(uint16 left, uint16 top, byte width, byte height, byte *str
 	bool done = false;
 	uint16 result = 0xffff;
 	uint8 clickDelay = 10;
-	while (!done) {
+	while (!done && !modalQuitRequested(_engine)) {
 		_system->updateScreen();
 		_engine->debugger()->onFrame();
 		Common::Event event;
 		while (_engine->eventMan()->pollEvent(event)) {
+			if (handleModalQuitEvent(_engine, event)) {
+				result = 0xffff;
+				done = true;
+				break;
+			}
 			switch (event.type) {
 			case Common::EVENT_KEYDOWN:
 				if (event.kbd.keycode == Common::KEYCODE_ESCAPE)
