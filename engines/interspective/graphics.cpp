@@ -1081,7 +1081,12 @@ enum {
 	kOptionColour = 254,
 	kVerbBubbleRawTextColour = 0xdb,
 	kSelectedOptionColour = 227,
-	kVerbBubbleStashedSelection = 0xfffe
+	kVerbBubbleStashedSelection = 0xfffe,
+	kModalCursorTalk = 0x08,
+	kModalCursorTopic = 0x01,
+	kModalCursorBubble = 0x02,
+	kCursorTableNormal = 0x54,
+	kCursorTableModal = 0x56
 };
 
 static bool modalOptionAt(Common::Point p, uint16 left, uint16 top, uint16 *selectedIndex, uint16 &value) {
@@ -1587,6 +1592,7 @@ uint16 Graphics::askVerbBubble(byte paletteMode, byte *string, uint16 *selectedI
 	const Common::Point anchor = verbBubbleAnchorForPalette(paletteMode);
 	const byte textColour = verbBubbleTextColourForPalette(paletteMode);
 	Logic::FormattedBubble metrics = Log.formatBubbleText(reinterpret_cast<const byte *>(displayText.c_str()));
+	Common::Rect activeBubbleRect;
 
 	beginConversationModal();
 
@@ -1598,6 +1604,7 @@ uint16 Graphics::askVerbBubble(byte paletteMode, byte *string, uint16 *selectedI
 		bubble._hotPoint = Common::Point(0, 0);
 		Common::Rect bubbleRect = paintSpeechInBubble(anchor, textColour,
 													  reinterpret_cast<const byte *>(displayText.c_str()), &bubble, bubbleMode, false);
+		activeBubbleRect = bubbleRect;
 		paint(&bubble, Common::Point(bubbleRect.left, bubbleRect.top),
 			  _framebuffer.get(), kPaintSemiTransparent | kPaintPositionIsTop);
 
@@ -1621,7 +1628,7 @@ uint16 Graphics::askVerbBubble(byte paletteMode, byte *string, uint16 *selectedI
 		_system->updateScreen();
 	};
 
-	showCursor();
+	updateModalCursor(kModalCursorTalk, kCursorTableNormal, true);
 	bool done = false;
 	uint16 result = 0xffff;
 	uint8 clickDelay = 10;
@@ -1633,6 +1640,22 @@ uint16 Graphics::askVerbBubble(byte paletteMode, byte *string, uint16 *selectedI
 		stashedHover = (paletteMode == 4) ? verbBubbleChoiceAt(p, stashedChoices) : -1;
 		hover = (stashedHover >= 0) ? -1 : verbBubbleChoiceAt(p, choices);
 	};
+
+	auto updateCursor = [&]() {
+		const bool topicHover = stashedHover >= 0;
+		const bool bubbleHover = activeBubbleRect.contains(_engine->eventMan()->getMousePos());
+		if (topicHover) {
+			updateModalCursor(kModalCursorTopic, kCursorTableModal, true);
+		} else if (bubbleHover) {
+			updateModalCursor(kModalCursorBubble, kCursorTableModal, true);
+		} else {
+			updateModalCursor(kModalCursorTalk, kCursorTableNormal, false);
+		}
+	};
+
+	updateHover(_engine->eventMan()->getMousePos());
+	updateCursor();
+	paintModalFrame(hover, stashedHover);
 
 	auto acceptHover = [&]() -> bool {
 		if (stashedHover >= 0) {
@@ -1703,8 +1726,10 @@ uint16 Graphics::askVerbBubble(byte paletteMode, byte *string, uint16 *selectedI
 			--clickDelay;
 		}
 
-		if (!done)
+		if (!done) {
+			updateCursor();
 			paintModalFrame(hover, stashedHover);
+		}
 		_system->delayMillis(1000 / 60);
 	}
 
@@ -1751,7 +1776,7 @@ uint16 Graphics::askVerbBubbleText(byte paletteMode, const byte *string, uint16 
 		_system->updateScreen();
 	};
 
-	showCursor();
+	updateModalCursor(kModalCursorTalk, kCursorTableNormal, true);
 	bool done = false;
 	uint16 result = 0xffff;
 	uint8 clickDelay = 10;
@@ -1764,6 +1789,17 @@ uint16 Graphics::askVerbBubbleText(byte paletteMode, const byte *string, uint16 
 		stashedHover = (paletteMode == 4) ? verbBubbleChoiceAt(p, stashedChoices) : -1;
 		hover = (stashedHover >= 0) ? -1 : verbBubbleChoiceAt(p, choices);
 	};
+
+	auto updateCursor = [&]() {
+		const bool topicHover = hover >= 0 || stashedHover >= 0;
+		updateModalCursor(topicHover ? kModalCursorTopic : kModalCursorTalk,
+						  topicHover ? kCursorTableModal : kCursorTableNormal,
+						  topicHover);
+	};
+
+	updateHover(_engine->eventMan()->getMousePos());
+	updateCursor();
+	paintModalFrame(hover, stashedHover);
 
 	auto acceptHover = [&]() -> bool {
 		if (stashedHover >= 0) {
@@ -1843,8 +1879,10 @@ uint16 Graphics::askVerbBubbleText(byte paletteMode, const byte *string, uint16 
 			}
 		}
 
-		if (!done)
+		if (!done) {
+			updateCursor();
 			paintModalFrame(hover, stashedHover);
+		}
 		_system->delayMillis(1000 / 60);
 	}
 
@@ -1887,7 +1925,7 @@ void Graphics::showVerbBubbleText(byte paletteMode, const byte *string, uint16 f
 		_system->updateScreen();
 	};
 
-	showCursor();
+	updateModalCursor(kModalCursorTalk, kCursorTableNormal, true);
 	const uint16 ticks = MAX<uint16>(1, frames);
 	paintModalFrame();
 	for (uint16 i = 0; i < ticks; ++i) {
@@ -1929,6 +1967,7 @@ void Graphics::showVerbBubbleText(byte paletteMode, const byte *string, uint16 f
 			done = true;
 		if (done)
 			break;
+		updateModalCursor(kModalCursorTalk, kCursorTableNormal, false);
 		paintModalFrame();
 		_system->delayMillis(1000 / 60);
 	}
@@ -2892,7 +2931,41 @@ void Graphics::showCursor() {
 	if (_hostCursorShown)
 		return;
 
-	Sprite *cursor = _resources->getCursor();
+	Common::ScopedPtr<Sprite> cursor(_resources->getCursor());
+	assert(cursor->pitch == cursor->w);
+	::Graphics::CursorManager &m = ::Graphics::CursorManager::instance();
+	m.replaceCursor(reinterpret_cast<byte *>(cursor->getPixels()), cursor->w, cursor->h, cursor->_hotPoint.x, cursor->_hotPoint.y, 0);
+	m.showMouse(true);
+	_hostCursorShown = true;
+}
+
+void Graphics::updateModalCursor(uint16 cursorKey, uint16 tableFooterOffset, bool resetSequence) {
+	if (!_resources || !_resources->mainDat()) {
+		showCursor();
+		return;
+	}
+
+	if (resetSequence || cursorKey != _modalCursorKey || tableFooterOffset != _modalCursorFooter) {
+		_modalCursorKey = cursorKey;
+		_modalCursorFooter = tableFooterOffset;
+		_modalCursorStepIndex = 0;
+		_modalCursorStepPending = false;
+	}
+
+	uint16 spriteId = 0xffff;
+	uint16 stepIndex = _modalCursorStepIndex;
+	bool stepPending = _modalCursorStepPending;
+	if (!_resources->mainDat()->nextCursorSprite(cursorKey, stepIndex, stepPending, spriteId, tableFooterOffset)) {
+		if (_engine && _engine->logic())
+			_engine->logic()->setPendingError(0x26);
+		showCursor();
+		return;
+	}
+
+	_modalCursorStepIndex = stepIndex;
+	_modalCursorStepPending = stepPending;
+
+	Common::ScopedPtr<Sprite> cursor(_resources->loadSprite(spriteId));
 	assert(cursor->pitch == cursor->w);
 	::Graphics::CursorManager &m = ::Graphics::CursorManager::instance();
 	m.replaceCursor(reinterpret_cast<byte *>(cursor->getPixels()), cursor->w, cursor->h, cursor->_hotPoint.x, cursor->_hotPoint.y, 0);
@@ -2903,6 +2976,10 @@ void Graphics::showCursor() {
 void Graphics::hideCursor() {
 	::Graphics::CursorManager::instance().showMouse(false);
 	_hostCursorShown = false;
+	_modalCursorKey = 0xffff;
+	_modalCursorFooter = 0;
+	_modalCursorStepIndex = 0;
+	_modalCursorStepPending = false;
 }
 
 void Graphics::paintRect(const Common::Rect &r, byte colour) {

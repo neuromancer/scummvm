@@ -48,6 +48,8 @@ class Sprite;
 class Graphics : public Common::Singleton<Graphics> {
 public:
 	Graphics() : _cursorPosition(160, 100), _hostCursorShown(false),
+				 _modalCursorKey(0xffff), _modalCursorFooter(0),
+				 _modalCursorStepIndex(0), _modalCursorStepPending(false),
 				 _interfaceOverlayAnimationMask(0),
 				 _roomCloseUpActive(false), _roomCloseUpPoint(0, 0),
 				 _inventoryCloseUpObjectId(0),
@@ -201,6 +203,7 @@ private:
 	void beginConversationModal();
 	void finishConversationModal();
 	void restoreConversationPalette();
+	void updateModalCursor(uint16 cursorKey, uint16 tableFooterOffset, bool resetSequence);
 	void paintConversationBackdrop();
 	void paintInterfaceMinimap();
 	void paintRoomCloseUp();
@@ -224,6 +227,10 @@ private:
 	OSystem *_system;
 	Common::Point _cursorPosition;
 	bool _hostCursorShown;
+	uint16 _modalCursorKey;
+	uint16 _modalCursorFooter;
+	uint16 _modalCursorStepIndex;
+	bool _modalCursorStepPending;
 	Common::SharedPtr<Surface> _backdrop;
 	Common::SharedPtr<Surface> _framebuffer;
 	Common::ScopedPtr<::Graphics::Font> _font;
