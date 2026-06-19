@@ -24,6 +24,7 @@
 
 #include "common/array.h"
 #include "common/endian.h"
+#include "common/noncopyable.h"
 
 #include "interspective/debug.h"
 
@@ -134,11 +135,11 @@ private:
 	byte *_ptr;
 };
 
-class ValueVector {
+class ValueVector : private Common::NonCopyable {
 public:
 	~ValueVector() {
 		for (Common::Array<Value *>::iterator it = _values.begin(); it != _values.end(); ++it)
-			/*delete *it*/; // FIXME segfaults, why?
+			delete *it;
 	}
 	void push_back(Value *element) { _values.push_back(element); }
 	Value &operator[](uint8 idx) { return *_values[idx]; }

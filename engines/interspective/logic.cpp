@@ -20,6 +20,7 @@
  */
 
 #include "common/endian.h"
+#include "common/memstream.h"
 #include "common/serializer.h"
 #include "common/util.h"
 
@@ -289,6 +290,31 @@ static void syncUint16Array(Common::Serializer &s, Common::Array<uint16> &array)
 	}
 }
 
+static void captureActorState(Actor *actor, Common::Array<byte> &state) {
+	state.clear();
+	if (!actor)
+		return;
+
+	Common::MemoryWriteStreamDynamic stream(DisposeAfterUse::NO);
+	Common::Serializer serializer(nullptr, &stream);
+	actor->synchronize(serializer);
+	const uint32 size = uint32(stream.size());
+	if (size == 0)
+		return;
+
+	state.resize(size);
+	memcpy(&state[0], stream.getData(), size);
+}
+
+static void restoreActorState(Actor *actor, const Common::Array<byte> &state) {
+	if (!actor || state.empty())
+		return;
+
+	Common::MemoryReadStream stream(&state[0], state.size(), DisposeAfterUse::NO);
+	Common::Serializer serializer(&stream, nullptr);
+	actor->synchronize(serializer);
+}
+
 static Actor::Frame makeActorFrame(uint16 index, Common::Point pos, const Common::Array<byte> &nexts) {
 	Common::Array<byte> storedNexts = nexts;
 	storedNexts.resize(8);
@@ -514,6 +540,8 @@ void Logic::tick() {
 	_servicedRunModesThisTick.clear();
 	tickRightClickCycleCooldown();
 
+	if (handleEscDuringScript())
+		return;
 	if (_nextRoom)
 		doChangeRoom();
 	if (handleEscDuringScript())
@@ -1758,8 +1786,26 @@ void Logic::captureRoomStateForStatusSave(RoomBackup &dst) const {
 	dst.room = _room;
 	dst.animations = _animations;
 	dst.activeActorIds = _activeActorIds;
+	dst.actorStates.clear();
+	if (_resources && _resources->mainDat()) {
+		uint16 actorCount = _resources->mainDat()->actorsCount();
+		if (_blockProgram)
+			actorCount += _blockProgram->actorsCount();
+		for (uint16 id = 1; id <= actorCount; ++id) {
+			Actor *actor = getActor(id);
+			if (!actor)
+				continue;
+			RoomBackup::ActorState state;
+			state.id = id;
+			captureActorState(actor, state.bytes);
+			if (!state.bytes.empty())
+				dst.actorStates.push_back(state);
+		}
+	}
 	dst.castTable = _castTable;
 	dst.queued = _queued;
+	dst.speechSlots = _speechSlots;
+	dst.uiTextSpeechSlot = _uiTextSpeechSlot;
 	dst.cameraX = _cameraX;
 	dst.cameraY = _cameraY;
 	dst.scrollChanged = _scrollChanged;
@@ -1783,6 +1829,10 @@ void Logic::captureRoomStateForStatusSave(RoomBackup &dst) const {
 	dst.drawCommandCount = _drawCommandCount;
 	dst.postMoveCallback = _postMoveCallback;
 	dst.postMoveTargetFrameMirror = _postMoveTargetFrameMirror;
+	dst.skipPoint = _skipPoint;
+	dst.escBreakProc = _escBreakProc;
+	dst.escBreakSrcPC = _escBreakSrcPC;
+	dst.escBreakPending = _escBreakPending;
 	dst.nextRoom = _nextRoom;
 	dst.forceRoomRestart = _forceRoomRestart;
 	dst.inStatusMode = _inStatusMode;
@@ -1790,6 +1840,15 @@ void Logic::captureRoomStateForStatusSave(RoomBackup &dst) const {
 	dst.stepPending = _stepPending;
 	dst.logicDirty = _logicDirty;
 	dst.autoCloseTimer = _autoCloseTimer;
+}
+
+void Logic::restoreStatusActorAndSpeechState(const RoomBackup &src) {
+	for (uint i = 0; i < src.actorStates.size(); ++i)
+		restoreActorState(getActor(src.actorStates[i].id), src.actorStates[i].bytes);
+	_speechSlots = src.speechSlots;
+	if (_speechSlots.size() != kSpeechSlotCount)
+		_speechSlots.resize(kSpeechSlotCount);
+	_uiTextSpeechSlot = src.uiTextSpeechSlot;
 }
 
 void Logic::applyRoomStateForStatusSave(const RoomBackup &src) {
@@ -1803,6 +1862,7 @@ void Logic::applyRoomStateForStatusSave(const RoomBackup &src) {
 	_activeActorIds = src.activeActorIds;
 	_castTable = src.castTable;
 	_queued = src.queued;
+	restoreStatusActorAndSpeechState(src);
 	_cameraX = src.cameraX;
 	_cameraY = src.cameraY;
 	_scrollChanged = src.scrollChanged;
@@ -1823,6 +1883,10 @@ void Logic::applyRoomStateForStatusSave(const RoomBackup &src) {
 	_drawCommandCount = src.drawCommandCount;
 	_postMoveCallback = src.postMoveCallback;
 	_postMoveTargetFrameMirror = src.postMoveTargetFrameMirror;
+	_skipPoint = src.skipPoint;
+	_escBreakProc = src.escBreakProc;
+	_escBreakSrcPC = src.escBreakSrcPC;
+	_escBreakPending = src.escBreakPending;
 	_nextRoom = src.nextRoom;
 	_forceRoomRestart = src.forceRoomRestart;
 	_inStatusMode = src.inStatusMode;
@@ -1943,6 +2007,7 @@ void Logic::restoreRoomFromBackup() {
 		_activeActorIds = _roomBackup.activeActorIds;
 		_castTable = _roomBackup.castTable;
 		_queued = _roomBackup.queued;
+		restoreStatusActorAndSpeechState(_roomBackup);
 		_cameraX = _roomBackup.cameraX;
 		_cameraY = _roomBackup.cameraY;
 		_scrollChanged = _roomBackup.scrollChanged;
@@ -1964,6 +2029,10 @@ void Logic::restoreRoomFromBackup() {
 		_drawCommandCount = _roomBackup.drawCommandCount;
 		_postMoveCallback = _roomBackup.postMoveCallback;
 		_postMoveTargetFrameMirror = _roomBackup.postMoveTargetFrameMirror;
+		_skipPoint = _roomBackup.skipPoint;
+		_escBreakProc = _roomBackup.escBreakProc;
+		_escBreakSrcPC = _roomBackup.escBreakSrcPC;
+		_escBreakPending = _roomBackup.escBreakPending;
 		if (_engine && _engine->graphics())
 			_engine->graphics()->setFullscreen(_roomBackup.fullscreen);
 		_roomBackup.valid = false;
@@ -3936,7 +4005,10 @@ void Logic::finishSpeechSlot(SpeechSlot &slot) {
 }
 
 void Logic::paintSpeechSlots(Graphics *g) {
-	if (!g || escBreakPending())
+	// RunStatusScreenLoop @ 1000:7695 services only status subtitles
+	// (UpdateSubtitleText). DOS does not tick the six gameplay speech slots
+	// until RestoreRoomFromBackup returns to the main loop.
+	if (!g || escBreakPending() || _inStatusMode)
 		return;
 
 	bool speechSkipAvailable = _speechSkipInput;

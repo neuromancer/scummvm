@@ -44,7 +44,7 @@ enum {
 };
 
 template<int opcode>
-Interpreter::OpResult Interpreter::opcodeHandler(ValueVector args, CodePointer current, CodePointer next) {
+Interpreter::OpResult Interpreter::opcodeHandler(ValueVector &args, CodePointer current, CodePointer next) {
 	error("unhandled opcode %d [=0x%02x] at %s", opcode, opcode, +current);
 	return kThxBye;
 }

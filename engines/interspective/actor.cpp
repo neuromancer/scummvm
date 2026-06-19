@@ -261,6 +261,42 @@ static void syncActorRecordFields(Common::Serializer &s, Common::HashMap<uint8, 
 	}
 }
 
+static void syncActorFrameQueue(Common::Serializer &s, Common::Queue<Actor::Frame> &frames) {
+	uint16 count = uint16(MIN<uint>(frames.size(), 0xffff));
+	s.syncAsUint16LE(count);
+	if (s.isLoading()) {
+		frames.clear();
+		for (uint16 i = 0; i < count; ++i) {
+			uint16 index = 0;
+			uint16 x = 0;
+			uint16 y = 0;
+			Common::Array<byte> nexts;
+			nexts.resize(8);
+			s.syncAsUint16LE(index);
+			s.syncAsUint16LE(x);
+			s.syncAsUint16LE(y);
+			for (uint j = 0; j < nexts.size(); ++j)
+				s.syncAsByte(nexts[j]);
+			frames.push(Actor::Frame(Common::Point(int16(x), int16(y)), nexts, index));
+		}
+	} else {
+		Common::Queue<Actor::Frame> copy = frames;
+		for (uint16 i = 0; i < count && !copy.empty(); ++i) {
+			const Actor::Frame frame = copy.pop();
+			uint16 index = frame.index();
+			uint16 x = uint16(frame.position().x);
+			uint16 y = uint16(frame.position().y);
+			Common::Array<byte> nexts = frame.nexts();
+			nexts.resize(8);
+			s.syncAsUint16LE(index);
+			s.syncAsUint16LE(x);
+			s.syncAsUint16LE(y);
+			for (uint j = 0; j < nexts.size(); ++j)
+				s.syncAsByte(nexts[j]);
+		}
+	}
+}
+
 void Actor::syncWaitCallbacks(Common::Serializer &s) {
 	uint16 callbackCount = uint16(_callBacks.size());
 	s.syncAsUint16LE(callbackCount);
@@ -269,22 +305,27 @@ void Actor::syncWaitCallbacks(Common::Serializer &s) {
 		for (uint16 i = 0; i < callbackCount; ++i) {
 			CodePointer callback;
 			uint16 runMode = 0;
-			uint8 hasRunMode = 0;
+			uint8 waitPredicate = 0;
 			Log.syncCodePointer(s, callback);
 			s.syncAsUint16LE(runMode);
-			s.syncAsByte(hasRunMode);
-			if (!callback.isEmpty())
-				_callBacks.push(ScriptCallback(callback, runMode, hasRunMode != 0));
+			s.syncAsByte(waitPredicate);
+			if (!callback.isEmpty()) {
+				const uint8 normalizedPredicate =
+					waitPredicate == ScriptCallback::kActorScripting ?
+					ScriptCallback::kActorScripting : ScriptCallback::kActorAnimReady;
+				_callBacks.push(ScriptCallback(callback, runMode, waitPredicate != 0,
+											   normalizedPredicate));
+			}
 		}
 	} else {
 		Common::Queue<ScriptCallback> callbacks = _callBacks;
 		while (!callbacks.empty()) {
 			ScriptCallback callback = callbacks.pop();
 			uint16 runMode = callback.runMode;
-			uint8 hasRunMode = callback.hasRunMode ? 1 : 0;
+			uint8 waitPredicate = callback.waitPredicate;
 			Log.syncCodePointer(s, callback.callback);
 			s.syncAsUint16LE(runMode);
-			s.syncAsByte(hasRunMode);
+			s.syncAsByte(waitPredicate);
 		}
 	}
 
@@ -369,6 +410,7 @@ void Actor::synchronize(Common::Serializer &s) {
 	s.syncAsUint16LE(callbackSeg);
 	s.syncAsUint16LE(callbackOff);
 	syncActorRecordFields(s, _recordFields);
+	syncActorFrameQueue(s, _framequeue);
 
 	uint16 moveSlotCount = _moveSlots.size();
 	s.syncAsUint16LE(moveSlotCount);
@@ -415,7 +457,6 @@ void Actor::synchronize(Common::Serializer &s) {
 	_confused = confused != 0;
 	setActorCallback(callbackSeg, callbackOff);
 	_debugInvalid = false;
-	_framequeue.clear();
 	_callBacks.clear();
 	_roomCallbacks.clear();
 	_speech = Speech();
@@ -531,9 +572,10 @@ bool Actor::takeRoomScriptWait(RoomScriptWaitSnapshot &snapshot) {
 
 	while (!_callBacks.empty()) {
 		ScriptCallback callback = _callBacks.pop();
-		if (!found && callback.hasRunMode) {
+		if (!found && callback.hasRunMode()) {
 			snapshot.callback = callback.callback;
 			snapshot.runMode = callback.runMode;
+			snapshot.waitPredicate = callback.waitPredicate;
 			snapshot.position = position;
 			snapshot.valid = true;
 			found = true;
@@ -558,14 +600,16 @@ void Actor::restoreRoomScriptWait(const RoomScriptWaitSnapshot &snapshot) {
 	bool inserted = false;
 	while (!_callBacks.empty()) {
 		if (!inserted && position == snapshot.position) {
-			rebuilt.push(ScriptCallback(snapshot.callback, snapshot.runMode, true));
+			rebuilt.push(ScriptCallback(snapshot.callback, snapshot.runMode, true,
+										snapshot.waitPredicate));
 			inserted = true;
 		}
 		rebuilt.push(_callBacks.pop());
 		++position;
 	}
 	if (!inserted)
-		rebuilt.push(ScriptCallback(snapshot.callback, snapshot.runMode, true));
+		rebuilt.push(ScriptCallback(snapshot.callback, snapshot.runMode, true,
+									snapshot.waitPredicate));
 	_callBacks = rebuilt;
 }
 
@@ -573,7 +617,7 @@ bool Actor::hasRoomScriptWaitMode(uint16 mode) const {
 	Common::Queue<ScriptCallback> callbacks = _callBacks;
 	while (!callbacks.empty()) {
 		const ScriptCallback callback = callbacks.pop();
-		if (callback.hasRunMode && callback.runMode == mode)
+		if (callback.hasRunMode() && callback.runMode == mode)
 			return true;
 	}
 	return false;
@@ -583,7 +627,7 @@ void Actor::dropRoomScriptWaitMode(uint16 mode) {
 	Common::Queue<ScriptCallback> kept;
 	while (!_callBacks.empty()) {
 		const ScriptCallback callback = _callBacks.pop();
-		if (!callback.hasRunMode || callback.runMode != mode)
+		if (!callback.hasRunMode() || callback.runMode != mode)
 			kept.push(callback);
 	}
 	_callBacks = kept;
@@ -602,8 +646,10 @@ Actor::RoomScriptWaitDispatch Actor::dispatchReadyRoomScriptWaitMode(uint16 mode
 	CodePointer readyRoomScriptCallback;
 	while (!callbacks.empty()) {
 		const ScriptCallback callback = callbacks.pop();
-		if (status == kNoRoomScriptWait && callback.hasRunMode && callback.runMode == mode) {
-			if (animReady()) {
+		if (status == kNoRoomScriptWait && callback.hasRunMode() && callback.runMode == mode) {
+			const bool ready = callback.waitPredicate == ScriptCallback::kActorScripting ?
+				!scriptingWaitActive() : animReady();
+			if (ready) {
 				status = kRoomScriptWaitDispatched;
 				readyRoomScriptCallback = callback.callback;
 				continue;
@@ -666,22 +712,26 @@ Actor::Speech::~Speech() {
 	// drops pending speech callbacks instead of dispatching them.
 }
 
+bool Actor::scriptingWaitActive() const {
+	// DOS CheckActorScripting @ 1000:6499 is true while field +0x6f or
+	// word +0x6b is non-zero. The local C++ frame queue is not part of
+	// this predicate.
+	return movementWaitActive() || walkQueueLength() != 0;
+}
+
 bool Actor::isMoving() const {
-	// DOS CheckActorScripting @ 1000:6499 treats movement/scripting wait
-	// as active while field+0x6f or word field+0x6b is non-zero.
-	// _framequeue is the C++ mirror of the same queued walk path.
-	return movementWaitActive() || walkQueueLength() != 0 || !_framequeue.empty();
+	return scriptingWaitActive() || !_framequeue.empty();
 }
 
 void Actor::callMeWhenStill(const CodePointer &cp) {
-	// If the actor is already still, fire on the next tick (immediate
-	// post-walk callback equivalent). While moving, queue into _callBacks
-	// — Animation::tick drains it via callBacks() once attention/state
-	// settles.
-	if (!isMoving())
+	// Speech opcodes register room-script slot type 9 after
+	// CheckActorScripting. That predicate watches only the DOS actor fields,
+	// not the C++ frame queue used by other walk helpers.
+	if (!scriptingWaitActive())
 		Log.runLaterWithMode(cp, Log.opcodeMode());
 	else
-		_callBacks.push(ScriptCallback(cp, Log.opcodeMode(), true));
+		_callBacks.push(ScriptCallback(cp, Log.opcodeMode(), true,
+									   ScriptCallback::kActorScripting));
 }
 
 void Actor::setFrame(uint16 frame) {
@@ -1209,17 +1259,18 @@ void Actor::callBacks() {
 		_callBacks.clear();
 		while (!callbacks.empty()) {
 			ScriptCallback callback = callbacks.pop();
-			// DOS CheckActorScripting @ 1000:6499 is the wait predicate
-			// used by speech opcodes before RegisterSampleSlot_Common:
-			// carry set only when actor.field+0x6f == 0 and word +0x6b == 0.
-			// Do not use isFine() here; script PC can be clear while a
-			// queued walk is still in flight.
-			const bool ready = callback.hasRunMode ? animReady() : (!movementWaitActive() && walkQueueLength() == 0);
+			// Room-script waits use the DOS predicate that registered them:
+			// type 0 = CheckActorAnimReady, type 9 = CheckActorScripting.
+			// Plain callbacks use the older post-walk movement-field gate.
+			const bool ready = callback.hasRunMode() ?
+				(callback.waitPredicate == ScriptCallback::kActorScripting ?
+				 !scriptingWaitActive() : animReady()) :
+				(!movementWaitActive() && walkQueueLength() == 0);
 			if (!ready) {
 				pending.push(callback);
 				continue;
 			}
-			if (callback.hasRunMode)
+			if (callback.hasRunMode())
 				Log.runLaterWithMode(callback.callback, callback.runMode);
 			else
 				Log.runLater(callback.callback);

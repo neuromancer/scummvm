@@ -79,12 +79,12 @@ public:
 	friend class Opcode;
 
 	template<int opcode>
-	OpResult opcodeHandler(ValueVector args, CodePointer current, CodePointer next);
+	OpResult opcodeHandler(ValueVector &args, CodePointer current, CodePointer next);
 
 	template<int N>
 	void init_opcodes();
 
-	typedef OpResult (Interpreter::*OpcodeHandler)(ValueVector args, CodePointer current, CodePointer next);
+	typedef OpResult (Interpreter::*OpcodeHandler)(ValueVector &args, CodePointer current, CodePointer next);
 	OpcodeHandler _handlers[256];
 	static const uint8 _argumentsCounts[];
 

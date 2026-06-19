@@ -200,7 +200,7 @@ static SpeechDeferResult deferSpeechUntilReady(Actor *speaker, const CodePointer
 	const SpeechDeferResult speechWait = waitForActiveSpeechSlotOwner(Log.actorGlobalId(speaker), current);
 	if (speechWait != kSpeechNoWait)
 		return speechWait;
-	if (speaker->isMoving()) {
+	if (speaker->scriptingWaitActive()) {
 		if (sampleSlotWouldError())
 			return kSpeechWaitError;
 		speaker->callMeWhenStill(current);
@@ -970,7 +970,7 @@ static void seedFormattedModalState(Logic::ModalState &ms,
 }
 
 #define OPCODE(num) template<> \
-Interpreter::OpResult Interpreter::opcodeHandler<num>(ValueVector a, CodePointer current, CodePointer next)
+Interpreter::OpResult Interpreter::opcodeHandler<num>(ValueVector &a, CodePointer current, CodePointer next)
 
 OPCODE(0x00) {
 	// nop

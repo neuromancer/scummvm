@@ -302,9 +302,10 @@ public:
 	void tellMeWithMode(const CodePointer &cp, uint16 timeout, uint16 mode);
 
 	struct RoomScriptWaitSnapshot {
-		RoomScriptWaitSnapshot() : runMode(0), position(0), valid(false) {}
+		RoomScriptWaitSnapshot() : runMode(0), waitPredicate(0), position(0), valid(false) {}
 		CodePointer callback;
 		uint16 runMode;
+		uint8 waitPredicate;
 		uint16 position;
 		bool valid;
 	};
@@ -334,6 +335,7 @@ public:
 	Common::Point getSpeechPosition() const;
 
 	bool isMoving() const;
+	bool scriptingWaitActive() const;
 	void callMeWhenStill(const CodePointer &cp);
 
 	Animation::Status tick();
@@ -538,12 +540,23 @@ private:
 	uint16 _actorCallbackOff;
 
 	struct ScriptCallback {
-		ScriptCallback() : runMode(0), hasRunMode(false) {}
-		ScriptCallback(const CodePointer &p, uint16 mode = 0, bool hasMode = false)
-			: callback(p), runMode(mode), hasRunMode(hasMode) {}
+		// Stored in the former hasRunMode byte: 0 = no mode, otherwise
+		// DOS room-script slot type + 1. This keeps the callback record
+		// layout stable while distinguishing type 0 from type 9 waits.
+		enum WaitPredicate {
+			kNoRunMode = 0,
+			kActorAnimReady = 1,
+			kActorScripting = 10
+		};
+
+		ScriptCallback() : runMode(0), waitPredicate(kNoRunMode) {}
+		ScriptCallback(const CodePointer &p, uint16 mode = 0, bool hasMode = false,
+					   uint8 predicate = kActorAnimReady)
+			: callback(p), runMode(mode), waitPredicate(hasMode ? predicate : kNoRunMode) {}
+		bool hasRunMode() const { return waitPredicate != kNoRunMode; }
 		CodePointer callback;
 		uint16 runMode;
-		bool hasRunMode;
+		uint8 waitPredicate;
 	};
 	Common::Queue<ScriptCallback> _callBacks;
 	void callBacks();

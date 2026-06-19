@@ -1295,10 +1295,17 @@ private:
 	Common::Array<uint16> _servicedRunModesThisTick;
 
 	struct RoomBackup {
+		struct ActorState {
+			ActorState() : id(0) {}
+			uint16 id;
+			Common::Array<byte> bytes;
+		};
+
 		RoomBackup() : valid(false), currentBlock(0), currentRoom(0), loadedBackdropId(0), cameraX(0), cameraY(0),
 					   scrollChanged(false), cursorMode(0), fullscreen(false),
 					   roomActive(true), noStep(false), actorFrameCount(0), drawCommandCount(0),
-					   postMoveTargetFrameMirror(0), nextRoom(0), forceRoomRestart(false),
+					   postMoveTargetFrameMirror(0), escBreakProc(0), escBreakSrcPC(0), escBreakPending(false),
+					   nextRoom(0), forceRoomRestart(false), uiTextSpeechSlot(0xffff),
 					   inStatusMode(false), enteringStatusScreen(false), stepPending(false),
 					   logicDirty(false), autoCloseTimer(0) {}
 		bool valid;
@@ -1310,8 +1317,11 @@ private:
 		Common::SharedPtr<Room> room;
 		Common::List<Animation *> animations;
 		Common::Array<uint16> activeActorIds;
+		Common::Array<ActorState> actorStates;
 		Common::Array<CastEntry> castTable;
 		Common::List<DelayedRun> queued;
+		Common::Array<SpeechSlot> speechSlots;
+		uint16 uiTextSpeechSlot;
 		int16 cameraX;
 		int16 cameraY;
 		bool scrollChanged;
@@ -1333,6 +1343,10 @@ private:
 		uint16 drawCommandCount;
 		PostMoveCallback postMoveCallback;
 		uint8 postMoveTargetFrameMirror;
+		CodePointer skipPoint;
+		uint16 escBreakProc;
+		uint16 escBreakSrcPC;
+		bool escBreakPending;
 		uint32 nextRoom;
 		bool forceRoomRestart;
 		bool inStatusMode;
@@ -1343,6 +1357,7 @@ private:
 	};
 	void captureRoomStateForStatusSave(RoomBackup &dst) const;
 	void applyRoomStateForStatusSave(const RoomBackup &src);
+	void restoreStatusActorAndSpeechState(const RoomBackup &src);
 	RoomBackup _roomBackup;
 	RoomBackup _statusSaveShadow;
 	bool _statusSaveOverrideActive;

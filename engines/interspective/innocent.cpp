@@ -117,11 +117,15 @@ static uint16 verbHitRegionForKey(const Common::Event &event) {
 }
 
 static bool applyVerbHotkey(Logic *logic, const Common::Event &event) {
-	if (!logic || event.kbdRepeat)
+	if (!logic)
 		return false;
 
 	const uint16 hitRegion = verbHitRegionForKey(event);
 	if (hitRegion == 0xffff)
+		return false;
+	// RunStatusScreenLoop polls the live key byte, so holding/repeating Space
+	// while already in room 999 selects region 2 again and restores the backup.
+	if (event.kbdRepeat && (hitRegion != 2 || !logic->inStatusMode()))
 		return false;
 	if (hitRegion == 2) {
 		logic->activateStatusButtonHotkey();
