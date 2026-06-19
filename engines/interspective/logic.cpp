@@ -2759,6 +2759,11 @@ void Logic::castTableClearAll() {
 // row width held in BL. RenderSpeechBubbleText consumes that pair to center
 // each bubble row.
 //
+static void appendFormattedTextByte(Common::String &text, byte value) {
+	const char ch = char(value);
+	text.append(&ch, &ch + 1);
+}
+
 // C++ port: produces the DOS formatted text buffer, preserving the rendering
 // markup bytes and synthetic row-centering records, plus the dimensions DOS
 // computes. Per-glyph widths come from Graphics::getGlyphWidth (the C++
@@ -2784,8 +2789,8 @@ Logic::FormattedBubble Logic::formatBubbleText(const byte *src) const {
 	uint16 remaining = 0x1f4; // DOS AX countdown in FormatBubbleText_Inner
 
 	auto startTextRow = [&]() {
-		out.text += char(kStringCenter);
-		out.text += char(0);
+		appendFormattedTextByte(out.text, kStringCenter);
+		appendFormattedTextByte(out.text, 0);
 		rowWidthPatch = out.text.size() - 1;
 		rowFinished = false;
 	};
@@ -2856,7 +2861,7 @@ Logic::FormattedBubble Logic::formatBubbleText(const byte *src) const {
 		}
 		if (b == 0x20 || b == 0x2d) {
 			// space / dash — word break.
-			out.text += char(b);
+			appendFormattedTextByte(out.text, b);
 			out.lineCount++;
 			currentWidth += charPixelWidth(b);
 			if (!tickInputCountdown())
@@ -2865,7 +2870,7 @@ Logic::FormattedBubble Logic::formatBubbleText(const byte *src) const {
 		}
 		if (b == 0x0d) {
 			// Forced newline.
-			out.text += char(b);
+			appendFormattedTextByte(out.text, b);
 			finishTextRow();
 			++out.rowCount;
 			startTextRow();
@@ -2876,10 +2881,10 @@ Logic::FormattedBubble Logic::formatBubbleText(const byte *src) const {
 		if (b == 0x05) {
 			// Menu/literal block: preserve marker, NUL, and the two-byte
 			// option value in the formatted buffer.
-			out.text += char(b);
+			appendFormattedTextByte(out.text, b);
 			while (true) {
 				const byte lit = *p++;
-				out.text += char(lit);
+				appendFormattedTextByte(out.text, lit);
 				if (lit == 0x00)
 					break;
 				if (lit == 0x20)
@@ -2887,8 +2892,8 @@ Logic::FormattedBubble Logic::formatBubbleText(const byte *src) const {
 				currentWidth += charPixelWidth(lit);
 			}
 			const uint16 optionValue = readLE16();
-			out.text += char(optionValue & 0xff);
-			out.text += char(optionValue >> 8);
+			appendFormattedTextByte(out.text, optionValue & 0xff);
+			appendFormattedTextByte(out.text, optionValue >> 8);
 			if (!tickInputCountdown())
 				break;
 			continue;
@@ -2896,8 +2901,8 @@ Logic::FormattedBubble Logic::formatBubbleText(const byte *src) const {
 		if (b == 0x09) {
 			// 1-byte param = X-offset spacing.
 			const byte amount = *p++;
-			out.text += char(b);
-			out.text += char(amount);
+			appendFormattedTextByte(out.text, b);
+			appendFormattedTextByte(out.text, amount);
 			currentWidth += amount;
 			out.lineCount++;
 			if (!tickInputCountdown())
@@ -2907,8 +2912,8 @@ Logic::FormattedBubble Logic::formatBubbleText(const byte *src) const {
 		if (b == 0x07) {
 			// Color-change marker and parameter are copied verbatim.
 			const byte color = *p++;
-			out.text += char(b);
-			out.text += char(color);
+			appendFormattedTextByte(out.text, b);
+			appendFormattedTextByte(out.text, color);
 			if (!tickInputCountdown())
 				break;
 			continue;
@@ -2945,7 +2950,7 @@ Logic::FormattedBubble Logic::formatBubbleText(const byte *src) const {
 			continue;
 		}
 		// Default: emit char + advance width via per-glyph lookup.
-		out.text += char(b);
+		appendFormattedTextByte(out.text, b);
 		currentWidth += charPixelWidth(b);
 		if (!tickInputCountdown())
 			break;
@@ -3109,8 +3114,8 @@ Common::String Logic::prepareTextStrippedForRender(const byte *src, bool *trunca
 			continue;
 		}
 		if (b == 0x07) {
-			out += char(b);
-			out += char(*p++);
+			appendFormattedTextByte(out, b);
+			appendFormattedTextByte(out, *p++);
 			--remaining;
 			if (remaining <= 0) {
 				if (truncated)
@@ -3132,7 +3137,7 @@ Common::String Logic::prepareTextStrippedForRender(const byte *src, bool *trunca
 		if (b == 0x02)
 			continue;
 
-		out += char(b);
+		appendFormattedTextByte(out, b);
 		--remaining;
 		if (remaining <= 0) {
 			if (truncated)
