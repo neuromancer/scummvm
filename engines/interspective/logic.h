@@ -1188,6 +1188,9 @@ private:
 	void updateScrollPosition();
 	bool speechWouldConsumeRightClick() const;
 	bool hasQueuedRunMode(uint16 mode) const;
+	bool roomScriptModeServicedThisTick(uint16 mode) const;
+	void markRoomScriptModeServiced(uint16 mode);
+	bool serviceRoomScriptSlot(uint16 mode);
 	bool dispatchReadyActorRoomScriptWaitMode(uint16 mode);
 	void runItemRoomScriptSlot();
 	void runStatusScreenScripts();
@@ -1240,6 +1243,8 @@ private:
 	void clearSpeechSlot(SpeechSlot &slot);
 	void startSpeechSlotPage(SpeechSlot &slot, uint page);
 	bool initSpeechSlot(SpeechSlot &slot, const Common::String &text, uint16 maxLines);
+	bool speechSlotHasCallbackMode(uint16 mode) const;
+	void dropSpeechSlotCallbackMode(uint16 mode);
 	void finishSpeechSlot(SpeechSlot &slot);
 
 	Engine *_engine;
@@ -1287,6 +1292,7 @@ private:
 		uint16 waitParam;
 	};
 	Common::List<DelayedRun> _queued;
+	Common::Array<uint16> _servicedRunModesThisTick;
 
 	struct RoomBackup {
 		RoomBackup() : valid(false), currentBlock(0), currentRoom(0), loadedBackdropId(0), cameraX(0), cameraY(0),

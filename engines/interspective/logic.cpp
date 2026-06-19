@@ -511,6 +511,7 @@ void Logic::initCode() {
 
 void Logic::tick() {
 	++_frameCounter;
+	_servicedRunModesThisTick.clear();
 	tickRightClickCycleCooldown();
 
 	if (_nextRoom)
@@ -525,6 +526,12 @@ void Logic::tick() {
 
 void Logic::runRoomLoop() {
 	if (_roomLoop.get()) {
+		if (serviceRoomScriptSlot(kCodeRoomLoop)) {
+			debugC(4, kDebugLevelScript | kDebugLevelFlow,
+				   "room loop skipped while mode 0x%02x room-script slot is active",
+				   kCodeRoomLoop);
+			return;
+		}
 		//		gDebugLevel--; // room loops aren't that interesting
 		debugC(3, kDebugLevelScript | kDebugLevelFlow, ">>>running room loop code");
 		_roomLoop->run(kCodeRoomLoop);
@@ -539,8 +546,14 @@ void Logic::runGlobalRoomLoop() {
 	if (!_resources || !_toplevelInterpreter)
 		return;
 	const uint16 loop = _resources->mainRoomLoopEntryPoint();
-	if (loop == 0 || hasQueuedRunMode(kCodeGlobalRoomLoop))
+	if (loop == 0)
 		return;
+	if (serviceRoomScriptSlot(kCodeGlobalRoomLoop)) {
+		debugC(4, kDebugLevelScript | kDebugLevelFlow,
+			   "global room loop skipped while mode 0x%02x room-script slot is active",
+			   kCodeGlobalRoomLoop);
+		return;
+	}
 	debugC(3, kDebugLevelScript | kDebugLevelFlow, ">>>running global room loop code");
 	_toplevelInterpreter->run(loop, kCodeGlobalRoomLoop);
 	debugC(3, kDebugLevelScript | kDebugLevelFlow, "<<<finished global room loop code");
@@ -3130,10 +3143,13 @@ void Logic::runQueued() {
 			_runningQueued = &current->code;
 			_runningQueuedMode = current->deferredMode;
 			const uint16 savedOpcodeMode = _opcodeMode;
-			if (current->hasRunMode)
+			if (current->hasRunMode) {
+				if (current->deferredMode == 0)
+					markRoomScriptModeServiced(current->runMode);
 				current->code.run(static_cast<OpcodeMode>(current->runMode));
-			else
+			} else {
 				current->code.run();
+			}
 			_opcodeMode = savedOpcodeMode;
 			_runningQueued = 0;
 			_runningQueuedMode = 0;
@@ -3175,6 +3191,9 @@ void Logic::runQueued() {
 }
 
 bool Logic::hasQueuedRunMode(uint16 mode) const {
+	// DOS CheckRoomScriptExists tests a single per-mode slot table. The C++
+	// mirror can be represented as a queued continuation, an actor wait, or a
+	// speech-slot callback depending on which opcode registered the wait.
 	for (Common::List<DelayedRun>::const_iterator it = _queued.begin(); it != _queued.end(); ++it)
 		if (!it->canceled && it->hasRunMode && it->runMode == mode && it->deferredMode == 0)
 			return true;
@@ -3187,7 +3206,29 @@ bool Logic::hasQueuedRunMode(uint16 mode) const {
 				if (actor->hasRoomScriptWaitMode(mode))
 					return true;
 	}
+	if (speechSlotHasCallbackMode(mode))
+		return true;
 	return false;
+}
+
+bool Logic::roomScriptModeServicedThisTick(uint16 mode) const {
+	for (uint i = 0; i < _servicedRunModesThisTick.size(); ++i)
+		if (_servicedRunModesThisTick[i] == mode)
+			return true;
+	return false;
+}
+
+void Logic::markRoomScriptModeServiced(uint16 mode) {
+	if (!roomScriptModeServicedThisTick(mode))
+		_servicedRunModesThisTick.push_back(mode);
+}
+
+bool Logic::serviceRoomScriptSlot(uint16 mode) {
+	if (roomScriptModeServicedThisTick(mode))
+		return true;
+	if (dispatchReadyActorRoomScriptWaitMode(mode))
+		return true;
+	return hasQueuedRunMode(mode);
 }
 
 bool Logic::dispatchReadyActorRoomScriptWaitMode(uint16 mode) {
@@ -3220,7 +3261,7 @@ void Logic::runItemRoomScriptSlot() {
 	// again.
 	if (!_roomActive || _pendingError != 0)
 		return;
-	dispatchReadyActorRoomScriptWaitMode(kCodeItem);
+	serviceRoomScriptSlot(kCodeItem);
 }
 
 void Logic::runStatusScreenScripts() {
@@ -3235,13 +3276,10 @@ void Logic::runStatusScreenScripts() {
 	if (!_roomActive || _pendingError != 0 || !_blockInterpreter || !_blockProgram)
 		return;
 
-	if (hasQueuedRunMode(kCodeStatusLoop))
-		dispatchReadyActorRoomScriptWaitMode(kCodeStatusLoop);
+	serviceRoomScriptSlot(kCodeStatusLoop);
 
-	if (hasQueuedRunMode(kCodeStatusRefresh)) {
-		dispatchReadyActorRoomScriptWaitMode(kCodeStatusRefresh);
+	if (serviceRoomScriptSlot(kCodeStatusRefresh))
 		return;
-	}
 
 	const uint16 handler = _blockProgram->roomHandler(uint16(_currentRoom));
 	if (handler == 0)
@@ -3854,6 +3892,31 @@ void Logic::recycleStaleSpeechSlots() {
 	}
 }
 
+bool Logic::speechSlotHasCallbackMode(uint16 mode) const {
+	for (uint i = 0; i < _speechSlots.size(); ++i) {
+		Common::Queue<SpeechSlotCallback> callbacks = _speechSlots[i].callbacks;
+		while (!callbacks.empty()) {
+			const SpeechSlotCallback cb = callbacks.pop();
+			if (cb.hasMode && cb.mode == mode)
+				return true;
+		}
+	}
+	return false;
+}
+
+void Logic::dropSpeechSlotCallbackMode(uint16 mode) {
+	for (uint i = 0; i < _speechSlots.size(); ++i) {
+		SpeechSlot &slot = _speechSlots[i];
+		Common::Queue<SpeechSlotCallback> kept;
+		while (!slot.callbacks.empty()) {
+			const SpeechSlotCallback cb = slot.callbacks.pop();
+			if (!cb.hasMode || cb.mode != mode)
+				kept.push(cb);
+		}
+		slot.callbacks = kept;
+	}
+}
+
 void Logic::finishSpeechSlot(SpeechSlot &slot) {
 	if (slot.pageIndex + 1 < slot.pages.size()) {
 		startSpeechSlotPage(slot, slot.pageIndex + 1);
@@ -3956,6 +4019,8 @@ void Logic::resetQueuedRunMode(uint16 mode) {
 			if (Actor *actor = getActor(id))
 				actor->dropRoomScriptWaitMode(mode);
 	}
+
+	dropSpeechSlotCallbackMode(mode);
 }
 
 void Logic::cancelDeferredScriptsForInterpreter(Interpreter *interpreter) {
