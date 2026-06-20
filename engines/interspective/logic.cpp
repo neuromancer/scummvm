@@ -466,7 +466,7 @@ void Logic::cycleCursorModeByRightClick() {
 	// and the locked button byte is 2, cycle through the verb cursor modes
 	// and clear step-pending via SetCursorMode. RunStatusScreenLoop calls
 	// the same helper, so status mode keeps the lower verb UI active.
-	if (_noStep || _cursorMode == 0x20 || !_roomActive || canSkipCutscene())
+	if (_noStep || _cursorMode == 0x20 || !_roomActive)
 		return;
 	if (_rightClickCycleCooldown != 0)
 		return;

@@ -603,7 +603,7 @@ void Graphics::paintRoomCloseUp() {
 	Logic *logic = _engine ? _engine->logic() : 0;
 	if (!logic)
 		return;
-	if (logic->cursorMode() != 0x80 || !logic->roomActive() || logic->noStep() || logic->canSkipCutscene() || !logic->inputEnabled()) {
+	if (logic->cursorMode() != 0x80 || !logic->roomActive() || logic->noStep() || !logic->inputEnabled()) {
 		_roomCloseUpActive = false;
 		return;
 	}
@@ -677,7 +677,7 @@ void Graphics::paintInventoryCloseUp() {
 	Logic *logic = _engine ? _engine->logic() : 0;
 	if (!logic || !_resources)
 		return;
-	if (logic->cursorMode() != 0x80 || !logic->roomActive() || logic->noStep() || logic->canSkipCutscene() || !logic->inputEnabled()) {
+	if (logic->cursorMode() != 0x80 || !logic->roomActive() || logic->noStep() || !logic->inputEnabled()) {
 		_inventoryCloseUpObjectId = 0;
 		return;
 	}
@@ -846,9 +846,6 @@ void Graphics::paintStatusOverlayText() {
 void Graphics::paintCursorSprite() {
 	Logic *logic = _engine->logic();
 	if (!logic)
-		return;
-
-	if (logic->canSkipCutscene())
 		return;
 
 	if (logic->cursorMode() == 0x20) {

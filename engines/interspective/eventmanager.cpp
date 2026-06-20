@@ -649,7 +649,10 @@ Clickable::~Clickable() {
 
 void EventManager::clicked(Common::Point pos) {
 	Logic &logic = Logic::instance();
-	if (!logic.roomActive() || logic.canSkipCutscene())
+	// DOS HandleClick is gated by g_room_active, but not by g_flag_no_step or
+	// g_esc_during_script. The subway ride arms an ESC break point while normal
+	// room interaction remains live.
+	if (!logic.roomActive())
 		return;
 
 	logic.lockCursorAndButtons(pos, 1);
@@ -675,8 +678,6 @@ void EventManager::clicked(Common::Point pos) {
 		   logic.stepPending() ? 1 : 0, logic.noStep() ? 1 : 0,
 		   logic.hitTarget(), logic.drawCommandCount(),
 		   target.type, target.id, target.z);
-	if (logic.noStep())
-		return;
 	if (hitRegion >= 3 && hitRegion <= 8) {
 		logic.setStepPending(true);
 		logic.setVerbModeFromHitRegion(hitRegion);
@@ -767,7 +768,7 @@ void EventManager::clicked(Common::Point pos) {
 
 Common::String EventManager::hoverObjectName(Common::Point pos) const {
 	Logic &logic = Logic::instance();
-	if (!logic.roomActive() || logic.canSkipCutscene() || logic.noStep() || !logic.inputEnabled())
+	if (!logic.roomActive() || logic.noStep() || !logic.inputEnabled())
 		return Common::String();
 	if (logic.cursorMode() == 0 || logic.cursorMode() == 0x80)
 		return Common::String();
