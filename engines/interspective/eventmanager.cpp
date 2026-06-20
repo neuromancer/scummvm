@@ -26,6 +26,7 @@
 #include "interspective/exit.h"
 #include "interspective/graphics.h"
 #include "interspective/inter.h"
+#include "interspective/innocent.h"
 #include "interspective/logic.h"
 #include "interspective/main_dat.h"
 #include "interspective/program.h"
@@ -81,8 +82,127 @@ static bool spriteContainsWorldPoint(Resources *resources, uint16 spriteId,
 	return pixel && *pixel != 0;
 }
 
+static bool containsDosInclusive(int16 left, int16 top, int16 right, int16 bottom, const Common::Point &p) {
+	return p.x >= left && p.x <= right && p.y >= top && p.y <= bottom;
+}
+
 static bool containsDosInclusive(const Common::Rect &rect, const Common::Point &p) {
-	return p.x >= rect.left && p.x <= rect.right && p.y >= rect.top && p.y <= rect.bottom;
+	return containsDosInclusive(rect.left, rect.top, rect.right, rect.bottom, p);
+}
+
+// DOS FindActorAtCursor @ 1000:bbc1 reads actor fields +0x5d/+0x5f as
+// the hit-rectangle segment/offset. A segment of 0xffff means "derive the
+// rectangle from the current main sprite"; zero means "not hittable".
+static Interpreter *actorHitRectInterpreter(Logic &logic, uint16 segment) {
+	if (segment == 0 || segment == 0xffff)
+		return 0;
+	if (segment == 0x1cb5)
+		return logic.mainInterpreter();
+
+	const uint16 blockSegment = uint16(0x4000 + (logic.currentBlock() & 0x3fff));
+	if (segment == 1 || segment == blockSegment)
+		return logic.blockInterpreter();
+
+	return 0;
+}
+
+static bool actorCustomHitRectContains(Logic &logic, Actor *actor, Common::Point world) {
+	Interpreter *interpreter = actorHitRectInterpreter(logic, actor->actorCallbackSeg());
+	if (!interpreter)
+		return false;
+
+	uint16 off = actor->actorCallbackOff();
+	for (uint i = 0; i < 64; ++i, off = uint16(off + 8)) {
+		const byte *rect = interpreter->rawCodeChecked(off, 8);
+		if (!rect)
+			return false;
+
+		const int16 left = int16(READ_LE_UINT16(rect));
+		if (left == -1)
+			return false;
+
+		const int16 top = int16(READ_LE_UINT16(rect + 2));
+		const int16 right = int16(READ_LE_UINT16(rect + 4));
+		const int16 bottom = int16(READ_LE_UINT16(rect + 6));
+		if (containsDosInclusive(left, top, right, bottom, world))
+			return true;
+	}
+
+	return false;
+}
+
+static bool actorMainSpriteHitRectContains(Resources *resources, Actor *actor, Common::Point world) {
+	if (!resources || actor->mainSpriteId() == 0xffff)
+		return false;
+
+	const SpriteInfo info = resources->getSpriteInfo(actor->mainSpriteId());
+	if (info.empty())
+		return false;
+
+	const Common::Point hotPoint = info.hotPoint();
+	int16 left = int16(actor->position().x - hotPoint.x);
+	if (left < 0)
+		left = 0;
+	const int16 bottom = int16(actor->position().y + hotPoint.y);
+	int16 top = int16(bottom - actor->visibleSpriteHeight());
+	if (top < 0)
+		top = 0;
+	const int16 right = int16(left + actor->visibleSpriteWidth());
+
+	return containsDosInclusive(left, top, right, bottom, world);
+}
+
+static Common::Point actorMoveSlotPosition(const Actor::MoveSlot &slot, Common::Point base) {
+	if (slot.mode == 0)
+		return Common::Point(int16(slot.b), int16(slot.c));
+	return Common::Point(int16(base.x + int16(slot.b)), int16(base.y + int16(slot.c)));
+}
+
+static bool actorQueuedSlotHitRectContains(Resources *resources, const Graphics *graphics,
+										   Actor *actor, Common::Point world) {
+	if (!resources || !graphics || !actor)
+		return false;
+	if (actor->mainSpriteId() == 0xffff)
+		return false;
+
+	const SpriteInfo mainInfo = resources->getSpriteInfo(actor->mainSpriteId());
+	const bool placeholderMainSprite = mainInfo.empty() ||
+									   ((mainInfo.width <= 1 && mainInfo.height <= 1) ||
+										(actor->visibleSpriteWidth() <= 1 && actor->visibleSpriteHeight() <= 1));
+	if (!placeholderMainSprite)
+		return false;
+
+	const uint16 drawMode = actor->drawModeForLayer(actor->zIndex());
+	const Common::Array<Actor::MoveSlot> &slots = actor->moveSlots();
+	for (uint i = 0; i < slots.size(); ++i) {
+		const Actor::MoveSlot &slot = slots[i];
+		if (slot.a == 0xffff)
+			continue;
+
+		Common::ScopedPtr<Sprite> sprite(resources->loadSprite(slot.a));
+		if (!sprite)
+			continue;
+
+		const Common::Rect rect = graphics->layerScaledSpriteRect(sprite.get(),
+																  actorMoveSlotPosition(slot, actor->position()),
+																  drawMode);
+		if (containsDosInclusive(rect, world))
+			return true;
+	}
+	return false;
+}
+
+static bool actorContainsWorldPoint(Logic &logic, Resources *resources, Actor *actor, Common::Point world) {
+	const uint16 segment = actor->actorCallbackSeg();
+	if (segment == 0)
+		return false;
+	if (segment == 0xffff) {
+		if (actorMainSpriteHitRectContains(resources, actor, world))
+			return true;
+		return actorQueuedSlotHitRectContains(resources, logic.engine() ? logic.engine()->graphics() : 0,
+											  actor, world);
+	}
+	return actorCustomHitRectContains(logic, actor, world);
 }
 
 static bool containsDosHalfOpen(int16 left, int16 top, int16 right, int16 bottom, const Common::Point &p) {
@@ -280,10 +400,7 @@ static HitTarget hitActorAtPoint(Logic &logic, Common::Point world) {
 		Actor *actor = logic.getActor(id);
 		if (!actor || actor->room() != logic.currentRoom())
 			continue;
-		const uint16 spriteId = actor->mainSpriteId();
-		if (spriteId == 0xffff)
-			continue;
-		if (!spriteContainsWorldPoint(resources, spriteId, actor->position(), world))
+		if (!actorContainsWorldPoint(logic, resources, actor, world))
 			continue;
 
 		const int16 z = int16(actor->zIndex());

@@ -56,6 +56,43 @@ enum {
 	kFontChangeableColour = 235
 };
 
+static const byte kLayerScaleRows[9][16] = {
+	{ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 },
+	{ 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1 },
+	{ 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1 },
+	{ 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0 },
+	{ 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1 },
+	{ 1, 1, 1, 0, 1, 1, 0, 0, 1, 1, 1, 0, 1, 1, 0, 0 },
+	{ 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0 },
+	{ 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0 },
+	{ 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0 }
+};
+
+static const byte kLayerScaleCols[9][16] = {
+	{ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 },
+	{ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0 },
+	{ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0 },
+	{ 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1 },
+	{ 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1 },
+	{ 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0 },
+	{ 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0 },
+	{ 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1 },
+	{ 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1 }
+};
+
+static uint16 scaledAxisLength(uint16 sourceLength, const byte *pattern) {
+	uint16 scaled = 0;
+	for (uint16 i = 0; i < sourceLength; ++i)
+		if (pattern[i & 0x0f])
+			++scaled;
+	return scaled;
+}
+
+static uint layerScalePattern(uint16 drawMode) {
+	const uint8 bl = uint8(drawMode & 0xff);
+	return bl < 4 ? 0 : MIN<uint>(bl - 3, 8);
+}
+
 class InterspectiveFont : public ::Graphics::Font {
 public:
 	InterspectiveFont(const Graphics *graphics, Resources *resources)
@@ -2701,33 +2738,9 @@ void Graphics::paint(const Sprite *sprite, Common::Point pos, Surface *dest, int
 	dest->blit(sprite, r, srcOffset, 0, (flags & kPaintSemiTransparent) ? &_tintedPalette : 0);
 }
 
-Common::Rect Graphics::paintLayerScaledSprite(const Sprite *sprite, Common::Point pos, uint16 drawMode, Surface *dest, int flags) const {
-	if (drawMode == 0) {
-		paint(sprite, pos, dest, flags);
-		if (flags & kPaintCameraRelative) {
-			const Logic *logic = _engine ? _engine->logic() : 0;
-			if (logic) {
-				pos.x = int16(pos.x - logic->cameraX());
-				pos.y = int16(pos.y - logic->cameraY());
-			}
-		}
-
-		Common::Rect r(sprite->w, sprite->h);
-		r.moveTo(pos);
-		if (!(flags & kPaintPositionIsTop))
-			r.translate(0, -sprite->h);
-		if (!(flags & kPaintIgnoreHotPoint))
-			r.translate(-sprite->_hotPoint.x, sprite->_hotPoint.y);
-		const int clipHeight = ((flags & kPaintCameraRelative) && dest == _framebuffer.get())
-								   ? MIN<int>(dest->h, screenHeight())
-								   : dest->h;
-		r.clip(dest->w, clipHeight);
-		return r;
-	}
-
-	debugC(4, kDebugLevelGraphics,
-		   "painting DOS layer-scaled sprite at %d:%d (+%d:%d) [%dx%d] mode=0x%04x",
-		   pos.x, pos.y, sprite->_hotPoint.x, sprite->_hotPoint.y, sprite->w, sprite->h, drawMode);
+Common::Rect Graphics::layerScaledSpriteRect(const Sprite *sprite, Common::Point pos, uint16 drawMode, int flags) const {
+	if (!sprite)
+		return Common::Rect();
 
 	if (flags & kPaintCameraRelative) {
 		const Logic *logic = _engine ? _engine->logic() : 0;
@@ -2744,46 +2757,37 @@ Common::Rect Graphics::paintLayerScaledSprite(const Sprite *sprite, Common::Poin
 	if (!(flags & kPaintIgnoreHotPoint))
 		unscaled.translate(-sprite->_hotPoint.x, sprite->_hotPoint.y);
 
-	static const byte kLayerScaleRows[9][16] = {
-		{ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 },
-		{ 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1 },
-		{ 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1 },
-		{ 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0 },
-		{ 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1 },
-		{ 1, 1, 1, 0, 1, 1, 0, 0, 1, 1, 1, 0, 1, 1, 0, 0 },
-		{ 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0 },
-		{ 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0 },
-		{ 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0 }
-	};
-	static const byte kLayerScaleCols[9][16] = {
-		{ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 },
-		{ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0 },
-		{ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0 },
-		{ 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1 },
-		{ 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1 },
-		{ 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0 },
-		{ 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0 },
-		{ 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1 },
-		{ 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1 }
-	};
+	if (drawMode == 0)
+		return unscaled;
 
-	const uint8 bl = uint8(drawMode & 0xff);
-	const uint8 bh = uint8(drawMode >> 8);
-	const uint pattern = bl < 4 ? 0 : MIN<uint>(bl - 3, 8);
-	const uint8 recolorOffset = uint8(bh << 4);
-
-	uint16 scaledWidth = 0;
-	for (int x = 0; x < sprite->w; ++x)
-		if (kLayerScaleCols[pattern][x & 0x0f])
-			++scaledWidth;
-
-	uint16 scaledHeight = 0;
-	for (int y = 0; y < sprite->h; ++y)
-		if (kLayerScaleRows[pattern][y & 0x0f])
-			++scaledHeight;
-
-	Common::Rect scaled(unscaled.left, unscaled.bottom - scaledHeight,
+	const uint pattern = layerScalePattern(drawMode);
+	const uint16 scaledWidth = scaledAxisLength(sprite->w, kLayerScaleCols[pattern]);
+	const uint16 scaledHeight = scaledAxisLength(sprite->h, kLayerScaleRows[pattern]);
+	return Common::Rect(unscaled.left, unscaled.bottom - scaledHeight,
 						unscaled.left + scaledWidth, unscaled.bottom);
+}
+
+Common::Rect Graphics::paintLayerScaledSprite(const Sprite *sprite, Common::Point pos, uint16 drawMode, Surface *dest, int flags) const {
+	if (drawMode == 0) {
+		paint(sprite, pos, dest, flags);
+		Common::Rect r = layerScaledSpriteRect(sprite, pos, drawMode, flags);
+		const int clipHeight = ((flags & kPaintCameraRelative) && dest == _framebuffer.get())
+								   ? MIN<int>(dest->h, screenHeight())
+								   : dest->h;
+		r.clip(dest->w, clipHeight);
+		return r;
+	}
+
+	debugC(4, kDebugLevelGraphics,
+		   "painting DOS layer-scaled sprite at %d:%d (+%d:%d) [%dx%d] mode=0x%04x",
+		   pos.x, pos.y, sprite->_hotPoint.x, sprite->_hotPoint.y, sprite->w, sprite->h, drawMode);
+
+	const uint8 bh = uint8(drawMode >> 8);
+	const uint pattern = layerScalePattern(drawMode);
+	const uint8 recolorOffset = uint8(bh << 4);
+	Common::Rect scaled = layerScaledSpriteRect(sprite, pos, drawMode, flags);
+	const uint16 scaledWidth = uint16(scaled.width());
+	const uint16 scaledHeight = uint16(scaled.height());
 	const int clipHeight = ((flags & kPaintCameraRelative) && dest == _framebuffer.get())
 							   ? MIN<int>(dest->h, screenHeight())
 							   : dest->h;
