@@ -34,9 +34,7 @@ using namespace Common;
 
 namespace Interspective {
 
-MainDat::MainDat(Resources *res)
-	: Datafile(res), _dataLen(0), _imageDirectory(0), _tunesDirectory(0),
-	  _programsCount(0), _programsMap(0), _actors(0), _actorsCount(0) {}
+MainDat::MainDat(Resources *res) : Datafile(res), _dataLen(0), _actors(0), _actorsCount(0) {}
 
 const char *MainDat::filename() const {
 	return Engine::instance().mainDatFilename().c_str();
@@ -147,34 +145,255 @@ enum Offsets {
 	kCursorOverlayBit08Offset = 0x52
 };
 
+namespace {
+
+class MainDatFooter {
+public:
+	MainDatFooter(const byte *footer) : _footer(footer) {}
+
+	uint16 progEntriesCount0() const { return wordAt(kProgEntriesCount0); }
+	uint16 progEntriesCount1() const { return wordAt(kProgEntriesCount1); }
+	uint16 programsMapOffset() const { return wordAt(kProgramsMap); }
+	uint16 personsCount() const { return wordAt(kPersonsCount); }
+	uint16 globalObjectStateListOffset() const { return wordAt(kGlobalObjectStateList); }
+	uint16 actorsCount() const { return wordAt(kActorsCount); }
+	uint16 actorsOffset() const { return wordAt(kActors); }
+	uint16 puppeteersCount() const { return wordAt(kPuppeteersCount); }
+	uint16 puppeteersOffset() const { return wordAt(kPuppeteers); }
+	uint16 spriteCount() const { return wordAt(kSpriteCount); }
+	uint16 spriteMapOffset() const { return wordAt(kSpriteMap); }
+	uint16 imagesCount() const { return wordAt(kImagesCount); }
+	uint16 imageDirectoryOffset() const { return wordAt(kImageDirectory); }
+	uint16 graphicFileCount() const { return wordAt(kGraphicFileCount); }
+	uint16 graphicFileNamesOffset() const { return wordAt(kGraphicFileNames); }
+	uint16 sfxSampleCount() const { return wordAt(kSfxSampleCount); }
+	uint16 sfxFileNamesOffset() const { return wordAt(kSfxFileNames); }
+	uint16 sfxFileCount() const { return wordAt(kSfxFileCount); }
+	uint16 tunesCount() const { return wordAt(kTunesCount); }
+	uint16 tunesDirectoryOffset() const { return wordAt(kTunesDirectory); }
+	uint16 musicFileCount() const { return wordAt(kMusicFileCount); }
+	uint16 musicFileNamesOffset() const { return wordAt(kMusicFileNames); }
+	uint16 maxGameScore() const { return wordAt(kMaxGameScore); }
+	uint16 scoreEventCount() const { return wordAt(kScoreEventCount); }
+	uint16 scoreEventTableOffset() const { return wordAt(kScoreEventTable); }
+	uint16 wordVarsOffset() const { return wordAt(kWordVars); }
+	uint16 byteVarsOffset() const { return wordAt(kByteVars); }
+	uint16 roomLoopEntryPoint() const { return wordAt(kRoomLoopEntryPoint); }
+	uint16 entryPointOffset() const { return wordAt(kEntryPoint); }
+	uint16 characterMapOffset() const { return wordAt(kCharacterMap); }
+	uint16 interfaceImageIndex() const { return wordAt(kInterfaceImgIdx); }
+
+	uint16 wordAt(uint16 offset) const { return READ_LE_UINT16(_footer + offset); }
+
+	uint16 cursorOverlayRecordOffset(uint16 maskBit) const {
+		switch (maskBit) {
+		case 0x01:
+			return wordAt(kCursorOverlayBit01Offset);
+		case 0x02:
+			return wordAt(kCursorOverlayBit02Offset);
+		case 0x04:
+			return wordAt(kCursorOverlayBit04Offset);
+		case 0x08:
+			return wordAt(kCursorOverlayBit08Offset);
+		case 0x10:
+			return wordAt(kCursorOverlayBit10Offset);
+		default:
+			return 0;
+		}
+	}
+
+	uint16 interfaceMapMarkerSpriteId(uint16 selector) const {
+		switch (selector) {
+		case 1:
+			return wordAt(kInterfaceMapMarker1Offset);
+		case 5:
+			return wordAt(kInterfaceMapMarker5Offset);
+		case 3:
+			return wordAt(kInterfaceMapMarker3Offset);
+		case 7:
+			return wordAt(kInterfaceMapMarker7Offset);
+		default:
+			return 0xffff;
+		}
+	}
+
+	uint16 statusButtonSpriteId(bool statusMode) const {
+		return wordAt(statusMode ? kStatusButtonStatusOffset : kStatusButtonNormalOffset);
+	}
+
+	uint16 eyeCloseUpSpriteId(bool rightHalf) const {
+		return wordAt(rightHalf ? kEyeCloseUpRightOffset : kEyeCloseUpLeftOffset);
+	}
+
+	uint16 frameSpriteId(FramePart part) const {
+		switch (part) {
+		case kFrameBottom:
+			return wordAt(kFrameBottomOffset);
+		case kFrameBottomLeft:
+			return wordAt(kFrameBottomLeftOffset);
+		case kFrameBottomRight:
+			return wordAt(kFrameBottomRightOffset);
+		case kFrameFill:
+			return wordAt(kFrameFillOffset);
+		case kFrameLeft:
+			return wordAt(kFrameLeftOffset);
+		case kFrameRight:
+			return wordAt(kFrameRightOffset);
+		case kFrameTop:
+			return wordAt(kFrameTopOffset);
+		case kFrameTopLeft:
+			return wordAt(kFrameTopLeftOffset);
+		case kFrameTopRight:
+			return wordAt(kFrameTopRightOffset);
+		default:
+			assert(false);
+			return 0;
+		}
+	}
+
+	uint16 bubbleSpriteId(SpeechBubblePart part) const {
+		switch (part) {
+		case kBubbleTopLeft:
+			return wordAt(kBubbleTopLeftOffset);
+		case kBubbleLeft:
+			return wordAt(kBubbleLeftOffset);
+		case kBubbleBottomLeft:
+			return wordAt(kBubbleBottomLeftOffset);
+		case kBubbleTop:
+			return wordAt(kBubbleTopOffset);
+		case kBubbleFill:
+			return wordAt(kBubbleFillOffset);
+		case kBubbleBottom:
+			return wordAt(kBubbleBottomOffset);
+		case kBubbleTopRight:
+			return wordAt(kBubbleTopRightOffset);
+		case kBubbleRight:
+			return wordAt(kBubbleRightOffset);
+		case kBubbleBottomRight:
+			return wordAt(kBubbleBottomRightOffset);
+		case kBubbleBottomLeftPoint:
+			return wordAt(kBubbleBottomLeftPointOffset);
+		case kBubbleBottomRightPoint:
+			return wordAt(kBubbleBottomRightPointOffset);
+		case kBubbleTopLeftPoint:
+			return wordAt(kBubbleTopLeftPointOffset);
+		case kBubbleTopRightPoint:
+			return wordAt(kBubbleTopRightPointOffset);
+		case kBubbleVerbConnector:
+			return wordAt(kBubbleVerbConnectorOffset);
+		case kBubbleVerbStem:
+			return wordAt(kBubbleVerbStemOffset);
+		default:
+			assert(false);
+			return 0;
+		}
+	}
+
+private:
+	const byte *_footer;
+};
+
+class MainDatSegment {
+public:
+	MainDatSegment(byte *data, uint32 size) : _readData(data), _writeData(data), _size(size) {}
+	MainDatSegment(const byte *data, uint32 size) : _readData(data), _writeData(0), _size(size) {}
+
+	bool contains(uint32 offset, uint32 size) const {
+		return offset <= _size && size <= _size - offset;
+	}
+
+	bool containsSigned(int32 offset, uint32 size) const {
+		return offset >= 0 && contains(uint32(offset), size);
+	}
+
+	const byte *ptr(uint32 offset) const { return _readData + offset; }
+
+	byte *mutablePtr(uint32 offset) const {
+		assert(_writeData);
+		return _writeData + offset;
+	}
+
+	uint16 wordAt(uint32 offset) const { return READ_LE_UINT16(ptr(offset)); }
+	void writeWordAt(uint32 offset, uint16 value) const { WRITE_LE_UINT16(mutablePtr(offset), value); }
+
+private:
+	const byte *_readData;
+	byte *_writeData;
+	uint32 _size;
+};
+
+class MainDatImageEntry {
+public:
+	MainDatImageEntry(const byte *entry) : _readEntry(entry), _writeEntry(0) {}
+	MainDatImageEntry(byte *entry) : _readEntry(entry), _writeEntry(entry) {}
+
+	bool valid() const { return _readEntry != 0; }
+	uint16 type() const { return READ_LE_UINT16(_readEntry); }
+	uint16 fileIndex() const { return READ_LE_UINT16(_readEntry + 2); }
+
+	void setType(uint16 type) const {
+		assert(_writeEntry);
+		WRITE_LE_UINT16(_writeEntry, type);
+	}
+
+private:
+	const byte *_readEntry;
+	byte *_writeEntry;
+};
+
+class ProgramMapTable {
+public:
+	ProgramMapTable(const byte *table, uint16 programCount) : _table(table), _programCount(programCount) {}
+
+	uint16 roomScriptId(uint16 room) const {
+		const byte *programInfo = _table;
+		for (uint16 i = 1; i <= _programCount; i++) {
+			// DOS LoadRoomFromProgDat @ 1000:1ad9 reads one resource-set word
+			// before scanning the room ids, and advances past every word it
+			// reads, including the 0xffff terminator.
+			programInfo += 2;
+
+			for (;;) {
+				const uint16 thisRoom = READ_LE_UINT16(programInfo);
+				programInfo += 2;
+				if (thisRoom == 0xffff)
+					break;
+				if (thisRoom == room)
+					return i;
+			}
+		}
+
+		return 0;
+	}
+
+private:
+	const byte *_table;
+	uint16 _programCount;
+};
+
+} // namespace
+
 void MainDat::readFile(SeekableReadStream &stream) {
 	_dataLen = stream.readUint16LE();
 
 	_data.resize(_dataLen);
 	stream.seek(0);
 	stream.read(data(), _dataLen);
-	Resources::descramble(data() + 2, _dataLen - 2);
+	Resources::descramble(MainDatSegment(data(), _dataLen).mutablePtr(2), _dataLen - 2);
 
 	stream.read(_footer, kFooterLen);
-
-	_imageDirectory = data() + READ_LE_UINT16(_footer + kImageDirectory);
-	_tunesDirectory = data() + READ_LE_UINT16(_footer + kTunesDirectory);
-
-	_programsCount = READ_LE_UINT16(_footer + kProgEntriesCount1);
-
-	_programsMap = data() + READ_LE_UINT16(_footer + kProgramsMap);
 }
 
 uint16 MainDat::personsCount() const {
-	return READ_LE_UINT16(_footer + kPersonsCount);
+	return MainDatFooter(_footer).personsCount();
 }
 
 uint16 MainDat::maxGameScore() const {
-	return READ_LE_UINT16(_footer + kMaxGameScore);
+	return MainDatFooter(_footer).maxGameScore();
 }
 
 uint16 MainDat::scoreEventCount() const {
-	return READ_LE_UINT16(_footer + kScoreEventCount);
+	return MainDatFooter(_footer).scoreEventCount();
 }
 
 bool MainDat::claimScoreEvent(uint16 eventId, uint16 &delta) {
@@ -182,7 +401,16 @@ bool MainDat::claimScoreEvent(uint16 eventId, uint16 &delta) {
 	if (eventId >= scoreEventCount())
 		return false;
 
-	byte *entry = data() + READ_LE_UINT16(_footer + kScoreEventTable) + eventId * 2;
+	const MainDatFooter footer(_footer);
+	const MainDatSegment segment(data(), _dataLen);
+	const uint32 entryOffset = uint32(footer.scoreEventTableOffset()) + uint32(eventId) * 2;
+	if (!segment.contains(entryOffset, 2)) {
+		warning("MainDat::claimScoreEvent: event %u resolves outside score table (entryOff=0x%04x)",
+				eventId, entryOffset);
+		return false;
+	}
+
+	byte *entry = segment.mutablePtr(entryOffset);
 	if (entry[1] != 0)
 		return false;
 
@@ -197,7 +425,9 @@ void MainDat::loadObjectStates() {
 	// uint16 at offset 0 is the room id. Op_7f writes there at runtime;
 	// Op_18/Op_1b/Op_21 read.
 	const uint16 count = personsCount();
-	const uint16 listOff = READ_LE_UINT16(_footer + kGlobalObjectStateList);
+	const MainDatFooter footer(_footer);
+	const MainDatSegment segment(data(), _dataLen);
+	const uint16 listOff = footer.globalObjectStateListOffset();
 	const uint16 stride = 0x12; // 18 bytes per DOS GetObjectOffset
 
 	if (listOff == 0 || count == 0) {
@@ -216,7 +446,7 @@ void MainDat::loadObjectStates() {
 
 	uint nonZero = 0;
 	for (uint16 i = 0; i < count; ++i) {
-		const byte *rec = data() + listOff + i * stride;
+		const byte *rec = segment.ptr(uint32(listOff) + uint32(i) * stride);
 		const uint16 id = uint16(i + 1);
 		const uint16 room = READ_LE_UINT16(rec);
 		// Object IDs are 1-based per DOS GetObjectOffset (it does DEC AX
@@ -238,8 +468,9 @@ void MainDat::loadObjectStates() {
 }
 
 void MainDat::loadActors(Interpreter *in) {
-	uint16 nactors = _actorsCount = READ_LE_UINT16(_footer + kActorsCount);
-	uint16 actors = READ_LE_UINT16(_footer + kActors);
+	const MainDatFooter footer(_footer);
+	uint16 nactors = _actorsCount = footer.actorsCount();
+	uint16 actors = footer.actorsOffset();
 	assert(!_actors);
 	_actors = new Actor *[nactors];
 	for (int i = 0; i < nactors; ++i) {
@@ -259,9 +490,11 @@ Puppeteer MainDat::getPuppeteer(uint16 i) const {
 
 void MainDat::parsePuppeteers() const {
 	assert(_puppeteers.empty());
-	uint16 count = READ_LE_UINT16(_footer + kPuppeteersCount);
+	const MainDatFooter footer(_footer);
+	const MainDatSegment segment(data(), _dataLen);
+	uint16 count = footer.puppeteersCount();
 
-	const byte *data = this->data() + READ_LE_UINT16(_footer + kPuppeteers);
+	const byte *data = segment.ptr(footer.puppeteersOffset());
 	for (int i = 0; i < count; i++) {
 		Puppeteer p(data);
 		_puppeteers[p.actorId()] = p;
@@ -270,68 +503,93 @@ void MainDat::parsePuppeteers() const {
 }
 
 uint16 MainDat::imagesCount() const {
-	return READ_LE_UINT16(_footer + kImagesCount);
+	return MainDatFooter(_footer).imagesCount();
 }
 
 uint16 MainDat::tunesCount() const {
-	return READ_LE_UINT16(_footer + kTunesCount);
+	return MainDatFooter(_footer).tunesCount();
 }
 
 uint16 MainDat::progEntriesCount0() const {
-	return READ_LE_UINT16(_footer + kProgEntriesCount0);
+	return MainDatFooter(_footer).progEntriesCount0();
 }
 
 uint16 MainDat::progEntriesCount1() const {
-	return READ_LE_UINT16(_footer + kProgEntriesCount1);
+	return MainDatFooter(_footer).progEntriesCount1();
 }
 
-byte *MainDat::imageDirectoryEntry(uint16 index) const {
-	const int32 directoryOffset = int32(_imageDirectory - mutableData());
+const byte *MainDat::imageDirectoryEntry(uint16 index) const {
+	const MainDatFooter footer(_footer);
+	const MainDatSegment segment(data(), _dataLen);
+	const int32 directoryOffset = int32(footer.imageDirectoryOffset());
 	// DOS keeps this arithmetic in 16-bit registers:
 	//   DEC AX; ADD AX,AX; ADD AX,AX; ADD DI,AX
 	// so values that pass a signed bound check can wrap back before/within
 	// the loaded data segment rather than becoming a large unsigned offset.
 	const int16 entryDelta = int16(uint16(uint16(index - 1) * 4));
 	const int32 entryOffset = directoryOffset + entryDelta;
-	if (entryOffset < 0 || entryOffset + 3 >= int32(_dataLen)) {
+	if (!segment.containsSigned(entryOffset, 4)) {
 		warning("MainDat::imageDirectoryEntry: id %u resolves outside iuc_main.dat (entryOff=%d)",
 				index, entryOffset);
 		return 0;
 	}
-	return mutableData() + entryOffset;
+	return segment.ptr(uint32(entryOffset));
+}
+
+byte *MainDat::mutableImageDirectoryEntry(uint16 index) {
+	const MainDatFooter footer(_footer);
+	const MainDatSegment segment(data(), _dataLen);
+	const int32 directoryOffset = int32(footer.imageDirectoryOffset());
+	const int16 entryDelta = int16(uint16(uint16(index - 1) * 4));
+	const int32 entryOffset = directoryOffset + entryDelta;
+	if (!segment.containsSigned(entryOffset, 4)) {
+		warning("MainDat::imageDirectoryEntry: id %u resolves outside iuc_main.dat (entryOff=%d)",
+				index, entryOffset);
+		return 0;
+	}
+	return segment.mutablePtr(uint32(entryOffset));
 }
 
 uint16 MainDat::fileIndexOfImage(uint16 index) const {
-	const byte *entry = imageDirectoryEntry(index);
-	if (!entry)
+	const MainDatImageEntry entry(imageDirectoryEntry(index));
+	if (!entry.valid())
 		return 0;
-	return READ_LE_UINT16(entry + 2);
+	return entry.fileIndex();
 }
 
 uint16 MainDat::imageType(uint16 index) const {
-	const byte *entry = imageDirectoryEntry(index);
-	if (!entry)
+	const MainDatImageEntry entry(imageDirectoryEntry(index));
+	if (!entry.valid())
 		return 0;
-	return READ_LE_UINT16(entry);
+	return entry.type();
 }
 
 void MainDat::patchImageType(uint16 index, uint16 type) {
-	byte *entry = imageDirectoryEntry(index);
-	if (!entry)
+	const MainDatImageEntry entry(mutableImageDirectoryEntry(index));
+	if (!entry.valid())
 		return;
-	WRITE_LE_UINT16(entry, type);
+	entry.setType(type);
 }
 
 uint16 MainDat::fileIndexOfTune(uint16 index) const {
-	uint32 offset = (index - 1) * 2;
-	return READ_LE_UINT16(_tunesDirectory + offset);
+	const MainDatFooter footer(_footer);
+	const MainDatSegment segment(data(), _dataLen);
+	const uint32 entryOffset = uint32(footer.tunesDirectoryOffset()) + uint32(index - 1) * 2;
+	if (!segment.contains(entryOffset, 2)) {
+		warning("MainDat::fileIndexOfTune: id %u resolves outside tune directory (entryOff=0x%04x)",
+				index, entryOffset);
+		return 0;
+	}
+	return segment.wordAt(entryOffset);
 }
 
 Common::List<MainDat::GraphicFile> MainDat::graphicFiles() const {
-	uint16 file_count = READ_LE_UINT16(_footer + kGraphicFileCount);
-	uint16 names_offset = READ_LE_UINT16(_footer + kGraphicFileNames);
+	const MainDatFooter footer(_footer);
+	uint16 file_count = footer.graphicFileCount();
+	uint16 names_offset = footer.graphicFileNamesOffset();
 
-	const byte *data = this->data() + names_offset;
+	const MainDatSegment segment(data(), _dataLen);
+	const byte *data = segment.ptr(names_offset);
 	Common::List<GraphicFile> files;
 	for (; file_count > 0; file_count--) {
 		GraphicFile file;
@@ -349,10 +607,12 @@ Common::List<MainDat::GraphicFile> MainDat::graphicFiles() const {
 }
 
 Common::List<Common::String> MainDat::musicFiles() const {
-	uint16 file_count = READ_LE_UINT16(_footer + kMusicFileCount);
-	uint16 names_offset = READ_LE_UINT16(_footer + kMusicFileNames);
+	const MainDatFooter footer(_footer);
+	uint16 file_count = footer.musicFileCount();
+	uint16 names_offset = footer.musicFileNamesOffset();
 
-	const byte *data = this->data() + names_offset;
+	const MainDatSegment segment(data(), _dataLen);
+	const byte *data = segment.ptr(names_offset);
 	Common::List<Common::String> files;
 	for (; file_count > 0; file_count--) {
 		data += 2;           // data set id
@@ -369,18 +629,20 @@ Common::List<Common::String> MainDat::musicFiles() const {
 }
 
 uint16 MainDat::sfxSampleCount() const {
-	return READ_LE_UINT16(_footer + kSfxSampleCount);
+	return MainDatFooter(_footer).sfxSampleCount();
 }
 
 uint16 MainDat::sfxFileCount() const {
-	return READ_LE_UINT16(_footer + kSfxFileCount);
+	return MainDatFooter(_footer).sfxFileCount();
 }
 
 Common::List<MainDat::SfxFile> MainDat::sfxFiles() const {
 	const uint16 fileCount = sfxFileCount();
-	const uint16 namesOffset = READ_LE_UINT16(_footer + kSfxFileNames);
-	const byte *data = this->data() + namesOffset;
-	const byte *end = this->data() + _dataLen;
+	const MainDatFooter footer(_footer);
+	const MainDatSegment segment(data(), _dataLen);
+	const uint16 namesOffset = footer.sfxFileNamesOffset();
+	const byte *data = segment.ptr(namesOffset);
+	const byte *end = segment.ptr(_dataLen);
 	Common::List<SfxFile> files;
 
 	// DOS OpenSfxFile @ 1000:5ff7 walks this footer list. Each entry is:
@@ -408,25 +670,29 @@ Common::List<MainDat::SfxFile> MainDat::sfxFiles() const {
 }
 
 byte *MainDat::getByteVariable(uint16 index) {
-	uint16 offset = READ_LE_UINT16(_footer + kByteVars);
-	return data() + offset + index;
+	const MainDatFooter footer(_footer);
+	const MainDatSegment segment(data(), _dataLen);
+	return segment.mutablePtr(uint32(footer.byteVarsOffset()) + index);
 }
 
 byte *MainDat::getWordVariable(uint16 index) {
-	uint16 offset = READ_LE_UINT16(_footer + kWordVars);
-	return data() + offset + index * 2;
+	const MainDatFooter footer(_footer);
+	const MainDatSegment segment(data(), _dataLen);
+	return segment.mutablePtr(uint32(footer.wordVarsOffset()) + uint32(index) * 2);
 }
 
 uint16 MainDat::interfaceImageIndex() const {
-	return READ_LE_UINT16(_footer + kInterfaceImgIdx);
+	return MainDatFooter(_footer).interfaceImageIndex();
 }
 
 byte *MainDat::getEntryPoint() const {
-	return mutableData() + READ_LE_UINT16(_footer + kEntryPoint);
+	const MainDatFooter footer(_footer);
+	MainDatSegment segment(const_cast<byte *>(data()), _dataLen);
+	return segment.mutablePtr(footer.entryPointOffset());
 }
 
 uint16 MainDat::getRoomLoopEntryPoint() const {
-	return READ_LE_UINT16(_footer + kRoomLoopEntryPoint);
+	return MainDatFooter(_footer).roomLoopEntryPoint();
 }
 
 Actor *MainDat::actor(uint16 index) const {
@@ -434,40 +700,26 @@ Actor *MainDat::actor(uint16 index) const {
 }
 
 uint16 MainDat::getRoomScriptId(uint16 room) const {
-
-	byte *programInfo = _programsMap;
-	for (int i = 1; i <= _programsCount; i++) {
-		// DOS LoadRoomFromProgDat @ 1000:1ad9 reads one resource-set word
-		// before scanning the room ids, and advances past every word it
-		// reads, including the 0xffff terminator.
-		programInfo += 2;
-
-		for (;;) {
-			const uint16 this_room = READ_LE_UINT16(programInfo);
-			programInfo += 2;
-			if (this_room == 0xffff)
-				break;
-			if (this_room == room)
-				return i;
-		}
-	}
-
-	return 0;
+	const MainDatFooter footer(_footer);
+	const MainDatSegment segment(data(), _dataLen);
+	return ProgramMapTable(segment.ptr(footer.programsMapOffset()), footer.progEntriesCount1()).roomScriptId(room);
 }
 
 uint16 MainDat::getGlyphSpriteId(byte character) const {
-	const byte *charmap = data() + READ_LE_UINT16(_footer + kCharacterMap);
-	charmap += (character - ' ') * 2;
-	uint16 id = READ_LE_UINT16(charmap);
-	return id;
+	const MainDatFooter footer(_footer);
+	const MainDatSegment segment(data(), _dataLen);
+	const uint32 charOffset = uint32(footer.characterMapOffset()) + uint32(character - ' ') * 2;
+	return segment.wordAt(charOffset);
 }
 
 uint16 MainDat::spriteCount() const {
-	return READ_LE_UINT16(_footer + kSpriteCount);
+	return MainDatFooter(_footer).spriteCount();
 }
 
 SpriteInfo MainDat::getSpriteInfo(uint16 index) const {
-	const byte *spritemap = data() + READ_LE_UINT16(_footer + kSpriteMap);
+	const MainDatFooter footer(_footer);
+	const MainDatSegment segment(data(), _dataLen);
+	const byte *spritemap = segment.ptr(footer.spriteMapOffset());
 	if (index >= spriteCount())
 		error("local sprite index given (index: 0x%04x)", index);
 
@@ -475,14 +727,15 @@ SpriteInfo MainDat::getSpriteInfo(uint16 index) const {
 }
 
 uint16 MainDat::getCursorSpriteId() const {
-	//	uint16 offset = READ_LE_UINT16(_footer + kCursors);
 	uint16 sprite = 0x6c;
 	debugC(1, kDebugLevelGraphics | kDebugLevelFiles, "loading cursor STUB, sprite %d", sprite);
 	return sprite;
 }
 
 bool MainDat::nextCursorSprite(uint16 mode, uint16 &stepIndex, bool &stepPending, uint16 &spriteId, uint16 tableFooterOffset) const {
-	const byte *table = data() + READ_LE_UINT16(_footer + tableFooterOffset);
+	const MainDatFooter footer(_footer);
+	const MainDatSegment segment(data(), _dataLen);
+	const byte *table = segment.ptr(footer.wordAt(tableFooterOffset));
 
 	for (;;) {
 		const int16 tableMode = int16(READ_LE_UINT16(table));
@@ -517,28 +770,12 @@ bool MainDat::nextCursorSprite(uint16 mode, uint16 &stepIndex, bool &stepPending
 }
 
 bool MainDat::cycleCursorOverlayAnimation(uint16 maskBit, uint16 &spriteId, uint16 &x, uint16 &y) {
-	uint16 footerOffset = 0;
-	switch (maskBit) {
-	case 0x01:
-		footerOffset = kCursorOverlayBit01Offset;
-		break;
-	case 0x02:
-		footerOffset = kCursorOverlayBit02Offset;
-		break;
-	case 0x04:
-		footerOffset = kCursorOverlayBit04Offset;
-		break;
-	case 0x08:
-		footerOffset = kCursorOverlayBit08Offset;
-		break;
-	case 0x10:
-		footerOffset = kCursorOverlayBit10Offset;
-		break;
-	default:
+	const MainDatFooter footer(_footer);
+	const MainDatSegment segment(data(), _dataLen);
+	const uint16 recordOffset = footer.cursorOverlayRecordOffset(maskBit);
+	if (recordOffset == 0)
 		return false;
-	}
 
-	const uint16 recordOffset = READ_LE_UINT16(_footer + footerOffset);
 	if (recordOffset == 0 || uint32(recordOffset) + 8 > _dataLen) {
 		debugC(2, kDebugLevelGraphics | kDebugLevelFiles,
 			   "cursor-overlay anim 0x%02x invalid record offset 0x%04x",
@@ -546,7 +783,7 @@ bool MainDat::cycleCursorOverlayAnimation(uint16 maskBit, uint16 &spriteId, uint
 		return false;
 	}
 
-	byte *record = data() + recordOffset;
+	byte *record = segment.mutablePtr(recordOffset);
 	x = READ_LE_UINT16(record);
 	y = READ_LE_UINT16(record + 2);
 	const uint16 frameCount = READ_LE_UINT16(record + 4);
@@ -563,89 +800,28 @@ bool MainDat::cycleCursorOverlayAnimation(uint16 maskBit, uint16 &spriteId, uint
 	if (nextFrame == frameCount)
 		nextFrame = 0;
 	WRITE_LE_UINT16(record + 6, nextFrame);
-	spriteId = READ_LE_UINT16(data() + spriteOffset);
+	spriteId = segment.wordAt(spriteOffset);
 	return true;
 }
 
 uint16 MainDat::getInterfaceMapMarkerSpriteId(uint16 selector) const {
-	uint16 footerOffset = 0;
-	switch (selector) {
-	case 1:
-		footerOffset = kInterfaceMapMarker1Offset;
-		break;
-	case 5:
-		footerOffset = kInterfaceMapMarker5Offset;
-		break;
-	case 3:
-		footerOffset = kInterfaceMapMarker3Offset;
-		break;
-	case 7:
-		footerOffset = kInterfaceMapMarker7Offset;
-		break;
-	default:
-		return 0xffff;
-	}
-
-	return READ_LE_UINT16(_footer + footerOffset);
+	return MainDatFooter(_footer).interfaceMapMarkerSpriteId(selector);
 }
 
 uint16 MainDat::getStatusButtonSpriteId(bool statusMode) const {
-	return READ_LE_UINT16(_footer + (statusMode ? kStatusButtonStatusOffset : kStatusButtonNormalOffset));
+	return MainDatFooter(_footer).statusButtonSpriteId(statusMode);
 }
 
 uint16 MainDat::getEyeCloseUpSpriteId(bool rightHalf) const {
-	return READ_LE_UINT16(_footer + (rightHalf ? kEyeCloseUpRightOffset : kEyeCloseUpLeftOffset));
+	return MainDatFooter(_footer).eyeCloseUpSpriteId(rightHalf);
 }
 
 uint16 MainDat::getFrameId(FramePart part) const {
-	switch (part) {
-#define PART(p) \
-	case p:     \
-		return READ_LE_UINT16(_footer + p##Offset)
-		PART(kFrameBottom);
-		PART(kFrameBottomLeft);
-		PART(kFrameBottomRight);
-		PART(kFrameFill);
-		PART(kFrameLeft);
-		PART(kFrameRight);
-		PART(kFrameTop);
-		PART(kFrameTopLeft);
-		PART(kFrameTopRight);
-#undef PART
-	default:
-		assert(false);
-	}
-
-	return 0;
+	return MainDatFooter(_footer).frameSpriteId(part);
 }
 
 uint16 MainDat::getBubbleId(SpeechBubblePart part) const {
-	switch (part) {
-#define PART(p) \
-	case p:     \
-		return READ_LE_UINT16(_footer + p##Offset)
-		PART(kBubbleTopLeft);
-		PART(kBubbleLeft);
-		PART(kBubbleBottomLeft);
-		PART(kBubbleTop);
-		PART(kBubbleFill);
-		PART(kBubbleBottom);
-		PART(kBubbleTopRight);
-		PART(kBubbleRight);
-		PART(kBubbleBottomRight);
-
-		PART(kBubbleBottomLeftPoint);
-		PART(kBubbleBottomRightPoint);
-		PART(kBubbleTopLeftPoint);
-		PART(kBubbleTopRightPoint);
-		PART(kBubbleVerbConnector);
-		PART(kBubbleVerbStem);
-#undef PART
-	default:
-		assert(false);
-	}
-
-	return 0;
+	return MainDatFooter(_footer).bubbleSpriteId(part);
 }
 
 } // End of namespace Interspective

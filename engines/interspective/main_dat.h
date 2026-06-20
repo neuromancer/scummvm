@@ -141,15 +141,11 @@ private:
 	Common::Array<byte> _data;
 	uint16 _dataLen;
 	byte _footer[kFooterLen];
-	byte *_imageDirectory;
-	byte *_tunesDirectory;
-	uint16 _programsCount;
-	byte *_programsMap;
 	Actor **_actors;
 	uint16 _actorsCount;
 
-	byte *imageDirectoryEntry(uint16 index) const;
-	byte *mutableData() const { return const_cast<byte *>(_data.data()); }
+	const byte *imageDirectoryEntry(uint16 index) const;
+	byte *mutableImageDirectoryEntry(uint16 index);
 	void parsePuppeteers() const;
 	mutable Common::HashMap<uint16, Puppeteer> _puppeteers;
 };

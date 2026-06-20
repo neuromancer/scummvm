@@ -29,9 +29,53 @@ using namespace Common;
 
 namespace Interspective {
 
-static int32 entryOffset(uint16 index) {
-	return int16(uint16(uint16(index - 1) * 4));
-}
+namespace {
+
+class MapEntryTable {
+public:
+	MapEntryTable(byte *data, uint32 size) : _data(data), _size(size) {}
+
+	uint32 offsetOfEntry(uint16 index, const char *filename) const {
+		const int32 offset = entryOffset(index);
+		if (!contains(offset, 4)) {
+			warning("MapFile::offsetOfEntry: id %u resolves outside %s (entryOff=%d)",
+					index, filename, offset);
+			return 0;
+		}
+
+		return READ_LE_UINT32(entryPtr(uint32(offset)));
+	}
+
+	void patchLow16(uint16 index, uint16 value) const {
+		const uint32 offset = uint32(index - 1) * 4;
+		if (index == 0 || !contains(offset, 2))
+			return;
+
+		WRITE_LE_UINT16(entryPtr(offset), value);
+	}
+
+private:
+	static int32 entryOffset(uint16 index) {
+		return int16(uint16(uint16(index - 1) * 4));
+	}
+
+	bool contains(int32 offset, uint32 size) const {
+		return offset >= 0 && uint32(offset) <= _size && size <= _size - uint32(offset);
+	}
+
+	bool contains(uint32 offset, uint32 size) const {
+		return offset <= _size && size <= _size - offset;
+	}
+
+	byte *entryPtr(uint32 offset) const {
+		return _data + offset;
+	}
+
+	byte *_data;
+	uint32 _size;
+};
+
+} // namespace
 
 void MapFile::readFile(SeekableReadStream &stream) {
 	/*uint32 actually_read = */ stream.read(_data, 1200);
@@ -40,19 +84,11 @@ void MapFile::readFile(SeekableReadStream &stream) {
 }
 
 uint32 MapFile::offsetOfEntry(uint16 index) {
-	const int32 offset = entryOffset(index);
-	if (offset < 0 || offset + 3 >= int32(sizeof(_data))) {
-		warning("MapFile::offsetOfEntry: id %u resolves outside %s (entryOff=%d)",
-				index, filename(), offset);
-		return 0;
-	}
-	return READ_LE_UINT32(_data + offset);
+	return MapEntryTable(_data, sizeof(_data)).offsetOfEntry(index, filename());
 }
 
 void MapFile::patchEntryLow16(uint16 index, uint16 value) {
-	if (index == 0 || index * 4 > 1200)
-		return;
-	WRITE_LE_UINT16(_data + (index - 1) * 4, value);
+	MapEntryTable(_data, sizeof(_data)).patchLow16(index, value);
 }
 
 } // End of namespace Interspective

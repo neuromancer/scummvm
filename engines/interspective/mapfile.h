@@ -46,7 +46,6 @@ public:
 
 private:
 	byte _data[1200];
-	uint16 _imgCount;
 	Common::String _filename;
 };
 
