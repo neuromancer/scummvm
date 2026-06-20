@@ -879,22 +879,19 @@ void Actor::moveTo(uint16 frame) {
 	setWalkQueueLength(0);
 	Common::List<Frame> path = findPath(cur, frame);
 
-	// findPath now returns an EMPTY list when the target is unreachable
-	// (matches DOS bound-check on visited buffer). Treat that as a
-	// single-frame walk to the validated target.
 	bool pathIncludesCurrent = true;
 	if (path.empty()) {
-		path.push_back(targetFrame);
-		pathIncludesCurrent = false;
-	} else {
-		Common::List<Frame>::iterator it = path.end();
-		it--;
-		if (it->index() != frame) {
-			Common::List<Frame> p;
-			p.push_back(targetFrame);
-			path = p;
-			pathIncludesCurrent = false;
-		}
+		debugC(1, kDebugLevelActor | kDebugLevelEvents, "moveTo(%u): no path from frame %u", (uint)frame, (uint)cur.index());
+		clearWalkState();
+		return;
+	}
+
+	Common::List<Frame>::iterator last = path.end();
+	last--;
+	if (last->index() != frame) {
+		debugC(1, kDebugLevelActor | kDebugLevelEvents, "moveTo(%u): invalid path ended at frame %u", (uint)frame, (uint)last->index());
+		clearWalkState();
+		return;
 	}
 
 	Common::String s;
@@ -914,7 +911,7 @@ void Actor::moveTo(uint16 frame) {
 		setAttentionNeeded(true);
 	}
 
-	debugC(3, kDebugLevelActor, "found path: %s", s.c_str());
+	debugC(1, kDebugLevelActor | kDebugLevelEvents, "moveTo(%u): path from frame %u:%s", (uint)frame, (uint)cur.index(), s.c_str());
 	if (!_base)
 		nextFrame();
 }

@@ -1001,6 +1001,8 @@ void Logic::updateScrollPosition() {
 		if (protag && graphics) {
 			int16 actorScreenX = int16(protag->position().x - _cameraX);
 			int16 actorScreenY = int16(protag->position().y - _cameraY);
+			const int16 rawActorScreenX = actorScreenX;
+			const int16 rawActorScreenY = actorScreenY;
 			const uint16 screenHeight = graphics->screenHeight();
 			const int16 screenHalf = int16(screenHeight >> 1);
 			const int16 screenMaxY = int16(screenHeight - 1);
@@ -1075,6 +1077,15 @@ void Logic::updateScrollPosition() {
 				_scrollDy = 0;
 			}
 			_cameraY = newY;
+
+			if (oldX != _cameraX || oldY != _cameraY ||
+				rawActorScreenX <= 0x3c || rawActorScreenX >= 0x103 ||
+				rawActorScreenY <= 0x0a || rawActorScreenY >= 0x96) {
+				debugC(1, kDebugLevelEvents,
+					   "scroll follow actorScreen=(%d,%d) camera=(%d,%d)->(%d,%d) delta=(%d,%d)",
+					   rawActorScreenX, rawActorScreenY, oldX, oldY, _cameraX, _cameraY,
+					   _scrollDx, _scrollDy);
+			}
 		}
 	}
 
@@ -2416,6 +2427,27 @@ bool Logic::sendActorToTarget(Actor *walker, uint16 targetId) {
 	return false;
 }
 
+bool Logic::exitWalkTargetPoint(uint16 exitId, Common::Point &point) {
+	Exit *exit = _blockProgram ? _blockProgram->getExit(exitId) : 0;
+	if (!exit)
+		return false;
+
+	// MoveProtagonistToEntity @ 1000:7356 uses GetExitOffset, keeps
+	// exit.y, and adds half the visible exit width to exit.x before
+	// FindNearestExitToPoint. No-sprite exits take width from record byte
+	// +6; sprite exits take it from CalcSpriteOffsetInGraphic.
+	const int16 exitX = int16(recordField(1, exitId, 2, 2));
+	const int16 exitY = int16(recordField(1, exitId, 4, 2));
+	uint16 width = recordField(1, exitId, 6, 1);
+	if (!exit->noSprite()) {
+		const uint16 spriteId = recordField(1, exitId, 6, 2);
+		const SpriteInfo info = objectSpriteInfo(_resources, _blockProgram.get(), spriteId);
+		width = info.width;
+	}
+	point = Common::Point(int16(exitX + int16(width) / 2), exitY);
+	return true;
+}
+
 bool Logic::sendActorToEntityByType(Actor *walker, uint16 targetId, uint16 entityType) {
 	if (!walker) {
 		walker = _protagonist;
@@ -2429,21 +2461,13 @@ bool Logic::sendActorToEntityByType(Actor *walker, uint16 targetId, uint16 entit
 	int16 targetY = 0;
 	switch (entityType) {
 	case 1: { // exit
-		Exit *exit = _blockProgram ? _blockProgram->getExit(targetId) : 0;
-		if (!exit) {
+		Common::Point target;
+		if (!exitWalkTargetPoint(targetId, target)) {
 			setPendingError(0x14);
 			return false;
 		}
-		const int16 exitX = int16(recordField(1, targetId, 2, 2));
-		const int16 exitY = int16(recordField(1, targetId, 4, 2));
-		if (recordField(1, targetId, 0x0a, 1) == 0) {
-			const uint16 spriteId = recordField(1, targetId, 6, 2);
-			const SpriteInfo info = objectSpriteInfo(_resources, _blockProgram.get(), spriteId);
-			targetX = int16(exitX + int16(info.width) / 2);
-		} else {
-			targetX = exitX;
-		}
-		targetY = exitY;
+		targetX = int16(target.x);
+		targetY = int16(target.y);
 		break;
 	}
 	case 2: { // object/person
@@ -2479,6 +2503,10 @@ bool Logic::sendActorToEntityByType(Actor *walker, uint16 targetId, uint16 entit
 	}
 
 	const uint16 frame = _room->nearestFrameTo(targetX, targetY);
+	debugC(1, kDebugLevelEvents,
+		   "sendActorToEntity type=%u id=%u target=(%d,%d) nearestFrame=%u actorFrame=%u camera=(%d,%d)",
+		   entityType, targetId, targetX, targetY, frame,
+		   walker ? walker->frameId() : 0, _cameraX, _cameraY);
 	if (frame == 0) {
 		setPendingError(0x31);
 		moveActorToTargetFrame(this, walker, walker->frameId());

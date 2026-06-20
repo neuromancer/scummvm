@@ -649,9 +649,6 @@ Clickable::~Clickable() {
 
 void EventManager::clicked(Common::Point pos) {
 	Logic &logic = Logic::instance();
-	// DOS HandleClick is gated by g_room_active, but not by g_flag_no_step or
-	// g_esc_during_script. The subway ride arms an ESC break point while normal
-	// room interaction remains live.
 	if (!logic.roomActive())
 		return;
 
@@ -678,6 +675,12 @@ void EventManager::clicked(Common::Point pos) {
 		   logic.stepPending() ? 1 : 0, logic.noStep() ? 1 : 0,
 		   logic.hitTarget(), logic.drawCommandCount(),
 		   target.type, target.id, target.z);
+	if (logic.noStep()) {
+		debugC(1, kDebugLevelEvents,
+			   "click ignored while control locked [DOS MainGameLoop g_flag_no_step gate]");
+		return;
+	}
+
 	if (hitRegion >= 3 && hitRegion <= 8) {
 		logic.setStepPending(true);
 		logic.setVerbModeFromHitRegion(hitRegion);

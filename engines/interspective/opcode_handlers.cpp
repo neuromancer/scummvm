@@ -535,21 +535,13 @@ static bool sendActorToScriptEntityByType(Actor *actor, uint16 targetId, uint16 
 	int16 targetY = 0;
 	switch (entityType) {
 	case 1: {
-		Exit *exit = Log.blockProgram() ? Log.blockProgram()->getExit(targetId) : 0;
-		if (!exit) {
+		Common::Point target;
+		if (!Log.exitWalkTargetPoint(targetId, target)) {
 			Log.setPendingError(0x14);
 			return false;
 		}
-		const int16 exitX = int16(Log.recordField(1, targetId, 2, 2));
-		const int16 exitY = int16(Log.recordField(1, targetId, 4, 2));
-		if (Log.recordField(1, targetId, 0x0a, 1) == 0) {
-			const uint16 spriteId = Log.recordField(1, targetId, 6, 2);
-			const SpriteInfo info = Log.engine()->resources()->getSpriteInfo(spriteId);
-			targetX = int16(exitX + int16(info.width) / 2);
-		} else {
-			targetX = exitX;
-		}
-		targetY = exitY;
+		targetX = int16(target.x);
+		targetY = int16(target.y);
 		break;
 	}
 	case 2:

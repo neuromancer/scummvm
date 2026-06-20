@@ -457,6 +457,7 @@ public:
 	// exists for the actor-walk opcodes (0xae/0xb8/0xb9/0xba/0xbb)
 	// that move a non-protag actor.
 	bool sendActorToTarget(Actor *walker, uint16 targetId);
+	bool exitWalkTargetPoint(uint16 exitId, Common::Point &point);
 	bool sendActorToEntityByType(Actor *walker, uint16 targetId, uint16 entityType);
 	bool sendActorToCurrentEntity(Actor *walker);
 
