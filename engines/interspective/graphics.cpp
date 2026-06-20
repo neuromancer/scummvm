@@ -964,9 +964,8 @@ void Graphics::paintBackdrop() {
 	if (logic) {
 		const Common::Array<Logic::OverlayEntry> &overlays = logic->overlayQueue();
 		for (Common::Array<Logic::OverlayEntry>::const_iterator it = overlays.begin(); it != overlays.end(); ++it) {
-			Sprite *overlay = _resources->loadSprite(it->sprite);
-			paint(overlay, Common::Point(it->x, it->y), kPaintCameraRelative);
-			delete overlay;
+			Common::ScopedPtr<Sprite> overlay(_resources->loadSprite(it->sprite));
+			paint(overlay.get(), Common::Point(it->x, it->y), kPaintCameraRelative);
 		}
 	}
 }
@@ -2016,7 +2015,7 @@ uint16 Graphics::ask(uint16 left, uint16 top, byte width, byte height, byte *str
 	Surface frame;
 	frame.create(width * kFrameTileWidth, height * kFrameTileHeight + 4);
 
-	Sprite **frames = _resources->frames();
+	Sprite *const *frames = _resources->frames();
 
 	Common::Point tile(0, 0);
 

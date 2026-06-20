@@ -43,6 +43,13 @@ DECLARE_SINGLETON(Interspective::Resources);
 namespace Interspective {
 //
 
+Resources::Resources() : _vm(0) {
+	for (int i = 0; i < kFrameNum; ++i)
+		_framePtrs[i] = 0;
+	for (int i = 0; i < kBubbleCount; ++i)
+		_bubblePtrs[i] = 0;
+}
+
 void Surface::blit(const Surface *s, Common::Rect r, int transparent, const byte (*tinted)[256]) {
 	blit(s, r, Common::Point(0, 0), transparent, tinted);
 }
@@ -122,22 +129,14 @@ void Resources::setEngine(Engine *vm) {
 	_graphicsMap = Common::SharedPtr<MapFile>(new MapFile("iuc_graf.dat"));
 	_tuneMap = Common::SharedPtr<MapFile>(new MapFile("iuc_tune.dat"));
 	_progDat = Common::SharedPtr<ProgDat>(new ProgDat(this));
-	_graphicFiles = 0;
 	_vm = vm;
 }
 
-Resources::~Resources() {
-	if (_graphicFiles) {
-		delete[] _graphicFiles;
-
-		for (int i = 0; i < kFrameNum; i++)
-			delete _frames[i];
-	}
-	if (_musicFiles)
-		delete[] _musicFiles;
-}
+Resources::~Resources() {}
 
 void Resources::load() {
+	_imageCache.clear();
+
 	_main.get()->load();
 	Log.setMaxGameScore(_main.get()->maxGameScore());
 	_graphicsMap.get()->load();
@@ -153,7 +152,10 @@ void Resources::load() {
 }
 
 void Resources::loadFrames() {
-#define FRAME(p) _frames[p] = loadSprite(_main.get()->getFrameId(p))
+#define FRAME(p) do { \
+	_frames[p].reset(loadSprite(_main.get()->getFrameId(p))); \
+	_framePtrs[p] = _frames[p].get(); \
+} while (0)
 	FRAME(kFrameTopLeft);
 	FRAME(kFrameTop);
 	FRAME(kFrameTopRight);
@@ -167,7 +169,10 @@ void Resources::loadFrames() {
 }
 
 void Resources::loadSpeechBubbles() {
-#define BUBBLE(p) _bubbles[p] = loadSprite(_main.get()->getBubbleId(p))
+#define BUBBLE(p) do { \
+	_bubbles[p].reset(loadSprite(_main.get()->getBubbleId(p))); \
+	_bubblePtrs[p] = _bubbles[p].get(); \
+} while (0)
 	BUBBLE(kBubbleTopLeft);
 	BUBBLE(kBubbleLeft);
 	BUBBLE(kBubbleBottomLeft);
@@ -211,35 +216,36 @@ byte *Resources::getGlobalWordVariable(uint16 var) const {
 void Resources::loadGraphicFiles() {
 	const Common::List<MainDat::GraphicFile> files(_main.get()->graphicFiles());
 
-	_graphicFiles = new Common::SharedPtr<SeekableReadStream>[files.size()];
-
-	Common::SharedPtr<SeekableReadStream> *ptr = _graphicFiles;
+	_graphicFiles.clear();
 	for (Common::List<MainDat::GraphicFile>::const_iterator it = files.begin(); it != files.end(); ++it) {
-		File *file = new File();
-		file->open(Common::Path(it->filename));
-		Common::SharedPtr<SeekableReadStream> pointer(file);
-		*(ptr++) = pointer;
+		Common::ScopedPtr<File> file(new File());
+		if (!file->open(Common::Path(it->filename)))
+			error("Interspective: failed to open graphics file %s", it->filename.c_str());
+		Common::SharedPtr<SeekableReadStream> pointer(file.release());
+		_graphicFiles.push_back(pointer);
 	}
 }
 
 void Resources::loadMusicFiles() {
 	const Common::List<Common::String> files(_main.get()->musicFiles());
 
-	_musicFiles = new Common::SharedPtr<SeekableReadStream>[files.size()];
-
-	Common::SharedPtr<SeekableReadStream> *ptr = _musicFiles;
+	_musicFiles.clear();
 	for (Common::List<Common::String>::const_iterator it = files.begin(); it != files.end(); ++it) {
 		debugC(1, kDebugLevelFiles | kDebugLevelMusic, "opening music file %s", it->c_str());
-		File *file = new File();
-		file->open(Common::Path(*it));
-		Common::SharedPtr<SeekableReadStream> pointer(file);
-		*(ptr++) = pointer;
+		Common::ScopedPtr<File> file(new File());
+		if (!file->open(Common::Path(*it)))
+			error("Interspective: failed to open music file %s", it->c_str());
+		Common::SharedPtr<SeekableReadStream> pointer(file.release());
+		_musicFiles.push_back(pointer);
 	}
 }
 
 Common::ReadStream *Resources::imageStream(uint16 index) const {
 	uint16 file_index = _main.get()->fileIndexOfImage(index);
 	uint32 offset = _graphicsMap.get()->offsetOfEntry(index);
+
+	if (file_index >= _graphicFiles.size() || !_graphicFiles[file_index])
+		error("Interspective: image %u references missing graphics file %u", index, file_index);
 
 	SeekableReadStream *file = _graphicFiles[file_index].get();
 	file->seek(offset);
@@ -252,6 +258,9 @@ Common::ReadStream *Resources::tuneStream(uint16 index) const {
 	uint32 offset = _tuneMap.get()->offsetOfEntry(index);
 
 	debugC(2, kDebugLevelFiles | kDebugLevelMusic, "loading tune %d from file %d at offset 0x%x", index, file_index, offset);
+
+	if (file_index >= _musicFiles.size() || !_musicFiles[file_index])
+		error("Interspective: tune %u references missing music file %u", index, file_index);
 
 	SeekableReadStream *file = _musicFiles[file_index].get();
 	file->seek(offset);
@@ -279,18 +288,16 @@ void Resources::loadImage(uint16 index, byte *target, uint32 size, byte *palette
 }
 
 Image *Resources::loadImage(uint16 index) const {
-	Image *img;
-	static Common::HashMap<uint16, Image *> cache;
+	Common::HashMap<uint16, Common::SharedPtr<Image> >::iterator cached = _imageCache.find(index);
+	if (cached != _imageCache.end())
+		return cached->_value.get();
 
-	if ((img = cache[index]))
-		return img;
-
-	img = new Image;
+	Common::SharedPtr<Image> img(new Image);
 	img->create(320, 200);
 	assert(img->pitch == 320);
 	loadImage(index, reinterpret_cast<byte *>(img->getPixels()), 320 * 200);
-	cache[index] = img;
-	return img;
+	_imageCache[index] = img;
+	return img.get();
 }
 
 void Resources::loadTune(uint16 index, byte *target) const {

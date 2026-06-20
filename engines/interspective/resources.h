@@ -22,6 +22,8 @@
 #ifndef INTERSPECTIVE_RESOURCES_H
 #define INTERSPECTIVE_RESOURCES_H
 
+#include "common/array.h"
+#include "common/hashmap.h"
 #include "common/ptr.h"
 #include "common/singleton.h"
 #include "common/stream.h"
@@ -69,7 +71,7 @@ class Program;
 
 class Resources : public Common::Singleton<Resources> {
 public:
-	Resources() {}
+	Resources();
 	~Resources();
 	void setEngine(Engine *e);
 	void load();
@@ -121,8 +123,8 @@ public:
 	Sprite *getGlyph(byte character) const;
 	Sprite *loadSprite(uint16 id) const;
 	Sprite *getCursor() const;
-	Sprite **frames() { return _frames; }
-	Sprite *const *bubbles() const { return _bubbles; }
+	Sprite *const *frames() const { return _framePtrs; }
+	Sprite *const *bubbles() const { return _bubblePtrs; }
 
 	void loadActors();
 	void loadFrames();
@@ -149,11 +151,18 @@ private:
 	Common::SharedPtr<MapFile> _tuneMap;
 	Common::SharedPtr<ProgDat> _progDat;
 
-	Common::SharedPtr<Common::SeekableReadStream> *_graphicFiles;
-	Common::SharedPtr<Common::SeekableReadStream> *_musicFiles;
+	Common::Array<Common::SharedPtr<Common::SeekableReadStream> > _graphicFiles;
+	Common::Array<Common::SharedPtr<Common::SeekableReadStream> > _musicFiles;
 
-	Sprite *_frames[9];
-	Sprite *_bubbles[15];
+	enum {
+		kBubbleCount = kBubbleVerbStem + 1
+	};
+
+	Common::ScopedPtr<Sprite> _frames[kFrameNum];
+	Common::ScopedPtr<Sprite> _bubbles[kBubbleCount];
+	Sprite *_framePtrs[kFrameNum];
+	Sprite *_bubblePtrs[kBubbleCount];
+	mutable Common::HashMap<uint16, Common::SharedPtr<Image> > _imageCache;
 };
 
 #define Res Resources::instance()

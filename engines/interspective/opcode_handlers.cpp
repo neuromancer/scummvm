@@ -4695,9 +4695,8 @@ OPCODE(0x7e) {
 		Log.setPendingError(0x35);
 		return kThxBye;
 	}
-	Sprite *overlay = _logic->resources()->loadSprite(sprite);
-	_graphics->paint(overlay, Common::Point(x, y), Graphics::kPaintCameraRelative);
-	delete overlay;
+	Common::ScopedPtr<Sprite> overlay(_logic->resources()->loadSprite(sprite));
+	_graphics->paint(overlay.get(), Common::Point(x, y), Graphics::kPaintCameraRelative);
 	return kThxBye;
 }
 OPCODE(0x7f) {
