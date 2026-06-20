@@ -1981,17 +1981,22 @@ uint16 Graphics::askVerbBubbleText(byte paletteMode, Common::Span<const byte> st
 	return result;
 }
 
-void Graphics::showVerbBubbleText(byte paletteMode, const byte *string, uint16 frames) {
-	showVerbBubbleText(paletteMode, Logic::textSpan(string), frames);
+bool Graphics::showVerbBubbleText(byte paletteMode, const byte *string, uint16 frames,
+								  uint16 forcedRows, uint16 forcedWidthExtra) {
+	return showVerbBubbleText(paletteMode, Logic::textSpan(string), frames,
+							  forcedRows, forcedWidthExtra);
 }
 
-void Graphics::showVerbBubbleText(byte paletteMode, Common::Span<const byte> string, uint16 frames) {
+bool Graphics::showVerbBubbleText(byte paletteMode, Common::Span<const byte> string, uint16 frames,
+								  uint16 forcedRows, uint16 forcedWidthExtra) {
 	if (!string.data() || string.size() == 0 || string.data()[0] == 0)
-		return;
+		return false;
 
 	const SpeechBubbleMode bubbleMode = verbBubbleModeForPalette(paletteMode);
 	const Common::Point anchor = verbBubbleAnchorForPalette(paletteMode);
 	const byte textColour = verbBubbleTextColourForPalette(paletteMode);
+	const uint16 dosRows = forcedRows != 0 ? forcedRows : 0;
+	const uint16 dosWidthExtra = forcedWidthExtra;
 
 	beginConversationModal();
 
@@ -2003,7 +2008,7 @@ void Graphics::showVerbBubbleText(byte paletteMode, Common::Span<const byte> str
 		bubble._hotPoint = Common::Point(0, 0);
 		const bool rawLayout = paletteMode == 2 || paletteMode == 4;
 		Common::Rect bubbleRect = paintSpeechInBubble(anchor, textColour, string, &bubble, bubbleMode,
-													  !rawLayout);
+													  !rawLayout, dosRows, dosWidthExtra);
 		paint(&bubble, Common::Point(bubbleRect.left, bubbleRect.top),
 			  _framebuffer.get(), kPaintSemiTransparent | kPaintPositionIsTop);
 		if (rawLayout) {
@@ -2021,6 +2026,7 @@ void Graphics::showVerbBubbleText(byte paletteMode, Common::Span<const byte> str
 
 	updateModalCursor(kModalCursorTalk, kCursorTableNormal, true);
 	const uint16 ticks = MAX<uint16>(1, frames);
+	bool continueModal = true;
 	paintModalFrame();
 	for (uint16 i = 0; i < ticks; ++i) {
 		_engine->debugger()->onFrame();
@@ -2028,6 +2034,7 @@ void Graphics::showVerbBubbleText(byte paletteMode, Common::Span<const byte> str
 		bool done = false;
 		while (_engine->eventMan()->pollEvent(event)) {
 			if (handleModalQuitEvent(_engine, event)) {
+				continueModal = false;
 				done = true;
 				break;
 			}
@@ -2036,8 +2043,10 @@ void Graphics::showVerbBubbleText(byte paletteMode, Common::Span<const byte> str
 				setCursorPosition(event.mouse);
 				break;
 			case Common::EVENT_KEYDOWN:
-				if (event.kbd.keycode == Common::KEYCODE_ESCAPE)
+				if (event.kbd.keycode == Common::KEYCODE_ESCAPE) {
+					continueModal = false;
 					done = true;
+				}
 				break;
 			case Common::EVENT_RBUTTONDOWN:
 				setCursorPosition(event.mouse);
@@ -2057,8 +2066,10 @@ void Graphics::showVerbBubbleText(byte paletteMode, Common::Span<const byte> str
 			setCursorPosition(_engine->eventMan()->getMousePos());
 			done = true;
 		}
-		if (!done && modalQuitRequested(_engine))
+		if (!done && modalQuitRequested(_engine)) {
+			continueModal = false;
 			done = true;
+		}
 		if (done)
 			break;
 		updateModalCursor(kModalCursorTalk, kCursorTableNormal, false);
@@ -2068,6 +2079,7 @@ void Graphics::showVerbBubbleText(byte paletteMode, Common::Span<const byte> str
 
 	hideCursor();
 	finishConversationModal();
+	return continueModal && !modalQuitRequested(_engine);
 }
 
 uint16 Graphics::ask(uint16 left, uint16 top, byte width, byte height, byte *string, uint16 *selectedIndex) {
@@ -2220,12 +2232,15 @@ void Graphics::paintSpeechBubbleColumn(Sprite *top, Sprite *fill, Common::Point 
 }
 
 Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const byte *string, Surface *bubble,
-										   SpeechBubbleMode mode, bool renderText, uint16 forcedRows) {
-	return paintSpeechInBubble(pos, colour, Logic::textSpan(string), bubble, mode, renderText, forcedRows);
+										   SpeechBubbleMode mode, bool renderText, uint16 forcedRows,
+										   uint16 forcedWidthExtra) {
+	return paintSpeechInBubble(pos, colour, Logic::textSpan(string), bubble, mode, renderText,
+							   forcedRows, forcedWidthExtra);
 }
 
 Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, Common::Span<const byte> string, Surface *bubble,
-										   SpeechBubbleMode mode, bool renderText, uint16 forcedRows) {
+										   SpeechBubbleMode mode, bool renderText, uint16 forcedRows,
+										   uint16 forcedWidthExtra) {
 	int left = pos.x;
 	int top = pos.y;
 	const char *debugText = string.data() ? reinterpret_cast<const char *>(string.data()) : "(null)";
@@ -2234,7 +2249,7 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, Commo
 	Common::Array<byte> normalized = normalizeBubbleInput(string);
 	Logic::FormattedBubble metrics = Log.formatBubbleText(Common::Span<const byte>(&normalized[0], normalized.size()));
 	const uint16 rows = forcedRows != 0 ? forcedRows : MAX<uint16>(1, metrics.rowCount);
-	const uint16 widthExtra = metrics.maxLineWidth;
+	const uint16 widthExtra = forcedWidthExtra != 0xffff ? forcedWidthExtra : metrics.maxLineWidth;
 
 	Sprite *const *bubbles = _resources->bubbles();
 

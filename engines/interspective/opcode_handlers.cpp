@@ -676,38 +676,16 @@ static void reloadLoadedBackdrop(Graphics *graphics) {
 	graphics->setBackdrop(id);
 }
 
-static bool showFormattedModalTextAndWait(const Logic::FormattedBubble &fb,
-										  uint16 frames, const CodePointer &next) {
-	if (fb.text.empty())
-		return false;
-	// The DOS formatted buffer now includes bubble-row centering records
-	// emitted by EmitTextRowTerminator. This helper is only the C++ modal
-	// stand-in that routes through Graphics::paintText, whose 0x0c control
-	// has different no-width-byte semantics, so remove the synthetic row
-	// records before passing it there.
-	Common::String visible;
-	bool atRowStart = true;
-	for (uint i = 0; i < fb.text.size(); ++i) {
-		const byte ch = byte(fb.text[i]);
-		if (atRowStart && ch == kStringCenter && i + 1 < fb.text.size()) {
-			++i;
-			atRowStart = false;
-			continue;
-		}
-		const char out = char(ch);
-		visible.append(&out, &out + 1);
-		atRowStart = (ch == '\r' || ch == '\n');
-	}
-	const byte *out = reinterpret_cast<const byte *>(visible.c_str());
-	const uint16 length = uint16(visible.size());
-	if (Log.modalState().paletteMode != 0) {
-		Log.modalState().activeText = visible;
-		Graf.showVerbBubbleText(Log.modalState().paletteMode, Logic::textSpan(visible), MAX<uint16>(1, frames));
-		return false;
-	}
-	Graf.say(out, length, MAX<uint16>(1, frames));
-	Graf.runWhenSaid(next);
-	return true;
+struct FormattedModalTextPage {
+	Common::String text;
+	uint16 continuationOffset;
+
+	FormattedModalTextPage() : continuationOffset(0) {}
+	FormattedModalTextPage(const Common::String &t, uint16 c) : text(t), continuationOffset(c) {}
+};
+
+static bool modalPaletteUsesFormattedContinuation(uint8 paletteMode) {
+	return paletteMode == 1 || paletteMode == 3;
 }
 
 static Common::String stripFormattedRowCenterRecords(const Logic::FormattedBubble &fb) {
@@ -725,6 +703,101 @@ static Common::String stripFormattedRowCenterRecords(const Logic::FormattedBubbl
 		atRowStart = (ch == '\r' || ch == '\n');
 	}
 	return visible;
+}
+
+static Common::Array<FormattedModalTextPage> paginateFormattedModalText(const Common::String &text,
+																		uint16 rowsPerPage) {
+	Common::Array<FormattedModalTextPage> pages;
+	if (rowsPerPage == 0) {
+		pages.push_back(FormattedModalTextPage(text, 0));
+		return pages;
+	}
+
+	Common::String page;
+	uint16 completedRows = 0;
+	for (uint i = 0; i < text.size();) {
+		const byte ch = byte(text[i++]);
+		if (ch == 0)
+			break;
+		if (ch == '\r' || ch == '\n') {
+			++completedRows;
+			if (completedRows >= rowsPerPage) {
+				const uint16 continuation = i < text.size() ? uint16(i) : 0;
+				pages.push_back(FormattedModalTextPage(page, continuation));
+				page.clear();
+				completedRows = 0;
+			} else {
+				const char rowBreak = '\r';
+				page.append(&rowBreak, &rowBreak + 1);
+			}
+			continue;
+		}
+
+		const char out = char(ch);
+		page.append(&out, &out + 1);
+		if (ch == kStringSetColour || ch == kStringAdvance || ch == kStringCenter) {
+			if (i < text.size()) {
+				const char extra = text[i++];
+				page.append(&extra, &extra + 1);
+			}
+		} else if (ch == kStringMenuOption) {
+			while (i < text.size()) {
+				const char extra = text[i++];
+				page.append(&extra, &extra + 1);
+				if (extra == 0)
+					break;
+			}
+			for (uint j = 0; j < 2 && i < text.size(); ++j) {
+				const char extra = text[i++];
+				page.append(&extra, &extra + 1);
+			}
+		}
+	}
+
+	if (!page.empty() || pages.empty())
+		pages.push_back(FormattedModalTextPage(page, 0));
+	return pages;
+}
+
+static bool showFormattedModalTextAndWait(const Logic::FormattedBubble &fb,
+										  uint16 frames, uint16 rows, const CodePointer &next) {
+	if (fb.text.empty())
+		return false;
+	// The DOS formatted buffer now includes bubble-row centering records
+	// emitted by EmitTextRowTerminator. The fullscreen modal renderer models
+	// the DOS continuation pointer by slicing after row terminators; the plain
+	// say() stand-in still needs the synthetic center records removed because
+	// Graphics::paintText treats 0x0c differently.
+	Common::String visible = stripFormattedRowCenterRecords(fb);
+	const byte *out = reinterpret_cast<const byte *>(visible.c_str());
+	const uint16 length = uint16(visible.size());
+	if (Log.modalState().paletteMode != 0) {
+		Logic::ModalState &ms = Log.modalState();
+		const bool paginate = modalPaletteUsesFormattedContinuation(ms.paletteMode);
+		const uint16 pageRows = paginate ? MAX<uint16>(1, rows) : 0;
+		const uint16 pageWidth = paginate ? ms.activeAx : 0xffff;
+		Common::Array<FormattedModalTextPage> pages;
+		if (paginate)
+			pages = paginateFormattedModalText(visible, pageRows);
+		else
+			pages.push_back(FormattedModalTextPage(visible, 0));
+		if (pages.size() > 1) {
+			debugC(1, kDebugLevelScript, "formatted modal text paginated into %u pages (%u rows/page)",
+				   pages.size(), pageRows);
+		}
+		for (uint i = 0; i < pages.size(); ++i) {
+			ms.activeText = pages[i].text;
+			ms.textContinuationPtr = pages[i].continuationOffset;
+			if (!Graf.showVerbBubbleText(ms.paletteMode, Logic::textSpan(pages[i].text),
+										 MAX<uint16>(1, frames), pageRows, pageWidth))
+				break;
+		}
+		ms.textContinuationPtr = 0;
+		return false;
+	}
+	Graf.say(out, length, MAX<uint16>(1, frames));
+	Graf.runWhenSaid(next);
+	return true;
 }
 
 static bool formattedTextHasMenuOptions(const Common::String &text) {
@@ -985,7 +1058,7 @@ static bool runRawChoiceListModal(Common::Span<const byte> src, uint16 *selected
 		return true;
 	}
 
-	showFormattedModalTextAndWait(fb, fb.totalHeight, CodePointer());
+	showFormattedModalTextAndWait(fb, fb.totalHeight, fb.rowCount, CodePointer());
 	*selectedIndex = rawSelectedIndex;
 	target = choice.target;
 	if (fb.truncated)
@@ -3886,7 +3959,7 @@ OPCODE(0x4e) {
 			return kThxBye;
 		return CodePointer(target, this);
 	}
-	const bool wait = showFormattedModalTextAndWait(fb, fb.totalHeight, next);
+	const bool wait = showFormattedModalTextAndWait(fb, fb.totalHeight, fb.rowCount, next);
 	finishVerbModalLoopState(ms);
 	if (fb.truncated)
 		Log.setPendingError(0x11);
@@ -3931,7 +4004,7 @@ OPCODE(0x4f) {
 			return kThxBye;
 		return CodePointer(target, this);
 	}
-	const bool wait = showFormattedModalTextAndWait(fb, menuValue, next);
+	const bool wait = showFormattedModalTextAndWait(fb, menuValue, rows, next);
 	finishVerbModalLoopState(ms);
 	if (fb.truncated)
 		Log.setPendingError(0x11);
@@ -3966,7 +4039,7 @@ OPCODE(0x50) {
 			return kThxBye;
 		return CodePointer(target, this);
 	}
-	const bool wait = showFormattedModalTextAndWait(fb, fb.totalHeight, next);
+	const bool wait = showFormattedModalTextAndWait(fb, fb.totalHeight, fb.rowCount, next);
 	finishVerbModalLoopState(ms);
 	if (fb.truncated)
 		Log.setPendingError(0x11);
@@ -4006,7 +4079,7 @@ OPCODE(0x51) {
 			return kThxBye;
 		return CodePointer(target, this);
 	}
-	const bool wait = showFormattedModalTextAndWait(fb, menuValue, next);
+	const bool wait = showFormattedModalTextAndWait(fb, menuValue, rows, next);
 	finishVerbModalLoopState(ms);
 	if (fb.truncated)
 		Log.setPendingError(0x11);
@@ -4051,7 +4124,7 @@ OPCODE(0x52) {
 			return kThxBye;
 		return CodePointer(target, this);
 	}
-	const bool wait = showFormattedModalTextAndWait(fb, fb.totalHeight, next);
+	const bool wait = showFormattedModalTextAndWait(fb, fb.totalHeight, fb.lineCount, next);
 	finishVerbModalLoopState(ms);
 	if (fb.truncated)
 		Log.setPendingError(0x11);
@@ -4122,7 +4195,7 @@ OPCODE(0x53) {
 			return kThxBye;
 		return CodePointer(target, this);
 	}
-	const bool wait = showFormattedModalTextAndWait(fb, fb.totalHeight, next);
+	const bool wait = showFormattedModalTextAndWait(fb, fb.totalHeight, fb.lineCount, next);
 	finishVerbModalLoopState(ms);
 	if (fb.truncated)
 		Log.setPendingError(0x11);

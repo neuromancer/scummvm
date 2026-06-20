@@ -122,8 +122,10 @@ public:
 							  uint16 timeoutFrames = 0);
 	uint16 askVerbBubbleText(byte paletteMode, const byte *string, uint16 *selectedIndex = 0,
 							  uint16 timeoutFrames = 0);
-	void showVerbBubbleText(byte paletteMode, Common::Span<const byte> string, uint16 frames);
-	void showVerbBubbleText(byte paletteMode, const byte *string, uint16 frames);
+	bool showVerbBubbleText(byte paletteMode, Common::Span<const byte> string, uint16 frames,
+							uint16 forcedRows = 0, uint16 forcedWidthExtra = 0xffff);
+	bool showVerbBubbleText(byte paletteMode, const byte *string, uint16 frames,
+							uint16 forcedRows = 0, uint16 forcedWidthExtra = 0xffff);
 	Common::Rect paintText(uint16 left, uint16 top, byte colour, const byte *string) {
 		return paintText(left, top, colour, string, _framebuffer.get(), 0, 0, 0);
 	}
@@ -148,10 +150,10 @@ public:
 	void paintSpeechBubbleColumn(Sprite *top, Sprite *fill, Common::Point &point, uint8 fill_tiles, Surface *dest);
 	Common::Rect paintSpeechInBubble(Common::Point pos, byte colour, Common::Span<const byte> string, Surface *dest,
 									 SpeechBubbleMode mode = kSpeechBubbleAuto, bool renderText = true,
-									 uint16 forcedRows = 0);
+									 uint16 forcedRows = 0, uint16 forcedWidthExtra = 0xffff);
 	Common::Rect paintSpeechInBubble(Common::Point pos, byte colour, const byte *string, Surface *dest,
 									 SpeechBubbleMode mode = kSpeechBubbleAuto, bool renderText = true,
-									 uint16 forcedRows = 0);
+									 uint16 forcedRows = 0, uint16 forcedWidthExtra = 0xffff);
 
 	void paintRect(const Common::Rect &r, byte colour = 235);
 
