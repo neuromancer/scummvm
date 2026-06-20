@@ -56,6 +56,69 @@ static SpriteInfo objectSpriteInfo(Resources *resources, Program *blockProgram, 
 // computes text height.
 static const uint16 kBubbleLineHeight = 12; // matches Graphics::kLineHeight
 
+Common::Span<const byte> Logic::textSpan(const byte *src, uint32 maxBytes) {
+	if (!src || maxBytes == 0)
+		return Common::Span<const byte>();
+
+	uint32 size = 0;
+	while (size < maxBytes && src[size] != 0)
+		++size;
+	if (size < maxBytes)
+		++size; // include terminator
+	return Common::Span<const byte>(src, size);
+}
+
+Common::Span<const byte> Logic::textSpan(const Common::String &src) {
+	return Common::Span<const byte>(reinterpret_cast<const byte *>(src.c_str()), src.size() + 1);
+}
+
+Common::Span<const byte> Logic::textSpan(const DosMemoryReference &ref) {
+	const byte *ptr = ref.ptr();
+	return ptr ? Common::Span<const byte>(ptr, ref.remaining()) : Common::Span<const byte>();
+}
+
+class BoundedTextReader {
+public:
+	BoundedTextReader(Common::Span<const byte> bytes, const char *context)
+		: _bytes(bytes), _pos(0), _context(context), _warned(false) {}
+
+	bool empty() const { return !_bytes.data() || _bytes.size() == 0; }
+
+	bool readByte(byte &value) {
+		if (!canRead(1))
+			return fail(1);
+		value = _bytes.data()[_pos++];
+		return true;
+	}
+
+	bool readUint16LE(uint16 &value) {
+		if (!canRead(2))
+			return fail(2);
+		value = READ_LE_UINT16(_bytes.data() + _pos);
+		_pos += 2;
+		return true;
+	}
+
+private:
+	bool canRead(uint32 count) const {
+		return _bytes.data() && _pos <= _bytes.size() && count <= _bytes.size() - _pos;
+	}
+
+	bool fail(uint32 count) {
+		if (!_warned) {
+			warning("Interspective: unterminated or truncated text in %s at byte %u (wanted %u, size %u)",
+					_context ? _context : "text parser", uint(_pos), uint(count), uint(_bytes.size()));
+			_warned = true;
+		}
+		return false;
+	}
+
+	Common::Span<const byte> _bytes;
+	uint32 _pos;
+	const char *_context;
+	bool _warned;
+};
+
 static int16 stepCameraToward(int16 current, int16 target, int16 speed) {
 	const int16 delta = target - current;
 	if (delta == 0)
@@ -2796,7 +2859,7 @@ static void appendFormattedTextByte(Common::String &text, byte value) {
 // markup bytes and synthetic row-centering records, plus the dimensions DOS
 // computes. Per-glyph widths come from Graphics::getGlyphWidth (the C++
 // analog of DOS LookupCharSprite).
-Logic::FormattedBubble Logic::formatBubbleText(const byte *src) const {
+Logic::FormattedBubble Logic::formatBubbleText(Common::Span<const byte> src) const {
 	FormattedBubble out;
 	out.lineCount = 1; // DOS DAT_1000_94b5 init = 1
 	out.rowCount = 1;  // DOS DX init = 1
@@ -2804,16 +2867,17 @@ Logic::FormattedBubble Logic::formatBubbleText(const byte *src) const {
 	out.maxLineWidth = 0;
 	out.truncated = false;
 	const uint16 lineHeight = bubbleLineHeight();
-	if (!src) {
+	BoundedTextReader reader(src, "FormatBubbleText");
+	if (reader.empty()) {
 		out.totalHeight = lineHeight * 2 + 2; // DOS minimum
 		return out;
 	}
 
 	Graphics *g = (_engine ? _engine->graphics() : 0);
-	const byte *p = src;
 	int currentWidth = 0;
 	uint rowWidthPatch = 0;
 	bool rowFinished = false;
+	bool malformed = false;
 	uint16 remaining = 0x1f4; // DOS AX countdown in FormatBubbleText_Inner
 
 	auto startTextRow = [&]() {
@@ -2840,9 +2904,12 @@ Logic::FormattedBubble Logic::formatBubbleText(const byte *src) const {
 		return 6;
 	};
 
-	auto readLE16 = [&p]() -> uint16 {
-		const uint16 v = READ_LE_UINT16(p);
-		p += 2;
+	auto readLE16 = [&]() -> uint16 {
+		uint16 v = 0;
+		if (!reader.readUint16LE(v)) {
+			out.truncated = true;
+			malformed = true;
+		}
 		return v;
 	};
 
@@ -2860,7 +2927,12 @@ Logic::FormattedBubble Logic::formatBubbleText(const byte *src) const {
 
 	auto skipMarkupBlockToStx = [&]() {
 		while (true) {
-			const byte ch = *p++;
+			byte ch = 0;
+			if (!reader.readByte(ch)) {
+				out.truncated = true;
+				malformed = true;
+				return;
+			}
 			if (ch == 0x00)
 				return;
 			if (ch == 0x20)
@@ -2881,7 +2953,11 @@ Logic::FormattedBubble Logic::formatBubbleText(const byte *src) const {
 
 	startTextRow();
 	while (true) {
-		const byte b = *p++;
+		byte b = 0;
+		if (!reader.readByte(b)) {
+			out.truncated = true;
+			break;
+		}
 		if (b == 0x00) {
 			// Terminator. Patch final row width → return.
 			finishTextRow();
@@ -2911,7 +2987,12 @@ Logic::FormattedBubble Logic::formatBubbleText(const byte *src) const {
 			// option value in the formatted buffer.
 			appendFormattedTextByte(out.text, b);
 			while (true) {
-				const byte lit = *p++;
+				byte lit = 0;
+				if (!reader.readByte(lit)) {
+					out.truncated = true;
+					malformed = true;
+					break;
+				}
 				appendFormattedTextByte(out.text, lit);
 				if (lit == 0x00)
 					break;
@@ -2919,7 +3000,11 @@ Logic::FormattedBubble Logic::formatBubbleText(const byte *src) const {
 					out.lineCount++;
 				currentWidth += charPixelWidth(lit);
 			}
+			if (malformed)
+				break;
 			const uint16 optionValue = readLE16();
+			if (malformed)
+				break;
 			appendFormattedTextByte(out.text, optionValue & 0xff);
 			appendFormattedTextByte(out.text, optionValue >> 8);
 			if (!tickInputCountdown())
@@ -2928,7 +3013,11 @@ Logic::FormattedBubble Logic::formatBubbleText(const byte *src) const {
 		}
 		if (b == 0x09) {
 			// 1-byte param = X-offset spacing.
-			const byte amount = *p++;
+			byte amount = 0;
+			if (!reader.readByte(amount)) {
+				out.truncated = true;
+				break;
+			}
 			appendFormattedTextByte(out.text, b);
 			appendFormattedTextByte(out.text, amount);
 			currentWidth += amount;
@@ -2939,7 +3028,11 @@ Logic::FormattedBubble Logic::formatBubbleText(const byte *src) const {
 		}
 		if (b == 0x07) {
 			// Color-change marker and parameter are copied verbatim.
-			const byte color = *p++;
+			byte color = 0;
+			if (!reader.readByte(color)) {
+				out.truncated = true;
+				break;
+			}
 			appendFormattedTextByte(out.text, b);
 			appendFormattedTextByte(out.text, color);
 			if (!tickInputCountdown())
@@ -2950,6 +3043,8 @@ Logic::FormattedBubble Logic::formatBubbleText(const byte *src) const {
 			// Decimal-number formatter: two-byte offset into the global
 			// word table (DOS DAT_1000_0099), not an immediate value.
 			const uint16 num = globalWord(readLE16());
+			if (malformed)
+				break;
 			Common::String numStr = Common::String::format("%u", num);
 			out.text += numStr;
 			for (uint i = 0; i < numStr.size(); ++i)
@@ -2963,9 +3058,13 @@ Logic::FormattedBubble Logic::formatBubbleText(const byte *src) const {
 			// (DOS DAT_1000_009d). The marker and offset are not copied to
 			// the formatted buffer.
 			const byte state = globalByte(readLE16());
+			if (malformed)
+				break;
 			const bool skip = (b == 0x0a) ? (state == 0) : (state != 0);
 			if (skip)
 				skipMarkupBlockToStx();
+			if (malformed)
+				break;
 			if (!tickInputCountdown())
 				break;
 			continue;
@@ -2996,26 +3095,34 @@ Logic::FormattedBubble Logic::formatBubbleText(const byte *src) const {
 	return out;
 }
 
-Logic::FormattedBubble Logic::measureVerbBubbleText(const byte *src) const {
+Logic::FormattedBubble Logic::formatBubbleText(const byte *src) const {
+	return formatBubbleText(textSpan(src));
+}
+
+Logic::FormattedBubble Logic::measureVerbBubbleText(Common::Span<const byte> src) const {
 	FormattedBubble out;
 	out.lineCount = 0;
 	out.rowCount = 0;
 	out.totalHeight = kBubbleLineHeight + 2;
 	out.maxLineWidth = 0;
 	out.truncated = false;
-	if (!src)
+	BoundedTextReader reader(src, "MeasureVerbBubbleText");
+	if (reader.empty())
 		return out;
 
 	Graphics *g = (_engine ? _engine->graphics() : 0);
-	const byte *p = src;
 	int32 lineCount = 0;
 	int32 maxWidth = 0;
 	int32 currentWidth = 0;
 	Common::String line;
+	bool malformed = false;
 
-	auto readLE16 = [&p]() -> uint16 {
-		const uint16 v = READ_LE_UINT16(p);
-		p += 2;
+	auto readLE16 = [&]() -> uint16 {
+		uint16 v = 0;
+		if (!reader.readUint16LE(v)) {
+			out.truncated = true;
+			malformed = true;
+		}
 		return v;
 	};
 
@@ -3038,20 +3145,30 @@ Logic::FormattedBubble Logic::measureVerbBubbleText(const byte *src) const {
 	};
 
 	while (true) {
-		const byte b = *p++;
+		byte b = 0;
+		if (!reader.readByte(b)) {
+			out.truncated = true;
+			break;
+		}
 		if (b == 0xff)
 			break;
 		if (b == 0x04)
 			continue;
 		if (b == 0x0a) {
-			if (globalByte(readLE16()) == 0) {
+			const byte state = globalByte(readLE16());
+			if (malformed)
+				break;
+			if (state == 0) {
 				--lineCount;
 				currentWidth = -1;
 			}
 			continue;
 		}
 		if (b == 0x0b) {
-			if (globalByte(readLE16()) != 0) {
+			const byte state = globalByte(readLE16());
+			if (malformed)
+				break;
+			if (state != 0) {
 				--lineCount;
 				currentWidth = -1;
 			}
@@ -3060,6 +3177,8 @@ Logic::FormattedBubble Logic::measureVerbBubbleText(const byte *src) const {
 		if (b == 0x0e) {
 			const uint16 offset = readLE16();
 			const uint16 expected = readLE16();
+			if (malformed)
+				break;
 			if (globalWord(offset) != expected) {
 				--lineCount;
 				currentWidth = -1;
@@ -3068,7 +3187,11 @@ Logic::FormattedBubble Logic::measureVerbBubbleText(const byte *src) const {
 		}
 		if (b == 0x00) {
 			++lineCount;
-			p += 2;
+			uint16 ignoredTarget = 0;
+			if (!reader.readUint16LE(ignoredTarget)) {
+				out.truncated = true;
+				break;
+			}
 			if (currentWidth >= maxWidth)
 				maxWidth = currentWidth;
 			if (currentWidth >= 0 && !line.empty()) {
@@ -3093,19 +3216,28 @@ Logic::FormattedBubble Logic::measureVerbBubbleText(const byte *src) const {
 	return out;
 }
 
-Common::String Logic::prepareTextStrippedForRender(const byte *src, bool *truncated) const {
+Logic::FormattedBubble Logic::measureVerbBubbleText(const byte *src) const {
+	return measureVerbBubbleText(textSpan(src));
+}
+
+Common::String Logic::prepareTextStrippedForRender(Common::Span<const byte> src, bool *truncated) const {
 	if (truncated)
 		*truncated = false;
-	if (!src)
+	BoundedTextReader reader(src, "PrepareTextStrippedForRender");
+	if (reader.empty())
 		return Common::String();
 
-	const byte *p = src;
 	Common::String out;
 	int remaining = 100;
+	bool malformed = false;
 
-	auto readLE16 = [&p]() -> uint16 {
-		const uint16 v = READ_LE_UINT16(p);
-		p += 2;
+	auto readLE16 = [&]() -> uint16 {
+		uint16 v = 0;
+		if (!reader.readUint16LE(v)) {
+			malformed = true;
+			if (truncated)
+				*truncated = true;
+		}
 		return v;
 	};
 
@@ -3123,18 +3255,31 @@ Common::String Logic::prepareTextStrippedForRender(const byte *src, bool *trunca
 
 	auto skipMarkupBlockToStx = [&]() {
 		while (true) {
-			const byte ch = *p++;
+			byte ch = 0;
+			if (!reader.readByte(ch)) {
+				malformed = true;
+				if (truncated)
+					*truncated = true;
+				return;
+			}
 			if (ch == 0x00 || ch == 0x02)
 				return;
 		}
 	};
 
 	while (true) {
-		const byte b = *p++;
+		byte b = 0;
+		if (!reader.readByte(b)) {
+			if (truncated)
+				*truncated = true;
+			break;
+		}
 		if (b == 0x00)
 			break;
 		if (b == 0x06) {
 			const uint16 value = globalWord(readLE16());
+			if (malformed)
+				break;
 			out += Common::String::format("%u", value);
 			remaining -= 5;
 			if (remaining <= 0)
@@ -3142,8 +3287,14 @@ Common::String Logic::prepareTextStrippedForRender(const byte *src, bool *trunca
 			continue;
 		}
 		if (b == 0x07) {
+			byte colour = 0;
+			if (!reader.readByte(colour)) {
+				if (truncated)
+					*truncated = true;
+				break;
+			}
 			appendFormattedTextByte(out, b);
-			appendFormattedTextByte(out, *p++);
+			appendFormattedTextByte(out, colour);
 			--remaining;
 			if (remaining <= 0) {
 				if (truncated)
@@ -3155,11 +3306,15 @@ Common::String Logic::prepareTextStrippedForRender(const byte *src, bool *trunca
 		if (b == 0x0a) {
 			if (globalByte(readLE16()) == 0)
 				skipMarkupBlockToStx();
+			if (malformed)
+				break;
 			continue;
 		}
 		if (b == 0x0b) {
 			if (globalByte(readLE16()) != 0)
 				skipMarkupBlockToStx();
+			if (malformed)
+				break;
 			continue;
 		}
 		if (b == 0x02)
@@ -3175,6 +3330,10 @@ Common::String Logic::prepareTextStrippedForRender(const byte *src, bool *trunca
 	}
 
 	return out;
+}
+
+Common::String Logic::prepareTextStrippedForRender(const byte *src, bool *truncated) const {
+	return prepareTextStrippedForRender(textSpan(src), truncated);
 }
 
 bool Logic::cancelDeferred(const CodePointer &p) {
@@ -3760,7 +3919,7 @@ static uint16 logicSpeechTicksForText(const Common::String &text, uint16 maxLine
 	Common::String normalized;
 	for (uint i = 0; i < text.size(); ++i)
 		normalized += char(text[i] == '\n' ? '\r' : text[i]);
-	Logic::FormattedBubble fb = Log.formatBubbleText(reinterpret_cast<const byte *>(normalized.c_str()));
+	Logic::FormattedBubble fb = Log.formatBubbleText(Logic::textSpan(normalized));
 	uint16 height = fb.totalHeight;
 	uint16 rows = fb.rowCount;
 	if (maxLines != 0)

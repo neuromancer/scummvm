@@ -100,20 +100,22 @@ static const byte *rawScriptBytes(Value &arg) {
 	return arg.memoryReference(ref) ? ref.ptr() : nullptr;
 }
 
-static const byte *rawScriptTextOrTranslated(Value &arg) {
-	const byte *raw = rawScriptBytes(arg);
-	return raw ? raw : static_cast<byte *>(arg);
+static Common::Span<const byte> scriptTextSpanOrTranslated(Value &arg) {
+	DosMemoryReference ref;
+	if (arg.memoryReference(ref))
+		return Logic::textSpan(ref);
+	return Logic::textSpan(static_cast<byte *>(arg));
 }
 
-static const byte *terminatedRawScriptTextOrTranslated(Value &arg, const char *context) {
+static Common::Span<const byte> terminatedScriptTextSpanOrTranslated(Value &arg, const char *context) {
 	DosMemoryReference ref;
 	if (arg.memoryReference(ref)) {
 		if (dosMemoryContainsByte(ref, 0))
-			return ref.ptr();
+			return Logic::textSpan(ref);
 		warning("Interspective: unterminated text argument at 0x%04x in %s",
 				ref.offset(), context);
 	}
-	return static_cast<byte *>(arg);
+	return Logic::textSpan(static_cast<byte *>(arg));
 }
 
 static void clearDosPascalBufferAt(const DosMemoryReference &ref) {
@@ -195,7 +197,7 @@ static uint16 speechDisplayTicks(const byte *text, uint16 maxLines) {
 	Common::String normalized;
 	for (const byte *p = text; p && *p; ++p)
 		normalized += char(*p == '\n' ? '\r' : *p);
-	Logic::FormattedBubble fb = Log.formatBubbleText(reinterpret_cast<const byte *>(normalized.c_str()));
+	Logic::FormattedBubble fb = Log.formatBubbleText(Logic::textSpan(normalized));
 	uint16 height = fb.totalHeight;
 	uint16 rows = fb.rowCount;
 	if (maxLines != 0)
@@ -700,7 +702,7 @@ static bool showFormattedModalTextAndWait(const Logic::FormattedBubble &fb,
 	const uint16 length = uint16(visible.size());
 	if (Log.modalState().paletteMode != 0) {
 		Log.modalState().activeText = visible;
-		Graf.showVerbBubbleText(Log.modalState().paletteMode, out, MAX<uint16>(1, frames));
+		Graf.showVerbBubbleText(Log.modalState().paletteMode, Logic::textSpan(visible), MAX<uint16>(1, frames));
 		return false;
 	}
 	Graf.say(out, length, MAX<uint16>(1, frames));
@@ -809,7 +811,7 @@ static void seedFormattedModalState(Logic::ModalState &ms,
 									const Logic::FormattedBubble &fb, uint16 menuValue, uint16 rows,
 									uint8 paletteMode, uint8 stashFlag);
 
-static bool appendRawModalChoices(const byte *src, Common::Array<byte> &encoded,
+static bool appendRawModalChoices(Common::Span<const byte> src, Common::Array<byte> &encoded,
 								  Common::Array<RawModalChoice> &rawChoices, uint16 &choiceCount,
 								  uint16 &maxTextWidth) {
 	// LayoutVerbBubbleText_Right/Left @ 1000:8cb0 / 1000:8d1e read a raw list
@@ -817,51 +819,71 @@ static bool appendRawModalChoices(const byte *src, Common::Array<byte> &encoded,
 	// a 16-bit branch target. 0xff terminates the list. HandleVerbButton_
 	// Submenu @ 1000:8b27 treats rows starting with 0x04 as terminal;
 	// otherwise it re-formats the selected row as the next mode-3 bubble.
-	if (!src)
+	if (!src.data() || src.size() == 0)
 		return false;
 
 	Resources *res = Log.resources();
-	const byte *p = src;
-	const byte *const limit = src + 4096;
+	uint32 pos = 0;
 	rawChoices.clear();
 	choiceCount = 0;
 	maxTextWidth = 0;
 	bool sawTerminator = false;
+	bool truncated = false;
 
-	while (p < limit) {
-		if (*p == 0xff) {
+	auto canRead = [&](uint32 count) -> bool {
+		if (pos <= src.size() && count <= src.size() - pos)
+			return true;
+		truncated = true;
+		warning("Interspective: truncated raw modal choice list at byte %u (wanted %u, size %u)",
+				uint(pos), uint(count), uint(src.size()));
+		return false;
+	};
+
+	auto readUint16LE = [&]() -> uint16 {
+		if (!canRead(2))
+			return 0xffff;
+		const uint16 value = READ_LE_UINT16(src.data() + pos);
+		pos += 2;
+		return value;
+	};
+
+	while (pos < src.size()) {
+		if (src.data()[pos] == 0xff) {
 			sawTerminator = true;
 			break;
 		}
 
 		bool visible = true;
-		const byte marker = *p;
+		const byte marker = src.data()[pos];
 		if (marker == 0x0a || marker == 0x0b) {
-			const uint16 offset = READ_LE_UINT16(p + 1);
+			++pos;
+			const uint16 offset = readUint16LE();
+			if (truncated)
+				break;
 			const byte state = res ? *res->getGlobalByteVariable(offset) : 0;
 			if ((marker == 0x0a && state == 0) || (marker == 0x0b && state != 0))
 				visible = false;
-			p += 3;
 		} else if (marker == 0x0e) {
-			const uint16 offset = READ_LE_UINT16(p + 1);
-			const uint16 expected = READ_LE_UINT16(p + 3);
+			++pos;
+			const uint16 offset = readUint16LE();
+			const uint16 expected = readUint16LE();
+			if (truncated)
+				break;
 			const uint16 state = res ? READ_LE_UINT16(res->getGlobalWordVariable(offset / 2)) : 0;
 			if (state != expected)
 				visible = false;
-			p += 5;
 		}
 
-		const byte *line = p;
-		while (p < limit && *p != 0 && *p != 0xff)
-			++p;
-		if (p >= limit || *p == 0xff)
+		const uint32 lineStart = pos;
+		while (pos < src.size() && src.data()[pos] != 0 && src.data()[pos] != 0xff)
+			++pos;
+		if (pos >= src.size() || src.data()[pos] == 0xff)
 			break;
-		const uint lineLen = uint(p - line);
-		++p;
-		if (p + 2 > limit)
+		const uint lineLen = uint(pos - lineStart);
+		++pos;
+		if (!canRead(2))
 			break;
-		const uint16 target = READ_LE_UINT16(p);
-		p += 2;
+		const uint16 target = readUint16LE();
 
 		// DOS LayoutVerbBubbleText_Left/Right @ 1000:8d1e / 1000:8cb0 only skips a row
 		// on the 0xff terminator or a failed condition marker — it does NOT
@@ -881,11 +903,12 @@ static bool appendRawModalChoices(const byte *src, Common::Array<byte> &encoded,
 		Common::String label;
 		RawModalChoice rawChoice;
 		rawChoice.target = target;
-		rawChoice.terminal = lineLen != 0 && line[0] == 0x04;
+		rawChoice.terminal = lineLen != 0 && src.data()[lineStart] == 0x04;
 		for (uint i = 0; i < lineLen; ++i) {
-			label += char(line[i]);
-			encoded.push_back(line[i]);
-			rawChoice.line.push_back(line[i]);
+			const byte ch = src.data()[lineStart + i];
+			label += char(ch);
+			encoded.push_back(ch);
+			rawChoice.line.push_back(ch);
 		}
 		rawChoice.line.push_back(0);
 		encoded.push_back(0);
@@ -896,22 +919,21 @@ static bool appendRawModalChoices(const byte *src, Common::Array<byte> &encoded,
 		++choiceCount;
 	}
 
-	if (!sawTerminator || choiceCount == 0)
+	if (truncated || !sawTerminator || choiceCount == 0)
 		return false;
 
 	encoded.push_back(0);
 	return true;
 }
 
-static uint16 runEncodedChoiceModal(const byte *encoded,
+static uint16 runEncodedChoiceModal(Common::Span<const byte> encoded,
 									uint16 choiceCount, uint16 maxTextWidth, uint16 *selectedIndex) {
 	(void)choiceCount;
 	(void)maxTextWidth;
-	return Graf.askVerbBubble(Log.modalState().paletteMode,
-							  const_cast<byte *>(encoded), selectedIndex);
+	return Graf.askVerbBubble(Log.modalState().paletteMode, encoded, selectedIndex);
 }
 
-static bool runRawChoiceListModal(const byte *src, uint16 *selectedIndex, uint16 &target) {
+static bool runRawChoiceListModal(Common::Span<const byte> src, uint16 *selectedIndex, uint16 &target) {
 	Common::Array<byte> encoded;
 	Common::Array<RawModalChoice> rawChoices;
 	uint16 choiceCount = 0;
@@ -919,7 +941,8 @@ static bool runRawChoiceListModal(const byte *src, uint16 *selectedIndex, uint16
 	if (!appendRawModalChoices(src, encoded, rawChoices, choiceCount, maxTextWidth))
 		return false;
 
-	target = runEncodedChoiceModal(&encoded[0], choiceCount, maxTextWidth, selectedIndex);
+	target = runEncodedChoiceModal(Common::Span<const byte>(&encoded[0], encoded.size()),
+								   choiceCount, maxTextWidth, selectedIndex);
 	if (selectedIndex && *selectedIndex == kVerbBubbleStashedSelection && target != 0xffff) {
 		debugC(1, kDebugLevelScript, "stashed formatted modal choice selected target=0x%04x", target);
 		return true;
@@ -943,7 +966,9 @@ static bool runRawChoiceListModal(const byte *src, uint16 *selectedIndex, uint16
 	// changes the active modal registers to a freshly formatted mode-3
 	// bubble unless the row starts with 0x04. Preserve that fallback target
 	// when the continuation has no nested selection.
-	Logic::FormattedBubble fb = Log.formatBubbleText(choice.line.empty() ? nullptr : &choice.line[0]);
+	Logic::FormattedBubble fb = Log.formatBubbleText(choice.line.empty()
+														  ? Common::Span<const byte>()
+														  : Common::Span<const byte>(&choice.line[0], choice.line.size()));
 	Logic::ModalState &ms = Log.modalState();
 	seedFormattedModalState(ms, fb, fb.totalHeight, fb.rowCount, 3, ms.stashFlag);
 
@@ -978,7 +1003,7 @@ static bool runFormattedChoiceModal(const Logic::FormattedBubble &fb,
 
 	if (!formattedTextIsPureChoiceList(visible)) {
 		target = Graf.askVerbBubbleText(Log.modalState().paletteMode,
-										reinterpret_cast<const byte *>(visible.c_str()), selectedIndex,
+										Logic::textSpan(visible), selectedIndex,
 										Log.modalState().menuChoiceCount);
 		debugC(1, kDebugLevelScript, "inline formatted modal choice selected index=%u target=0x%04x",
 			   selectedIndex ? *selectedIndex : 0xffff, target);
@@ -986,7 +1011,7 @@ static bool runFormattedChoiceModal(const Logic::FormattedBubble &fb,
 	}
 
 	const uint16 widthPixels = uint16(fb.maxLineWidth + 0x40);
-	target = runEncodedChoiceModal(reinterpret_cast<const byte *>(visible.c_str()), MAX<uint16>(1, rows),
+	target = runEncodedChoiceModal(Logic::textSpan(visible), MAX<uint16>(1, rows),
 								   widthPixels, selectedIndex);
 	debugC(1, kDebugLevelScript, "formatted modal choice selected index=%u target=0x%04x",
 		   selectedIndex ? *selectedIndex : 0xffff, target);
@@ -1698,7 +1723,7 @@ OPCODE(0x55) {
 	// DOS Op_55_DrawFormattedText @ 1000:404f: resolves arg3 text first,
 	// runs PrepareTextStrippedForRender @ 1000:97d3 into the temporary text
 	// buffer, then draws it at arg0/arg1 with arg2 color.
-	const byte *rawText = terminatedRawScriptTextOrTranslated(a[3], "opcode 0x55");
+	Common::Span<const byte> rawText = terminatedScriptTextSpanOrTranslated(a[3], "opcode 0x55");
 	bool truncated = false;
 	Common::String prepared = _logic->prepareTextStrippedForRender(rawText, &truncated);
 	const uint16 left = uint16(a[0]);
@@ -3442,8 +3467,8 @@ OPCODE(0x28) {
 	debugC(2, kDebugLevelScript, "opcode 0x28: cycle cursor-overlay anims mask=0x%02x", mask);
 	_graphics->setInterfaceOverlayAnimationMask(mask);
 
-	const byte *text = terminatedRawScriptTextOrTranslated(a[1], "opcode 0x28");
-	if (text) {
+	Common::Span<const byte> text = terminatedScriptTextSpanOrTranslated(a[1], "opcode 0x28");
+	if (text.data()) {
 		// DrawCenteredOverlayText @ 1000:c581 calls c5fa once per line:
 		// copy up to 100 raw bytes until CR/NUL, measure that copied line,
 		// error 0x2c when width > 0x38, then draw shadow and foreground.
@@ -3451,7 +3476,7 @@ OPCODE(0x28) {
 		// buffer, and queues one fixed dirty rect after all lines. C++ also
 		// remembers the result because paintInterface() redraws the base
 		// interface every frame, unlike DOS's dirty-rect-presented buffer.
-		if (!_graphics->setStatusOverlayText(text)) {
+		if (!_graphics->setStatusOverlayText(text.data())) {
 			Log.setPendingError(0x2c);
 			return kThxBye;
 		}
@@ -3843,7 +3868,7 @@ OPCODE(0x4e) {
 	//   MOV [0x6741], 0              ; clear stash flag
 	//   JMP SetRectAndApply           ; → 0x3f86 → JMP RunVerbMenuModalLoop.
 	const byte *text = static_cast<byte *>(a[0]);
-	const byte *formatText = terminatedRawScriptTextOrTranslated(a[0], "opcode 0x4e");
+	Common::Span<const byte> formatText = terminatedScriptTextSpanOrTranslated(a[0], "opcode 0x4e");
 	Logic::FormattedBubble fb = _logic->formatBubbleText(formatText);
 	Logic::ModalState &ms = Log.modalState();
 	seedFormattedModalState(ms, fb, fb.totalHeight, fb.rowCount, 3, 0);
@@ -3885,7 +3910,7 @@ OPCODE(0x4f) {
 	// the row/page limit for the formatter helper. Final state matches
 	// Op_4e after the adjusted AX/DX pair."
 	const byte *text = static_cast<byte *>(a[1]);
-	const byte *formatText = terminatedRawScriptTextOrTranslated(a[1], "opcode 0x4f");
+	Common::Span<const byte> formatText = terminatedScriptTextSpanOrTranslated(a[1], "opcode 0x4f");
 	Logic::FormattedBubble fb = _logic->formatBubbleText(formatText);
 	Logic::ModalState &ms = Log.modalState();
 	uint16 menuValue = fb.totalHeight;
@@ -3924,7 +3949,7 @@ OPCODE(0x50) {
 	//   MOV [0x6741], 1            ; SET stash flag
 	//   ; falls through to SetRectAndApply.
 	const byte *text = static_cast<byte *>(a[0]);
-	const byte *formatText = terminatedRawScriptTextOrTranslated(a[0], "opcode 0x50");
+	Common::Span<const byte> formatText = terminatedScriptTextSpanOrTranslated(a[0], "opcode 0x50");
 	Logic::FormattedBubble fb = _logic->formatBubbleText(formatText);
 	Logic::ModalState &ms = Log.modalState();
 	seedFormattedModalState(ms, fb, fb.totalHeight, fb.rowCount, 1, 1);
@@ -3960,7 +3985,7 @@ OPCODE(0x51) {
 	//   MOV [0x66c2], AX; MOV [0x66c4], AX
 	//   JMP 0x3f6f (Op_50's tail: palette=1, stash=1).
 	const byte *text = static_cast<byte *>(a[1]);
-	const byte *formatText = terminatedRawScriptTextOrTranslated(a[1], "opcode 0x51");
+	Common::Span<const byte> formatText = terminatedScriptTextSpanOrTranslated(a[1], "opcode 0x51");
 	Logic::FormattedBubble fb = _logic->formatBubbleText(formatText);
 	Logic::ModalState &ms = Log.modalState();
 	uint16 menuValue = fb.totalHeight;
@@ -3999,7 +4024,7 @@ OPCODE(0x52) {
 	//   MOV [0x6741], 0;             ; clear stash
 	//   JMP SetRectAndApply.
 	const byte *text = static_cast<byte *>(a[0]);
-	const byte *measureText = rawScriptTextOrTranslated(a[0]);
+	Common::Span<const byte> measureText = scriptTextSpanOrTranslated(a[0]);
 	Logic::FormattedBubble fb = _logic->measureVerbBubbleText(measureText);
 	Logic::ModalState &ms = Log.modalState();
 	ms.menuChoiceCount = 0; // DOS sets [0x66c2] = 0 explicitly
@@ -4053,7 +4078,7 @@ OPCODE(0x53) {
 	//     MOV [0x66c6], 2; MOV [0x66c2], 0; MOV [0x6741], 0
 	//     JMP SetRectAndApply
 	const byte *text = static_cast<byte *>(a[0]);
-	const byte *measureText = rawScriptTextOrTranslated(a[0]);
+	Common::Span<const byte> measureText = scriptTextSpanOrTranslated(a[0]);
 	Logic::ModalState &ms = Log.modalState();
 	const bool useStash = ms.stashFlag != 0;
 	if (useStash) {

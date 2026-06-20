@@ -1174,15 +1174,24 @@ static uint16 verbChoiceLineWidth(const Common::String &text) {
 	return width;
 }
 
-static Common::Array<byte> normalizeBubbleInput(const byte *string) {
+static Common::Array<byte> normalizeBubbleInput(Common::Span<const byte> string) {
 	Common::Array<byte> out;
-	if (!string) {
+	if (!string.data() || string.size() == 0) {
 		out.push_back(0);
 		return out;
 	}
 
-	const byte *p = string;
-	for (uint guard = 0; guard < 4096; ++guard) {
+	uint32 pos = 0;
+	bool warned = false;
+	auto warnTruncated = [&]() {
+		if (!warned) {
+			warning("Interspective: truncated verb bubble input at byte %u (size %u)",
+					uint(pos), uint(string.size()));
+			warned = true;
+		}
+	};
+
+	while (pos < string.size()) {
 		// This rendering pre-pass converts a literal newline 0x0a to the CR
 		// (0x0d) row break that formatBubbleText expects. Actor/narrator speech
 		// text uses 0x0a AS a newline (see speechTicksForText in actor.cpp,
@@ -1194,7 +1203,7 @@ static Common::Array<byte> normalizeBubbleInput(const byte *string) {
 		// the byte after a speech newline for a 2-byte global-var offset and
 		// over-reads the byte table (ASan heap-buffer-overflow in
 		// formatBubbleText's globalByte; getGlobalByteVariable is unchecked).
-		byte ch = *p++;
+		byte ch = string.data()[pos++];
 		if (ch == '\n')
 			ch = '\r';
 		out.push_back(ch);
@@ -1209,24 +1218,33 @@ static Common::Array<byte> normalizeBubbleInput(const byte *string) {
 		else if (ch == kStringSetColour || ch == kStringAdvance || ch == kStringCenter)
 			extra = 1;
 
-		for (uint i = 0; i < extra && guard < 4096; ++i, ++guard)
-			out.push_back(*p++);
+		if (pos + extra > string.size()) {
+			warnTruncated();
+			break;
+		}
+		for (uint i = 0; i < extra; ++i)
+			out.push_back(string.data()[pos++]);
 
 		if (ch != kStringMenuOption)
 			continue;
 
-		while (guard < 4096) {
-			byte lit = *p++;
+		bool sawLabelTerminator = false;
+		while (pos < string.size()) {
+			byte lit = string.data()[pos++];
 			if (lit == '\n')
 				lit = '\r';
 			out.push_back(lit);
-			++guard;
-			if (lit == 0)
+			if (lit == 0) {
+				sawLabelTerminator = true;
 				break;
+			}
 		}
-		out.push_back(*p++);
-		out.push_back(*p++);
-		guard += 2;
+		if (!sawLabelTerminator || pos + 2 > string.size()) {
+			warnTruncated();
+			break;
+		}
+		out.push_back(string.data()[pos++]);
+		out.push_back(string.data()[pos++]);
 	}
 
 	if (out.empty() || out.back() != 0)
@@ -1234,23 +1252,40 @@ static Common::Array<byte> normalizeBubbleInput(const byte *string) {
 	return out;
 }
 
-static bool parseVerbBubbleChoices(const byte *string, Common::Array<VerbBubbleChoice> &choices,
+static bool parseVerbBubbleChoices(Common::Span<const byte> string, Common::Array<VerbBubbleChoice> &choices,
 								   Common::String &displayText) {
-	const byte *p = string;
-	while (p && *p) {
-		if (*p != kStringMenuOption) {
-			++p;
+	uint32 pos = 0;
+	bool warned = false;
+	auto warnTruncated = [&]() {
+		if (!warned) {
+			warning("Interspective: truncated verb bubble choice list at byte %u (size %u)",
+					uint(pos), uint(string.size()));
+			warned = true;
+		}
+	};
+
+	while (string.data() && pos < string.size() && string.data()[pos] != 0) {
+		if (string.data()[pos] != kStringMenuOption) {
+			++pos;
 			continue;
 		}
 
-		++p;
+		++pos;
 		Common::String label;
-		while (*p)
-			label += char(*p++);
-		++p;
+		while (pos < string.size() && string.data()[pos] != 0)
+			label += char(string.data()[pos++]);
+		if (pos >= string.size()) {
+			warnTruncated();
+			break;
+		}
+		++pos;
 
-		const uint16 value = READ_LE_UINT16(p);
-		p += 2;
+		if (pos + 2 > string.size()) {
+			warnTruncated();
+			break;
+		}
+		const uint16 value = READ_LE_UINT16(string.data() + pos);
+		pos += 2;
 		if (label.empty())
 			continue;
 
@@ -1347,31 +1382,36 @@ static void positionVerbBubbleChoices(const Common::Rect &bubbleRect,
 }
 
 static void positionInlineVerbBubbleChoices(Graphics *graphics, const Common::Rect &bubbleRect,
-											const byte *string, Common::Array<VerbBubbleChoice> &choices) {
+											Common::Span<const byte> string, Common::Array<VerbBubbleChoice> &choices) {
 	choices.clear();
-	if (!graphics || !string)
+	if (!graphics || !string.data())
 		return;
 
 	Common::Array<byte> normalized = normalizeBubbleInput(string);
-	Logic::FormattedBubble metrics = Log.formatBubbleText(&normalized[0]);
+	Logic::FormattedBubble metrics = Log.formatBubbleText(Common::Span<const byte>(&normalized[0], normalized.size()));
 	const uint16 rows = MAX<uint16>(1, metrics.rowCount);
 	const uint16 roundedWidthExtra = metrics.maxLineWidth & ~uint16(3);
 	uint16 currentLeft = uint16(bubbleRect.left + 15 + 10);
 	uint16 currentTop = uint16(bubbleRect.top + 8 + verbBubbleRowShiftFormatted(rows));
 	uint16 remainingRows = rows;
-	const byte *p = reinterpret_cast<const byte *>(metrics.text.c_str());
+	Common::Span<const byte> formatted = Logic::textSpan(metrics.text);
+	uint32 pos = 0;
 
-	while (p && *p) {
-		const byte ch = *p++;
+	while (pos < formatted.size() && formatted.data()[pos] != 0) {
+		const byte ch = formatted.data()[pos++];
 		switch (ch) {
 		case kStringCenter: {
-			const byte lineWidth = *p++;
+			if (pos >= formatted.size())
+				return;
+			const byte lineWidth = formatted.data()[pos++];
 			const uint16 centered = uint16(roundedWidthExtra + 0x41 - lineWidth);
 			currentLeft = uint16(bubbleRect.left + (centered >> 1));
 			break;
 		}
 		case kStringAdvance:
-			currentLeft += *p++;
+			if (pos >= formatted.size())
+				return;
+			currentLeft += formatted.data()[pos++];
 			break;
 		case '\n':
 		case '\r':
@@ -1387,14 +1427,16 @@ static void positionInlineVerbBubbleChoices(Graphics *graphics, const Common::Re
 		case kStringDefaultColour:
 			break;
 		case kStringSetColour:
-			++p;
+			if (pos >= formatted.size())
+				return;
+			++pos;
 			break;
 		case kStringMenuOption: {
 			VerbBubbleChoice choice;
 			choice.textLeft = currentLeft;
 			choice.textTop = currentTop;
-			while (*p) {
-				const byte lit = *p++;
+			while (pos < formatted.size() && formatted.data()[pos] != 0) {
+				const byte lit = formatted.data()[pos++];
 				choice.label += char(lit);
 				// DOS render loop @ 1000:928c (CMP AL,0x4 / JZ) skips 0x04
 				// entirely — no glyph, no cursor advance — and the stored
@@ -1405,9 +1447,13 @@ static void positionInlineVerbBubbleChoices(Graphics *graphics, const Common::Re
 					continue;
 				currentLeft += graphics->getGlyphWidth(lit);
 			}
-			++p;
-			choice.value = READ_LE_UINT16(p);
-			p += 2;
+			if (pos >= formatted.size())
+				return;
+			++pos;
+			if (pos + 2 > formatted.size())
+				return;
+			choice.value = READ_LE_UINT16(formatted.data() + pos);
+			pos += 2;
 			choice.rect = Common::Rect(choice.textLeft, choice.textTop,
 									   currentLeft, currentTop + Graphics::kLineHeight);
 			if (!choice.label.empty())
@@ -1421,16 +1467,19 @@ static void positionInlineVerbBubbleChoices(Graphics *graphics, const Common::Re
 	}
 }
 
-static void collectVerbBubbleLines(const byte *string, Common::Array<Common::String> &lines) {
+static void collectVerbBubbleLines(Common::Span<const byte> string, Common::Array<Common::String> &lines) {
 	Common::String line;
-	for (const byte *p = string; p && *p; ++p) {
-		if (*p == '\r' || *p == '\n') {
+	if (!string.data())
+		return;
+	for (uint32 pos = 0; pos < string.size() && string.data()[pos] != 0; ++pos) {
+		const byte ch = string.data()[pos];
+		if (ch == '\r' || ch == '\n') {
 			if (!line.empty())
 				lines.push_back(line);
 			line.clear();
 			continue;
 		}
-		line += char(*p);
+		line += char(ch);
 	}
 	if (!line.empty())
 		lines.push_back(line);
@@ -1570,14 +1619,13 @@ static void paintStashedVerbBubble(Graphics *graphics, Logic *logic, Surface *de
 	Sprite bubble;
 	bubble._hotPoint = Common::Point(0, 0);
 	Common::Rect bubbleRect = graphics->paintSpeechInBubble(Common::Point(0xe6, 0x5d), 0xf5,
-															reinterpret_cast<const byte *>(savedText.c_str()), &bubble, Graphics::kSpeechBubbleType1, true);
+															Logic::textSpan(savedText), &bubble, Graphics::kSpeechBubbleType1, true);
 	graphics->paint(&bubble, Common::Point(bubbleRect.left, bubbleRect.top), dest,
 					Graphics::kPaintSemiTransparent | Graphics::kPaintPositionIsTop);
 
 	Common::Array<VerbBubbleChoice> localChoices;
 	Common::Array<VerbBubbleChoice> &choices = choicesOut ? *choicesOut : localChoices;
-	positionInlineVerbBubbleChoices(graphics, bubbleRect,
-									reinterpret_cast<const byte *>(savedText.c_str()), choices);
+	positionInlineVerbBubbleChoices(graphics, bubbleRect, Logic::textSpan(savedText), choices);
 
 	if (hover >= 0 && hover < int(choices.size()))
 		graphics->paintPlainTextLine(choices[hover].textLeft, choices[hover].textTop,
@@ -1612,6 +1660,10 @@ static void paintVerbBubbleConnectors(Graphics *graphics, Resources *resources,
 }
 
 uint16 Graphics::askVerbBubble(byte paletteMode, byte *string, uint16 *selectedIndex) {
+	return askVerbBubble(paletteMode, Logic::textSpan(string), selectedIndex);
+}
+
+uint16 Graphics::askVerbBubble(byte paletteMode, Common::Span<const byte> string, uint16 *selectedIndex) {
 	if (selectedIndex)
 		*selectedIndex = 0xffff;
 
@@ -1624,7 +1676,7 @@ uint16 Graphics::askVerbBubble(byte paletteMode, byte *string, uint16 *selectedI
 	const SpeechBubbleMode bubbleMode = verbBubbleModeForPalette(paletteMode);
 	const Common::Point anchor = verbBubbleAnchorForPalette(paletteMode);
 	const byte textColour = verbBubbleTextColourForPalette(paletteMode);
-	Logic::FormattedBubble metrics = Log.formatBubbleText(reinterpret_cast<const byte *>(displayText.c_str()));
+	Logic::FormattedBubble metrics = Log.formatBubbleText(Logic::textSpan(displayText));
 	Common::Rect activeBubbleRect;
 
 	beginConversationModal();
@@ -1636,7 +1688,7 @@ uint16 Graphics::askVerbBubble(byte paletteMode, byte *string, uint16 *selectedI
 		Sprite bubble;
 		bubble._hotPoint = Common::Point(0, 0);
 		Common::Rect bubbleRect = paintSpeechInBubble(anchor, textColour,
-													  reinterpret_cast<const byte *>(displayText.c_str()), &bubble, bubbleMode, false);
+													  Logic::textSpan(displayText), &bubble, bubbleMode, false);
 		activeBubbleRect = bubbleRect;
 		paint(&bubble, Common::Point(bubbleRect.left, bubbleRect.top),
 			  _framebuffer.get(), kPaintSemiTransparent | kPaintPositionIsTop);
@@ -1773,9 +1825,14 @@ uint16 Graphics::askVerbBubble(byte paletteMode, byte *string, uint16 *selectedI
 
 uint16 Graphics::askVerbBubbleText(byte paletteMode, const byte *string, uint16 *selectedIndex,
 								   uint16 timeoutFrames) {
+	return askVerbBubbleText(paletteMode, Logic::textSpan(string), selectedIndex, timeoutFrames);
+}
+
+uint16 Graphics::askVerbBubbleText(byte paletteMode, Common::Span<const byte> string, uint16 *selectedIndex,
+								   uint16 timeoutFrames) {
 	if (selectedIndex)
 		*selectedIndex = 0xffff;
-	if (!string || !*string)
+	if (!string.data() || string.size() == 0 || string.data()[0] == 0)
 		return 0xffff;
 
 	const SpeechBubbleMode bubbleMode = verbBubbleModeForPalette(paletteMode);
@@ -1925,7 +1982,11 @@ uint16 Graphics::askVerbBubbleText(byte paletteMode, const byte *string, uint16 
 }
 
 void Graphics::showVerbBubbleText(byte paletteMode, const byte *string, uint16 frames) {
-	if (!string || !*string)
+	showVerbBubbleText(paletteMode, Logic::textSpan(string), frames);
+}
+
+void Graphics::showVerbBubbleText(byte paletteMode, Common::Span<const byte> string, uint16 frames) {
+	if (!string.data() || string.size() == 0 || string.data()[0] == 0)
 		return;
 
 	const SpeechBubbleMode bubbleMode = verbBubbleModeForPalette(paletteMode);
@@ -2160,12 +2221,18 @@ void Graphics::paintSpeechBubbleColumn(Sprite *top, Sprite *fill, Common::Point 
 
 Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const byte *string, Surface *bubble,
 										   SpeechBubbleMode mode, bool renderText, uint16 forcedRows) {
+	return paintSpeechInBubble(pos, colour, Logic::textSpan(string), bubble, mode, renderText, forcedRows);
+}
+
+Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, Common::Span<const byte> string, Surface *bubble,
+										   SpeechBubbleMode mode, bool renderText, uint16 forcedRows) {
 	int left = pos.x;
 	int top = pos.y;
-	debugC(1, kDebugLevelGraphics, "painting speech bubble \"%s\" at %d:%d", string, left, top);
+	const char *debugText = string.data() ? reinterpret_cast<const char *>(string.data()) : "(null)";
+	debugC(1, kDebugLevelGraphics, "painting speech bubble \"%s\" at %d:%d", debugText, left, top);
 
 	Common::Array<byte> normalized = normalizeBubbleInput(string);
-	Logic::FormattedBubble metrics = Log.formatBubbleText(&normalized[0]);
+	Logic::FormattedBubble metrics = Log.formatBubbleText(Common::Span<const byte>(&normalized[0], normalized.size()));
 	const uint16 rows = forcedRows != 0 ? forcedRows : MAX<uint16>(1, metrics.rowCount);
 	const uint16 widthExtra = metrics.maxLineWidth;
 
@@ -2298,7 +2365,7 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const
 			left -= left + int(widthExtra) + 0x41 - 320;
 		break;
 	}
-	debugC(2, kDebugLevelGraphics, "painting speech bubble \"%s\" at (adjusted) %d:%d", string, left, top);
+	debugC(2, kDebugLevelGraphics, "painting speech bubble \"%s\" at (adjusted) %d:%d", debugText, left, top);
 
 	uint8 vertical_tiles = 1;
 	const uint16 bubbleHeight = MAX<uint16>(60, rows * kLineHeight + 16);
@@ -2357,14 +2424,19 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const
 		uint16 currentTop = uint16(frameOffsetY + kSpeechVMargin + shift);
 		uint16 remainingRows = rows;
 		byte currentColour = colour;
-		const byte *p = reinterpret_cast<const byte *>(metrics.text.c_str());
+		Common::Span<const byte> formatted = Logic::textSpan(metrics.text);
+		uint32 textPos = 0;
 
 		bool stopText = false;
-		while (p && *p && !stopText) {
-			const byte ch = *p++;
+		while (textPos < formatted.size() && formatted.data()[textPos] != 0 && !stopText) {
+			const byte ch = formatted.data()[textPos++];
 			switch (ch) {
 			case kStringCenter: {
-				const byte lineWidth = *p++;
+				if (textPos >= formatted.size()) {
+					stopText = true;
+					break;
+				}
+				const byte lineWidth = formatted.data()[textPos++];
 				// DOS RenderSpeechBubbleText @ 1000:91c9 consumes the next
 				// byte as a precomputed line width and centers within the
 				// bubble frame, not within the screen.
@@ -2373,7 +2445,11 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const
 				break;
 			}
 			case kStringAdvance:
-				currentLeft += *p++;
+				if (textPos >= formatted.size()) {
+					stopText = true;
+					break;
+				}
+				currentLeft += formatted.data()[textPos++];
 				break;
 			case '\n':
 			case '\r':
@@ -2392,13 +2468,25 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const
 				currentColour = colour;
 				break;
 			case kStringSetColour:
-				currentColour = *p++;
+				if (textPos >= formatted.size()) {
+					stopText = true;
+					break;
+				}
+				currentColour = formatted.data()[textPos++];
 				break;
 			case kStringMenuOption:
-				while (*p)
-					currentLeft += paintChar(currentLeft, currentTop, currentColour, *p++, bubble);
-				++p;
-				p += 2;
+				while (textPos < formatted.size() && formatted.data()[textPos] != 0)
+					currentLeft += paintChar(currentLeft, currentTop, currentColour, formatted.data()[textPos++], bubble);
+				if (textPos >= formatted.size()) {
+					stopText = true;
+					break;
+				}
+				++textPos;
+				if (textPos + 2 > formatted.size()) {
+					stopText = true;
+					break;
+				}
+				textPos += 2;
 				break;
 			default:
 				currentLeft += paintChar(currentLeft, currentTop, currentColour, ch, bubble);

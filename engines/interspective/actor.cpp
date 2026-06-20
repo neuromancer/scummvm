@@ -1358,7 +1358,7 @@ static uint16 speechTicksForText(const Common::String &text) {
 	Common::String normalized;
 	for (uint i = 0; i < text.size(); ++i)
 		normalized += char(text[i] == '\n' ? '\r' : text[i]);
-	Logic::FormattedBubble fb = Log.formatBubbleText(reinterpret_cast<const byte *>(normalized.c_str()));
+	Logic::FormattedBubble fb = Log.formatBubbleText(Logic::textSpan(normalized));
 	return uint8(fb.totalHeight & 0xff);
 }
 

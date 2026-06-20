@@ -27,6 +27,7 @@
 #include "common/list.h"
 #include "common/queue.h"
 #include "common/singleton.h"
+#include "common/span.h"
 #include "common/str.h"
 
 #include "interspective/inter.h"
@@ -624,8 +625,14 @@ public:
 		uint16 maxLineWidth; // DOS CX return: widest line minus frame bias
 		bool truncated;      // true if buffer overflowed (DOS sets pending error 0x11)
 	};
+	static Common::Span<const byte> textSpan(const byte *src, uint32 maxBytes = 4096);
+	static Common::Span<const byte> textSpan(const Common::String &src);
+	static Common::Span<const byte> textSpan(const DosMemoryReference &ref);
+	FormattedBubble formatBubbleText(Common::Span<const byte> src) const;
 	FormattedBubble formatBubbleText(const byte *src) const;
+	FormattedBubble measureVerbBubbleText(Common::Span<const byte> src) const;
 	FormattedBubble measureVerbBubbleText(const byte *src) const;
+	Common::String prepareTextStrippedForRender(Common::Span<const byte> src, bool *truncated) const;
 	Common::String prepareTextStrippedForRender(const byte *src, bool *truncated) const;
 	uint16 bubbleLineHeight() const { return _bubbleLineHeight; }
 	void setBubbleLineHeight(uint16 h) { _bubbleLineHeight = h; }
