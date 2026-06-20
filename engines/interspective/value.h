@@ -44,6 +44,36 @@ enum OpcodeMode {
 
 class Interpreter;
 
+class DosMemoryReference {
+public:
+	DosMemoryReference() : _base(nullptr), _size(0), _offset(0), _valid(false) {}
+	DosMemoryReference(byte *base, uint16 size, uint16 offset)
+		: _base(base), _size(size), _offset(offset), _valid(base != nullptr && offset < size) {}
+
+	bool valid() const { return _valid; }
+	byte *base() const { return _base; }
+	uint16 size() const { return _size; }
+	uint16 offset() const { return _offset; }
+	uint16 remaining() const { return valid() ? uint16(_size - _offset) : 0; }
+
+	bool contains(uint16 relativeOffset, uint16 length = 1) const {
+		if (!valid())
+			return false;
+		const uint32 absolute = uint32(_offset) + relativeOffset;
+		return absolute <= _size && length <= _size - absolute;
+	}
+
+	byte *ptr(uint16 relativeOffset = 0) const {
+		return contains(relativeOffset) ? _base + _offset + relativeOffset : nullptr;
+	}
+
+private:
+	byte *_base;
+	uint16 _size;
+	uint16 _offset;
+	bool _valid;
+};
+
 enum ValueType {
 	kValueVoid,
 	kValueConstant
@@ -92,6 +122,7 @@ public:
 	virtual byte *rawPointer() { return nullptr; }
 	virtual byte *rawBase() { return nullptr; }
 	virtual uint16 rawLength() const { return 0; }
+	virtual bool memoryReference(DosMemoryReference &) const { return false; }
 
 	Value() {}
 
@@ -180,6 +211,7 @@ public:
 	void reset() { _interpreter = 0; }
 	virtual byte *rawPointer() { return _interpreter ? code() : nullptr; }
 	virtual byte *rawBase() { return _interpreter ? base() : nullptr; }
+	virtual bool memoryReference(DosMemoryReference &ref) const;
 
 	template<typename T>
 	T &field(T &, int) const;

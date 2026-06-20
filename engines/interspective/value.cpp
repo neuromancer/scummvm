@@ -68,6 +68,10 @@ byte *CodePointer::base() const {
 	return _interpreter ? _interpreter->rawCodeChecked(0) : 0;
 }
 
+bool CodePointer::memoryReference(DosMemoryReference &ref) const {
+	return _interpreter && _interpreter->memoryReference(_offset, ref);
+}
+
 static byte *checkedCodePointerField(const CodePointer &ptr, int off, uint16 size) {
 	Interpreter *interpreter = ptr.interpreter();
 	if (!interpreter) {

@@ -96,6 +96,8 @@ public:
 	byte *rawCode(uint16 offset) const { return _base + offset; }
 	bool containsCodeRange(uint16 offset, uint16 size = 1) const;
 	bool containsCodePointer(const byte *ptr, uint16 size = 1) const;
+	bool memoryReference(uint16 offset, DosMemoryReference &ref) const;
+	bool memoryReference(const byte *ptr, DosMemoryReference &ref) const;
 	byte *rawCodeChecked(uint16 offset, uint16 size = 1) const;
 	uint16 codeSize() const { return _codeSize; }
 	bool extractFirstStatusOverlayLine(uint16 offset, Common::String &text);

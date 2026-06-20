@@ -123,6 +123,27 @@ bool Interpreter::containsCodePointer(const byte *ptr, uint16 size) const {
 	return offset <= _codeSize && size <= _codeSize - offset;
 }
 
+bool Interpreter::memoryReference(uint16 offset, DosMemoryReference &ref) const {
+	if (!containsCodeRange(offset)) {
+		warning("Interspective: memory reference 0x%04x outside %s segment size %u",
+				offset, name(), uint(_codeSize));
+		ref = DosMemoryReference();
+		return false;
+	}
+	ref = DosMemoryReference(_base, _codeSize, offset);
+	return true;
+}
+
+bool Interpreter::memoryReference(const byte *ptr, DosMemoryReference &ref) const {
+	if (!containsCodePointer(ptr)) {
+		warning("Interspective: memory pointer outside %s segment", name());
+		ref = DosMemoryReference();
+		return false;
+	}
+	ref = DosMemoryReference(_base, _codeSize, uint16(ptr - _base));
+	return true;
+}
+
 byte *Interpreter::rawCodeChecked(uint16 offset, uint16 size) const {
 	if (!containsCodeRange(offset, size)) {
 		warning("Interspective: code range 0x%04x+%u outside %s segment size %u",
@@ -354,23 +375,24 @@ private:
 
 class RawPointerArgument : public Value {
 public:
-	RawPointerArgument(byte *base, byte *ptr) : _base(base), _ptr(ptr) {}
+	RawPointerArgument(const DosMemoryReference &ref) : _ref(ref) {}
 	virtual operator uint16() const {
-		if (!_base || !_ptr || _ptr < _base)
-			return 0;
-		return uint16(_ptr - _base);
+		return _ref.valid() ? _ref.offset() : 0;
 	}
-	virtual operator byte *() { return _ptr; }
-	virtual byte *rawPointer() { return _ptr; }
-	virtual byte *rawBase() { return _base; }
+	virtual operator byte *() { return _ref.ptr(); }
+	virtual byte *rawPointer() { return _ref.ptr(); }
+	virtual byte *rawBase() { return _ref.base(); }
+	virtual bool memoryReference(DosMemoryReference &ref) const {
+		ref = _ref;
+		return ref.valid();
+	}
 	virtual const char *operator+() const {
 		snprintf(_inspect, sizeof(_inspect), "raw pointer 0x%04x", uint16(*this));
 		return _inspect;
 	}
 
 private:
-	byte *_base;
-	byte *_ptr;
+	DosMemoryReference _ref;
 	mutable char _inspect[32];
 };
 
@@ -415,9 +437,8 @@ CodePointer *Interpreter::readArgument<CodePointer>(byte *&code) {
 
 class ParametrizedString : public Value {
 public:
-	ParametrizedString(byte *translated, uint16 len, byte *raw, uint16 rawLength, byte *base) : _raw(raw),
-																								_rawLength(rawLength),
-																								_base(base) {
+	ParametrizedString(byte *translated, uint16 len, const DosMemoryReference &rawRef, uint16 rawLength)
+		: _rawRef(rawRef), _rawLength(rawLength) {
 		memcpy(_translateBuf, translated, len);
 		_length = len;
 	}
@@ -426,16 +447,19 @@ public:
 	}
 	virtual operator byte *() { return _translateBuf; }
 	virtual operator uint16() const { return _length; }
-	virtual byte *rawPointer() { return _raw; }
-	virtual byte *rawBase() { return _base; }
+	virtual byte *rawPointer() { return _rawRef.ptr(); }
+	virtual byte *rawBase() { return _rawRef.base(); }
 	virtual uint16 rawLength() const { return _rawLength; }
+	virtual bool memoryReference(DosMemoryReference &ref) const {
+		ref = _rawRef;
+		return ref.valid();
+	}
 
 private:
 	byte _translateBuf[500];
 	uint16 _length;
-	byte *_raw;
+	DosMemoryReference _rawRef;
 	uint16 _rawLength;
-	byte *_base;
 };
 
 static bool canReadBytes(const byte *code, const byte *end, uint count) {
@@ -580,7 +604,9 @@ ParametrizedString *Interpreter::readArgument<ParametrizedString>(byte *&code) {
 
 	debugC(4, kDebugLevelScript, "read parametrized string '%s' as argument", translateBuf);
 
-	return new ParametrizedString(translateBuf, translatedLength, raw, rawLength, _base);
+	DosMemoryReference rawRef;
+	memoryReference(raw, rawRef);
+	return new ParametrizedString(translateBuf, translatedLength, rawRef, rawLength);
 }
 
 static bool scanBytecodeArgument(Resources *resources, byte *base, byte *&code, const byte *end, Common::String *stringOut) {
@@ -746,14 +772,16 @@ Value *Interpreter::getArgument(byte *&code) {
 		byte *ptr = code;
 		while (containsCodePointer(code) && *code != 0xff)
 			++code;
+		DosMemoryReference ref;
+		memoryReference(ptr, ref);
 		if (!containsCodePointer(code)) {
 			warning("Interspective: unterminated list argument in %s", name());
-			return new RawPointerArgument(_base, ptr);
+			return new RawPointerArgument(ref);
 		}
 		++code;
 		debugC(4, kDebugLevelScript, "read raw list at offset 0x%04x as argument",
 			   uint16(ptr - _base));
-		return new RawPointerArgument(_base, ptr);
+		return new RawPointerArgument(ref);
 	}
 	case kArgumentCode:
 		return readArgument<CodePointer>(code);

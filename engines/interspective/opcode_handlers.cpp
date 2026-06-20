@@ -67,58 +67,125 @@ static int8 dosCellBitIndex(uint16 rawBit) {
 	return count == 0 ? -1 : int8(count - 1);
 }
 
-static byte *resolveDosResourcePointer(Value &arg, const CodePointer &current, byte **baseOut = 0) {
-	byte *base = arg.rawBase();
-	byte *ptr = arg.rawPointer();
-	if (!ptr) {
-		base = current.base();
-		ptr = base ? base + uint16(arg) : nullptr;
-	} else if (!base) {
-		base = current.base();
+static DosMemoryReference resolveDosResourceReference(Value &arg, const CodePointer &current) {
+	DosMemoryReference ref;
+	if (arg.memoryReference(ref))
+		return ref;
+
+	Interpreter *interpreter = current.interpreter();
+	if (!interpreter)
+		return DosMemoryReference();
+	interpreter->memoryReference(uint16(arg), ref);
+	return ref;
+}
+
+static uint16 dosResourceOffset(const DosMemoryReference &ref) {
+	return ref.valid() ? ref.offset() : 0xffff;
+}
+
+static bool dosMemoryContainsByte(const DosMemoryReference &ref, byte value) {
+	if (!ref.valid())
+		return false;
+	const byte *ptr = ref.ptr();
+	const uint16 remaining = ref.remaining();
+	for (uint16 i = 0; i < remaining; ++i) {
+		if (ptr[i] == value)
+			return true;
 	}
-	if (baseOut)
-		*baseOut = base;
-	return ptr;
+	return false;
 }
 
-static uint16 dosResourceOffset(byte *base, byte *ptr) {
-	if (!base || !ptr || ptr < base)
-		return 0xffff;
-	return uint16(ptr - base);
+static const byte *rawScriptBytes(Value &arg) {
+	DosMemoryReference ref;
+	return arg.memoryReference(ref) ? ref.ptr() : nullptr;
 }
 
-static void clearDosPascalBufferAt(byte *base, byte *ptr) {
-	if (!ptr)
+static const byte *rawScriptTextOrTranslated(Value &arg) {
+	const byte *raw = rawScriptBytes(arg);
+	return raw ? raw : static_cast<byte *>(arg);
+}
+
+static const byte *terminatedRawScriptTextOrTranslated(Value &arg, const char *context) {
+	DosMemoryReference ref;
+	if (arg.memoryReference(ref)) {
+		if (dosMemoryContainsByte(ref, 0))
+			return ref.ptr();
+		warning("Interspective: unterminated text argument at 0x%04x in %s",
+				ref.offset(), context);
+	}
+	return static_cast<byte *>(arg);
+}
+
+static void clearDosPascalBufferAt(const DosMemoryReference &ref) {
+	if (!ref.valid())
 		return;
 
-	const uint16 off = dosResourceOffset(base, ptr);
-	if (off == 0xffff || off >= 0x8000) {
-		ptr[1] = 0;
+	byte *length = ref.ptr(1);
+	if (!length) {
+		warning("Interspective: Pascal buffer 0x%04x has no length byte",
+				ref.offset());
 		return;
 	}
-	memset(ptr + 1, 0, 0x8000 - off - 1);
-}
 
-static void appendDosPascalByteAt(byte *ptr, byte ch) {
-	if (!ptr)
+	*length = 0;
+	if (ref.offset() >= 0x8000)
 		return;
 
-	const int8 capacity = int8(ptr[0]);
-	const int8 length = int8(ptr[1]);
+	const uint16 dosClear = uint16(0x8000 - ref.offset() - 1);
+	const uint16 available = ref.remaining() > 1 ? uint16(ref.remaining() - 1) : 0;
+	const uint16 count = MIN<uint16>(dosClear, available);
+	if (count != 0)
+		memset(length, 0, count);
+}
+
+static void appendDosPascalByteAt(const DosMemoryReference &ref, byte ch) {
+	if (!ref.valid())
+		return;
+
+	byte *capacityPtr = ref.ptr(0);
+	byte *lengthPtr = ref.ptr(1);
+	if (!capacityPtr || !lengthPtr) {
+		warning("Interspective: Pascal buffer 0x%04x missing header",
+				ref.offset());
+		return;
+	}
+
+	const int8 capacity = int8(*capacityPtr);
+	const int8 length = int8(*lengthPtr);
 	if (length < capacity) {
-		const byte oldLength = ptr[1]++;
-		ptr[oldLength + 2] = ch;
+		const byte oldLength = *lengthPtr;
+		byte *dst = ref.ptr(uint16(oldLength + 2));
+		if (!dst) {
+			warning("Interspective: Pascal buffer append at 0x%04x+%u outside segment",
+					ref.offset(), uint(oldLength + 2));
+			return;
+		}
+		++*lengthPtr;
+		*dst = ch;
 	}
 }
 
-static void popDosPascalByteAt(byte *ptr) {
-	if (!ptr)
+static void popDosPascalByteAt(const DosMemoryReference &ref) {
+	if (!ref.valid())
 		return;
 
-	const byte oldLength = ptr[1];
+	byte *lengthPtr = ref.ptr(1);
+	if (!lengthPtr) {
+		warning("Interspective: Pascal buffer 0x%04x has no length byte",
+				ref.offset());
+		return;
+	}
+
+	const byte oldLength = *lengthPtr;
 	if (oldLength != 0) {
-		ptr[1] = oldLength - 1;
-		ptr[oldLength + 1] = 0;
+		byte *last = ref.ptr(uint16(oldLength + 1));
+		if (!last) {
+			warning("Interspective: Pascal buffer pop at 0x%04x+%u outside segment",
+					ref.offset(), uint(oldLength + 1));
+			return;
+		}
+		*lengthPtr = oldLength - 1;
+		*last = 0;
 	}
 }
 
@@ -1631,9 +1698,7 @@ OPCODE(0x55) {
 	// DOS Op_55_DrawFormattedText @ 1000:404f: resolves arg3 text first,
 	// runs PrepareTextStrippedForRender @ 1000:97d3 into the temporary text
 	// buffer, then draws it at arg0/arg1 with arg2 color.
-	const byte *text = static_cast<byte *>(a[3]);
-	const byte *rawPointer = a[3].rawPointer();
-	const byte *rawText = rawPointer ? rawPointer : text;
+	const byte *rawText = terminatedRawScriptTextOrTranslated(a[3], "opcode 0x55");
 	bool truncated = false;
 	Common::String prepared = _logic->prepareTextStrippedForRender(rawText, &truncated);
 	const uint16 left = uint16(a[0]);
@@ -1675,7 +1740,7 @@ OPCODE(0x56) {
 	}
 	const uint16 frames = uint16(a[0]);
 	const byte *translatedText = static_cast<byte *>(a[1]);
-	const byte *rawText = a[1].rawPointer();
+	const byte *rawText = rawScriptBytes(a[1]);
 	const byte *text = rawText ? rawText : translatedText;
 	const uint16 textLength = rawText ? a[1].rawLength() : 0;
 	debugC(2, kDebugLevelScript, "opcode 0x56: motion text frames=%u text='%s'",
@@ -3377,9 +3442,7 @@ OPCODE(0x28) {
 	debugC(2, kDebugLevelScript, "opcode 0x28: cycle cursor-overlay anims mask=0x%02x", mask);
 	_graphics->setInterfaceOverlayAnimationMask(mask);
 
-	const byte *text = a[1].rawPointer();
-	if (!text)
-		text = static_cast<byte *>(a[1]);
+	const byte *text = terminatedRawScriptTextOrTranslated(a[1], "opcode 0x28");
 	if (text) {
 		// DrawCenteredOverlayText @ 1000:c581 calls c5fa once per line:
 		// copy up to 100 raw bytes until CR/NUL, measure that copied line,
@@ -3780,7 +3843,7 @@ OPCODE(0x4e) {
 	//   MOV [0x6741], 0              ; clear stash flag
 	//   JMP SetRectAndApply           ; → 0x3f86 → JMP RunVerbMenuModalLoop.
 	const byte *text = static_cast<byte *>(a[0]);
-	const byte *formatText = a[0].rawPointer() ? a[0].rawPointer() : text;
+	const byte *formatText = terminatedRawScriptTextOrTranslated(a[0], "opcode 0x4e");
 	Logic::FormattedBubble fb = _logic->formatBubbleText(formatText);
 	Logic::ModalState &ms = Log.modalState();
 	seedFormattedModalState(ms, fb, fb.totalHeight, fb.rowCount, 3, 0);
@@ -3822,7 +3885,7 @@ OPCODE(0x4f) {
 	// the row/page limit for the formatter helper. Final state matches
 	// Op_4e after the adjusted AX/DX pair."
 	const byte *text = static_cast<byte *>(a[1]);
-	const byte *formatText = a[1].rawPointer() ? a[1].rawPointer() : text;
+	const byte *formatText = terminatedRawScriptTextOrTranslated(a[1], "opcode 0x4f");
 	Logic::FormattedBubble fb = _logic->formatBubbleText(formatText);
 	Logic::ModalState &ms = Log.modalState();
 	uint16 menuValue = fb.totalHeight;
@@ -3861,7 +3924,7 @@ OPCODE(0x50) {
 	//   MOV [0x6741], 1            ; SET stash flag
 	//   ; falls through to SetRectAndApply.
 	const byte *text = static_cast<byte *>(a[0]);
-	const byte *formatText = a[0].rawPointer() ? a[0].rawPointer() : text;
+	const byte *formatText = terminatedRawScriptTextOrTranslated(a[0], "opcode 0x50");
 	Logic::FormattedBubble fb = _logic->formatBubbleText(formatText);
 	Logic::ModalState &ms = Log.modalState();
 	seedFormattedModalState(ms, fb, fb.totalHeight, fb.rowCount, 1, 1);
@@ -3897,7 +3960,7 @@ OPCODE(0x51) {
 	//   MOV [0x66c2], AX; MOV [0x66c4], AX
 	//   JMP 0x3f6f (Op_50's tail: palette=1, stash=1).
 	const byte *text = static_cast<byte *>(a[1]);
-	const byte *formatText = a[1].rawPointer() ? a[1].rawPointer() : text;
+	const byte *formatText = terminatedRawScriptTextOrTranslated(a[1], "opcode 0x51");
 	Logic::FormattedBubble fb = _logic->formatBubbleText(formatText);
 	Logic::ModalState &ms = Log.modalState();
 	uint16 menuValue = fb.totalHeight;
@@ -3936,7 +3999,7 @@ OPCODE(0x52) {
 	//   MOV [0x6741], 0;             ; clear stash
 	//   JMP SetRectAndApply.
 	const byte *text = static_cast<byte *>(a[0]);
-	const byte *measureText = a[0].rawPointer() ? a[0].rawPointer() : text;
+	const byte *measureText = rawScriptTextOrTranslated(a[0]);
 	Logic::FormattedBubble fb = _logic->measureVerbBubbleText(measureText);
 	Logic::ModalState &ms = Log.modalState();
 	ms.menuChoiceCount = 0; // DOS sets [0x66c2] = 0 explicitly
@@ -3990,7 +4053,7 @@ OPCODE(0x53) {
 	//     MOV [0x66c6], 2; MOV [0x66c2], 0; MOV [0x6741], 0
 	//     JMP SetRectAndApply
 	const byte *text = static_cast<byte *>(a[0]);
-	const byte *measureText = a[0].rawPointer() ? a[0].rawPointer() : text;
+	const byte *measureText = rawScriptTextOrTranslated(a[0]);
 	Logic::ModalState &ms = Log.modalState();
 	const bool useStash = ms.stashFlag != 0;
 	if (useStash) {
@@ -6542,11 +6605,10 @@ OPCODE(0xe8) {
 	// DOS Op_e8 @ 1000:561d: arg0 = resource-segment Pascal buffer.
 	// Resolves arg0 to an offset, switches DS to g_resourceSegment, and
 	// falls through to the same ClearBytesUntilWrap helper used by Op_e7.
-	byte *base = nullptr;
-	byte *ptr = resolveDosResourcePointer(a[0], current, &base);
+	DosMemoryReference ref = resolveDosResourceReference(a[0], current);
 	debugC(2, kDebugLevelScript, "opcode 0xe8: clear pstring buffer at 0x%04x",
-		   dosResourceOffset(base, ptr));
-	clearDosPascalBufferAt(base, ptr);
+		   dosResourceOffset(ref));
+	clearDosPascalBufferAt(ref);
 	return kThxBye;
 }
 OPCODE(0xe9) {
@@ -6563,12 +6625,11 @@ OPCODE(0xea) {
 	// DOS Op_ea @ 1000:5642: Pascal-string append-byte. arg0 = string ptr,
 	// arg1 = byte to append. If string.length < string.capacity, increments
 	// length and writes byte at end. Uses signed byte comparison (`JGE`).
-	byte *base = nullptr;
-	byte *ptr = resolveDosResourcePointer(a[0], current, &base);
+	DosMemoryReference ref = resolveDosResourceReference(a[0], current);
 	const byte ch = uint8(uint16(a[1]) & 0xff);
 	debugC(2, kDebugLevelScript, "opcode 0xea: pstring append byte at 0x%04x, byte=0x%02x",
-		   dosResourceOffset(base, ptr), ch);
-	appendDosPascalByteAt(ptr, ch);
+		   dosResourceOffset(ref), ch);
+	appendDosPascalByteAt(ref, ch);
 	return kThxBye;
 }
 OPCODE(0xeb) {
@@ -6581,11 +6642,10 @@ OPCODE(0xeb) {
 OPCODE(0xec) {
 	// DOS Op_ec @ 1000:5670: Pascal-string truncate-by-length. arg0 = string
 	// ptr; if length > 0, decrements length and zeroes last char.
-	byte *base = nullptr;
-	byte *ptr = resolveDosResourcePointer(a[0], current, &base);
+	DosMemoryReference ref = resolveDosResourceReference(a[0], current);
 	debugC(2, kDebugLevelScript, "opcode 0xec: pstring truncate at 0x%04x",
-		   dosResourceOffset(base, ptr));
-	popDosPascalByteAt(ptr);
+		   dosResourceOffset(ref));
+	popDosPascalByteAt(ref);
 	return kThxBye;
 }
 
