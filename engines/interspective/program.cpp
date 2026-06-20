@@ -48,16 +48,15 @@ enum {
 };
 
 Program::Program(Common::ReadStream &file, uint16 id)
-	: _exits(0) {
+	: _code(kDosResourceSegmentSize, byte(0)), _codeSize(0), _exits(0), _exitsCount(0) {
 	uint16 length = file.readUint16LE(); // for this length
 	if (length > 25000)
 		error("too large a program (%d)", length);
 
-	_code = new byte[kDosResourceSegmentSize]();
 	_codeSize = length;
 
-	file.read(_code + 2, length - 2);
-	Resources::descramble(_code + 2, length - 2);
+	file.read(base() + 2, length - 2);
+	Resources::descramble(base() + 2, length - 2);
 
 	file.read(_footer, 0x10);
 	snprintf(_debugInfo, 50, "block %d", id);
@@ -77,7 +76,6 @@ void Program::loadActors(Interpreter *in) {
 
 Program::~Program() {
 	// _actors are cleaned up by the block Interpreter's destructor — see Interpreter::~Interpreter.
-	delete[] _code;
 	clearExits();
 }
 
@@ -90,11 +88,11 @@ uint16 Program::entryPointOffset() {
 }
 
 byte *Program::localVariable(uint16 offset) {
-	return _code + offset;
+	return base() + offset;
 }
 
 uint16 Program::roomHandler(uint16 room) {
-	byte *index = _code + 2;
+	const byte *index = base() + 2;
 
 	uint16 r;
 	while ((r = READ_LE_UINT16(index)) != 0xffff) {
@@ -110,7 +108,7 @@ uint16 Program::roomHandler(uint16 room) {
 
 SpriteInfo Program::getSpriteInfo(uint16 index) const {
 	const uint16 spritemapOffset = READ_LE_UINT16(_footer + kSpriteMap);
-	byte *spritemap = _code + spritemapOffset;
+	const byte *spritemap = base() + spritemapOffset;
 
 	// Bound check matching MainDat::getSpriteInfo. The footer doesn't
 	// store a per-block sprite count, so derive the upper bound from
@@ -173,7 +171,7 @@ bool Program::getExitRecordField(uint16 index, uint8 off, uint8 size, uint16 &va
 	if (fieldOffset + size > _codeSize)
 		return false;
 
-	value = size == 1 ? _code[fieldOffset] : READ_LE_UINT16(_code + fieldOffset);
+	value = size == 1 ? base()[fieldOffset] : READ_LE_UINT16(base() + fieldOffset);
 	return true;
 }
 
@@ -186,7 +184,7 @@ bool Program::getExitRoomWord(uint16 index, uint16 &room) const {
 	if (off > kDosResourceSegmentSize - 2)
 		return false;
 
-	room = READ_LE_UINT16(_code + off);
+	room = READ_LE_UINT16(base() + off);
 	return true;
 }
 

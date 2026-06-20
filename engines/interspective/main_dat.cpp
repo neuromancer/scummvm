@@ -34,16 +34,15 @@ using namespace Common;
 
 namespace Interspective {
 
-MainDat::MainDat(Resources *res) : Datafile(res), _data(0), _actors(0) {}
+MainDat::MainDat(Resources *res)
+	: Datafile(res), _dataLen(0), _imageDirectory(0), _tunesDirectory(0),
+	  _programsCount(0), _programsMap(0), _actors(0), _actorsCount(0) {}
 
 const char *MainDat::filename() const {
 	return Engine::instance().mainDatFilename().c_str();
 }
 
 MainDat::~MainDat() {
-	if (_data)
-		delete[] _data;
-
 	if (_actors) {
 		for (int i = 0; i < _actorsCount; i++)
 			delete _actors[i];
@@ -151,19 +150,19 @@ enum Offsets {
 void MainDat::readFile(SeekableReadStream &stream) {
 	_dataLen = stream.readUint16LE();
 
-	_data = new byte[_dataLen];
+	_data.resize(_dataLen);
 	stream.seek(0);
-	stream.read(_data, _dataLen);
-	Resources::descramble(_data + 2, _dataLen - 2);
+	stream.read(data(), _dataLen);
+	Resources::descramble(data() + 2, _dataLen - 2);
 
 	stream.read(_footer, kFooterLen);
 
-	_imageDirectory = _data + READ_LE_UINT16(_footer + kImageDirectory);
-	_tunesDirectory = _data + READ_LE_UINT16(_footer + kTunesDirectory);
+	_imageDirectory = data() + READ_LE_UINT16(_footer + kImageDirectory);
+	_tunesDirectory = data() + READ_LE_UINT16(_footer + kTunesDirectory);
 
 	_programsCount = READ_LE_UINT16(_footer + kProgEntriesCount1);
 
-	_programsMap = _data + READ_LE_UINT16(_footer + kProgramsMap);
+	_programsMap = data() + READ_LE_UINT16(_footer + kProgramsMap);
 }
 
 uint16 MainDat::personsCount() const {
@@ -183,7 +182,7 @@ bool MainDat::claimScoreEvent(uint16 eventId, uint16 &delta) {
 	if (eventId >= scoreEventCount())
 		return false;
 
-	byte *entry = _data + READ_LE_UINT16(_footer + kScoreEventTable) + eventId * 2;
+	byte *entry = data() + READ_LE_UINT16(_footer + kScoreEventTable) + eventId * 2;
 	if (entry[1] != 0)
 		return false;
 
@@ -217,7 +216,7 @@ void MainDat::loadObjectStates() {
 
 	uint nonZero = 0;
 	for (uint16 i = 0; i < count; ++i) {
-		const byte *rec = _data + listOff + i * stride;
+		const byte *rec = data() + listOff + i * stride;
 		const uint16 id = uint16(i + 1);
 		const uint16 room = READ_LE_UINT16(rec);
 		// Object IDs are 1-based per DOS GetObjectOffset (it does DEC AX
@@ -262,7 +261,7 @@ void MainDat::parsePuppeteers() const {
 	assert(_puppeteers.empty());
 	uint16 count = READ_LE_UINT16(_footer + kPuppeteersCount);
 
-	byte *data = _data + READ_LE_UINT16(_footer + kPuppeteers);
+	const byte *data = this->data() + READ_LE_UINT16(_footer + kPuppeteers);
 	for (int i = 0; i < count; i++) {
 		Puppeteer p(data);
 		_puppeteers[p.actorId()] = p;
@@ -287,7 +286,7 @@ uint16 MainDat::progEntriesCount1() const {
 }
 
 byte *MainDat::imageDirectoryEntry(uint16 index) const {
-	const int32 directoryOffset = int32(_imageDirectory - _data);
+	const int32 directoryOffset = int32(_imageDirectory - mutableData());
 	// DOS keeps this arithmetic in 16-bit registers:
 	//   DEC AX; ADD AX,AX; ADD AX,AX; ADD DI,AX
 	// so values that pass a signed bound check can wrap back before/within
@@ -299,7 +298,7 @@ byte *MainDat::imageDirectoryEntry(uint16 index) const {
 				index, entryOffset);
 		return 0;
 	}
-	return _data + entryOffset;
+	return mutableData() + entryOffset;
 }
 
 uint16 MainDat::fileIndexOfImage(uint16 index) const {
@@ -332,13 +331,13 @@ Common::List<MainDat::GraphicFile> MainDat::graphicFiles() const {
 	uint16 file_count = READ_LE_UINT16(_footer + kGraphicFileCount);
 	uint16 names_offset = READ_LE_UINT16(_footer + kGraphicFileNames);
 
-	byte *data = _data + names_offset;
+	const byte *data = this->data() + names_offset;
 	Common::List<GraphicFile> files;
 	for (; file_count > 0; file_count--) {
 		GraphicFile file;
 		file.data_set = READ_LE_UINT16(data);
 		data += 2;
-		file.filename = reinterpret_cast<char *>(data);
+		file.filename = reinterpret_cast<const char *>(data);
 		files.push_back(file);
 		while (*data)
 			data++;
@@ -353,13 +352,14 @@ Common::List<Common::String> MainDat::musicFiles() const {
 	uint16 file_count = READ_LE_UINT16(_footer + kMusicFileCount);
 	uint16 names_offset = READ_LE_UINT16(_footer + kMusicFileNames);
 
-	byte *data = _data + names_offset;
+	const byte *data = this->data() + names_offset;
 	Common::List<Common::String> files;
 	for (; file_count > 0; file_count--) {
 		data += 2;           // data set id
 		byte type = *data++; // music type (1 - adlib, 4 - roland)
-		debugC(2, kDebugLevelFiles | kDebugLevelMusic, "found music file %s type %d", data, type);
-		files.push_back(Common::String(reinterpret_cast<char *>(data)));
+		debugC(2, kDebugLevelFiles | kDebugLevelMusic, "found music file %s type %d",
+			   reinterpret_cast<const char *>(data), type);
+		files.push_back(Common::String(reinterpret_cast<const char *>(data)));
 		while (*data)
 			data++;
 		data++;
@@ -379,8 +379,8 @@ uint16 MainDat::sfxFileCount() const {
 Common::List<MainDat::SfxFile> MainDat::sfxFiles() const {
 	const uint16 fileCount = sfxFileCount();
 	const uint16 namesOffset = READ_LE_UINT16(_footer + kSfxFileNames);
-	const byte *data = _data + namesOffset;
-	const byte *end = _data + _dataLen;
+	const byte *data = this->data() + namesOffset;
+	const byte *end = this->data() + _dataLen;
 	Common::List<SfxFile> files;
 
 	// DOS OpenSfxFile @ 1000:5ff7 walks this footer list. Each entry is:
@@ -409,12 +409,12 @@ Common::List<MainDat::SfxFile> MainDat::sfxFiles() const {
 
 byte *MainDat::getByteVariable(uint16 index) {
 	uint16 offset = READ_LE_UINT16(_footer + kByteVars);
-	return _data + offset + index;
+	return data() + offset + index;
 }
 
 byte *MainDat::getWordVariable(uint16 index) {
 	uint16 offset = READ_LE_UINT16(_footer + kWordVars);
-	return _data + offset + index * 2;
+	return data() + offset + index * 2;
 }
 
 uint16 MainDat::interfaceImageIndex() const {
@@ -422,7 +422,7 @@ uint16 MainDat::interfaceImageIndex() const {
 }
 
 byte *MainDat::getEntryPoint() const {
-	return _data + READ_LE_UINT16(_footer + kEntryPoint);
+	return mutableData() + READ_LE_UINT16(_footer + kEntryPoint);
 }
 
 uint16 MainDat::getRoomLoopEntryPoint() const {
@@ -456,7 +456,7 @@ uint16 MainDat::getRoomScriptId(uint16 room) const {
 }
 
 uint16 MainDat::getGlyphSpriteId(byte character) const {
-	byte *charmap = _data + READ_LE_UINT16(_footer + kCharacterMap);
+	const byte *charmap = data() + READ_LE_UINT16(_footer + kCharacterMap);
 	charmap += (character - ' ') * 2;
 	uint16 id = READ_LE_UINT16(charmap);
 	return id;
@@ -467,7 +467,7 @@ uint16 MainDat::spriteCount() const {
 }
 
 SpriteInfo MainDat::getSpriteInfo(uint16 index) const {
-	byte *spritemap = _data + READ_LE_UINT16(_footer + kSpriteMap);
+	const byte *spritemap = data() + READ_LE_UINT16(_footer + kSpriteMap);
 	if (index >= spriteCount())
 		error("local sprite index given (index: 0x%04x)", index);
 
@@ -482,7 +482,7 @@ uint16 MainDat::getCursorSpriteId() const {
 }
 
 bool MainDat::nextCursorSprite(uint16 mode, uint16 &stepIndex, bool &stepPending, uint16 &spriteId, uint16 tableFooterOffset) const {
-	byte *table = _data + READ_LE_UINT16(_footer + tableFooterOffset);
+	const byte *table = data() + READ_LE_UINT16(_footer + tableFooterOffset);
 
 	for (;;) {
 		const int16 tableMode = int16(READ_LE_UINT16(table));
@@ -546,7 +546,7 @@ bool MainDat::cycleCursorOverlayAnimation(uint16 maskBit, uint16 &spriteId, uint
 		return false;
 	}
 
-	byte *record = _data + recordOffset;
+	byte *record = data() + recordOffset;
 	x = READ_LE_UINT16(record);
 	y = READ_LE_UINT16(record + 2);
 	const uint16 frameCount = READ_LE_UINT16(record + 4);
@@ -563,7 +563,7 @@ bool MainDat::cycleCursorOverlayAnimation(uint16 maskBit, uint16 &spriteId, uint
 	if (nextFrame == frameCount)
 		nextFrame = 0;
 	WRITE_LE_UINT16(record + 6, nextFrame);
-	spriteId = READ_LE_UINT16(_data + spriteOffset);
+	spriteId = READ_LE_UINT16(data() + spriteOffset);
 	return true;
 }
 

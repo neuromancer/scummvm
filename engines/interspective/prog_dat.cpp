@@ -33,25 +33,20 @@ using namespace Common;
 
 namespace Interspective {
 
-ProgDat::ProgDat(Resources *res) : Datafile(res), _data(0) {}
+ProgDat::ProgDat(Resources *res) : Datafile(res) {}
 
 const char *ProgDat::filename() const {
 	return Engine::instance().progDatFilename().c_str();
 }
 
-ProgDat::~ProgDat() {
-	if (_data)
-		delete[] _data;
-}
-
 void ProgDat::load() {
-	File *file = new File;
+	Common::ScopedPtr<File> file(new File);
 
 	if (!file->open(filename()))
 		error("could not open %s", filename());
 
 	readFile(*file);
-	_file = Common::SharedPtr<SeekableReadStream>(file);
+	_file = Common::SharedPtr<SeekableReadStream>(file.release());
 }
 
 void ProgDat::readFile(Common::SeekableReadStream &stream) {
@@ -59,15 +54,19 @@ void ProgDat::readFile(Common::SeekableReadStream &stream) {
 	uint16 total_entries = _resources->mainDat()->progEntriesCount0();
 	total_entries += _resources->mainDat()->progEntriesCount1();
 
-	_data = new byte[total_entries * 4];
-	(void)stream.read(_data, total_entries * 4);
+	_data.resize(total_entries * 4);
+	(void)stream.read(_data.data(), _data.size());
 }
 
 Program *ProgDat::getScript(uint16 id) {
 	if (!id)
 		return 0;
 
-	uint32 offset = READ_LE_UINT32(_data + (id - 1) * 4);
+	const uint32 entryOffset = uint32(id - 1) * 4;
+	if (entryOffset + 4 > _data.size())
+		error("ProgDat::getScript: script id %u outside directory", id);
+
+	uint32 offset = READ_LE_UINT32(_data.data() + entryOffset);
 	_file.get()->seek(offset);
 
 	return new Program(*_file, id);

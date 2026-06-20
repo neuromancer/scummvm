@@ -22,6 +22,7 @@
 #ifndef INTERSPECTIVE_MAIN_DAT_H
 #define INTERSPECTIVE_MAIN_DAT_H
 
+#include "common/array.h"
 #include "common/endian.h"
 #include "common/hashmap.h"
 #include "common/list.h"
@@ -91,8 +92,8 @@ public:
 	byte *getEntryPoint() const;
 	uint16 getRoomLoopEntryPoint() const;
 	uint16 dataSize() const { return _dataLen; }
-
-	byte *_data;
+	byte *data() { return _data.data(); }
+	const byte *data() const { return _data.data(); }
 
 	Actor *actor(uint16 index) const;
 	uint16 actorsCount() const { return _actorsCount; }
@@ -137,6 +138,7 @@ private:
 		kFooterLen = 0xB6
 	};
 
+	Common::Array<byte> _data;
 	uint16 _dataLen;
 	byte _footer[kFooterLen];
 	byte *_imageDirectory;
@@ -147,6 +149,7 @@ private:
 	uint16 _actorsCount;
 
 	byte *imageDirectoryEntry(uint16 index) const;
+	byte *mutableData() const { return const_cast<byte *>(_data.data()); }
 	void parsePuppeteers() const;
 	mutable Common::HashMap<uint16, Puppeteer> _puppeteers;
 };

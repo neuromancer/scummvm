@@ -346,7 +346,7 @@ Common::Error Engine::saveGameStream(Common::WriteStream *stream, bool isAutosav
 		MainDat *main = _resources->mainDat();
 		uint16 mainSize = main->dataSize();
 		s.syncAsUint16LE(mainSize);
-		s.syncBytes(main->_data, mainSize);
+		s.syncBytes(main->data(), mainSize);
 
 		uint16 blockId = _logic->currentBlock();
 		uint16 blockSize = _logic->blockProgram() ? _logic->blockProgram()->codeSize() : 0;
@@ -385,7 +385,7 @@ Common::Error Engine::loadGameStream(Common::SeekableReadStream *stream) {
 	s.syncAsUint16LE(mainSize);
 	if (mainSize != main->dataSize())
 		return Common::kReadingFailed;
-	s.syncBytes(main->_data, mainSize);
+	s.syncBytes(main->data(), mainSize);
 
 	uint16 blockId = 0xffff;
 	uint16 blockSize = 0;

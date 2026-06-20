@@ -22,6 +22,7 @@
 #ifndef INTERSPECTIVE_PROG_DAT_H
 #define INTERSPECTIVE_PROG_DAT_H
 
+#include "common/array.h"
 #include "common/ptr.h"
 #include "common/stream.h"
 
@@ -35,7 +36,6 @@ class Program;
 class ProgDat : public Datafile {
 public:
 	ProgDat(Resources *resources);
-	~ProgDat();
 
 	void load();
 
@@ -47,7 +47,7 @@ public:
 	Program *getScript(uint16 id);
 
 private:
-	byte *_data;
+	Common::Array<byte> _data;
 	Common::SharedPtr<Common::SeekableReadStream> _file;
 };
 

@@ -352,7 +352,7 @@ void Resources::descramble(byte *data, uint32 len) {
 }
 
 byte *Resources::mainBase() const {
-	return _main.get()->_data;
+	return _main.get()->data();
 }
 
 uint16 Resources::mainEntryPoint() const {
