@@ -104,7 +104,7 @@ static Common::Span<const byte> scriptTextSpanOrTranslated(Value &arg) {
 	DosMemoryReference ref;
 	if (arg.memoryReference(ref))
 		return Logic::textSpan(ref);
-	return Logic::textSpan(static_cast<byte *>(arg));
+	return Logic::textSpan(arg.bytePointer());
 }
 
 static Common::Span<const byte> terminatedScriptTextSpanOrTranslated(Value &arg, const char *context) {
@@ -115,7 +115,7 @@ static Common::Span<const byte> terminatedScriptTextSpanOrTranslated(Value &arg,
 		warning("Interspective: unterminated text argument at 0x%04x in %s",
 				ref.offset(), context);
 	}
-	return Logic::textSpan(static_cast<byte *>(arg));
+	return Logic::textSpan(arg.bytePointer());
 }
 
 static void clearDosPascalBufferAt(const DosMemoryReference &ref) {
@@ -1663,7 +1663,7 @@ OPCODE(0x47) {
 	// (no actor — bubble at the explicit (x,y) position with the
 	// given color). C++ uses Graphics::sayAt to render at (x, y)
 	// with the color arg.
-	const byte *text = static_cast<byte *>(a[4]);
+	const byte *text = a[4].bytePointer();
 	const uint16 maxLines = uint16(a[3]);
 	const uint16 x = uint16(a[0]);
 	const uint16 y = uint16(a[1]);
@@ -1766,7 +1766,7 @@ OPCODE(0x54) {
 	// IS already the "looked-up index"; Graphics::ask integrates the
 	// indices lookup into its option-rendering path, so we don't need
 	// to re-apply the g_menu_item_indices mapping.
-	byte *text = static_cast<byte *>(a[4]);
+	byte *text = a[4].bytePointer();
 	const uint16 left = uint16(a[0]);
 	const uint16 top = uint16(a[1]);
 	const uint8 height = uint8(uint16(a[3]) & 0xff);
@@ -1837,7 +1837,7 @@ OPCODE(0x56) {
 		return kReturn;
 	}
 	const uint16 frames = uint16(a[0]);
-	const byte *translatedText = static_cast<byte *>(a[1]);
+	const byte *translatedText = a[1].bytePointer();
 	const byte *rawText = rawScriptBytes(a[1]);
 	const byte *text = rawText ? rawText : translatedText;
 	const uint16 textLength = rawText ? a[1].rawLength() : 0;
@@ -2794,7 +2794,7 @@ OPCODE(0xc7) {
 	// logic-dirty/change-room/refresh-interface flags; the change-room flag
 	// reloads g_loaded_backdrop_id and restores the room palette target.
 	const uint16 frameDelay = uint16(a[1]);
-	byte *movieName = static_cast<byte *>(a[0]);
+	byte *movieName = a[0].bytePointer();
 	debugC(2, kDebugLevelScript, "opcode 0xc7: play movie %s with slowness %u",
 		   movieName ? reinterpret_cast<char *>(movieName) : "(null)", frameDelay);
 	Common::ScopedPtr<Movie> movie = Movie::fromFile(reinterpret_cast<char *>(movieName));
@@ -3416,7 +3416,7 @@ OPCODE(0x22) {
 	//   on arg0 side). Skip on mismatch.
 	// C++ models the parser buffer via `Logic::_parserBuffer`. Filled
 	// by Op_e9 (append), cleared by Op_e7, popped by Op_eb.
-	const byte *s = static_cast<byte *>(a[0]);
+	const byte *s = a[0].bytePointer();
 	const Common::String &buf = Log.parserBuffer();
 	debugC(2, kDebugLevelScript, "opcode 0x22: if input '%s' == arg0 '%s'",
 		   buf.c_str(), s ? reinterpret_cast<const char *>(s) : "(null)");
@@ -3435,15 +3435,15 @@ OPCODE(0x23) {
 	//   arg1 is null-terminated chars.
 	//   Compare byte-by-byte for `length` chars; both must end together.
 	// In C++ both arg0 and arg1 are `ParametrizedString` instances:
-	//   `static_cast<byte *>(a[i])` returns the translated, null-terminated
+	//   `bytePointer()` returns the translated, null-terminated
 	//   `_translateBuf`; `uint16(a[i])` returns the `_length` field. The
 	//   DOS arg0/arg1 format asymmetry (length-prefix vs null-term) is
 	//   flattened by the C++ argument loader. The Ghidra-faithful
 	//   comparison is "are the two translated strings equal?". `_length`
 	//   includes the terminating NUL in C++, while DOS's CL counter does
 	//   not, so use strlen() for the payload length.
-	const byte *s = static_cast<byte *>(a[0]);
-	const byte *t = static_cast<byte *>(a[1]);
+	const byte *s = a[0].bytePointer();
+	const byte *t = a[1].bytePointer();
 	const uint16 sLen = s ? uint16(strlen(reinterpret_cast<const char *>(s))) : 0;
 	debugC(2, kDebugLevelScript, "opcode 0x23: if %s == %s", +a[0], +a[1]);
 	if (!s || !t)
@@ -3848,7 +3848,7 @@ OPCODE(0x45) {
 	//   else status-mode subtitle.
 	// AllocSpeechSlot_NoFormatting = narrator-style bubble at the
 	// explicit (x, y) with color — NOT tied to any actor.
-	const byte *text = static_cast<byte *>(a[3]);
+	const byte *text = a[3].bytePointer();
 	const uint16 x = uint16(a[0]);
 	const uint16 y = uint16(a[1]);
 	const byte color = uint8(uint16(a[2]) & 0xff);
@@ -3862,7 +3862,7 @@ OPCODE(0x46) {
 	// DOS Op_46_SpeakWithDelayAlt @ 1000:3e5e: identical body to 0x45
 	// except it seeds AX=2 for the alternate bubble mode before the
 	// shared explicit-position narrator path stores the color hint.
-	const byte *text = static_cast<byte *>(a[3]);
+	const byte *text = a[3].bytePointer();
 	const uint16 x = uint16(a[0]);
 	const uint16 y = uint16(a[1]);
 	const byte color = uint8(uint16(a[2]) & 0xff);
@@ -3882,7 +3882,7 @@ OPCODE(0x48) {
 	// lines, text). Same shared-tail as Op_47 but reads via
 	// ReadVarBySlot_RHS (different argument-resolution path); for
 	// the script-observable behaviour the args have the same meaning.
-	const byte *text = static_cast<byte *>(a[4]);
+	const byte *text = a[4].bytePointer();
 	const uint16 maxLines = uint16(a[3]);
 	const uint16 x = uint16(a[0]);
 	const uint16 y = uint16(a[1]);
@@ -3940,7 +3940,7 @@ OPCODE(0x4e) {
 	//   MOV [0x66c6], 3              ; palette mode = 3 (text-rect+choices)
 	//   MOV [0x6741], 0              ; clear stash flag
 	//   JMP SetRectAndApply           ; → 0x3f86 → JMP RunVerbMenuModalLoop.
-	const byte *text = static_cast<byte *>(a[0]);
+	const byte *text = a[0].bytePointer();
 	Common::Span<const byte> formatText = terminatedScriptTextSpanOrTranslated(a[0], "opcode 0x4e");
 	Logic::FormattedBubble fb = _logic->formatBubbleText(formatText);
 	Logic::ModalState &ms = Log.modalState();
@@ -3982,7 +3982,7 @@ OPCODE(0x4f) {
 	// = "DrawTextRectWithChoices but using arg1 as text, with arg0 as
 	// the row/page limit for the formatter helper. Final state matches
 	// Op_4e after the adjusted AX/DX pair."
-	const byte *text = static_cast<byte *>(a[1]);
+	const byte *text = a[1].bytePointer();
 	Common::Span<const byte> formatText = terminatedScriptTextSpanOrTranslated(a[1], "opcode 0x4f");
 	Logic::FormattedBubble fb = _logic->formatBubbleText(formatText);
 	Logic::ModalState &ms = Log.modalState();
@@ -4021,7 +4021,7 @@ OPCODE(0x50) {
 	//   MOV [0x66c6], 1            ; palette mode = 1 (verb-menu modal)
 	//   MOV [0x6741], 1            ; SET stash flag
 	//   ; falls through to SetRectAndApply.
-	const byte *text = static_cast<byte *>(a[0]);
+	const byte *text = a[0].bytePointer();
 	Common::Span<const byte> formatText = terminatedScriptTextSpanOrTranslated(a[0], "opcode 0x50");
 	Logic::FormattedBubble fb = _logic->formatBubbleText(formatText);
 	Logic::ModalState &ms = Log.modalState();
@@ -4057,7 +4057,7 @@ OPCODE(0x51) {
 	//   CALL 9bcc                   ; limit returned height/rows
 	//   MOV [0x66c2], AX; MOV [0x66c4], AX
 	//   JMP 0x3f6f (Op_50's tail: palette=1, stash=1).
-	const byte *text = static_cast<byte *>(a[1]);
+	const byte *text = a[1].bytePointer();
 	Common::Span<const byte> formatText = terminatedScriptTextSpanOrTranslated(a[1], "opcode 0x51");
 	Logic::FormattedBubble fb = _logic->formatBubbleText(formatText);
 	Logic::ModalState &ms = Log.modalState();
@@ -4096,7 +4096,7 @@ OPCODE(0x52) {
 	//   MOV [0x66c2], 0;             ; choice count = 0 (no choices)
 	//   MOV [0x6741], 0;             ; clear stash
 	//   JMP SetRectAndApply.
-	const byte *text = static_cast<byte *>(a[0]);
+	const byte *text = a[0].bytePointer();
 	Common::Span<const byte> measureText = scriptTextSpanOrTranslated(a[0]);
 	Logic::FormattedBubble fb = _logic->measureVerbBubbleText(measureText);
 	Logic::ModalState &ms = Log.modalState();
@@ -4150,7 +4150,7 @@ OPCODE(0x53) {
 	//     CALL MeasureVerbBubbleTextHeight
 	//     MOV [0x66c6], 2; MOV [0x66c2], 0; MOV [0x6741], 0
 	//     JMP SetRectAndApply
-	const byte *text = static_cast<byte *>(a[0]);
+	const byte *text = a[0].bytePointer();
 	Common::Span<const byte> measureText = scriptTextSpanOrTranslated(a[0]);
 	Logic::ModalState &ms = Log.modalState();
 	const bool useStash = ms.stashFlag != 0;

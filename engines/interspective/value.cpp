@@ -100,7 +100,7 @@ template<>
 int16 &CodePointer::field<int16>(int16 &p, int off) const {
 	uint16 z;
 	field(z, off);
-	p = *reinterpret_cast<int16 *>(&z);
+	p = dosSignedWord(z);
 	return p;
 }
 

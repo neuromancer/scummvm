@@ -423,7 +423,8 @@ public:
 	virtual operator uint16() const {
 		return _ref.valid() ? _ref.offset() : 0;
 	}
-	virtual operator byte *() { return _ref.ptr(); }
+	virtual byte *bytePointer() { return _ref.ptr(); }
+	virtual const byte *bytePointer() const { return _ref.ptr(); }
 	virtual byte *rawPointer() { return _ref.ptr(); }
 	virtual byte *rawBase() { return _ref.base(); }
 	virtual bool memoryReference(DosMemoryReference &ref) const {
@@ -487,7 +488,8 @@ public:
 	virtual const char *operator+() const {
 		return reinterpret_cast<const char *>(_translateBuf);
 	}
-	virtual operator byte *() { return _translateBuf; }
+	virtual byte *bytePointer() { return _translateBuf; }
+	virtual const byte *bytePointer() const { return _translateBuf; }
 	virtual operator uint16() const { return _length; }
 	virtual byte *rawPointer() { return _rawRef.ptr(); }
 	virtual byte *rawBase() { return _rawRef.base(); }

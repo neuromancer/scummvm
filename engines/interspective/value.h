@@ -25,6 +25,7 @@
 #include "common/array.h"
 #include "common/endian.h"
 #include "common/noncopyable.h"
+#include "common/ptr.h"
 
 #include "interspective/debug.h"
 
@@ -79,6 +80,10 @@ enum ValueType {
 	kValueConstant
 };
 
+inline int16 dosSignedWord(uint16 value) {
+	return (value & 0x8000) ? int16(int32(value) - 0x10000) : int16(value);
+}
+
 class Value : public NumericInspectable<uint16> {
 public:
 	virtual ~Value() {}
@@ -86,8 +91,7 @@ public:
 
 	virtual operator uint16() const { return false; }
 	virtual int16 signd() const {
-		const uint16 v = *this;
-		return *reinterpret_cast<const int16 *>(&v);
+		return dosSignedWord(*this);
 	}
 	virtual Value &operator=(uint16 value) { return *this; }
 	virtual Value &operator=(const Value &) { return *this; }
@@ -114,9 +118,10 @@ public:
 
 	virtual bool holdsCode() const { return false; }
 
-	virtual operator byte *() { return nullptr; }
-	virtual operator const Common::String() {
-		byte *b(*this);
+	virtual byte *bytePointer() { return nullptr; }
+	virtual const byte *bytePointer() const { return nullptr; }
+	virtual operator const Common::String() const {
+		const byte *b = bytePointer();
 		return Common::String(reinterpret_cast<const char *>(b));
 	}
 	virtual byte *rawPointer() { return nullptr; }
@@ -168,15 +173,11 @@ private:
 
 class ValueVector : private Common::NonCopyable {
 public:
-	~ValueVector() {
-		for (Common::Array<Value *>::iterator it = _values.begin(); it != _values.end(); ++it)
-			delete *it;
-	}
-	void push_back(Value *element) { _values.push_back(element); }
-	Value &operator[](uint8 idx) { return *_values[idx]; }
+	void push_back(Value *element) { _values.push_back(Common::ScopedPtr<Value>(element)); }
+	Value &operator[](uint8 idx) { return *_values[idx].get(); }
 
 private:
-	Common::Array<Value *> _values;
+	Common::Array<Common::ScopedPtr<Value> > _values;
 };
 
 class CodePointer : public Value {
