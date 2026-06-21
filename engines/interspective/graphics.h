@@ -126,20 +126,28 @@ public:
 							uint16 forcedRows = 0, uint16 forcedWidthExtra = 0xffff);
 	bool showVerbBubbleText(byte paletteMode, const byte *string, uint16 frames,
 							uint16 forcedRows = 0, uint16 forcedWidthExtra = 0xffff);
-	Common::Rect paintText(uint16 left, uint16 top, byte colour, const byte *string) {
+	Common::Rect paintText(uint16 left, uint16 top, byte colour, Common::Span<const byte> string) {
 		return paintText(left, top, colour, string, _framebuffer.get(), 0, 0, 0);
 	}
+	Common::Rect paintText(uint16 left, uint16 top, byte colour, const byte *string);
 
-	Common::Rect textMetrics(const byte *string, uint16 *lines = 0, uint16 left = 0, uint16 top = 0) {
+	Common::Rect textMetrics(Common::Span<const byte> string, uint16 *lines = 0, uint16 left = 0, uint16 top = 0) {
 		return paintText(left, top, 235, string, 0, lines, 0, 0);
 	}
+	Common::Rect textMetrics(const byte *string, uint16 *lines = 0, uint16 left = 0, uint16 top = 0);
+	Common::Rect paintText(uint16 left, uint16 top, byte colour, Common::Span<const byte> string, Surface *s, uint16 *lines = 0, uint8 firstLineExtraIndent = 0, int flags = 0);
 	Common::Rect paintText(uint16 left, uint16 top, byte colour, const byte *string, Surface *s, uint16 *lines = 0, uint8 firstLineExtraIndent = 0, int flags = 0);
+	Common::Rect paintTextOneDirty(uint16 left, uint16 top, byte colour, Common::Span<const byte> string);
 	Common::Rect paintTextOneDirty(uint16 left, uint16 top, byte colour, const byte *string);
 	void clearStatusScreenText();
 	void rememberStatusScreenText(uint16 left, uint16 top, byte colour, const Common::String &text);
+	void paintMotionText(Common::Span<const byte> stream);
 	void paintMotionText(const byte *stream, uint16 length);
+	uint16 plainTextLineWidth(Common::Span<const byte> string) const;
 	uint16 plainTextLineWidth(const byte *string) const;
+	Common::Rect paintPlainTextLine(uint16 left, uint16 top, byte colour, Common::Span<const byte> string, bool markDirty = true);
 	Common::Rect paintPlainTextLine(uint16 left, uint16 top, byte colour, const byte *string, bool markDirty = true);
+	bool setStatusOverlayText(Common::Span<const byte> text);
 	bool setStatusOverlayText(const byte *text);
 	void setInterfaceOverlayAnimationMask(uint16 mask);
 	void setRoomCloseUp(Common::Point point);
@@ -209,6 +217,7 @@ private:
 	friend class InterspectiveFont;
 
 	byte clampChar(byte ch) const;
+	uint16 calculateLineWidth(Common::Span<const byte> string) const;
 	uint16 calculateLineWidth(const byte *string) const;
 	void prepareConversationPalette();
 	void beginConversationModal();

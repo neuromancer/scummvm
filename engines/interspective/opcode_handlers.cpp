@@ -212,9 +212,10 @@ static void speakOrSubtitle(Actor *speaker, const Common::String &text, uint16 m
 		// or QueueDeferredFormattedText. The shared status path seeds
 		// CX=0xa4, DX=0x14, AX=2, BP=0xeb before QueueDeferredFormattedText.
 		const uint16 length = uint16(text.size());
+		const Common::Span<const byte> textBytes = Logic::textSpan(text);
 		if (length > 0)
-			Graf.sayAt(reinterpret_cast<const byte *>(text.c_str()),
-					   length, speechDisplayTicks(reinterpret_cast<const byte *>(text.c_str()), maxLines),
+			Graf.sayAt(textBytes.data(),
+					   length, speechDisplayTicks(textBytes.data(), maxLines),
 					   0xa4, 0x14, 0xeb, maxLines, Graphics::kSpeechBubbleType2, true);
 		return;
 	}
@@ -762,7 +763,7 @@ static bool showFormattedModalTextAndWait(const Logic::FormattedBubble &fb,
 	// say() stand-in still needs the synthetic center records removed because
 	// Graphics::paintText treats 0x0c differently.
 	Common::String visible = stripFormattedRowCenterRecords(fb);
-	const byte *out = reinterpret_cast<const byte *>(visible.c_str());
+	const Common::Span<const byte> visibleBytes = Logic::textSpan(visible);
 	const uint16 length = uint16(visible.size());
 	if (Log.modalState().paletteMode != 0) {
 		Logic::ModalState &ms = Log.modalState();
@@ -788,7 +789,7 @@ static bool showFormattedModalTextAndWait(const Logic::FormattedBubble &fb,
 		ms.textContinuationPtr = 0;
 		return false;
 	}
-	Graf.say(out, length, MAX<uint16>(1, frames));
+	Graf.say(visibleBytes.data(), length, MAX<uint16>(1, frames));
 	Graf.runWhenSaid(next);
 	return true;
 }
@@ -908,7 +909,7 @@ static bool appendRawModalChoices(Common::Span<const byte> src, Common::Array<by
 	auto readUint16LE = [&]() -> uint16 {
 		if (!canRead(2))
 			return 0xffff;
-		const uint16 value = READ_LE_UINT16(src.data() + pos);
+		const uint16 value = src.getUint16LEAt(pos);
 		pos += 2;
 		return value;
 	};
@@ -1800,7 +1801,7 @@ OPCODE(0x55) {
 	if (Log.inStatusMode())
 		_graphics->rememberStatusScreenText(left, top, colour, prepared);
 	_graphics->paintTextOneDirty(left, top, colour,
-								 reinterpret_cast<const byte *>(prepared.c_str()));
+								 Logic::textSpan(prepared));
 	if (truncated)
 		Log.setPendingError(0x19);
 	return kThxBye;
@@ -3542,7 +3543,7 @@ OPCODE(0x28) {
 		// buffer, and queues one fixed dirty rect after all lines. C++ also
 		// remembers the result because paintInterface() redraws the base
 		// interface every frame, unlike DOS's dirty-rect-presented buffer.
-		if (!_graphics->setStatusOverlayText(text.data())) {
+		if (!_graphics->setStatusOverlayText(text)) {
 			Log.setPendingError(0x2c);
 			return kThxBye;
 		}

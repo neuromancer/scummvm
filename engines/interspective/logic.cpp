@@ -93,7 +93,7 @@ public:
 	bool readUint16LE(uint16 &value) {
 		if (!canRead(2))
 			return fail(2);
-		value = READ_LE_UINT16(_bytes.data() + _pos);
+		value = _bytes.getUint16LEAt(_pos);
 		_pos += 2;
 		return true;
 	}
@@ -1719,7 +1719,7 @@ void Logic::tickMotionText() {
 
 void Logic::paintMotionText() {
 	if (_motionTextTicks && !_motionText.empty())
-		Graf.paintMotionText(&_motionText[0], uint16(_motionText.size()));
+		Graf.paintMotionText(Common::Span<const byte>(&_motionText[0], _motionText.size()));
 }
 
 bool Logic::enableObjectFlag1(uint16 id) {
@@ -4274,7 +4274,7 @@ void Logic::paintSpeechSlots(Graphics *g) {
 			Sprite bubble;
 			bubble._hotPoint = Common::Point(0, 0);
 			Common::Rect rect = g->paintSpeechInBubble(Common::Point(left, top), slot.color,
-													   reinterpret_cast<const byte *>(slot.text.c_str()), &bubble, mode, true, slot.maxLines);
+													   Logic::textSpan(slot.text), &bubble, mode, true, slot.maxLines);
 			g->paint(&bubble, Common::Point(rect.left, rect.top),
 					 Graphics::kPaintSemiTransparent | Graphics::kPaintPositionIsTop);
 		}

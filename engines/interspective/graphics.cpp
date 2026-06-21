@@ -56,6 +56,58 @@ enum {
 	kFontChangeableColour = 235
 };
 
+class GraphicsTextCursor {
+public:
+	GraphicsTextCursor(Common::Span<const byte> bytes, const char *context)
+		: _bytes(bytes), _pos(0), _context(context), _warned(false) {}
+
+	Common::Span<const byte> remaining() const {
+		if (!_bytes.data() || _pos > _bytes.size())
+			return Common::Span<const byte>();
+		return _bytes.subspan(_pos);
+	}
+
+	bool readByte(byte &value) {
+		if (!canRead(1))
+			return fail(1);
+		value = _bytes.getUint8At(_pos++);
+		return true;
+	}
+
+	bool readUint16LE(uint16 &value) {
+		if (!canRead(2))
+			return fail(2);
+		value = _bytes.getUint16LEAt(_pos);
+		_pos += 2;
+		return true;
+	}
+
+	void skipCString() {
+		byte ch = 0;
+		while (readByte(ch) && ch != 0) {
+		}
+	}
+
+private:
+	bool canRead(uint32 count) const {
+		return _bytes.data() && _pos <= _bytes.size() && count <= _bytes.size() - _pos;
+	}
+
+	bool fail(uint32 count) {
+		if (!_warned) {
+			warning("Interspective: truncated text stream in %s at byte %u (wanted %u, size %u)",
+					_context ? _context : "graphics text", uint(_pos), uint(count), uint(_bytes.size()));
+			_warned = true;
+		}
+		return false;
+	}
+
+	Common::Span<const byte> _bytes;
+	uint32 _pos;
+	const char *_context;
+	bool _warned;
+};
+
 static const byte kLayerScaleRows[9][16] = {
 	{ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 },
 	{ 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1 },
@@ -792,18 +844,24 @@ void Graphics::paintAutoCloseTimer() {
 }
 
 bool Graphics::setStatusOverlayText(const byte *text) {
+	return setStatusOverlayText(Logic::textSpan(text));
+}
+
+bool Graphics::setStatusOverlayText(Common::Span<const byte> text) {
 	_statusOverlayLines.clear();
-	if (!text)
+	if (!text.data())
 		return true;
 
-	const byte *p = text;
+	GraphicsTextCursor cursor(text, "status overlay text");
 	bool done = false;
 	while (!done) {
 		byte line[101];
 		uint16 len = 0;
 		byte terminator = 0;
 		while (len < 100) {
-			const byte ch = *p++;
+			byte ch = 0;
+			if (!cursor.readByte(ch))
+				return false;
 			if (ch == 0 || ch == '\r') {
 				terminator = ch;
 				break;
@@ -814,7 +872,7 @@ bool Graphics::setStatusOverlayText(const byte *text) {
 			terminator = 0;
 		line[len] = 0;
 
-		if (plainTextLineWidth(line) > 0x38)
+		if (plainTextLineWidth(Common::Span<const byte>(line, len + 1)) > 0x38)
 			return false;
 		_statusOverlayLines.push_back(Common::String(reinterpret_cast<const char *>(line)));
 		done = terminator == 0;
@@ -834,7 +892,7 @@ void Graphics::paintStatusOverlayText() {
 	uint16 y = 0xb4;
 	for (uint i = 0; i < _statusOverlayLines.size(); ++i) {
 		const Common::String &line = _statusOverlayLines[i];
-		const byte *text = reinterpret_cast<const byte *>(line.c_str());
+		Common::Span<const byte> text = Logic::textSpan(line);
 		const uint16 textWidth = plainTextLineWidth(text);
 		const uint16 x = uint16(((0x38 - textWidth) >> 1) + 4);
 		paintPlainTextLine(x + 1, y + 1, 0xae, text, false);
@@ -912,7 +970,7 @@ void Graphics::paintCursorObjectName() {
 	if (text.empty())
 		return;
 
-	const byte *line = reinterpret_cast<const byte *>(text.c_str());
+	Common::Span<const byte> line = Logic::textSpan(text);
 	const uint16 width = plainTextLineWidth(line);
 	const Common::Point cursor = cursorPosition();
 	int left = cursor.x - int(width) / 2;
@@ -1051,7 +1109,7 @@ void Graphics::paintSpeech() {
 		}
 
 		if (_speechActive) {
-			const byte *speech = reinterpret_cast<const byte *>(_speechText.c_str());
+			Common::Span<const byte> speech = Logic::textSpan(_speechText);
 			if (_speechBubble) {
 				Sprite bubble;
 				bubble._hotPoint = Common::Point(0, 0);
@@ -1284,7 +1342,7 @@ static bool parseVerbBubbleChoices(Common::Span<const byte> string, Common::Arra
 			warnTruncated();
 			break;
 		}
-		const uint16 value = READ_LE_UINT16(string.data() + pos);
+		const uint16 value = string.getUint16LEAt(pos);
 		pos += 2;
 		if (label.empty())
 			continue;
@@ -1452,7 +1510,7 @@ static void positionInlineVerbBubbleChoices(Graphics *graphics, const Common::Re
 			++pos;
 			if (pos + 2 > formatted.size())
 				return;
-			choice.value = READ_LE_UINT16(formatted.data() + pos);
+			choice.value = formatted.getUint16LEAt(pos);
 			pos += 2;
 			choice.rect = Common::Rect(choice.textLeft, choice.textTop,
 									   currentLeft, currentTop + Graphics::kLineHeight);
@@ -1493,7 +1551,7 @@ static void paintVerbBubbleLines(Graphics *graphics, const Common::Rect &bubbleR
 	int16 top = verbBubbleFirstRowTop(bubbleRect, rows);
 	for (uint i = 0; i < lines.size(); ++i) {
 		graphics->paintPlainTextLine(verbBubbleRowLeft(bubbleRect, rows, i), top, colour,
-									 reinterpret_cast<const byte *>(lines[i].c_str()), false);
+									 Logic::textSpan(lines[i]), false);
 		top += Graphics::kLineHeight;
 	}
 }
@@ -1630,7 +1688,7 @@ static void paintStashedVerbBubble(Graphics *graphics, Logic *logic, Surface *de
 	if (hover >= 0 && hover < int(choices.size()))
 		graphics->paintPlainTextLine(choices[hover].textLeft, choices[hover].textTop,
 									 kSelectedOptionColour,
-									 reinterpret_cast<const byte *>(choices[hover].label.c_str()), false);
+									 Logic::textSpan(choices[hover].label), false);
 }
 
 static void paintVerbBubbleConnectors(Graphics *graphics, Resources *resources,
@@ -1699,11 +1757,11 @@ uint16 Graphics::askVerbBubble(byte paletteMode, Common::Span<const byte> string
 									  : textColour;
 		for (uint i = 0; i < choices.size(); ++i)
 			paintPlainTextLine(choices[i].textLeft, choices[i].textTop, choiceColour,
-							   reinterpret_cast<const byte *>(choices[i].label.c_str()), false);
+							   Logic::textSpan(choices[i].label), false);
 		if (hover >= 0 && hover < int(choices.size()))
 			paintPlainTextLine(choices[hover].textLeft, choices[hover].textTop,
 							   kSelectedOptionColour,
-							   reinterpret_cast<const byte *>(choices[hover].label.c_str()), false);
+							   Logic::textSpan(choices[hover].label), false);
 		if (paletteMode == 4)
 			paintStashedVerbBubble(this, _engine ? _engine->logic() : 0, _framebuffer.get(),
 								   stashedHover, &stashedChoices);
@@ -1856,7 +1914,7 @@ uint16 Graphics::askVerbBubbleText(byte paletteMode, Common::Span<const byte> st
 		if (hover >= 0 && hover < int(choices.size()))
 			paintPlainTextLine(choices[hover].textLeft, choices[hover].textTop,
 							   kSelectedOptionColour,
-							   reinterpret_cast<const byte *>(choices[hover].label.c_str()), false);
+							   Logic::textSpan(choices[hover].label), false);
 		if (paletteMode == 4)
 			paintStashedVerbBubble(this, _engine ? _engine->logic() : 0, _framebuffer.get(),
 								   stashedHover, &stashedChoices);
@@ -2524,26 +2582,45 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, Commo
 	return rect;
 }
 
+Common::Rect Graphics::paintText(uint16 left, uint16 top, byte colour, const byte *string) {
+	return paintText(left, top, colour, Logic::textSpan(string));
+}
+
+Common::Rect Graphics::textMetrics(const byte *string, uint16 *lines, uint16 left, uint16 top) {
+	return textMetrics(Logic::textSpan(string), lines, left, top);
+}
+
 Common::Rect Graphics::paintText(uint16 left, uint16 top, byte colour, const byte *string, Surface *dest, uint16 *_lines, uint8 firstLineExtraIndent, int flags) {
-	byte ch = 0;
+	return paintText(left, top, colour, Logic::textSpan(string), dest, _lines, firstLineExtraIndent, flags);
+}
+
+Common::Rect Graphics::paintText(uint16 left, uint16 top, byte colour, Common::Span<const byte> string, Surface *dest, uint16 *_lines, uint8 firstLineExtraIndent, int flags) {
 	uint16 current_left = left + firstLineExtraIndent;
 	uint16 current_top = top;
 	uint16 max_left = left;
 	byte current_colour = colour;
 	uint16 lines = 1;
+	GraphicsTextCursor cursor(string, "paintText");
 
 	int opt;
-	while ((ch = *(string++))) {
+	for (;;) {
+		byte ch = 0;
+		if (!cursor.readByte(ch))
+			break;
+		if (ch == 0)
+			break;
+
 		switch (ch) {
 		case kStringMove:
-			current_left = READ_LE_UINT16(string);
-			string += 2;
-			current_top = READ_LE_UINT16(string);
-			string += 2;
+			if (!cursor.readUint16LE(current_left))
+				return Common::Rect(left, top, max_left, current_top + kLineHeight);
+			if (!cursor.readUint16LE(current_top))
+				return Common::Rect(left, top, max_left, current_top + kLineHeight);
 			debugC(3, kDebugLevelGraphics, "string move to %d:%d", current_left, current_top);
 			break;
 		case kStringSetColour:
-			current_colour = *(string++);
+			if (!cursor.readByte(current_colour))
+				return Common::Rect(left, top, max_left, current_top + kLineHeight);
 			break;
 		case kStringDefaultColour:
 			current_colour = colour;
@@ -2551,10 +2628,12 @@ Common::Rect Graphics::paintText(uint16 left, uint16 top, byte colour, const byt
 		case 0x04:
 			break;
 		case kStringAdvance:
-			current_left += *(string++);
+			if (!cursor.readByte(ch))
+				return Common::Rect(left, top, max_left, current_top + kLineHeight);
+			current_left += ch;
 			break;
 		case kStringCenter:
-			current_left = (320 - calculateLineWidth(string)) / 2;
+			current_left = (320 - calculateLineWidth(cursor.remaining())) / 2;
 			break;
 		case '\n':
 		case '\r':
@@ -2564,12 +2643,11 @@ Common::Rect Graphics::paintText(uint16 left, uint16 top, byte colour, const byt
 			break;
 		case kStringMenuOption:
 			opt = _mOption++;
-			_optionRects[opt] = paintText(current_left, current_top, kOptionColour, string, dest, 0, 0, flags);
-			while (*(string++))
-				;
-			_optionValues[opt] = READ_LE_UINT16(string);
+			_optionRects[opt] = paintText(current_left, current_top, kOptionColour, cursor.remaining(), dest, 0, 0, flags);
+			cursor.skipCString();
+			if (!cursor.readUint16LE(_optionValues[opt]))
+				return Common::Rect(left, top, max_left, current_top + kLineHeight);
 			debugC(2, kDebugLevelGraphics | kDebugLevelScript, "option value %d: 0x%x", opt, _optionValues[opt]);
-			string += 2;
 			break;
 		default:
 			current_left += paintChar(current_left, current_top, current_colour, ch, dest, flags);
@@ -2585,6 +2663,10 @@ Common::Rect Graphics::paintText(uint16 left, uint16 top, byte colour, const byt
 }
 
 Common::Rect Graphics::paintTextOneDirty(uint16 left, uint16 top, byte colour, const byte *string) {
+	return paintTextOneDirty(left, top, colour, Logic::textSpan(string));
+}
+
+Common::Rect Graphics::paintTextOneDirty(uint16 left, uint16 top, byte colour, Common::Span<const byte> string) {
 	Common::Rect rect = paintText(left, top, colour, string, _framebuffer.get(), 0, 0, kPaintNoDirty);
 	markDirtyRect(rect);
 	return rect;
@@ -2620,22 +2702,27 @@ void Graphics::paintStatusScreenText() {
 
 	for (Common::Array<StatusScreenTextEntry>::const_iterator it = _statusScreenText.begin(); it != _statusScreenText.end(); ++it)
 		paintText(it->left, it->top, it->colour,
-				  reinterpret_cast<const byte *>(it->text.c_str()),
+				  Logic::textSpan(it->text),
 				  _framebuffer.get(), 0, 0, kPaintNoDirty);
 }
 
 void Graphics::paintMotionText(const byte *stream, uint16 length) {
-	if (!stream || length == 0)
+	paintMotionText(stream ? Common::Span<const byte>(stream, length) : Common::Span<const byte>());
+}
+
+void Graphics::paintMotionText(Common::Span<const byte> stream) {
+	if (!stream.data() || stream.size() == 0)
 		return;
 
-	const byte *p = stream;
-	const byte *end = stream + length;
+	GraphicsTextCursor cursor(stream, "motion text");
 	uint16 currentLeft = 0;
 	uint16 currentTop = 0;
 	byte currentColour = 0xeb;
 
-	while (p < end) {
-		const byte ch = *p++;
+	for (;;) {
+		byte ch = 0;
+		if (!cursor.readByte(ch))
+			return;
 		if (ch == 0)
 			break;
 
@@ -2644,26 +2731,23 @@ void Graphics::paintMotionText(const byte *stream, uint16 length) {
 			currentTop = uint16(currentTop + kLineHeight);
 			break;
 		case kStringMove:
-			if (end - p < 4)
+			if (!cursor.readUint16LE(currentLeft))
 				return;
-			currentLeft = READ_LE_UINT16(p);
-			p += 2;
-			currentTop = READ_LE_UINT16(p);
-			p += 2;
+			if (!cursor.readUint16LE(currentTop))
+				return;
 			break;
 		case kStringDefaultColour:
 			currentColour = 0xeb;
 			break;
 		case kStringSetColour:
-			if (p >= end)
+			if (!cursor.readByte(currentColour))
 				return;
-			currentColour = *p++;
 			break;
 		case kStringCenter: {
 			uint16 width = 0;
-			const byte *q = p;
-			while (q < end) {
-				const byte widthCh = *q++;
+			Common::Span<const byte> rest = cursor.remaining();
+			for (uint32 i = 0; i < rest.size(); ++i) {
+				const byte widthCh = rest.getUint8At(i);
 				if (widthCh == 0 || widthCh == '\r')
 					break;
 				width = uint16(width + getGlyphWidth(widthCh));
@@ -2672,9 +2756,9 @@ void Graphics::paintMotionText(const byte *stream, uint16 length) {
 			break;
 		}
 		case kStringAdvance:
-			if (p >= end)
+			if (!cursor.readByte(ch))
 				return;
-			currentLeft = uint16(currentLeft + *p++);
+			currentLeft = uint16(currentLeft + ch);
 			break;
 		default:
 			currentLeft = uint16(currentLeft + paintChar(currentLeft, currentTop, currentColour, ch, _framebuffer.get()));
@@ -2684,9 +2768,15 @@ void Graphics::paintMotionText(const byte *stream, uint16 length) {
 }
 
 uint16 Graphics::plainTextLineWidth(const byte *string) const {
+	return plainTextLineWidth(Logic::textSpan(string));
+}
+
+uint16 Graphics::plainTextLineWidth(Common::Span<const byte> string) const {
 	uint16 total = 0;
-	byte ch;
-	while ((ch = *(string++))) {
+	for (uint32 pos = 0; string.data() && pos < string.size(); ++pos) {
+		const byte ch = string.getUint8At(pos);
+		if (ch == 0)
+			break;
 		if (ch == 0x04)
 			continue;
 		total += getGlyphWidth(ch);
@@ -2695,9 +2785,15 @@ uint16 Graphics::plainTextLineWidth(const byte *string) const {
 }
 
 Common::Rect Graphics::paintPlainTextLine(uint16 left, uint16 top, byte colour, const byte *string, bool markDirty) {
+	return paintPlainTextLine(left, top, colour, Logic::textSpan(string), markDirty);
+}
+
+Common::Rect Graphics::paintPlainTextLine(uint16 left, uint16 top, byte colour, Common::Span<const byte> string, bool markDirty) {
 	uint16 current_left = left;
-	byte ch;
-	while ((ch = *(string++))) {
+	for (uint32 pos = 0; string.data() && pos < string.size(); ++pos) {
+		const byte ch = string.getUint8At(pos);
+		if (ch == 0)
+			break;
 		if (ch == 0x04)
 			continue;
 		current_left += paintChar(current_left, top, colour, ch, _framebuffer.get(),
@@ -2748,9 +2844,15 @@ byte Graphics::clampChar(byte ch) const {
 }
 
 uint16 Graphics::calculateLineWidth(const byte *string) const {
-	byte ch;
+	return calculateLineWidth(Logic::textSpan(string));
+}
+
+uint16 Graphics::calculateLineWidth(Common::Span<const byte> string) const {
 	uint16 total = 0;
-	while ((ch = *(string++))) {
+	for (uint32 pos = 0; string.data() && pos < string.size(); ++pos) {
+		const byte ch = string.getUint8At(pos);
+		if (ch == 0)
+			break;
 		if (ch == '\n' || ch == '\r')
 			break;
 		total += getGlyphWidth(ch);

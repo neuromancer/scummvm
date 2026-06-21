@@ -1418,7 +1418,7 @@ void Actor::Speech::startPage(uint page) {
 	_ticksLeft = speechTicksForText(_text);
 	_image.reset(new Interspective::Sprite);
 	_image->_hotPoint = Common::Point(0, 0);
-	_rect = Graf.paintSpeechInBubble(_anchor, _color, reinterpret_cast<const byte *>(_text.c_str()), _image.get());
+	_rect = Graf.paintSpeechInBubble(_anchor, _color, Logic::textSpan(_text), _image.get());
 }
 
 void Actor::Speech::tick() {
