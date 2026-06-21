@@ -19,8 +19,6 @@
  *
  */
 
-#include "common/endian.h"
-
 #include "interspective/sprite.h"
 
 namespace Interspective {
@@ -37,15 +35,37 @@ enum SpriteMap {
 	kSpriteMapSize = SpriteInfo::kSpriteMapRecordSize
 };
 
-SpriteInfo::SpriteInfo(const byte *spritemap, uint16 index) {
-	spritemap += index * kSpriteMapSize;
-	top = READ_LE_UINT16(spritemap + kSpriteMapTop);
-	left = READ_LE_UINT16(spritemap + kSpriteMapLeft);
-	width = spritemap[kSpriteMapWidth];
-	height = spritemap[kSpriteMapHeight];
-	image = READ_LE_UINT16(spritemap + kSpriteMapImage);
-	hotLeft = *reinterpret_cast<const int8 *>(spritemap + kSpriteMapHotLeft);
-	hotTop = *reinterpret_cast<const int8 *>(spritemap + kSpriteMapHotTop);
+namespace {
+
+class SpriteMapRecord {
+public:
+	SpriteMapRecord(Common::Span<const byte> record) : _record(record) {
+		assert(_record.size() >= kSpriteMapSize);
+	}
+
+	uint16 image() const { return _record.getUint16LEAt(kSpriteMapImage); }
+	uint16 left() const { return _record.getUint16LEAt(kSpriteMapLeft); }
+	uint16 top() const { return _record.getUint16LEAt(kSpriteMapTop); }
+	uint8 width() const { return _record.getUint8At(kSpriteMapWidth); }
+	uint8 height() const { return _record.getUint8At(kSpriteMapHeight); }
+	int8 hotLeft() const { return _record.getInt8At(kSpriteMapHotLeft); }
+	int8 hotTop() const { return _record.getInt8At(kSpriteMapHotTop); }
+
+private:
+	Common::Span<const byte> _record;
+};
+
+} // namespace
+
+SpriteInfo::SpriteInfo(Common::Span<const byte> record) {
+	const SpriteMapRecord spritemap(record);
+	top = spritemap.top();
+	left = spritemap.left();
+	width = spritemap.width();
+	height = spritemap.height();
+	image = spritemap.image();
+	hotLeft = spritemap.hotLeft();
+	hotTop = spritemap.hotTop();
 }
 
 } // End of namespace Interspective

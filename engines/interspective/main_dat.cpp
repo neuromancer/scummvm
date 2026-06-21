@@ -21,7 +21,7 @@
 
 #include "interspective/main_dat.h"
 
-#include "common/endian.h"
+#include "common/span.h"
 #include "common/util.h"
 
 #include "interspective/actor.h"
@@ -29,6 +29,7 @@
 #include "interspective/logic.h"
 #include "interspective/resources.h"
 #include "interspective/util.h"
+#include "interspective/value.h"
 
 using namespace Common;
 
@@ -147,9 +148,14 @@ enum Offsets {
 
 namespace {
 
+void writeUint16LE(Common::Span<byte> data, uint32 offset, uint16 value) {
+	data[offset] = uint8(value & 0xff);
+	data[offset + 1] = uint8(value >> 8);
+}
+
 class MainDatFooter {
 public:
-	MainDatFooter(const byte *footer) : _footer(footer) {}
+	MainDatFooter(const byte *footer) : _footer(footer, 0xB6) {}
 
 	uint16 progEntriesCount0() const { return wordAt(kProgEntriesCount0); }
 	uint16 progEntriesCount1() const { return wordAt(kProgEntriesCount1); }
@@ -183,7 +189,7 @@ public:
 	uint16 characterMapOffset() const { return wordAt(kCharacterMap); }
 	uint16 interfaceImageIndex() const { return wordAt(kInterfaceImgIdx); }
 
-	uint16 wordAt(uint16 offset) const { return READ_LE_UINT16(_footer + offset); }
+	uint16 wordAt(uint16 offset) const { return _footer.getUint16LEAt(offset); }
 
 	uint16 cursorOverlayRecordOffset(uint16 maskBit) const {
 		switch (maskBit) {
@@ -290,7 +296,7 @@ public:
 	}
 
 private:
-	const byte *_footer;
+	Common::Span<const byte> _footer;
 };
 
 class MainDatSegment {
@@ -306,15 +312,30 @@ public:
 		return offset >= 0 && contains(uint32(offset), size);
 	}
 
-	const byte *ptr(uint32 offset) const { return _readData + offset; }
-
-	byte *mutablePtr(uint32 offset) const {
-		assert(_writeData);
-		return _writeData + offset;
+	Common::Span<const byte> span(uint32 offset) const {
+		assert(offset <= _size);
+		return Common::Span<const byte>(_readData + offset, _size - offset);
 	}
 
-	uint16 wordAt(uint32 offset) const { return READ_LE_UINT16(ptr(offset)); }
-	void writeWordAt(uint32 offset, uint16 value) const { WRITE_LE_UINT16(mutablePtr(offset), value); }
+	Common::Span<const byte> span(uint32 offset, uint32 size) const {
+		assert(contains(offset, size));
+		return Common::Span<const byte>(_readData + offset, size);
+	}
+
+	Common::Span<byte> mutableSpan(uint32 offset, uint32 size) const {
+		assert(_writeData);
+		assert(contains(offset, size));
+		return Common::Span<byte>(_writeData + offset, size);
+	}
+
+	byte *mutablePtr(uint32 offset) const {
+		return mutableSpan(offset, _size - offset).data();
+	}
+
+	uint8 byteAt(uint32 offset) const { return span(offset, 1).getUint8At(0); }
+	void writeByteAt(uint32 offset, uint8 value) const { mutableSpan(offset, 1)[0] = value; }
+	uint16 wordAt(uint32 offset) const { return span(offset, 2).getUint16LEAt(0); }
+	void writeWordAt(uint32 offset, uint16 value) const { writeUint16LE(mutableSpan(offset, 2), 0, value); }
 
 private:
 	const byte *_readData;
@@ -324,38 +345,37 @@ private:
 
 class MainDatImageEntry {
 public:
-	MainDatImageEntry(const byte *entry) : _readEntry(entry), _writeEntry(0) {}
-	MainDatImageEntry(byte *entry) : _readEntry(entry), _writeEntry(entry) {}
+	MainDatImageEntry(Common::Span<const byte> entry) : _readEntry(entry) {}
+	MainDatImageEntry(Common::Span<byte> entry) : _readEntry(entry), _writeEntry(entry) {}
 
-	bool valid() const { return _readEntry != 0; }
-	uint16 type() const { return READ_LE_UINT16(_readEntry); }
-	uint16 fileIndex() const { return READ_LE_UINT16(_readEntry + 2); }
+	uint16 type() const { return _readEntry.getUint16LEAt(0); }
+	uint16 fileIndex() const { return _readEntry.getUint16LEAt(2); }
 
 	void setType(uint16 type) const {
 		assert(_writeEntry);
-		WRITE_LE_UINT16(_writeEntry, type);
+		writeUint16LE(_writeEntry, 0, type);
 	}
 
 private:
-	const byte *_readEntry;
-	byte *_writeEntry;
+	Common::Span<const byte> _readEntry;
+	Common::Span<byte> _writeEntry;
 };
 
 class ProgramMapTable {
 public:
-	ProgramMapTable(const byte *table, uint16 programCount) : _table(table), _programCount(programCount) {}
+	ProgramMapTable(Common::Span<const byte> table, uint16 programCount) : _table(table), _programCount(programCount) {}
 
 	uint16 roomScriptId(uint16 room) const {
-		const byte *programInfo = _table;
+		uint32 programInfoOffset = 0;
 		for (uint16 i = 1; i <= _programCount; i++) {
 			// DOS LoadRoomFromProgDat @ 1000:1ad9 reads one resource-set word
 			// before scanning the room ids, and advances past every word it
 			// reads, including the 0xffff terminator.
-			programInfo += 2;
+			programInfoOffset += 2;
 
 			for (;;) {
-				const uint16 thisRoom = READ_LE_UINT16(programInfo);
-				programInfo += 2;
+				const uint16 thisRoom = _table.getUint16LEAt(programInfoOffset);
+				programInfoOffset += 2;
 				if (thisRoom == 0xffff)
 					break;
 				if (thisRoom == room)
@@ -367,8 +387,146 @@ public:
 	}
 
 private:
-	const byte *_table;
+	Common::Span<const byte> _table;
 	uint16 _programCount;
+};
+
+class ScoreEventEntry {
+public:
+	ScoreEventEntry(Common::Span<byte> entry) : _entry(entry) {}
+
+	bool claimed() const { return _entry.getUint8At(1) != 0; }
+	uint16 delta() const { return _entry.getUint16LEAt(0); }
+	void markClaimed() { _entry[1] = 1; }
+
+private:
+	Common::Span<byte> _entry;
+};
+
+class ObjectStateRecord {
+public:
+	enum {
+		kSize = 0x12
+	};
+
+	ObjectStateRecord(Common::Span<const byte> record) : _record(record) {}
+
+	uint16 room() const { return _record.getUint16LEAt(0); }
+	int16 x() const { return dosSignedWord(_record.getUint16LEAt(2)); }
+	int16 y() const { return dosSignedWord(_record.getUint16LEAt(4)); }
+	uint8 field(uint8 off) const { return _record.getUint8At(off); }
+
+private:
+	Common::Span<const byte> _record;
+};
+
+class MainDatStringTableCursor {
+public:
+	MainDatStringTableCursor(Common::Span<const byte> data) : _data(data), _offset(0) {}
+
+	bool contains(uint32 size) const {
+		return _offset <= _data.size() && size <= _data.size() - _offset;
+	}
+
+	uint16 readWord() {
+		const uint16 value = peekWord();
+		_offset += 2;
+		return value;
+	}
+
+	uint16 peekWord() const {
+		return _data.getUint16LEAt(_offset);
+	}
+
+	uint8 readByte() {
+		const uint8 value = _data.getUint8At(_offset);
+		++_offset;
+		return value;
+	}
+
+	const char *string() const {
+		return reinterpret_cast<const char *>(_data.getUnsafeDataAt(_offset));
+	}
+
+	void skipCString() {
+		while (_offset < _data.size() && _data.getUint8At(_offset) != 0)
+			++_offset;
+		if (_offset < _data.size())
+			++_offset;
+	}
+
+	void skipNullPadding() {
+		while (_offset < _data.size() && _data.getUint8At(_offset) == 0)
+			++_offset;
+	}
+
+private:
+	Common::Span<const byte> _data;
+	uint32 _offset;
+};
+
+class CursorSpriteTable {
+public:
+	CursorSpriteTable(Common::Span<const byte> table) : _table(table) {}
+
+	bool nextSprite(uint16 mode, uint16 &stepIndex, bool &stepPending, uint16 &spriteId) const {
+		uint32 entryOffset = 0;
+		for (;;) {
+			const int16 tableMode = signedWordAt(entryOffset);
+			entryOffset += 2;
+			if (tableMode == -2)
+				return false;
+
+			if (uint16(tableMode) == mode)
+				break;
+
+			while (signedWordAt(entryOffset) != 0)
+				entryOffset += 2;
+			entryOffset += 2;
+		}
+
+		for (;;) {
+			const int16 frame = signedWordAt(entryOffset + uint32(stepIndex) * 2);
+			if (frame == -1) {
+				if (stepPending) {
+					++stepIndex;
+					continue;
+				}
+			} else if (frame != 0) {
+				spriteId = uint16(frame);
+				++stepIndex;
+				return true;
+			}
+
+			stepIndex = 0;
+			stepPending = false;
+		}
+	}
+
+private:
+	int16 signedWordAt(uint32 offset) const {
+		return dosSignedWord(_table.getUint16LEAt(offset));
+	}
+
+	Common::Span<const byte> _table;
+};
+
+class CursorOverlayRecord {
+public:
+	enum {
+		kHeaderSize = 8
+	};
+
+	CursorOverlayRecord(Common::Span<byte> record) : _record(record) {}
+
+	uint16 x() const { return _record.getUint16LEAt(0); }
+	uint16 y() const { return _record.getUint16LEAt(2); }
+	uint16 frameCount() const { return _record.getUint16LEAt(4); }
+	uint16 frameIndex() const { return _record.getUint16LEAt(6); }
+	void setFrameIndex(uint16 index) const { writeUint16LE(_record, 6, index); }
+
+private:
+	Common::Span<byte> _record;
 };
 
 } // namespace
@@ -379,7 +537,8 @@ void MainDat::readFile(SeekableReadStream &stream) {
 	_data.resize(_dataLen);
 	stream.seek(0);
 	stream.read(data(), _dataLen);
-	Resources::descramble(MainDatSegment(data(), _dataLen).mutablePtr(2), _dataLen - 2);
+	Common::Span<byte> payload = MainDatSegment(data(), _dataLen).mutableSpan(2, _dataLen - 2);
+	Resources::descramble(payload.data(), payload.size());
 
 	stream.read(_footer, kFooterLen);
 }
@@ -410,12 +569,12 @@ bool MainDat::claimScoreEvent(uint16 eventId, uint16 &delta) {
 		return false;
 	}
 
-	byte *entry = segment.mutablePtr(entryOffset);
-	if (entry[1] != 0)
+	ScoreEventEntry entry(segment.mutableSpan(entryOffset, 2));
+	if (entry.claimed())
 		return false;
 
-	delta = READ_LE_UINT16(entry);
-	entry[1] = 1;
+	delta = entry.delta();
+	entry.markClaimed();
 	return true;
 }
 
@@ -446,18 +605,16 @@ void MainDat::loadObjectStates() {
 
 	uint nonZero = 0;
 	for (uint16 i = 0; i < count; ++i) {
-		const byte *rec = segment.ptr(uint32(listOff) + uint32(i) * stride);
+		const ObjectStateRecord rec(segment.span(uint32(listOff) + uint32(i) * stride, ObjectStateRecord::kSize));
 		const uint16 id = uint16(i + 1);
-		const uint16 room = READ_LE_UINT16(rec);
+		const uint16 room = rec.room();
 		// Object IDs are 1-based per DOS GetObjectOffset (it does DEC AX
 		// before multiplying). Room 0 = missing/destroyed (default in DOS)
 		// — store anyway so isObjectMissing() returns true correctly.
 		Log.setObjectRoom(id, room);
-		Log.setObjectPosition(id,
-							  int16(READ_LE_UINT16(rec + 2)),
-							  int16(READ_LE_UINT16(rec + 4)));
+		Log.setObjectPosition(id, rec.x(), rec.y());
 		for (uint8 off = 6; off < stride; ++off)
-			Log.setObjectField(id, off, rec[off]);
+			Log.setObjectField(id, off, rec.field(off));
 		if (room != 0)
 			++nonZero;
 	}
@@ -494,11 +651,11 @@ void MainDat::parsePuppeteers() const {
 	const MainDatSegment segment(data(), _dataLen);
 	uint16 count = footer.puppeteersCount();
 
-	const byte *data = segment.ptr(footer.puppeteersOffset());
 	for (int i = 0; i < count; i++) {
-		Puppeteer p(data);
+		Common::Span<const byte> record = segment.span(uint32(footer.puppeteersOffset()) + uint32(i) * Puppeteer::kSize,
+													   Puppeteer::kSize);
+		Puppeteer p(record.data());
 		_puppeteers[p.actorId()] = p;
-		data += Puppeteer::kSize;
 	}
 }
 
@@ -518,7 +675,7 @@ uint16 MainDat::progEntriesCount1() const {
 	return MainDatFooter(_footer).progEntriesCount1();
 }
 
-const byte *MainDat::imageDirectoryEntry(uint16 index) const {
+bool MainDat::imageDirectoryEntryOffset(uint16 index, uint32 &entryOffset) const {
 	const MainDatFooter footer(_footer);
 	const MainDatSegment segment(data(), _dataLen);
 	const int32 directoryOffset = int32(footer.imageDirectoryOffset());
@@ -527,47 +684,38 @@ const byte *MainDat::imageDirectoryEntry(uint16 index) const {
 	// so values that pass a signed bound check can wrap back before/within
 	// the loaded data segment rather than becoming a large unsigned offset.
 	const int16 entryDelta = int16(uint16(uint16(index - 1) * 4));
-	const int32 entryOffset = directoryOffset + entryDelta;
-	if (!segment.containsSigned(entryOffset, 4)) {
+	const int32 signedEntryOffset = directoryOffset + entryDelta;
+	if (!segment.containsSigned(signedEntryOffset, 4)) {
 		warning("MainDat::imageDirectoryEntry: id %u resolves outside iuc_main.dat (entryOff=%d)",
-				index, entryOffset);
-		return 0;
+				index, signedEntryOffset);
+		entryOffset = 0;
+		return false;
 	}
-	return segment.ptr(uint32(entryOffset));
-}
-
-byte *MainDat::mutableImageDirectoryEntry(uint16 index) {
-	const MainDatFooter footer(_footer);
-	const MainDatSegment segment(data(), _dataLen);
-	const int32 directoryOffset = int32(footer.imageDirectoryOffset());
-	const int16 entryDelta = int16(uint16(uint16(index - 1) * 4));
-	const int32 entryOffset = directoryOffset + entryDelta;
-	if (!segment.containsSigned(entryOffset, 4)) {
-		warning("MainDat::imageDirectoryEntry: id %u resolves outside iuc_main.dat (entryOff=%d)",
-				index, entryOffset);
-		return 0;
-	}
-	return segment.mutablePtr(uint32(entryOffset));
+	entryOffset = uint32(signedEntryOffset);
+	return true;
 }
 
 uint16 MainDat::fileIndexOfImage(uint16 index) const {
-	const MainDatImageEntry entry(imageDirectoryEntry(index));
-	if (!entry.valid())
+	uint32 entryOffset = 0;
+	if (!imageDirectoryEntryOffset(index, entryOffset))
 		return 0;
+	const MainDatImageEntry entry(MainDatSegment(data(), _dataLen).span(entryOffset, 4));
 	return entry.fileIndex();
 }
 
 uint16 MainDat::imageType(uint16 index) const {
-	const MainDatImageEntry entry(imageDirectoryEntry(index));
-	if (!entry.valid())
+	uint32 entryOffset = 0;
+	if (!imageDirectoryEntryOffset(index, entryOffset))
 		return 0;
+	const MainDatImageEntry entry(MainDatSegment(data(), _dataLen).span(entryOffset, 4));
 	return entry.type();
 }
 
 void MainDat::patchImageType(uint16 index, uint16 type) {
-	const MainDatImageEntry entry(mutableImageDirectoryEntry(index));
-	if (!entry.valid())
+	uint32 entryOffset = 0;
+	if (!imageDirectoryEntryOffset(index, entryOffset))
 		return;
+	const MainDatImageEntry entry(MainDatSegment(data(), _dataLen).mutableSpan(entryOffset, 4));
 	entry.setType(type);
 }
 
@@ -589,18 +737,15 @@ Common::List<MainDat::GraphicFile> MainDat::graphicFiles() const {
 	uint16 names_offset = footer.graphicFileNamesOffset();
 
 	const MainDatSegment segment(data(), _dataLen);
-	const byte *data = segment.ptr(names_offset);
+	MainDatStringTableCursor table(segment.span(names_offset));
 	Common::List<GraphicFile> files;
 	for (; file_count > 0; file_count--) {
 		GraphicFile file;
-		file.data_set = READ_LE_UINT16(data);
-		data += 2;
-		file.filename = reinterpret_cast<const char *>(data);
+		file.data_set = table.readWord();
+		file.filename = table.string();
 		files.push_back(file);
-		while (*data)
-			data++;
-		while (!*data)
-			data++;
+		table.skipCString();
+		table.skipNullPadding();
 	}
 
 	return files;
@@ -612,17 +757,15 @@ Common::List<Common::String> MainDat::musicFiles() const {
 	uint16 names_offset = footer.musicFileNamesOffset();
 
 	const MainDatSegment segment(data(), _dataLen);
-	const byte *data = segment.ptr(names_offset);
+	MainDatStringTableCursor table(segment.span(names_offset));
 	Common::List<Common::String> files;
 	for (; file_count > 0; file_count--) {
-		data += 2;           // data set id
-		byte type = *data++; // music type (1 - adlib, 4 - roland)
+		table.readWord();           // data set id
+		byte type = table.readByte(); // music type (1 - adlib, 4 - roland)
 		debugC(2, kDebugLevelFiles | kDebugLevelMusic, "found music file %s type %d",
-			   reinterpret_cast<const char *>(data), type);
-		files.push_back(Common::String(reinterpret_cast<const char *>(data)));
-		while (*data)
-			data++;
-		data++;
+			   table.string(), type);
+		files.push_back(Common::String(table.string()));
+		table.skipCString();
 	}
 
 	return files;
@@ -641,28 +784,22 @@ Common::List<MainDat::SfxFile> MainDat::sfxFiles() const {
 	const MainDatFooter footer(_footer);
 	const MainDatSegment segment(data(), _dataLen);
 	const uint16 namesOffset = footer.sfxFileNamesOffset();
-	const byte *data = segment.ptr(namesOffset);
-	const byte *end = segment.ptr(_dataLen);
+	MainDatStringTableCursor table(segment.span(namesOffset));
 	Common::List<SfxFile> files;
 
 	// DOS OpenSfxFile @ 1000:5ff7 walks this footer list. Each entry is:
 	//   uint16 strict-low sample id, uint8 driver mode, ASCIIZ filename.
 	// The high bound is the next entry's low word, except for the final
 	// entry, where OpenSfxFile uses CS:[0x83] (footer +0x24 sample count).
-	for (uint16 i = 0; i < fileCount && data + 3 < end; ++i) {
+	for (uint16 i = 0; i < fileCount && table.contains(4); ++i) {
 		SfxFile file;
-		file.low = READ_LE_UINT16(data);
-		data += 2;
-		file.mode = *data++;
-		file.filename = reinterpret_cast<const char *>(data);
-		while (data < end && *data)
-			++data;
-		if (data >= end)
-			break;
-		++data;
-		file.high = (i + 1 == fileCount || data + 1 >= end)
+		file.low = table.readWord();
+		file.mode = table.readByte();
+		file.filename = table.string();
+		table.skipCString();
+		file.high = (i + 1 == fileCount || !table.contains(2))
 						? sfxSampleCount()
-						: READ_LE_UINT16(data);
+						: table.peekWord();
 		files.push_back(file);
 	}
 
@@ -678,7 +815,7 @@ byte MainDat::byteVariable(uint16 index) const {
 				index, uint(offset));
 		return 0;
 	}
-	return *segment.ptr(offset);
+	return segment.byteAt(offset);
 }
 
 void MainDat::setByteVariable(uint16 index, byte value) {
@@ -690,7 +827,7 @@ void MainDat::setByteVariable(uint16 index, byte value) {
 				index, uint(offset));
 		return;
 	}
-	*segment.mutablePtr(offset) = value;
+	segment.writeByteAt(offset, value);
 }
 
 uint16 MainDat::wordVariable(uint16 index) const {
@@ -738,7 +875,7 @@ Actor *MainDat::actor(uint16 index) const {
 uint16 MainDat::getRoomScriptId(uint16 room) const {
 	const MainDatFooter footer(_footer);
 	const MainDatSegment segment(data(), _dataLen);
-	return ProgramMapTable(segment.ptr(footer.programsMapOffset()), footer.progEntriesCount1()).roomScriptId(room);
+	return ProgramMapTable(segment.span(footer.programsMapOffset()), footer.progEntriesCount1()).roomScriptId(room);
 }
 
 uint16 MainDat::getGlyphSpriteId(byte character) const {
@@ -755,11 +892,11 @@ uint16 MainDat::spriteCount() const {
 SpriteInfo MainDat::getSpriteInfo(uint16 index) const {
 	const MainDatFooter footer(_footer);
 	const MainDatSegment segment(data(), _dataLen);
-	const byte *spritemap = segment.ptr(footer.spriteMapOffset());
 	if (index >= spriteCount())
 		error("local sprite index given (index: 0x%04x)", index);
 
-	return SpriteInfo(spritemap, index);
+	const uint32 recordOffset = uint32(footer.spriteMapOffset()) + uint32(index) * SpriteInfo::kSpriteMapRecordSize;
+	return SpriteInfo(segment.span(recordOffset, SpriteInfo::kSpriteMapRecordSize));
 }
 
 uint16 MainDat::getCursorSpriteId() const {
@@ -771,38 +908,7 @@ uint16 MainDat::getCursorSpriteId() const {
 bool MainDat::nextCursorSprite(uint16 mode, uint16 &stepIndex, bool &stepPending, uint16 &spriteId, uint16 tableFooterOffset) const {
 	const MainDatFooter footer(_footer);
 	const MainDatSegment segment(data(), _dataLen);
-	const byte *table = segment.ptr(footer.wordAt(tableFooterOffset));
-
-	for (;;) {
-		const int16 tableMode = int16(READ_LE_UINT16(table));
-		table += 2;
-		if (tableMode == -2)
-			return false;
-
-		if (uint16(tableMode) == mode)
-			break;
-
-		while (int16(READ_LE_UINT16(table)) != 0)
-			table += 2;
-		table += 2;
-	}
-
-	for (;;) {
-		const int16 frame = int16(READ_LE_UINT16(table + stepIndex * 2));
-		if (frame == -1) {
-			if (stepPending) {
-				++stepIndex;
-				continue;
-			}
-		} else if (frame != 0) {
-			spriteId = uint16(frame);
-			++stepIndex;
-			return true;
-		}
-
-		stepIndex = 0;
-		stepPending = false;
-	}
+	return CursorSpriteTable(segment.span(footer.wordAt(tableFooterOffset))).nextSprite(mode, stepIndex, stepPending, spriteId);
 }
 
 bool MainDat::cycleCursorOverlayAnimation(uint16 maskBit, uint16 &spriteId, uint16 &x, uint16 &y) {
@@ -819,11 +925,11 @@ bool MainDat::cycleCursorOverlayAnimation(uint16 maskBit, uint16 &spriteId, uint
 		return false;
 	}
 
-	byte *record = segment.mutablePtr(recordOffset);
-	x = READ_LE_UINT16(record);
-	y = READ_LE_UINT16(record + 2);
-	const uint16 frameCount = READ_LE_UINT16(record + 4);
-	const uint16 frameIndex = READ_LE_UINT16(record + 6);
+	const CursorOverlayRecord record(segment.mutableSpan(recordOffset, CursorOverlayRecord::kHeaderSize));
+	x = record.x();
+	y = record.y();
+	const uint16 frameCount = record.frameCount();
+	const uint16 frameIndex = record.frameIndex();
 	const uint32 spriteOffset = uint32(recordOffset) + 8 + uint32(frameIndex) * 2;
 	if (frameCount == 0 || spriteOffset + 2 > _dataLen) {
 		debugC(2, kDebugLevelGraphics | kDebugLevelFiles,
@@ -835,7 +941,7 @@ bool MainDat::cycleCursorOverlayAnimation(uint16 maskBit, uint16 &spriteId, uint
 	uint16 nextFrame = uint16(frameIndex + 1);
 	if (nextFrame == frameCount)
 		nextFrame = 0;
-	WRITE_LE_UINT16(record + 6, nextFrame);
+	record.setFrameIndex(nextFrame);
 	spriteId = segment.wordAt(spriteOffset);
 	return true;
 }

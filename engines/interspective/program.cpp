@@ -21,7 +21,7 @@
 
 #include "interspective/program.h"
 
-#include "common/endian.h"
+#include "common/span.h"
 #include "common/util.h"
 
 #include "interspective/actor.h"
@@ -51,7 +51,7 @@ namespace {
 
 class ProgramFooter {
 public:
-	ProgramFooter(const byte *footer) : _footer(footer) {}
+	ProgramFooter(const byte *footer) : _footer(footer, 0x10) {}
 
 	uint16 exitsCount() const { return wordAt(kExitsCount); }
 	uint16 actorsCount() const { return wordAt(kActorsCount); }
@@ -61,9 +61,9 @@ public:
 	uint16 entryPointOffset() const { return wordAt(kEntryPointOffset); }
 
 private:
-	uint16 wordAt(uint16 offset) const { return READ_LE_UINT16(_footer + offset); }
+	uint16 wordAt(uint16 offset) const { return _footer.getUint16LEAt(offset); }
 
-	const byte *_footer;
+	Common::Span<const byte> _footer;
 };
 
 class ProgramCodeSegment {
@@ -75,15 +75,28 @@ public:
 		return offset <= _size && size <= _size - offset;
 	}
 
-	const byte *ptr(uint32 offset) const { return _readData + offset; }
-
-	byte *mutablePtr(uint32 offset) const {
-		assert(_writeData);
-		return _writeData + offset;
+	Common::Span<const byte> span(uint32 offset) const {
+		assert(offset <= _size);
+		return Common::Span<const byte>(_readData + offset, _size - offset);
 	}
 
-	uint8 byteAt(uint32 offset) const { return *ptr(offset); }
-	uint16 wordAt(uint32 offset) const { return READ_LE_UINT16(ptr(offset)); }
+	Common::Span<const byte> span(uint32 offset, uint32 size) const {
+		assert(contains(offset, size));
+		return Common::Span<const byte>(_readData + offset, size);
+	}
+
+	Common::Span<byte> mutableSpan(uint32 offset, uint32 size) const {
+		assert(_writeData);
+		assert(contains(offset, size));
+		return Common::Span<byte>(_writeData + offset, size);
+	}
+
+	byte *mutablePtr(uint32 offset) const {
+		return mutableSpan(offset, _size - offset).data();
+	}
+
+	uint8 byteAt(uint32 offset) const { return span(offset, 1).getUint8At(0); }
+	uint16 wordAt(uint32 offset) const { return span(offset, 2).getUint16LEAt(0); }
 
 private:
 	const byte *_readData;
@@ -102,8 +115,9 @@ Program::Program(Common::ReadStream &file, uint16 id)
 	_codeSize = length;
 
 	ProgramCodeSegment code(base(), kDosResourceSegmentSize);
-	file.read(code.mutablePtr(2), length - 2);
-	Resources::descramble(code.mutablePtr(2), length - 2);
+	Common::Span<byte> payload = code.mutableSpan(2, length - 2);
+	file.read(payload.data(), payload.size());
+	Resources::descramble(payload.data(), payload.size());
 
 	file.read(_footer, 0x10);
 	snprintf(_debugInfo, 50, "block %d", id);
@@ -162,7 +176,6 @@ SpriteInfo Program::getSpriteInfo(uint16 index) const {
 	const ProgramFooter footer(_footer);
 	const ProgramCodeSegment code(base(), _codeSize);
 	const uint16 spritemapOffset = footer.spriteMapOffset();
-	const byte *spritemap = code.ptr(spritemapOffset);
 
 	// Bound check matching MainDat::getSpriteInfo. The footer doesn't
 	// store a per-block sprite count, so derive the upper bound from
@@ -180,7 +193,8 @@ SpriteInfo Program::getSpriteInfo(uint16 index) const {
 		return SpriteInfo();
 	}
 
-	return SpriteInfo(spritemap, index);
+	const uint32 recordOffset = uint32(spritemapOffset) + uint32(index) * SpriteInfo::kSpriteMapRecordSize;
+	return SpriteInfo(code.span(recordOffset, SpriteInfo::kSpriteMapRecordSize));
 }
 
 void Program::clearExits() {

@@ -23,6 +23,7 @@
 #define INTERSPECTIVE_SPRITE_H
 
 #include "common/rect.h"
+#include "common/span.h"
 
 namespace Interspective {
 
@@ -34,7 +35,7 @@ struct SpriteInfo {
 	// Default-construct an empty sprite — width=0/height=0, used as a
 	// safe fallback when an out-of-range sprite index is requested.
 	SpriteInfo() : left(0), top(0), width(0), height(0), image(0), hotLeft(0), hotTop(0) {}
-	SpriteInfo(const byte *, uint16 index);
+	SpriteInfo(Common::Span<const byte> record);
 	bool empty() const { return width == 0 || height == 0; }
 	uint16 imageId() const { return image; }
 	Common::Rect rect() const { return Common::Rect(width, height); }
