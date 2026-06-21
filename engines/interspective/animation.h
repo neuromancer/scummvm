@@ -34,6 +34,7 @@ namespace Interspective {
 //
 
 class Graphics;
+class Interpreter;
 class Resources;
 class Sprite;
 
@@ -75,8 +76,7 @@ public:
 	// a valid script later is the script's responsibility (Op_bd/be/b9).
 	void dropBaseIfIn(const byte *low, const byte *high) {
 		if (_base && _base >= low && _base < high) {
-			_base = 0;
-			_baseOffset = _offset = 0;
+			clearScript();
 		}
 	}
 
@@ -108,10 +108,16 @@ protected:
 		kAnimationOffsetPendingReadyAnimation = 0x6d
 	};
 
-	uint16 shift();
-	int8 shiftByte();
-	int8 embeddedByte() const;
-	uint8 animationField(uint8 off) const;
+		uint16 shift();
+		int8 shiftByte();
+		int8 embeddedByte() const;
+		bool currentScriptByte(byte &value) const;
+		bool readScriptByte(int32 relative, byte &value, bool warn = true) const;
+		bool readScriptWord(int32 relative, uint16 &value, bool warn = true) const;
+		void attachScript(Interpreter *interpreter, uint16 baseOffset, uint16 pc = 0);
+		void clearScript();
+		void rebaseScript(uint16 baseOffset);
+		uint8 animationField(uint8 off) const;
 	uint16 animationFieldWord(uint8 off) const;
 	void setAnimationField(uint8 off, uint8 v);
 	void setAnimationFieldWord(uint8 off, uint16 v);
@@ -183,10 +189,11 @@ protected:
 	bool _explicitFrameDelay;
 	int8 _zIndex;
 	Common::Point _position;
-	/** start of the animation code */
-	byte *_base;
-	/** current position  in the animation */
-	uint16 _offset;
+		/** start of the animation code */
+		byte *_base;
+		/** current position  in the animation */
+		uint16 _offset;
+		Interpreter *_scriptInterpreter;
 	char _debugInfo[50];
 	Common::List<Sprite *> _sprites;
 	Common::SharedPtr<Interspective::Sprite> _mainSprite;

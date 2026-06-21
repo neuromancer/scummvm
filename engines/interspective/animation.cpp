@@ -86,13 +86,14 @@ Animation::Animation(const CodePointer &code, Common::Point position) : _positio
 																		_ticksLeft(0),
 																		_explicitFrameDelay(false),
 																		_zIndex(-1),
+																		_scriptInterpreter(code.interpreter()),
 																		_mainSpriteId(0xffff),
 																		_counter(0),
 																		_castTableRunner(false),
 																		_debugInvalid(false),
 																		_opRingIdx(0) {
-	_base = code.code();
-	_baseOffset = code.offset();
+	_base = _scriptInterpreter ? _scriptInterpreter->rawCodeChecked(code.offset(), 0) : 0;
+	_baseOffset = _base ? code.offset() : 0;
 	_resources = code.interpreter()->resources();
 	for (int i = 0; i < 16; i++) {
 		_opRing[i].pc = 0xffff;
@@ -126,7 +127,9 @@ Animation::Status Animation::tick() {
 	Status status = kOk;
 	bool ranScript = false;
 	while (status == kOk && _base) {
-		int8 opcode = -*(_base + _offset);
+		byte opByte = 0;
+		currentScriptByte(opByte);
+		int8 opcode = -int8(opByte);
 		if (opcode <= 0 || opcode >= 0x27) {
 			// Dump 16 bytes around the bad PC so the misalignment can be
 			// traced back to whichever upstream handler over/under-consumed.
@@ -136,12 +139,12 @@ Animation::Status Animation::tick() {
 			char ctx[80] = {0};
 			int written = 0;
 			for (int i = -4; i <= 11 && written < 76; i++) {
-				const int rel = (int)_offset + i;
-				if (rel < 0)
+				byte contextByte = 0;
+				if (!readScriptByte(i, contextByte, false))
 					continue;
 				written += snprintf(ctx + written, sizeof(ctx) - written,
 									"%s%02x", i == 0 ? "[" : (i == 1 ? "]" : " "),
-									*(_base + rel));
+									contextByte);
 			}
 
 			// Dump the ring of last 16 dispatched opcodes — what was
@@ -160,18 +163,18 @@ Animation::Status Animation::tick() {
 			}
 
 			error("invalid animation opcode 0x%02x while handling %s "
-				  "(absolute file offset 0x%04x = base 0x%04x + pc 0x%04x;\n"
-				  "  context: %s\n"
-				  "  last 16 dispatched: %s)",
-				  *(_base + _offset), _debugInfo,
-				  (uint)(_baseOffset + _offset),
-				  (uint)_baseOffset, (uint)_offset, ctx, ring);
+					  "(absolute file offset 0x%04x = base 0x%04x + pc 0x%04x;\n"
+					  "  context: %s\n"
+					  "  last 16 dispatched: %s)",
+					  opByte, _debugInfo,
+					  (uint)(_baseOffset + _offset),
+					  (uint)_baseOffset, (uint)_offset, ctx, ring);
 		}
 
 		// Push to forensic ring before advancing — captures the byte that
 		// was actually dispatched, at the offset where it was found.
 		_opRing[_opRingIdx].pc = _offset;
-		_opRing[_opRingIdx].op = *(_base + _offset);
+		_opRing[_opRingIdx].op = opByte;
 		_opRingIdx = (_opRingIdx + 1) & 15;
 
 		_offset += 2;
@@ -207,7 +210,8 @@ bool Animation::castWaitComplete() const {
 		return true;
 	if (_ticksLeft != 0)
 		return false;
-	return *(_base + _offset) == 0xff;
+	byte op = 0;
+	return currentScriptByte(op) && op == 0xff;
 }
 
 void Animation::handleTrigger() {
@@ -267,20 +271,112 @@ void Animation::Sprite::paint(Graphics *g) const {
 	g->paint(sprite(), _position);
 }
 
+void Animation::attachScript(Interpreter *interpreter, uint16 baseOffset, uint16 pc) {
+	_scriptInterpreter = interpreter;
+	_base = interpreter ? interpreter->rawCodeChecked(baseOffset, 0) : 0;
+	if (_base) {
+		_baseOffset = baseOffset;
+		_offset = pc;
+	} else {
+		_baseOffset = 0;
+		_offset = 0;
+		_scriptInterpreter = 0;
+	}
+}
+
+void Animation::clearScript() {
+	_base = 0;
+	_baseOffset = 0;
+	_offset = 0;
+	_scriptInterpreter = 0;
+}
+
+void Animation::rebaseScript(uint16 baseOffset) {
+	if (!_scriptInterpreter) {
+		clearScript();
+		return;
+	}
+	attachScript(_scriptInterpreter, baseOffset, 0);
+}
+
+bool Animation::readScriptByte(int32 relative, byte &value, bool warn) const {
+	value = 0;
+	if (!_scriptInterpreter || !_base) {
+		if (warn)
+			warning("Interspective: script byte read through inactive animation %s", _debugInfo);
+		return false;
+	}
+
+	const int32 absolute = int32(_baseOffset) + int32(_offset) + relative;
+	if (absolute < 0 || absolute > 0xffff) {
+		if (warn) {
+			warning("Interspective: script byte read at invalid offset %d "
+					"(base 0x%04x pc 0x%04x rel %+d) in %s",
+					absolute, _baseOffset, _offset, int(relative), _debugInfo);
+		}
+		return false;
+	}
+
+	byte *ptr = _scriptInterpreter->rawCodeChecked(uint16(absolute), 1);
+	if (!ptr)
+		return false;
+	value = *ptr;
+	return true;
+}
+
+bool Animation::readScriptWord(int32 relative, uint16 &value, bool warn) const {
+	value = 0;
+	if (!_scriptInterpreter || !_base) {
+		if (warn)
+			warning("Interspective: script word read through inactive animation %s", _debugInfo);
+		return false;
+	}
+
+	const int32 absolute = int32(_baseOffset) + int32(_offset) + relative;
+	if (absolute < 0 || absolute > 0xffff) {
+		if (warn) {
+			warning("Interspective: script word read at invalid offset %d "
+					"(base 0x%04x pc 0x%04x rel %+d) in %s",
+					absolute, _baseOffset, _offset, int(relative), _debugInfo);
+		}
+		return false;
+	}
+
+	byte *ptr = _scriptInterpreter->rawCodeChecked(uint16(absolute), 2);
+	if (!ptr)
+		return false;
+	value = READ_LE_UINT16(ptr);
+	return true;
+}
+
+bool Animation::currentScriptByte(byte &value) const {
+	return readScriptByte(0, value);
+}
+
 uint16 Animation::shift() {
-	uint16 value = READ_LE_UINT16((_base + _offset));
+	uint16 value = 0;
+	if (!readScriptWord(0, value)) {
+		clearScript();
+		return 0;
+	}
 	_offset += 2;
 	return value;
 }
 
 int8 Animation::shiftByte() {
-	byte value = *(_base + _offset);
+	byte value = 0;
+	if (!readScriptByte(0, value)) {
+		clearScript();
+		return 0;
+	}
 	_offset += 1;
-	return value;
+	return int8(value);
 }
 
 int8 Animation::embeddedByte() const {
-	return reinterpret_cast<int8 *>((_base + _offset))[-1];
+	byte value = 0;
+	readScriptByte(-1, value);
+	return int8(value);
 }
 
 uint8 Animation::animationField(uint8 off) const {
@@ -411,9 +507,7 @@ OPCODE(0x00) {
 
 	if (_castTableRunner)
 		Log.castTableDeactivateAnimation(this);
-	_base = 0;
-	_baseOffset = 0;
-	_offset = 0;
+	clearScript();
 	return _castTableRunner ? kRemove : kOk;
 }
 
@@ -425,9 +519,7 @@ OPCODE(0x01) {
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x01: UnregisterAndEnd (remove active entry) [DOS Op_02]");
 	if (_castTableRunner)
 		Log.castTableDeactivateAnimation(this);
-	_base = 0;
-	_baseOffset = 0;
-	_offset = 0;
+	clearScript();
 
 	return kRemove;
 }
@@ -901,12 +993,7 @@ OPCODE(0x17) {
 	const uint16 jumpTarget = shift();
 	const uint8 mood = animationRecordMood();
 	if (mood == val) {
-		if (_base) {
-			byte *segmentBase = _base - _baseOffset;
-			_base = segmentBase + jumpTarget;
-			_baseOffset = jumpTarget;
-		}
-		_offset = 0;
+		rebaseScript(jumpTarget);
 		setAnimationRecordScriptBase(jumpTarget);
 		debugC(3, kDebugLevelAnimation, "anim opcode 0x17: BranchIfMoodEquals mood=%u val=%u -> rebase to 0x%04x",
 			   mood, val, jumpTarget);

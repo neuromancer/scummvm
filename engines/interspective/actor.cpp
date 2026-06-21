@@ -52,12 +52,14 @@ Actor::Actor(const CodePointer &code) : Animation(code, Common::Point()), _id(0)
 	_actorCallbackSeg = 0xffff;
 	_actorCallbackOff = 0xffff;
 
-	byte *header = code.interpreter() ? code.interpreter()->rawCodeChecked(code.offset(), Size) : 0;
-	_base = header ? header - code.offset() : 0;
+	Interpreter *recordInterpreter = code.interpreter();
+	byte *header = recordInterpreter ? recordInterpreter->rawCodeChecked(code.offset(), Size) : 0;
 	if (header)
-		readHeader(header);
-	else
-		_baseOffset = _offset = _frame = _nextFrame = _room = 0;
+		readHeader(header, recordInterpreter);
+	else {
+		clearScript();
+		_frame = _nextFrame = _room = 0;
+	}
 	snprintf(_debugInfo, 50, "actor at %s", +code);
 
 	Engine::instance().logic()->addAnimation(this);
@@ -100,9 +102,7 @@ void Actor::setAnimation(uint16 offset) {
 	// for those paths, then stores DS:DI into fields +0/+2 and clears BP.
 	// Do not preserve a previous block/cast segment here; only explicit
 	// CodePointer callers (Op_b9/Op_be/etc.) may select block code.
-	_base = Log.mainInterpreter() ? Log.mainInterpreter()->rawCodeChecked(offset) : 0;
-	_baseOffset = _base ? offset : 0;
-	_offset = 0;
+	attachScript(Log.mainInterpreter(), offset);
 	resetActorStateFields();
 	if (_base) {
 		setRecordSegment(actorCodeSegmentTag(_base));
@@ -116,9 +116,7 @@ void Actor::setAnimation(uint16 offset) {
 
 void Actor::setAnimation(const CodePointer &anim) {
 	debugC(3, kDebugLevelScript, "setting animation code of %s to %s", _debugInfo, +anim);
-	_base = anim.code();
-	_baseOffset = anim.offset();
-	_offset = 0;
+	attachScript(anim.interpreter(), anim.offset());
 	resetActorStateFields();
 	setRecordSegment(actorCodeSegmentTag(_base));
 	setRecordScriptBase(_baseOffset);
@@ -153,10 +151,7 @@ void Actor::setActorCodeOffset(uint16 offset) {
 	if (!_base)
 		return;
 
-	byte *segmentBase = _base - _baseOffset;
-	_base = segmentBase + offset;
-	_baseOffset = offset;
-	_offset = 0;
+	rebaseScript(offset);
 	setRecordScriptBase(_baseOffset);
 	setScriptPc(0);
 	_debugInvalid = false;
@@ -165,8 +160,7 @@ void Actor::setActorCodeOffset(uint16 offset) {
 void Actor::hide() {
 	clearSprites();
 	clearMainSprite();
-	_base = 0;
-	_baseOffset = _offset = 0;
+	clearScript();
 	_ticksLeft = 0;
 	_attentionNeeded = false;
 	_confused = false;
@@ -176,9 +170,7 @@ void Actor::hide() {
 }
 
 void Actor::clearScriptPc() {
-	_base = 0;
-	_baseOffset = 0;
-	_offset = 0;
+	clearScript();
 	clearRecordScriptPointer();
 }
 
@@ -199,13 +191,11 @@ void Actor::prepareRoomEntryActiveActor() {
 		Interpreter *const interp = blockSegment ? Log.blockInterpreter() : Log.mainInterpreter();
 		byte *const segmentBase = interp ? interp->rawCodeChecked(0) : 0;
 		if (segmentBase) {
-			_base = interp->rawCodeChecked(codeOffset);
+			attachScript(interp, codeOffset, scriptPc());
 			if (_base) {
-				_baseOffset = codeOffset;
-				_offset = scriptPc();
 				setRecordScriptPointer(actorCodeSegmentTag(segmentBase), codeOffset, _offset);
 			} else {
-				_baseOffset = _offset = 0;
+				clearScript();
 			}
 		}
 	}
@@ -470,14 +460,13 @@ void Actor::synchronize(Common::Serializer &s) {
 
 	switch (baseSource) {
 	case 1:
-		_base = Log.mainInterpreter() ? Log.mainInterpreter()->rawCodeChecked(baseOffset) : 0;
+		attachScript(Log.mainInterpreter(), baseOffset, offset);
 		break;
 	case 2:
-		_base = Log.blockInterpreter() ? Log.blockInterpreter()->rawCodeChecked(baseOffset) : 0;
+		attachScript(Log.blockInterpreter(), baseOffset, offset);
 		break;
 	default:
-		_base = 0;
-		_baseOffset = _offset = 0;
+		clearScript();
 		break;
 	}
 
@@ -503,7 +492,8 @@ void Actor::decrementTicksLeft() {
 	// on every active actor update after the optional script dispatch.
 	_ticksLeft = uint16(_ticksLeft - 1);
 	setRecordTicksLeft(_ticksLeft);
-	if (_ticksLeft == 0 && _base && int8(*(_base + _offset)) == -2) {
+	byte op = 0;
+	if (_ticksLeft == 0 && _base && currentScriptByte(op) && int8(op) == -2) {
 		// DOS 1000:64ed..64f3 marks field +0x64 when the next actor
 		// opcode is ActorOp_02_UnregisterAndEnd (0xfe).
 		setConfusedRecord(true);
@@ -1223,33 +1213,28 @@ void Actor::toggleDebug() {
 	_debug = !_debug;
 }
 
-void Actor::readHeader(const byte *code) {
-	const byte *const headerBase = _base;
+void Actor::readHeader(const byte *code, Interpreter *recordInterpreter) {
 	_interval = code[kOffsetInterval];
 	_ticksLeft = READ_LE_UINT16(code + kOffsetTicksLeft);
 	_zIndex = int8(code[kOffsetDrawLayer]);
 	_position = Common::Point(READ_LE_UINT16(code + kOffsetLeft), READ_LE_UINT16(code + kOffsetTop));
 	const uint16 segment = READ_LE_UINT16(code + kOffsetSegment);
 	const uint16 codeOffset = READ_LE_UINT16(code + kOffsetScriptBase);
-	_offset = READ_LE_UINT16(code + kOffsetScriptPc);
+	const uint16 pc = READ_LE_UINT16(code + kOffsetScriptPc);
 	if (segment != 0) {
-		byte *segmentBase = const_cast<byte *>(headerBase);
 		Interpreter *segmentInterpreter = 0;
 		const uint16 mainSegment = actorCodeSegmentTag(Log.mainInterpreter() ? Log.mainInterpreter()->rawCodeChecked(0) : 0);
 		const uint16 blockSegment = actorCodeSegmentTag(Log.blockInterpreter() ? Log.blockInterpreter()->rawCodeChecked(0) : 0);
 		if (segment == mainSegment && Log.mainInterpreter()) {
 			segmentInterpreter = Log.mainInterpreter();
-			segmentBase = Log.mainInterpreter()->rawCodeChecked(0);
 		} else if ((segment == 1 || segment == blockSegment) && Log.blockInterpreter()) {
 			segmentInterpreter = Log.blockInterpreter();
-			segmentBase = Log.blockInterpreter()->rawCodeChecked(0);
+		} else {
+			segmentInterpreter = recordInterpreter;
 		}
-		_base = segmentInterpreter ? segmentInterpreter->rawCodeChecked(codeOffset)
-								   : (segmentBase ? segmentBase + codeOffset : 0);
-		_baseOffset = _base ? codeOffset : 0;
+		attachScript(segmentInterpreter, codeOffset, pc);
 	} else {
-		_base = 0;
-		_baseOffset = _offset = 0;
+		clearScript();
 	}
 	uint16 sprite = READ_LE_UINT16(code + kOffsetMainSprite);
 	_frame = code[kOffsetFrame];
