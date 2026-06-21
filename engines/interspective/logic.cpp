@@ -73,8 +73,7 @@ Common::Span<const byte> Logic::textSpan(const Common::String &src) {
 }
 
 Common::Span<const byte> Logic::textSpan(const DosMemoryReference &ref) {
-	const byte *ptr = ref.ptr();
-	return ptr ? Common::Span<const byte>(ptr, ref.remaining()) : Common::Span<const byte>();
+	return ref.span();
 }
 
 class BoundedTextReader {
@@ -1693,17 +1692,20 @@ bool Logic::queueDeferred(const CodePointer &p) {
 }
 
 void Logic::startMotionText(uint16 ticks, const byte *text, uint16 length) {
+	if (text && length == 0)
+		length = motionTextStreamLength(text);
+	startMotionText(ticks, text ? Common::Span<const byte>(text, length) : Common::Span<const byte>());
+}
+
+void Logic::startMotionText(uint16 ticks, Common::Span<const byte> text) {
 	_motionTextTicks = ticks;
 	_motionText.clear();
-	if (!text) {
+	if (!text.data() || text.size() == 0) {
 		_motionText.push_back(0);
 		return;
 	}
 
-	if (length == 0)
-		length = motionTextStreamLength(text);
-
-	for (uint i = 0; i < length; ++i)
+	for (uint i = 0; i < text.size(); ++i)
 		_motionText.push_back(text[i]);
 
 	if (_motionText.empty() || _motionText[_motionText.size() - 1] != 0)

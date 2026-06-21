@@ -84,20 +84,14 @@ static uint16 dosResourceOffset(const DosMemoryReference &ref) {
 }
 
 static bool dosMemoryContainsByte(const DosMemoryReference &ref, byte value) {
-	if (!ref.valid())
-		return false;
-	const byte *ptr = ref.ptr();
-	const uint16 remaining = ref.remaining();
-	for (uint16 i = 0; i < remaining; ++i) {
-		if (ptr[i] == value)
-			return true;
-	}
-	return false;
+	return ref.containsByte(value);
 }
 
-static const byte *rawScriptBytes(Value &arg) {
+static Common::Span<const byte> rawScriptSpan(Value &arg) {
 	DosMemoryReference ref;
-	return arg.memoryReference(ref) ? ref.ptr() : nullptr;
+	if (!arg.memoryReference(ref) || arg.rawLength() == 0)
+		return Common::Span<const byte>();
+	return ref.span(0, arg.rawLength());
 }
 
 static Common::Span<const byte> scriptTextSpanOrTranslated(Value &arg) {
@@ -122,48 +116,48 @@ static void clearDosPascalBufferAt(const DosMemoryReference &ref) {
 	if (!ref.valid())
 		return;
 
-	byte *length = ref.ptr(1);
-	if (!length) {
+	if (!ref.writeByte(1, 0)) {
 		warning("Interspective: Pascal buffer 0x%04x has no length byte",
 				ref.offset());
 		return;
 	}
 
-	*length = 0;
 	if (ref.offset() >= 0x8000)
 		return;
 
 	const uint16 dosClear = uint16(0x8000 - ref.offset() - 1);
-	const uint16 available = ref.remaining() > 1 ? uint16(ref.remaining() - 1) : 0;
+	const uint16 available = ref.remainingFrom(1);
 	const uint16 count = MIN<uint16>(dosClear, available);
-	if (count != 0)
-		memset(length, 0, count);
+	if (count != 0 && !ref.fillBytes(1, count, 0)) {
+		warning("Interspective: Pascal buffer clear at 0x%04x+1 outside segment",
+				ref.offset());
+	}
 }
 
 static void appendDosPascalByteAt(const DosMemoryReference &ref, byte ch) {
 	if (!ref.valid())
 		return;
 
-	byte *capacityPtr = ref.ptr(0);
-	byte *lengthPtr = ref.ptr(1);
-	if (!capacityPtr || !lengthPtr) {
+	byte capacityByte = 0;
+	byte lengthByte = 0;
+	if (!ref.readByte(0, capacityByte) || !ref.readByte(1, lengthByte)) {
 		warning("Interspective: Pascal buffer 0x%04x missing header",
 				ref.offset());
 		return;
 	}
 
-	const int8 capacity = int8(*capacityPtr);
-	const int8 length = int8(*lengthPtr);
+	const int8 capacity = int8(capacityByte);
+	const int8 length = int8(lengthByte);
 	if (length < capacity) {
-		const byte oldLength = *lengthPtr;
-		byte *dst = ref.ptr(uint16(oldLength + 2));
-		if (!dst) {
+		const byte oldLength = lengthByte;
+		const uint16 dstOffset = uint16(oldLength + 2);
+		if (!ref.contains(dstOffset)) {
 			warning("Interspective: Pascal buffer append at 0x%04x+%u outside segment",
 					ref.offset(), uint(oldLength + 2));
 			return;
 		}
-		++*lengthPtr;
-		*dst = ch;
+		ref.writeByte(1, uint8(oldLength + 1));
+		ref.writeByte(dstOffset, ch);
 	}
 }
 
@@ -171,23 +165,22 @@ static void popDosPascalByteAt(const DosMemoryReference &ref) {
 	if (!ref.valid())
 		return;
 
-	byte *lengthPtr = ref.ptr(1);
-	if (!lengthPtr) {
+	byte oldLength = 0;
+	if (!ref.readByte(1, oldLength)) {
 		warning("Interspective: Pascal buffer 0x%04x has no length byte",
 				ref.offset());
 		return;
 	}
 
-	const byte oldLength = *lengthPtr;
 	if (oldLength != 0) {
-		byte *last = ref.ptr(uint16(oldLength + 1));
-		if (!last) {
+		const uint16 lastOffset = uint16(oldLength + 1);
+		if (!ref.contains(lastOffset)) {
 			warning("Interspective: Pascal buffer pop at 0x%04x+%u outside segment",
 					ref.offset(), uint(oldLength + 1));
 			return;
 		}
-		*lengthPtr = oldLength - 1;
-		*last = 0;
+		ref.writeByte(1, oldLength - 1);
+		ref.writeByte(lastOffset, 0);
 	}
 }
 
@@ -1838,12 +1831,12 @@ OPCODE(0x56) {
 	}
 	const uint16 frames = uint16(a[0]);
 	const byte *translatedText = a[1].bytePointer();
-	const byte *rawText = rawScriptBytes(a[1]);
-	const byte *text = rawText ? rawText : translatedText;
-	const uint16 textLength = rawText ? a[1].rawLength() : 0;
+	Common::Span<const byte> text = rawScriptSpan(a[1]);
+	if (!text.data())
+		text = Logic::textSpan(translatedText);
 	debugC(2, kDebugLevelScript, "opcode 0x56: motion text frames=%u text='%s'",
 		   frames, translatedText ? reinterpret_cast<const char *>(translatedText) : "(null)");
-	Log.startMotionText(frames, text, textLength);
+	Log.startMotionText(frames, text);
 	return kThxBye;
 }
 
@@ -3147,7 +3140,8 @@ OPCODE(0xf4) {
 		debugC(1, kDebugLevelMusic | kDebugLevelScript,
 			   "Interspective music: opcode 0xf4 emitted (call #%d, script offset 0x%04x)",
 			   op_f4_calls, scriptOff);
-	Music.loadMusic(scriptRef.ptr(), scriptRef.remaining());
+	const Common::Span<const byte> script = scriptRef.span();
+	Music.loadMusic(script.data(), script.size());
 	return kThxBye;
 }
 

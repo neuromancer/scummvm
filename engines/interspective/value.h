@@ -26,6 +26,7 @@
 #include "common/endian.h"
 #include "common/noncopyable.h"
 #include "common/ptr.h"
+#include "common/span.h"
 
 #include "interspective/debug.h"
 
@@ -56,6 +57,9 @@ public:
 	uint16 size() const { return _size; }
 	uint16 offset() const { return _offset; }
 	uint16 remaining() const { return valid() ? uint16(_size - _offset) : 0; }
+	uint16 remainingFrom(uint16 relativeOffset) const {
+		return contains(relativeOffset, 0) ? uint16(_size - uint32(_offset) - relativeOffset) : 0;
+	}
 
 	bool contains(uint16 relativeOffset, uint16 length = 1) const {
 		if (!valid())
@@ -66,6 +70,64 @@ public:
 
 	byte *ptr(uint16 relativeOffset = 0) const {
 		return contains(relativeOffset) ? _base + _offset + relativeOffset : nullptr;
+	}
+
+	Common::Span<const byte> span(uint16 relativeOffset = 0) const {
+		const uint16 count = remainingFrom(relativeOffset);
+		return count != 0 ? Common::Span<const byte>(_base + _offset + relativeOffset, count)
+						  : Common::Span<const byte>();
+	}
+
+	Common::Span<const byte> span(uint16 relativeOffset, uint16 length) const {
+		return contains(relativeOffset, length)
+				   ? Common::Span<const byte>(_base + _offset + relativeOffset, length)
+				   : Common::Span<const byte>();
+	}
+
+	Common::Span<byte> mutableSpan(uint16 relativeOffset = 0) const {
+		const uint16 count = remainingFrom(relativeOffset);
+		return count != 0 ? Common::Span<byte>(_base + _offset + relativeOffset, count)
+						  : Common::Span<byte>();
+	}
+
+	Common::Span<byte> mutableSpan(uint16 relativeOffset, uint16 length) const {
+		return contains(relativeOffset, length)
+				   ? Common::Span<byte>(_base + _offset + relativeOffset, length)
+				   : Common::Span<byte>();
+	}
+
+	bool readByte(uint16 relativeOffset, byte &value) const {
+		value = 0;
+		if (!contains(relativeOffset))
+			return false;
+		value = _base[_offset + relativeOffset];
+		return true;
+	}
+
+	bool writeByte(uint16 relativeOffset, byte value) const {
+		if (!contains(relativeOffset))
+			return false;
+		_base[_offset + relativeOffset] = value;
+		return true;
+	}
+
+	bool fillBytes(uint16 relativeOffset, uint16 length, byte value) const {
+		if (!contains(relativeOffset, length))
+			return false;
+		for (uint16 i = 0; i < length; ++i)
+			_base[_offset + relativeOffset + i] = value;
+		return true;
+	}
+
+	bool containsByte(byte value) const {
+		if (!valid())
+			return false;
+		const uint16 count = remaining();
+		for (uint16 i = 0; i < count; ++i) {
+			if (_base[_offset + i] == value)
+				return true;
+		}
+		return false;
 	}
 
 private:

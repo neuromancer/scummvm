@@ -1103,6 +1103,7 @@ public:
 
 	bool motionTextActive() const { return _motionTextTicks != 0; }
 	void startMotionText(uint16 ticks, const byte *text, uint16 length);
+	void startMotionText(uint16 ticks, Common::Span<const byte> text);
 	void tickMotionText();
 	void paintMotionText();
 
