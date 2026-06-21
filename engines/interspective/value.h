@@ -147,30 +147,6 @@ private:
 	uint16 _value;
 };
 
-class ByteVariable : public Value {
-public:
-	ByteVariable(byte *ptr) : _ptr(ptr) {}
-	virtual Value &operator=(uint16 value) {
-		*_ptr = uint8(value);
-		return *this;
-	}
-	virtual operator uint16() const { return *_ptr; }
-
-private:
-	byte *_ptr;
-};
-
-class WordVariable : public Value {
-public:
-	WordVariable(byte *ptr) : _ptr(ptr) {}
-	virtual operator uint16() const { return READ_LE_UINT16(_ptr); }
-	virtual Value &operator=(uint16 value);
-	virtual Value &operator=(const Value &other) { return *this = uint16(other); }
-
-private:
-	byte *_ptr;
-};
-
 class ValueVector : private Common::NonCopyable {
 public:
 	void push_back(Value *element) { _values.push_back(Common::ScopedPtr<Value>(element)); }

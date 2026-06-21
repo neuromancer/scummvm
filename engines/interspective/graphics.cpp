@@ -1201,8 +1201,8 @@ static Common::Array<byte> normalizeBubbleInput(Common::Span<const byte> string)
 		// path feeds already-formatted text with markers stripped. Do NOT
 		// "classify by raw value to preserve 0x0a markers" here -- that mistakes
 		// the byte after a speech newline for a 2-byte global-var offset and
-		// over-reads the byte table (ASan heap-buffer-overflow in
-		// formatBubbleText's globalByte; getGlobalByteVariable is unchecked).
+		// over-reads the byte table (formerly an ASan heap-buffer-overflow
+		// in formatBubbleText's global-byte lookup).
 		byte ch = string.data()[pos++];
 		if (ch == '\n')
 			ch = '\r';

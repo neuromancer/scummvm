@@ -549,7 +549,7 @@ OPCODE(0x03) {
 
 OPCODE(0x04) {
 	uint16 offset = shift();
-	uint8 interval = uint8(READ_LE_UINT16(_resources->getGlobalWordVariable(offset / 2)));
+	uint8 interval = uint8(_resources->globalWordAtByteOffset(offset));
 
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x04: set interval to %d (from var %d)", interval, offset / 2);
 
@@ -588,7 +588,7 @@ OPCODE(0x06) {
 
 OPCODE(0x07) {
 	uint16 var = shift();
-	uint16 sprite = READ_LE_UINT16(_resources->getGlobalWordVariable(var / 2));
+	uint16 sprite = _resources->globalWordAtByteOffset(var);
 
 	setMainSprite(sprite);
 
@@ -673,7 +673,7 @@ OPCODE(0x10) {
 	uint16 var = shift();
 
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x10: set bvar %d", var);
-	*_resources->getGlobalByteVariable(var) = 1;
+	_resources->setGlobalByte(var, 1);
 
 	return kOk;
 }
@@ -682,7 +682,7 @@ OPCODE(0x11) {
 	uint16 var = shift();
 
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x11: reset flag %d", var);
-	*_resources->getGlobalByteVariable(var) = 0;
+	_resources->setGlobalByte(var, 0);
 
 	return kOk;
 }
@@ -690,7 +690,7 @@ OPCODE(0x11) {
 OPCODE(0x12) {
 	uint16 var = shift();
 	uint16 off = shift();
-	byte ok = *_resources->getGlobalByteVariable(var);
+	byte ok = _resources->globalByte(var);
 
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x12: jump to 0x%x if byte var %d (%s)", off, var, ok ? "yes" : "not");
 

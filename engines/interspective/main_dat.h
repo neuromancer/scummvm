@@ -109,8 +109,10 @@ public:
 	uint16 scoreEventCount() const;
 	bool claimScoreEvent(uint16 eventId, uint16 &delta);
 
-	byte *getByteVariable(uint16 index);
-	byte *getWordVariable(uint16 index);
+	byte byteVariable(uint16 index) const;
+	void setByteVariable(uint16 index, byte value);
+	uint16 wordVariable(uint16 index) const;
+	void setWordVariable(uint16 index, uint16 value);
 	uint16 getRoomScriptId(uint16 room) const;
 	uint16 getGlyphSpriteId(byte character) const;
 

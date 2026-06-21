@@ -669,16 +669,52 @@ Common::List<MainDat::SfxFile> MainDat::sfxFiles() const {
 	return files;
 }
 
-byte *MainDat::getByteVariable(uint16 index) {
+byte MainDat::byteVariable(uint16 index) const {
 	const MainDatFooter footer(_footer);
 	const MainDatSegment segment(data(), _dataLen);
-	return segment.mutablePtr(uint32(footer.byteVarsOffset()) + index);
+	const uint32 offset = uint32(footer.byteVarsOffset()) + index;
+	if (!segment.contains(offset, 1)) {
+		warning("MainDat::byteVariable: index %u outside iuc_main.dat (offset=0x%04x)",
+				index, uint(offset));
+		return 0;
+	}
+	return *segment.ptr(offset);
 }
 
-byte *MainDat::getWordVariable(uint16 index) {
+void MainDat::setByteVariable(uint16 index, byte value) {
 	const MainDatFooter footer(_footer);
 	const MainDatSegment segment(data(), _dataLen);
-	return segment.mutablePtr(uint32(footer.wordVarsOffset()) + uint32(index) * 2);
+	const uint32 offset = uint32(footer.byteVarsOffset()) + index;
+	if (!segment.contains(offset, 1)) {
+		warning("MainDat::setByteVariable: index %u outside iuc_main.dat (offset=0x%04x)",
+				index, uint(offset));
+		return;
+	}
+	*segment.mutablePtr(offset) = value;
+}
+
+uint16 MainDat::wordVariable(uint16 index) const {
+	const MainDatFooter footer(_footer);
+	const MainDatSegment segment(data(), _dataLen);
+	const uint32 offset = uint32(footer.wordVarsOffset()) + uint32(index) * 2;
+	if (!segment.contains(offset, 2)) {
+		warning("MainDat::wordVariable: index %u outside iuc_main.dat (offset=0x%04x)",
+				index, uint(offset));
+		return 0;
+	}
+	return segment.wordAt(offset);
+}
+
+void MainDat::setWordVariable(uint16 index, uint16 value) {
+	const MainDatFooter footer(_footer);
+	const MainDatSegment segment(data(), _dataLen);
+	const uint32 offset = uint32(footer.wordVarsOffset()) + uint32(index) * 2;
+	if (!segment.contains(offset, 2)) {
+		warning("MainDat::setWordVariable: index %u outside iuc_main.dat (offset=0x%04x)",
+				index, uint(offset));
+		return;
+	}
+	segment.writeWordAt(offset, value);
 }
 
 uint16 MainDat::interfaceImageIndex() const {

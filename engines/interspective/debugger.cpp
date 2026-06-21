@@ -111,7 +111,7 @@ CMD(setVar) {
 			int var = atoi(argv[2]);
 			int val = atoi(argv[3]);
 			debugPrintf("word[%d] = %d\n", var, val);
-			WRITE_LE_UINT16(_vm->resources()->getGlobalWordVariable(var), val);
+			_vm->resources()->setGlobalWord(var, val);
 		}
 	} else
 		debugPrintf("Syntax: break <event>     (events are: click)\n");

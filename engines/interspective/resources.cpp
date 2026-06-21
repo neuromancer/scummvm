@@ -205,12 +205,26 @@ void Resources::loadActors() {
 	_main.get()->loadObjectStates();
 }
 
-byte *Resources::getGlobalByteVariable(uint16 var) const {
-	return _main.get()->getByteVariable(var);
+byte Resources::globalByte(uint16 byteOffset) const {
+	return _main ? _main->byteVariable(byteOffset) : 0;
 }
 
-byte *Resources::getGlobalWordVariable(uint16 var) const {
-	return _main.get()->getWordVariable(var);
+void Resources::setGlobalByte(uint16 byteOffset, byte value) const {
+	if (_main)
+		_main->setByteVariable(byteOffset, value);
+}
+
+uint16 Resources::globalWord(uint16 wordIndex) const {
+	return _main ? _main->wordVariable(wordIndex) : 0;
+}
+
+void Resources::setGlobalWord(uint16 wordIndex, uint16 value) const {
+	if (_main)
+		_main->setWordVariable(wordIndex, value);
+}
+
+uint16 Resources::globalWordAtByteOffset(uint16 byteOffset) const {
+	return globalWord(byteOffset / 2);
 }
 
 void Resources::loadGraphicFiles() {

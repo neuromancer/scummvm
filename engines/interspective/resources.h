@@ -106,8 +106,11 @@ public:
 
 	static void descramble(byte *data, uint32 length);
 
-	byte *getGlobalByteVariable(uint16 var) const;
-	byte *getGlobalWordVariable(uint16 var) const;
+	byte globalByte(uint16 byteOffset) const;
+	void setGlobalByte(uint16 byteOffset, byte value) const;
+	uint16 globalWord(uint16 wordIndex) const;
+	void setGlobalWord(uint16 wordIndex, uint16 value) const;
+	uint16 globalWordAtByteOffset(uint16 byteOffset) const;
 
 	Surface *loadBackdrop(uint16 index, byte *palette);
 

@@ -2020,7 +2020,7 @@ OPCODE(0x04) {
 	//   writes its low byte to [SI+0x10] = Animation::_interval.
 	// Writes _interval per DOS; do not update _frame.
 	const uint16 offset = shift();
-	const uint16 word = READ_LE_UINT16(_resources->getGlobalWordVariable(offset / 2));
+	const uint16 word = _resources->globalWordAtByteOffset(offset);
 	const uint8 interval = uint8(word);
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x04: SetIntervalFromGlobal var[%u/2]=0x%04x → %u [DOS Op_05]",
 		   offset, word, interval);
@@ -2076,7 +2076,7 @@ OPCODE(0x07) {
 	// 1 shift. Reads global word var at index (offset/2), uses as
 	// indirect target. Same field-write semantic as 0x06 — NOT a walk.
 	const uint16 offset = shift();
-	const uint16 target = READ_LE_UINT16(_resources->getGlobalWordVariable(offset / 2));
+	const uint16 target = _resources->globalWordAtByteOffset(offset);
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x07: SetTargetFrameFromGlobal var[%u/2]=%u [DOS Op_08]",
 		   offset, target);
 	setMainSprite(target);
@@ -2203,7 +2203,7 @@ OPCODE(0x10) {
 	// 1 int16 offset (1 shift = 2 bytes), writes 1 to global byte var.
 	uint16 var = shift();
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x10: SetGlobalByteFlag var %d = 1 [DOS Op_11]", var);
-	*_resources->getGlobalByteVariable(var) = 1;
+	_resources->setGlobalByte(var, 1);
 	return kOk;
 }
 
@@ -2212,7 +2212,7 @@ OPCODE(0x11) {
 	// 1 int16 offset (1 shift), writes 0 to global byte var.
 	uint16 var = shift();
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x11: ClearGlobalByteFlag var %d = 0 [DOS Op_12]", var);
-	*_resources->getGlobalByteVariable(var) = 0;
+	_resources->setGlobalByte(var, 0);
 	return kOk;
 }
 
@@ -2223,7 +2223,7 @@ OPCODE(0x12) {
 	// jump to target, else ADD BP,6 (skip 6-byte opcode). 2 shifts total.
 	uint16 var = shift();
 	uint16 off = shift();
-	byte ok = *_resources->getGlobalByteVariable(var);
+	byte ok = _resources->globalByte(var);
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x12: JumpIfByteVar var=%u off=0x%04x val=%u [DOS Op_13]", var, off, ok);
 	if (ok)
 		_offset = off;

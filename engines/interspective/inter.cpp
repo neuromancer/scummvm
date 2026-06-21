@@ -363,28 +363,44 @@ Constant *Interpreter::readArgument<Constant>(BytecodeCursor &code) {
 	return new Constant(value);
 }
 
-class GlobalByteVariable : public ByteVariable {
+class GlobalByteVariable : public Value {
 public:
-	GlobalByteVariable(uint16 index, Resources *res) : ByteVariable(res->getGlobalByteVariable(index)), _index(index) {}
+	GlobalByteVariable(uint16 index, Resources *res) : _resources(res), _index(index) {}
+	virtual operator uint16() const { return _resources ? _resources->globalByte(_index) : 0; }
+	virtual Value &operator=(uint16 value) {
+		if (_resources)
+			_resources->setGlobalByte(_index, uint8(value));
+		return *this;
+	}
 	virtual const char *operator+() const {
 		snprintf(_inspect, 27, "global byte variable %d [%d]", _index, byte(*this));
 		return _inspect;
 	}
 
 private:
+	Resources *_resources;
 	mutable char _inspect[27];
 	const uint16 _index;
 };
 
-class GlobalWordVariable : public WordVariable {
+class GlobalWordVariable : public Value {
 public:
-	GlobalWordVariable(uint16 index, Resources *res) : WordVariable(res->getGlobalWordVariable(index)), _index(index) {}
+	GlobalWordVariable(uint16 index, Resources *res) : _resources(res), _index(index) {}
+	virtual operator uint16() const { return _resources ? _resources->globalWord(_index) : 0; }
+	virtual Value &operator=(uint16 value) {
+		debugC(1, kDebugLevelValues, "setting %s to %d", +*this, value);
+		if (_resources)
+			_resources->setGlobalWord(_index, value);
+		return *this;
+	}
+	virtual Value &operator=(const Value &other) { return *this = uint16(other); }
 	virtual const char *operator+() const {
 		snprintf(_inspect, 33, "global word variable %d [%d]", _index, uint16(*this));
 		return _inspect;
 	}
 
 private:
+	Resources *_resources;
 	mutable char _inspect[33];
 	const uint16 _index;
 };
@@ -557,7 +573,7 @@ static bool decodeParametrizedString(Resources *resources, BytecodeCursor &code,
 		case kStringGlobalWord: {
 			if (!resources || !code.readUint16(offset))
 				return false;
-			value = READ_LE_UINT16(resources->getGlobalWordVariable(offset / 2));
+			value = resources->globalWordAtByteOffset(offset);
 			const uint remaining = uint(strEnd - str);
 			const int written = snprintf(reinterpret_cast<char *>(str), remaining + 1, "%d", value);
 			if (written < 0 || uint(written) > remaining)
@@ -580,7 +596,7 @@ static bool decodeParametrizedString(Resources *resources, BytecodeCursor &code,
 			// STX (0x02) when the condition matches. The raw string remains
 			// available via rawPointer(); the translated buffer should only
 			// contain text that survives the same condition.
-			const byte state = *resources->getGlobalByteVariable(offset);
+			const byte state = resources->globalByte(offset);
 			const bool skip = (ch == kStringCountSpacesIf0) ? (state == 0) : (state != 0);
 			if (skip) {
 				while (true) {

@@ -2916,13 +2916,13 @@ Logic::FormattedBubble Logic::formatBubbleText(Common::Span<const byte> src) con
 	auto globalByte = [this](uint16 offset) -> byte {
 		if (!_resources)
 			return 0;
-		return *_resources->getGlobalByteVariable(offset);
+		return _resources->globalByte(offset);
 	};
 
 	auto globalWord = [this](uint16 offset) -> uint16 {
 		if (!_resources)
 			return 0;
-		return READ_LE_UINT16(_resources->getGlobalWordVariable(offset / 2));
+		return _resources->globalWordAtByteOffset(offset);
 	};
 
 	auto skipMarkupBlockToStx = [&]() {
@@ -3129,13 +3129,13 @@ Logic::FormattedBubble Logic::measureVerbBubbleText(Common::Span<const byte> src
 	auto globalByte = [this](uint16 offset) -> byte {
 		if (!_resources)
 			return 0;
-		return *_resources->getGlobalByteVariable(offset);
+		return _resources->globalByte(offset);
 	};
 
 	auto globalWord = [this](uint16 offset) -> uint16 {
 		if (!_resources)
 			return 0;
-		return READ_LE_UINT16(_resources->getGlobalWordVariable(offset / 2));
+		return _resources->globalWordAtByteOffset(offset);
 	};
 
 	auto charPixelWidth = [g](byte ch) -> uint16 {
@@ -3244,13 +3244,13 @@ Common::String Logic::prepareTextStrippedForRender(Common::Span<const byte> src,
 	auto globalByte = [this](uint16 offset) -> byte {
 		if (!_resources)
 			return 0;
-		return *_resources->getGlobalByteVariable(offset);
+		return _resources->globalByte(offset);
 	};
 
 	auto globalWord = [this](uint16 offset) -> uint16 {
 		if (!_resources)
 			return 0;
-		return READ_LE_UINT16(_resources->getGlobalWordVariable(offset / 2));
+		return _resources->globalWordAtByteOffset(offset);
 	};
 
 	auto skipMarkupBlockToStx = [&]() {

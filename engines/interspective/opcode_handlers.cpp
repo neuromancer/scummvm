@@ -933,7 +933,7 @@ static bool appendRawModalChoices(Common::Span<const byte> src, Common::Array<by
 			const uint16 offset = readUint16LE();
 			if (truncated)
 				break;
-			const byte state = res ? *res->getGlobalByteVariable(offset) : 0;
+			const byte state = res ? res->globalByte(offset) : 0;
 			if ((marker == 0x0a && state == 0) || (marker == 0x0b && state != 0))
 				visible = false;
 		} else if (marker == 0x0e) {
@@ -942,7 +942,7 @@ static bool appendRawModalChoices(Common::Span<const byte> src, Common::Array<by
 			const uint16 expected = readUint16LE();
 			if (truncated)
 				break;
-			const uint16 state = res ? READ_LE_UINT16(res->getGlobalWordVariable(offset / 2)) : 0;
+			const uint16 state = res ? res->globalWordAtByteOffset(offset) : 0;
 			if (state != expected)
 				visible = false;
 		}
@@ -1345,8 +1345,8 @@ OPCODE(0x10) {
 	//   if (AX > tick (signed JG)) skip
 	//   else { StoreOpcodeArg0Value(0); run; }
 	// SIGNED comparison. Pairs with Op_ed which writes the deadline.
-	// C++ writes 0 back via `a[0] = 0` — works when arg0 is a
-	// WordVariable/ByteVariable (reaches _ptr); no-op for Constant.
+	// C++ writes 0 back via `a[0] = 0` — works when arg0 is a global
+	// variable Value; no-op for Constant.
 	int16 deadline = int16(uint16(a[0]));
 	int16 now = int16(uint16(Log.frameTicks()));
 	if (deadline != 0 && deadline <= now) {
@@ -4331,7 +4331,7 @@ OPCODE(0x5f) {
 // matched entry's segment is written to arg2's LHS). C++ implements
 // these via the ValueVector's `a[2] = arg1` write, which dispatches
 // to the underlying Value's operator= (writes to the variable slot
-// when the slot is WordVariable/ByteVariable, no-op for Constant).
+// when the slot is a writable global variable Value, no-op for Constant).
 OPCODE(0x61) {
 	// DOS Op_61_ReadExitField @ 1000:411b:
 	//   1. ResolveOpcodeArg0 (exit id);
