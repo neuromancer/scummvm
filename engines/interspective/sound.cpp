@@ -26,6 +26,7 @@
 #include "common/endian.h"
 #include "common/file.h"
 #include "common/serializer.h"
+#include "common/span.h"
 #include "common/str.h"
 #include "common/system.h"
 
@@ -50,10 +51,6 @@ static uint32 alignedEvenSize(uint32 size) {
 	return (size + 1) & ~uint32(1);
 }
 
-static uint32 readUint24LE(const byte *p) {
-	return uint32(p[0]) | (uint32(p[1]) << 8) | (uint32(p[2]) << 16);
-}
-
 static int vocRateFromTimeConstant(uint8 tc) {
 	const int denom = 256 - tc;
 	return denom > 0 ? MAX<int>(1000, 1000000 / denom) : 11025;
@@ -73,6 +70,12 @@ static void appendBytes(Common::Array<byte> &out, const byte *src, uint32 len) {
 	memcpy(&out[oldSize], src, len);
 }
 
+static void appendBytes(Common::Array<byte> &out, Common::Span<const byte> src) {
+	if (!src.data() || src.size() == 0)
+		return;
+	appendBytes(out, src.data(), src.size());
+}
+
 static void appendSilence(Common::Array<byte> &out, uint32 samples) {
 	if (samples == 0)
 		return;
@@ -81,7 +84,7 @@ static void appendSilence(Common::Array<byte> &out, uint32 samples) {
 	memset(&out[oldSize], 0x80, samples);
 }
 
-static bool parseVocSfxBlocks(const byte *data, uint32 size, Common::Array<byte> &pcm,
+static bool parseVocSfxBlocks(Common::Span<const byte> data, Common::Array<byte> &pcm,
 							  int &rate, bool &loop) {
 	uint32 pos = 0;
 	uint32 repeatStart = 0;
@@ -92,42 +95,42 @@ static bool parseVocSfxBlocks(const byte *data, uint32 size, Common::Array<byte>
 
 	rate = 11025;
 	loop = false;
-	while (pos < size) {
-		const byte blockType = data[pos++];
+	while (pos < data.size()) {
+		const byte blockType = data.getUint8At(pos++);
 		if (blockType == 0)
 			return !pcm.empty();
-		if (pos + 3 > size)
+		if (pos + 3 > data.size())
 			return !pcm.empty();
 
-		const uint32 blockLen = readUint24LE(data + pos);
+		const uint32 blockLen = data.getUint24LEAt(pos);
 		pos += 3;
-		if (blockLen > size - pos)
+		if (blockLen > data.size() - pos)
 			return !pcm.empty();
 
-		const byte *payload = data + pos;
+		const Common::Span<const byte> payload = data.subspan(pos, blockLen);
 		switch (blockType) {
 		case 1:
 			if (blockLen >= 2) {
 				if (!haveExtendedRate)
-					rate = vocRateFromTimeConstant(payload[0]);
-				appendBytes(pcm, payload + 2, blockLen - 2);
+					rate = vocRateFromTimeConstant(payload.getUint8At(0));
+				appendBytes(pcm, payload.subspan(2));
 			}
 			haveExtendedRate = false;
 			break;
 		case 2:
-			appendBytes(pcm, payload, blockLen);
+			appendBytes(pcm, payload);
 			break;
 		case 3:
 			if (blockLen >= 3) {
 				if (!haveExtendedRate)
-					rate = vocRateFromTimeConstant(payload[2]);
-				appendSilence(pcm, uint32(READ_LE_UINT16(payload)) + 1);
+					rate = vocRateFromTimeConstant(payload.getUint8At(2));
+				appendSilence(pcm, uint32(payload.getUint16LEAt(0)) + 1);
 			}
 			break;
 		case 6:
 			if (blockLen >= 2) {
 				repeatStart = pcm.size();
-				repeatCount = READ_LE_UINT16(payload);
+				repeatCount = payload.getUint16LEAt(0);
 				repeatActive = true;
 				if (repeatCount == 0xffff)
 					loop = true;
@@ -144,16 +147,16 @@ static bool parseVocSfxBlocks(const byte *data, uint32 size, Common::Array<byte>
 			break;
 		case 8:
 			if (blockLen >= 4) {
-				const uint8 channels = uint8(payload[3] + 1);
-				extendedRate = vocRateFromExtendedTimeConstant(READ_LE_UINT16(payload), channels);
+				const uint8 channels = uint8(payload.getUint8At(3) + 1);
+				extendedRate = vocRateFromExtendedTimeConstant(payload.getUint16LEAt(0), channels);
 				rate = extendedRate;
 				haveExtendedRate = true;
 			}
 			break;
 		case 9:
-			if (blockLen >= 12 && payload[6] == 8 && payload[8] == 0) {
-				rate = int(READ_LE_UINT32(payload));
-				appendBytes(pcm, payload + 12, blockLen - 12);
+			if (blockLen >= 12 && payload.getUint8At(6) == 8 && payload.getUint8At(8) == 0) {
+				rate = int(payload.getUint32LEAt(0));
+				appendBytes(pcm, payload.subspan(12));
 			}
 			break;
 		default:
@@ -391,7 +394,7 @@ bool Sound::loadSfxSample(uint16 id, Common::Array<byte> &pcm, int &rate, bool &
 		return false;
 
 	pcm.clear();
-	return parseVocSfxBlocks(&raw[0], raw.size(), pcm, rate, loop);
+	return parseVocSfxBlocks(Common::Span<const byte>(&raw[0], raw.size()), pcm, rate, loop);
 }
 
 bool Sound::loadRolandSfxTune(uint16 id, Common::Array<byte> &tune) const {
@@ -420,7 +423,8 @@ bool Sound::loadRolandSfxTune(uint16 id, Common::Array<byte> &tune) const {
 	if (file.read(&tune[0], bytes) != bytes)
 		return false;
 
-	const uint16 beatCount = READ_LE_UINT16(&tune[0x21]);
+	const Common::Span<const byte> tuneData(&tune[0], tune.size());
+	const uint16 beatCount = tuneData.getUint16LEAt(0x21);
 	const uint32 channelBase = 0x25 + uint32(beatCount) * 8;
 	return beatCount != 0 && channelBase < tune.size() && channelBase + 16 <= tune.size();
 }

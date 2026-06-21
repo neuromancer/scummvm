@@ -27,6 +27,7 @@
 #include "common/noncopyable.h"
 #include "common/queue.h"
 #include "common/singleton.h"
+#include "common/span.h"
 
 #include "audio/mididrv.h"
 #include "audio/midiparser.h"
@@ -48,7 +49,7 @@ public:
 	};
 
 	MusicCommand();
-	MusicCommand(const byte *code);
+	MusicCommand(Common::Span<const byte> code);
 	bool empty() const;
 	void exec(byte channel, Note *note = 0);
 
@@ -60,20 +61,20 @@ private:
 class Note {
 public:
 	Note();
-	Note(const byte *data, byte index);
+	Note(Common::Span<const byte> data, byte index);
 	MusicCommand::Status parseNextEvent(EventInfo &info);
 	uint32 delta() const;
 	void reset();
 	void tick(byte channel);
 	byte note() const;
 	void setNote(byte n);
-	bool isActive() const { return _begin != 0; }
+	bool isActive() const { return _data.data() != 0; }
 
 private:
 	void checkDelta() const;
-	mutable const byte *_data;
+	mutable Common::Span<const byte> _data;
+	mutable uint32 _pos;
 	mutable uint32 _tick;
-	const byte *_begin;
 	byte _index;
 	byte _channel;
 };
@@ -82,7 +83,7 @@ class Channel {
 public:
 	bool isActive() const { return _active; }
 	Channel();
-	Channel(const byte *def, const byte *tune, byte chanidx);
+	Channel(Common::Span<const byte> def, Common::Span<const byte> tune, byte chanidx);
 	MusicCommand::Status parseNextEvent(EventInfo &info);
 	uint32 delta() const;
 	void reset();
@@ -102,7 +103,7 @@ private:
 class Beat {
 public:
 	Beat();
-	Beat(const byte *def, const byte *channels, const byte *tune);
+	Beat(Common::Span<const byte> def, Common::Span<const byte> channels, Common::Span<const byte> tune);
 	bool hasNoteSlot(byte channel, byte note) const;
 	uint activeChannels() const {
 		uint n = 0;
@@ -148,10 +149,10 @@ private:
 class MusicScript : public Common::NonCopyable {
 public:
 	MusicScript();
-	MusicScript(const byte *data);
+	MusicScript(const byte *data, uint32 size = 0);
 	void parseNextEvent(EventInfo &info);
 	void tick();
-	uint16 getTune() const { return READ_LE_UINT16(_code); }
+	uint16 getTune() const;
 	const byte *base() const { return _code; }
 	uint16 offset() const { return _offset; }
 	void setOffset(uint16 offset) { _offset = offset; }
@@ -159,7 +160,12 @@ public:
 	friend class Note;
 
 private:
+	bool canRead(uint32 offset, uint32 count) const;
+	bool readByteAt(uint32 offset, byte &value) const;
+	bool readUint16LEAt(uint32 offset, uint16 &value) const;
+
 	const byte *_code;
+	uint32 _size;
 	uint16 _offset;
 };
 

@@ -169,7 +169,7 @@ bool MusicParser::loadMusic(const byte *data, uint32 size) {
 	delete _script;
 	delete _tune;
 	_tune = 0;
-	_script = new MusicScript(const_cast<byte *>(data));
+	_script = new MusicScript(data, size);
 
 	// Reset our custom music clock so tunes always start from tick 0. Without
 	// this, _tick keeps growing across loadMusic calls, and Note::reset (which
@@ -317,7 +317,8 @@ bool MusicParser::playSfxTune(const byte *data, uint32 size) {
 
 	stopSfxNotes();
 
-	const uint16 beatCount = READ_LE_UINT16(data + kTuneBeatCountOffset);
+	const Common::Span<const byte> tune(data, size);
+	const uint16 beatCount = tune.getUint16LEAt(kTuneBeatCountOffset);
 	const uint32 channelBase = kTuneHeaderSize + uint32(beatCount) * 8;
 	if (beatCount == 0 || channelBase >= size || channelBase + 16 > size)
 		return false;
@@ -408,8 +409,9 @@ bool MusicParser::setSfxBeat(uint16 beat) {
 		return false;
 	}
 
+	const Common::Span<const byte> sfxData(_sfxData, _sfxDataSize);
 	for (uint8 channel = 0; channel < ARRAYSIZE(_sfxChannels); ++channel) {
-		const uint8 channelIndex = _sfxData[beatOffset + channel];
+		const uint8 channelIndex = sfxData.getUint8At(beatOffset + channel);
 		if (channelIndex == 0)
 			continue;
 		const uint32 channelDef = channelBase + uint32(channelIndex) * 16;
@@ -422,7 +424,7 @@ bool MusicParser::setSfxBeat(uint16 beat) {
 		state.midiChannel = channel + 2;
 		state.initPos = uint16(channelDef + 8);
 		for (uint8 noteIndex = 0; noteIndex < ARRAYSIZE(state.notes); ++noteIndex) {
-			const uint16 pos = READ_LE_UINT16(_sfxData + channelDef + noteIndex * 2);
+			const uint16 pos = sfxData.getUint16LEAt(channelDef + noteIndex * 2);
 			if (pos != 0 && pos + 1 < _sfxDataSize) {
 				state.notes[noteIndex].pos = pos;
 				state.notes[noteIndex].tick = _sfxTick + 1;
@@ -453,6 +455,7 @@ void MusicParser::tickSfxTune() {
 			return;
 	}
 
+	const Common::Span<const byte> sfxData(_sfxData, _sfxDataSize);
 	for (uint8 channel = 0; channel < ARRAYSIZE(_sfxChannels); ++channel) {
 		SfxChannel &state = _sfxChannels[channel];
 		if (!state.active)
@@ -462,7 +465,7 @@ void MusicParser::tickSfxTune() {
 			for (uint8 i = 0; i < 4; ++i) {
 				const uint16 pos = uint16(state.initPos + i * 2);
 				if (pos + 1 < _sfxDataSize)
-					execSfxCommand(_sfxData[pos], _sfxData[pos + 1], state.midiChannel, 0);
+					execSfxCommand(sfxData.getUint8At(pos), sfxData.getUint8At(pos + 1), state.midiChannel, 0);
 			}
 			state.notInitialized = false;
 		}
@@ -494,8 +497,9 @@ void MusicParser::tickSfxNote(SfxNote &note, uint8 channel) {
 		return;
 	}
 
-	const uint8 command = _sfxData[note.pos];
-	const uint8 parameter = _sfxData[note.pos + 1];
+	const Common::Span<const byte> sfxData(_sfxData, _sfxDataSize);
+	const uint8 command = sfxData.getUint8At(note.pos);
+	const uint8 parameter = sfxData.getUint8At(note.pos + 1);
 	note.pos += 2;
 
 	if (command == kHangNote) {
@@ -654,10 +658,37 @@ void MusicParser::setMaxVolume(uint8 dosMusicMode) {
 		_driver->send(channel | kMidiChannelControl, MidiDriver::MIDI_CONTROLLER_VOLUME, 127);
 }
 
-MusicScript::MusicScript() : _code(0) {}
+MusicScript::MusicScript() : _code(0), _size(0), _offset(0) {}
 
-MusicScript::MusicScript(const byte *data) : _code(data),
-											 _offset(2) {}
+MusicScript::MusicScript(const byte *data, uint32 size) : _code(data),
+														  _size(size),
+														  _offset(2) {}
+
+bool MusicScript::canRead(uint32 offset, uint32 count) const {
+	if (!_code)
+		return false;
+	return _size == 0 || (offset <= _size && count <= _size - offset);
+}
+
+bool MusicScript::readByteAt(uint32 offset, byte &value) const {
+	if (!canRead(offset, 1))
+		return false;
+	value = Common::Span<const byte>(_code + offset, 1).getUint8At(0);
+	return true;
+}
+
+bool MusicScript::readUint16LEAt(uint32 offset, uint16 &value) const {
+	if (!canRead(offset, 2))
+		return false;
+	value = Common::Span<const byte>(_code + offset, 2).getUint16LEAt(0);
+	return true;
+}
+
+uint16 MusicScript::getTune() const {
+	uint16 tune = 0;
+	readUint16LEAt(0, tune);
+	return tune;
+}
 
 enum {
 	kControl94 = 0x94,
@@ -674,10 +705,24 @@ void MusicScript::tick() {
 	// otherwise spin forever on the MIDI timer thread. Cap the chain and bail
 	// to stopMusic.
 	for (int guard = 0; guard < 256; ++guard) {
-		switch (_code[_offset]) {
+		byte opcode = 0;
+		if (!readByteAt(_offset, opcode)) {
+			warning("Interspective music: truncated script at offset 0x%x — stopping music",
+					(uint)_offset);
+			Music.stopMusic();
+			return;
+		}
+
+		switch (opcode) {
 
 		case kJump: {
-			uint16 target = READ_LE_UINT16(_code + _offset + 2);
+			uint16 target = 0;
+			if (!readUint16LEAt(_offset + 2, target)) {
+				warning("Interspective music: truncated jump at offset 0x%x — stopping music",
+						(uint)_offset);
+				Music.stopMusic();
+				return;
+			}
 			debugC(2, kDebugLevelMusic, "will jump to music script at 0x%x", target);
 			if (target == _offset) {
 				warning("Interspective music: script kJump to self at offset 0x%x — stopping music",
@@ -690,33 +735,57 @@ void MusicScript::tick() {
 		}
 
 		case kControl94:
-		case kControl95:
+		case kControl95: {
+			if (!canRead(_offset, 6)) {
+				warning("Interspective music: truncated control 0x%02x at offset 0x%x — stopping music",
+						(uint)opcode, (uint)_offset);
+				Music.stopMusic();
+				return;
+			}
+			const Common::Span<const byte> control(_code + _offset, 6);
 			// Op_f4 @ 1000:57aa only seeds the resident music driver's script
 			// pointer and tune word; these control opcodes are consumed by that
 			// driver. They do not emit a beat directly, so continue to the next
 			// script command instead of treating valid shipped data as fatal.
 			debugC(2, kDebugLevelMusic,
 				   "will consume music script control 0x%02x at 0x%x args=%02x %02x %02x %02x %02x",
-				   (uint)_code[_offset], (uint)_offset,
-				   (uint)_code[_offset + 1], (uint)_code[_offset + 2],
-				   (uint)_code[_offset + 3], (uint)_code[_offset + 4],
-				   (uint)_code[_offset + 5]);
+				   (uint)opcode, (uint)_offset,
+				   (uint)control.getUint8At(1), (uint)control.getUint8At(2),
+				   (uint)control.getUint8At(3), (uint)control.getUint8At(4),
+				   (uint)control.getUint8At(5));
 			_offset += 6;
 			break;
+		}
 
-		case kControl97:
+		case kControl97: {
+			if (!canRead(_offset, 4)) {
+				warning("Interspective music: truncated control 0x97 at offset 0x%x — stopping music",
+						(uint)_offset);
+				Music.stopMusic();
+				return;
+			}
+			const Common::Span<const byte> control(_code + _offset, 4);
 			debugC(2, kDebugLevelMusic,
 				   "will consume music script control 0x97 at 0x%x args=%02x %02x %02x",
-				   (uint)_offset, (uint)_code[_offset + 1],
-				   (uint)_code[_offset + 2], (uint)_code[_offset + 3]);
+				   (uint)_offset, (uint)control.getUint8At(1),
+				   (uint)control.getUint8At(2), (uint)control.getUint8At(3));
 			_offset += 4;
 			break;
+		}
 
-		case kSetBeat:
-			debugC(2, kDebugLevelMusic, "will set beat to %d", _code[_offset + 1]);
-			Music.setBeat(_code[_offset + 1]);
+		case kSetBeat: {
+			byte beat = 0;
+			if (!readByteAt(_offset + 1, beat)) {
+				warning("Interspective music: truncated set-beat at offset 0x%x — stopping music",
+						(uint)_offset);
+				Music.stopMusic();
+				return;
+			}
+			debugC(2, kDebugLevelMusic, "will set beat to %d", beat);
+			Music.setBeat(beat);
 			_offset += 2;
 			return;
+		}
 
 		case kStop:
 			debugC(2, kDebugLevelMusic, "will stop playing");
@@ -732,7 +801,7 @@ void MusicScript::tick() {
 			if (!reportedOnce) {
 				reportedOnce = true;
 				warning("Interspective music: unhandled script opcode 0x%02x at offset 0x%x — stopping music",
-						(uint)_code[_offset], (uint)_offset);
+						(uint)opcode, (uint)_offset);
 			}
 			Music.stopMusic();
 			return;
@@ -758,7 +827,8 @@ Tune::Tune(uint16 index) {
 	memset(_data, 0, sizeof(_data));
 	Res.loadTune(index, _data);
 
-	uint16 nbeats = READ_LE_UINT16(_data + kTuneBeatCountOffset);
+	const Common::Span<const byte> tuneData(_data, sizeof(_data));
+	uint16 nbeats = tuneData.getUint16LEAt(kTuneBeatCountOffset);
 	// Sanity: header + nbeats*8 (beat array) must fit in the buffer with room for at least one
 	// 16-byte channel entry. Otherwise treat as empty and skip — happens if loadTune got a bogus
 	// index and the 32 KB buffer is full of zeros / garbage.
@@ -769,13 +839,12 @@ Tune::Tune(uint16 index) {
 	}
 	_beats.resize(nbeats);
 
-	const byte *beat = _data + kTuneHeaderSize;
-	const byte *channels = beat + 8 * nbeats;
+	const Common::Span<const byte> beats = tuneData.subspan(kTuneHeaderSize, uint32(nbeats) * 8);
+	const Common::Span<const byte> channels = tuneData.subspan(kTuneHeaderSize + uint32(nbeats) * 8);
 
 	for (uint i = 0; i < _beats.size(); i++) {
-		debugC(2, kDebugLevelMusic, "found beat at offset 0x%x", (uint)(beat - _data));
-		_beats[i] = Beat(beat, channels, _data);
-		beat += 8;
+		debugC(2, kDebugLevelMusic, "found beat at offset 0x%x", (uint)(kTuneHeaderSize + i * 8));
+		_beats[i] = Beat(beats.subspan(i * 8, 8), channels, tuneData);
 	}
 
 	_currentBeat = 0;
@@ -866,13 +935,20 @@ void Tune::tick() {
 
 Beat::Beat() {}
 
-Beat::Beat(const byte *def, const byte *channels, const byte *tune) {
-	for (int i = 0; i < 8; i++)
-		if (def[i]) {
-			uint16 off = 16 * def[i];
-			debugC(2, kDebugLevelMusic, "found channel at offset 0x%x", (uint)(off + channels - tune));
-			_channels[i] = Channel(channels + off, tune, i + 2);
+Beat::Beat(Common::Span<const byte> def, Common::Span<const byte> channels, Common::Span<const byte> tune) {
+	for (int i = 0; i < 8; i++) {
+		const uint8 channelIndex = def.getUint8At(i);
+		if (channelIndex) {
+			uint16 off = 16 * channelIndex;
+			if (off + 16 > channels.size()) {
+				warning("Interspective music: channel definition %u outside tune data", (uint)channelIndex);
+				continue;
+			}
+			debugC(2, kDebugLevelMusic, "found channel at offset 0x%x",
+				   (uint)(channels.data() + off - tune.data()));
+			_channels[i] = Channel(channels.subspan(off, 16), tune, i + 2);
 		}
+	}
 }
 
 bool Beat::hasNoteSlot(byte channel, byte note) const {
@@ -891,19 +967,21 @@ void Beat::tick() {
 
 Channel::Channel() : _active(false), _not_initialized(false), _initnote(0), _chanidx(0) {}
 
-Channel::Channel(const byte *def, const byte *tune, byte chanidx) {
+Channel::Channel(Common::Span<const byte> def, Common::Span<const byte> tune, byte chanidx) {
 	for (int i = 0; i < 4; i++) {
-		const uint16 off = READ_LE_UINT16(def);
-		def += 2;
+		const uint16 off = def.getUint16LEAt(i * 2);
 		if (off) {
+			if (off + 2 > tune.size()) {
+				warning("Interspective music: note stream offset 0x%x outside tune data", off);
+				continue;
+			}
 			debugC(2, kDebugLevelMusic, "found note at offset 0x%x", off);
-			_notes[i] = Note(tune + off, i);
+			_notes[i] = Note(tune.subspan(off), i);
 		}
 	}
 
 	for (int i = 0; i < 4; i++) {
-		_init[i] = MusicCommand(def);
-		def += 2;
+		_init[i] = MusicCommand(def.subspan(8 + i * 2, 2));
 	}
 	_active = true;
 	_not_initialized = true;
@@ -938,9 +1016,9 @@ void Channel::tick() {
 		_notes[i].tick(_chanidx);
 }
 
-Note::Note() : _data(0), _begin(0) {}
+Note::Note() : _pos(0), _tick(0), _index(0), _channel(0) {}
 
-Note::Note(const byte *data, byte index) : _data(data), _tick(0), _begin(data), _index(index) {}
+Note::Note(Common::Span<const byte> data, byte index) : _data(data), _pos(0), _tick(0), _index(index), _channel(0) {}
 
 void Note::setNote(byte n) {
 	notes[_channel - 2][_index] = n;
@@ -954,23 +1032,31 @@ void Note::reset() {
 	unless(_data) return;
 
 	_tick = Music.getTick() + 1;
-	_data = _begin;
+	_pos = 0;
 }
 
 void Note::tick(byte channel) {
 	_channel = channel;
 	unless(_data && Music.getTick() == _tick) return;
-
-	if (_data[0] == kHangNote) {
-		_tick += _data[1];
-		_data += 2;
+	if (_pos + 1 >= _data.size()) {
+		if (note() != 0) {
+			Music._driver->send(channel | kMidiNoteOff, note(), 0);
+			setNote(0);
+		}
+		_data = Common::Span<const byte>();
 		return;
 	}
 
-	MusicCommand cmd(_data);
+	if (_data.getUint8At(_pos) == kHangNote) {
+		_tick += _data.getUint8At(_pos + 1);
+		_pos += 2;
+		return;
+	}
+
+	MusicCommand cmd(_data.subspan(_pos, 2));
 	cmd.exec(channel, this);
 
-	_data += 2;
+	_pos += 2;
 	_tick++;
 }
 
@@ -980,8 +1066,13 @@ bool MusicCommand::empty() const {
 	return _command == 0;
 }
 
-MusicCommand::MusicCommand(const byte *def) : _command(def[0]),
-											  _parameter(def[1]) {}
+MusicCommand::MusicCommand(Common::Span<const byte> def) : _command(0),
+														   _parameter(0) {
+	if (def.data() && def.size() >= 2) {
+		_command = def.getUint8At(0);
+		_parameter = def.getUint8At(1);
+	}
+}
 
 void MusicCommand::exec(byte channel, Note *note) {
 	unless(_command) return;
