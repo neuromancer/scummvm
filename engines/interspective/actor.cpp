@@ -35,8 +35,8 @@
 namespace Interspective {
 //
 
-static uint16 actorCodeSegmentTag(const byte *base) {
-	if (base && Log.blockProgram() && Log.blockProgram()->contains(base))
+static uint16 actorCodeSegmentTag(Interpreter *interpreter) {
+	if (interpreter && interpreter == Log.blockInterpreter())
 		return uint16(0x4000 + (Log.currentBlock() & 0x3fff));
 	return 0x1cb5;
 }
@@ -53,10 +53,13 @@ Actor::Actor(const CodePointer &code) : Animation(code, Common::Point()), _id(0)
 	_actorCallbackOff = 0xffff;
 
 	Interpreter *recordInterpreter = code.interpreter();
-	byte *header = recordInterpreter ? recordInterpreter->rawCodeChecked(code.offset(), Size) : 0;
-	if (header)
-		readHeader(header, recordInterpreter);
-	else {
+	if (recordInterpreter && recordInterpreter->containsCodeRange(code.offset(), Size)) {
+		readHeader(code);
+	} else {
+		if (recordInterpreter) {
+			warning("Interspective: actor header 0x%04x+%u outside %s segment",
+					code.offset(), uint(Size), recordInterpreter->name());
+		}
 		clearScript();
 		_frame = _nextFrame = _room = 0;
 	}
@@ -105,7 +108,7 @@ void Actor::setAnimation(uint16 offset) {
 	attachScript(Log.mainInterpreter(), offset);
 	resetActorStateFields();
 	if (_base) {
-		setRecordSegment(actorCodeSegmentTag(_base));
+		setRecordSegment(actorCodeSegmentTag(_scriptInterpreter));
 		setRecordScriptBase(_baseOffset);
 	} else {
 		setRecordSegment(0);
@@ -118,7 +121,7 @@ void Actor::setAnimation(const CodePointer &anim) {
 	debugC(3, kDebugLevelScript, "setting animation code of %s to %s", _debugInfo, +anim);
 	attachScript(anim.interpreter(), anim.offset());
 	resetActorStateFields();
-	setRecordSegment(actorCodeSegmentTag(_base));
+	setRecordSegment(actorCodeSegmentTag(_scriptInterpreter));
 	setRecordScriptBase(_baseOffset);
 	registerActiveIfCurrentRoom();
 }
@@ -186,14 +189,13 @@ void Actor::prepareRoomEntryActiveActor() {
 	const uint16 codeOffset = recordScriptBase();
 	const bool blockSegment = segment == 1 || ((segment & 0xc000) == 0x4000);
 	const bool mainSegment = segment == 0 ||
-							 segment == actorCodeSegmentTag(Log.mainInterpreter() ? Log.mainInterpreter()->rawCodeChecked(0) : 0);
+							 segment == actorCodeSegmentTag(Log.mainInterpreter());
 	if (blockSegment || mainSegment) {
 		Interpreter *const interp = blockSegment ? Log.blockInterpreter() : Log.mainInterpreter();
-		byte *const segmentBase = interp ? interp->rawCodeChecked(0) : 0;
-		if (segmentBase) {
+		if (interp) {
 			attachScript(interp, codeOffset, scriptPc());
 			if (_base) {
-				setRecordScriptPointer(actorCodeSegmentTag(segmentBase), codeOffset, _offset);
+				setRecordScriptPointer(actorCodeSegmentTag(interp), codeOffset, _offset);
 			} else {
 				clearScript();
 			}
@@ -216,7 +218,7 @@ void Actor::syncStateToRecordFields() {
 	// keep the sparse record synchronized before/after save/load so helpers
 	// that read raw DOS fields see the same state as the renderer/ticker.
 	if (_base) {
-		setRecordScriptPointer(actorCodeSegmentTag(_base), _baseOffset, _offset);
+		setRecordScriptPointer(actorCodeSegmentTag(_scriptInterpreter), _baseOffset, _offset);
 	} else {
 		clearRecordScriptPointer();
 	}
@@ -358,7 +360,7 @@ void Actor::syncWaitCallbacks(Common::Serializer &s) {
 void Actor::synchronize(Common::Serializer &s) {
 	uint8 baseSource = 0;
 	if (s.isSaving() && _base) {
-		if (Log.blockProgram() && Log.blockProgram()->contains(_base))
+		if (_scriptInterpreter == Log.blockInterpreter())
 			baseSource = 2;
 		else
 			baseSource = 1;
@@ -1213,18 +1215,30 @@ void Actor::toggleDebug() {
 	_debug = !_debug;
 }
 
-void Actor::readHeader(const byte *code, Interpreter *recordInterpreter) {
-	_interval = code[kOffsetInterval];
-	_ticksLeft = READ_LE_UINT16(code + kOffsetTicksLeft);
-	_zIndex = int8(code[kOffsetDrawLayer]);
-	_position = Common::Point(READ_LE_UINT16(code + kOffsetLeft), READ_LE_UINT16(code + kOffsetTop));
-	const uint16 segment = READ_LE_UINT16(code + kOffsetSegment);
-	const uint16 codeOffset = READ_LE_UINT16(code + kOffsetScriptBase);
-	const uint16 pc = READ_LE_UINT16(code + kOffsetScriptPc);
+void Actor::readHeader(const CodePointer &code) {
+	Interpreter *recordInterpreter = code.interpreter();
+	auto byteAt = [&code](int off) -> byte {
+		byte value = 0;
+		code.field(value, off);
+		return value;
+	};
+	auto wordAt = [&code](int off) -> uint16 {
+		uint16 value = 0;
+		code.field(value, off);
+		return value;
+	};
+
+	_interval = byteAt(kOffsetInterval);
+	_ticksLeft = wordAt(kOffsetTicksLeft);
+	_zIndex = int8(byteAt(kOffsetDrawLayer));
+	_position = Common::Point(dosSignedWord(wordAt(kOffsetLeft)), dosSignedWord(wordAt(kOffsetTop)));
+	const uint16 segment = wordAt(kOffsetSegment);
+	const uint16 codeOffset = wordAt(kOffsetScriptBase);
+	const uint16 pc = wordAt(kOffsetScriptPc);
 	if (segment != 0) {
 		Interpreter *segmentInterpreter = 0;
-		const uint16 mainSegment = actorCodeSegmentTag(Log.mainInterpreter() ? Log.mainInterpreter()->rawCodeChecked(0) : 0);
-		const uint16 blockSegment = actorCodeSegmentTag(Log.blockInterpreter() ? Log.blockInterpreter()->rawCodeChecked(0) : 0);
+		const uint16 mainSegment = actorCodeSegmentTag(Log.mainInterpreter());
+		const uint16 blockSegment = actorCodeSegmentTag(Log.blockInterpreter());
 		if (segment == mainSegment && Log.mainInterpreter()) {
 			segmentInterpreter = Log.mainInterpreter();
 		} else if ((segment == 1 || segment == blockSegment) && Log.blockInterpreter()) {
@@ -1236,18 +1250,18 @@ void Actor::readHeader(const byte *code, Interpreter *recordInterpreter) {
 	} else {
 		clearScript();
 	}
-	uint16 sprite = READ_LE_UINT16(code + kOffsetMainSprite);
-	_frame = code[kOffsetFrame];
-	_nextFrame = code[kOffsetTargetFrame];
-	_room = READ_LE_UINT16(code + kOffsetRoom);
-	setActorCallback(READ_LE_UINT16(code + kOffsetActorCallbackSegment), READ_LE_UINT16(code + kOffsetActorCallbackOffset));
+	uint16 sprite = wordAt(kOffsetMainSprite);
+	_frame = byteAt(kOffsetFrame);
+	_nextFrame = byteAt(kOffsetTargetFrame);
+	_room = wordAt(kOffsetRoom);
+	setActorCallback(wordAt(kOffsetActorCallbackSegment), wordAt(kOffsetActorCallbackOffset));
 	static const uint8 sparseFields[] = {
 		0x00, 0x01, 0x02, 0x03, 0x0c, 0x0d, 0x0e, 0x0f,
 		0x11, 0x12, 0x13, 0x14, 0x15, 0x16,
 		0x17, 0x18, 0x5b, 0x5c, 0x63, 0x64, 0x65,
 		0x66, 0x68, 0x6b, 0x6c, 0x6d, 0x6e, 0x70};
 	for (uint i = 0; i < ARRAYSIZE(sparseFields); ++i)
-		setRecordByte(sparseFields[i], code[sparseFields[i]]);
+		setRecordByte(sparseFields[i], byteAt(sparseFields[i]));
 	_confused = confusedRecord();
 	_attentionNeeded = needsAttention();
 
@@ -2283,7 +2297,7 @@ OPCODE(0x20) {
 	// PC of the byte right after the 2-byte opcode header (the start of
 	// the 10-byte body), then skip the body by 5 shifts.
 	const uint16 callbackPC = _baseOffset + _offset;
-	setActorCallback(actorCodeSegmentTag(_base), callbackPC);
+	setActorCallback(actorCodeSegmentTag(_scriptInterpreter), callbackPC);
 	// Skip the 10-byte inline body.
 	for (int i = 0; i < 5; i++)
 		(void)shift();
@@ -2301,7 +2315,7 @@ OPCODE(0x21) {
 	uint16 cbOff = 0;
 	if (off != 0)
 		cbOff = uint16(int32(_baseOffset) + int32(off));
-	setActorCallback(actorCodeSegmentTag(_base), cbOff);
+	setActorCallback(actorCodeSegmentTag(_scriptInterpreter), cbOff);
 	debugC(2, kDebugLevelAnimation, "actor opcode 0x21: SetCallbackRelative off=%d → cbOff=0x%04x [DOS Op_22]",
 		   off, cbOff);
 	return kOk;

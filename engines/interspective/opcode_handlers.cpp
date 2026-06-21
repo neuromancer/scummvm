@@ -2118,31 +2118,27 @@ static bool dosIdIsNonPositive(uint16 id) {
 	return int16(id) <= 0;
 }
 
-static byte *checkedCodeTablePtr(Interpreter *bank, uint32 offset, uint16 size) {
+static bool checkedCodeTableOffset(Interpreter *bank, uint32 offset) {
 	if (!bank)
-		return 0;
+		return false;
 	if (offset > 0xffff) {
 		warning("Interspective: table offset 0x%08x outside %s code segment",
 				uint(offset), bank->name());
-		return 0;
+		return false;
 	}
-	return bank->rawCodeChecked(uint16(offset), size);
+	return true;
 }
 
 static bool readCodeTableWord(Interpreter *bank, uint32 offset, uint16 &value) {
-	byte *ptr = checkedCodeTablePtr(bank, offset, 2);
-	if (!ptr)
+	if (!checkedCodeTableOffset(bank, offset))
 		return false;
-	value = READ_LE_UINT16(ptr);
-	return true;
+	return bank->readCodeWord(uint16(offset), value);
 }
 
 static bool writeCodeTableWord(Interpreter *bank, uint32 offset, uint16 value) {
-	byte *ptr = checkedCodeTablePtr(bank, offset, 2);
-	if (!ptr)
+	if (!checkedCodeTableOffset(bank, offset))
 		return false;
-	WRITE_LE_UINT16(ptr, value);
-	return true;
+	return bank->writeCodeWord(uint16(offset), value);
 }
 
 OPCODE(0x60) {
@@ -3135,10 +3131,13 @@ OPCODE(0xf4) {
 	// offset is always relative to the main interpreter — music scripts live
 	// in the global file, not in per-block bytecode.
 	const uint16 scriptOff = static_cast<CodePointer &>(a[0]).offset();
-	const byte *script = Log.mainInterpreter() ? Log.mainInterpreter()->rawCodeChecked(scriptOff, 2) : 0;
-	if (!script)
+	Interpreter *mainInterpreter = Log.mainInterpreter();
+	DosMemoryReference scriptRef;
+	uint16 tune = 0;
+	if (!mainInterpreter ||
+		!mainInterpreter->memoryReference(scriptOff, scriptRef) ||
+		!mainInterpreter->readCodeWord(scriptOff, tune))
 		return kThxBye;
-	const uint16 tune = READ_LE_UINT16(script);
 	debugC(1, kDebugLevelScript, "opcode 0xf4: play music script at main offset 0x%04x", scriptOff);
 	if (tune == 0)
 		return kThxBye;
@@ -3148,7 +3147,7 @@ OPCODE(0xf4) {
 		debugC(1, kDebugLevelMusic | kDebugLevelScript,
 			   "Interspective music: opcode 0xf4 emitted (call #%d, script offset 0x%04x)",
 			   op_f4_calls, scriptOff);
-	Music.loadMusic(script);
+	Music.loadMusic(scriptRef.ptr(), scriptRef.remaining());
 	return kThxBye;
 }
 

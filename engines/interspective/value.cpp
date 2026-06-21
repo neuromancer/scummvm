@@ -66,27 +66,30 @@ bool CodePointer::memoryReference(DosMemoryReference &ref) const {
 	return _interpreter && _interpreter->memoryReference(_offset, ref);
 }
 
-static byte *checkedCodePointerField(const CodePointer &ptr, int off, uint16 size) {
+static bool checkedCodePointerField(const CodePointer &ptr, int off, uint16 &absolute) {
 	Interpreter *interpreter = ptr.interpreter();
 	if (!interpreter) {
 		warning("Interspective: field read through null code pointer");
-		return 0;
+		return false;
 	}
 
-	const int32 absolute = int32(ptr.offset()) + off;
-	if (absolute < 0 || absolute > 0xffff) {
+	const int32 fieldOffset = int32(ptr.offset()) + off;
+	if (fieldOffset < 0 || fieldOffset > 0xffff) {
 		warning("Interspective: field offset %d outside %s code pointer 0x%04x",
 				off, interpreter->name(), ptr.offset());
-		return 0;
+		return false;
 	}
 
-	return interpreter->rawCodeChecked(uint16(absolute), size);
+	absolute = uint16(fieldOffset);
+	return true;
 }
 
 template<>
 uint16 &CodePointer::field<uint16>(uint16 &p, int off) const {
-	byte *field = checkedCodePointerField(*this, off, 2);
-	p = field ? READ_LE_UINT16(field) : 0;
+	uint16 absolute = 0;
+	if (!checkedCodePointerField(*this, off, absolute) ||
+		!_interpreter->readCodeWord(absolute, p))
+		p = 0;
 	return p;
 }
 
@@ -107,8 +110,10 @@ Common::Point &CodePointer::field<Common::Point>(Common::Point &p, int off) cons
 
 template<>
 byte &CodePointer::field<byte>(byte &p, int off) const {
-	byte *field = checkedCodePointerField(*this, off, 1);
-	p = field ? *field : 0;
+	uint16 absolute = 0;
+	if (!checkedCodePointerField(*this, off, absolute) ||
+		!_interpreter->readCodeByte(absolute, p))
+		p = 0;
 	return p;
 }
 

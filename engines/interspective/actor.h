@@ -379,7 +379,7 @@ private:
 	Actor(const Actor &);
 	Actor &operator=(const Actor &);
 
-	void readHeader(const byte *code, Interpreter *recordInterpreter);
+	void readHeader(const CodePointer &code);
 
 	void animate();
 	void updateZoneAtPoint();

@@ -32,8 +32,8 @@
 
 namespace Interspective {
 //
-static uint16 animationCodeSegmentTag(const byte *base) {
-	if (base && Log.blockProgram() && Log.blockProgram()->contains(base))
+static uint16 animationCodeSegmentTag(Interpreter *interpreter) {
+	if (interpreter && interpreter == Log.blockInterpreter())
 		return uint16(0x4000 + (Log.currentBlock() & 0x3fff));
 	return 0x1cb5;
 }
@@ -317,11 +317,7 @@ bool Animation::readScriptByte(int32 relative, byte &value, bool warn) const {
 		return false;
 	}
 
-	byte *ptr = _scriptInterpreter->rawCodeChecked(uint16(absolute), 1);
-	if (!ptr)
-		return false;
-	value = *ptr;
-	return true;
+	return _scriptInterpreter->readCodeByte(uint16(absolute), value);
 }
 
 bool Animation::readScriptWord(int32 relative, uint16 &value, bool warn) const {
@@ -342,11 +338,7 @@ bool Animation::readScriptWord(int32 relative, uint16 &value, bool warn) const {
 		return false;
 	}
 
-	byte *ptr = _scriptInterpreter->rawCodeChecked(uint16(absolute), 2);
-	if (!ptr)
-		return false;
-	value = READ_LE_UINT16(ptr);
-	return true;
+	return _scriptInterpreter->readCodeWord(uint16(absolute), value);
 }
 
 bool Animation::currentScriptByte(byte &value) const {
@@ -1061,7 +1053,7 @@ OPCODE(0x20) {
 	//   ADD BP, 0xc (skip past 12-byte opcode = opcode + 1 pad + 10 inline body).
 	const uint16 callbackPC = _baseOffset + _offset;
 	setAnimationRecordActorCallbackOffset(callbackPC);
-	setAnimationRecordActorCallbackSegment(animationCodeSegmentTag(_base));
+	setAnimationRecordActorCallbackSegment(animationCodeSegmentTag(_scriptInterpreter));
 	(void)shift();
 	(void)shift();
 	(void)shift();
@@ -1083,7 +1075,7 @@ OPCODE(0x21) {
 	if (off != 0)
 		cbOff = uint16(int32(_baseOffset) + int32(off));
 	setAnimationRecordActorCallbackOffset(cbOff);
-	setAnimationRecordActorCallbackSegment(animationCodeSegmentTag(_base));
+	setAnimationRecordActorCallbackSegment(animationCodeSegmentTag(_scriptInterpreter));
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x21: SetCallbackRelative "
 									"off=%d cbSeg=0x%04x cbOff=0x%04x",
 		   off, animationRecordActorCallbackSegment(), cbOff);

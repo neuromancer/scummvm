@@ -113,18 +113,14 @@ static bool actorCustomHitRectContains(Logic &logic, Actor *actor, Common::Point
 
 	uint16 off = actor->actorCallbackOff();
 	for (uint i = 0; i < 64; ++i, off = uint16(off + 8)) {
-		const byte *rect = interpreter->rawCodeChecked(off, 8);
-		if (!rect)
+		Common::Rect rect;
+		if (!interpreter->readCodeRect(off, rect))
 			return false;
 
-		const int16 left = int16(READ_LE_UINT16(rect));
-		if (left == -1)
+		if (rect.left == -1)
 			return false;
 
-		const int16 top = int16(READ_LE_UINT16(rect + 2));
-		const int16 right = int16(READ_LE_UINT16(rect + 4));
-		const int16 bottom = int16(READ_LE_UINT16(rect + 6));
-		if (containsDosInclusive(left, top, right, bottom, world))
+		if (containsDosInclusive(rect.left, rect.top, rect.right, rect.bottom, world))
 			return true;
 	}
 

@@ -77,8 +77,7 @@ bool BytecodeCursor::peekByte(uint16 relativeOffset, byte &value) const {
 	if (absolute > 0xffff || !_interpreter->containsCodeRange(uint16(absolute), 1))
 		return false;
 
-	value = *_interpreter->rawCode(uint16(absolute));
-	return true;
+	return _interpreter->readCodeByte(uint16(absolute), value);
 }
 
 bool BytecodeCursor::readByte(byte &value) {
@@ -91,7 +90,8 @@ bool BytecodeCursor::readByte(byte &value) {
 bool BytecodeCursor::readUint16(uint16 &value) {
 	if (!canRead(2))
 		return false;
-	value = READ_LE_UINT16(_interpreter->rawCode(_offset));
+	if (!_interpreter->readCodeWord(_offset, value))
+		return false;
 	_offset += 2;
 	return true;
 }
@@ -168,6 +168,54 @@ bool Interpreter::containsCodePointer(const byte *ptr, uint16 size) const {
 
 	const uintptr offset = address - base;
 	return offset <= _codeSize && size <= _codeSize - offset;
+}
+
+bool Interpreter::readCodeByte(uint16 offset, byte &value) const {
+	value = 0;
+	byte *ptr = rawCodeChecked(offset, 1);
+	if (!ptr)
+		return false;
+	value = *ptr;
+	return true;
+}
+
+bool Interpreter::readCodeWord(uint16 offset, uint16 &value) const {
+	value = 0;
+	byte *ptr = rawCodeChecked(offset, 2);
+	if (!ptr)
+		return false;
+	value = READ_LE_UINT16(ptr);
+	return true;
+}
+
+bool Interpreter::writeCodeWord(uint16 offset, uint16 value) {
+	byte *ptr = rawCodeChecked(offset, 2);
+	if (!ptr)
+		return false;
+	WRITE_LE_UINT16(ptr, value);
+	return true;
+}
+
+bool Interpreter::readCodeRect(uint16 offset, Common::Rect &rect) const {
+	if (!containsCodeRange(offset, 8)) {
+		warning("Interspective: code rectangle 0x%04x+8 outside %s segment size %u",
+				offset, name(), uint(_codeSize));
+		return false;
+	}
+	uint16 left = 0;
+	uint16 top = 0;
+	uint16 right = 0;
+	uint16 bottom = 0;
+	if (!readCodeWord(offset, left) ||
+		!readCodeWord(uint16(offset + 2), top) ||
+		!readCodeWord(uint16(offset + 4), right) ||
+		!readCodeWord(uint16(offset + 6), bottom))
+		return false;
+	rect.left = dosSignedWord(left);
+	rect.top = dosSignedWord(top);
+	rect.right = dosSignedWord(right);
+	rect.bottom = dosSignedWord(bottom);
+	return true;
 }
 
 bool Interpreter::memoryReference(uint16 offset, DosMemoryReference &ref) const {

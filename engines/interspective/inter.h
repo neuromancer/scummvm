@@ -114,6 +114,10 @@ public:
 	byte *rawCode(uint16 offset) const { return _base + offset; }
 	bool containsCodeRange(uint16 offset, uint16 size = 1) const;
 	bool containsCodePointer(const byte *ptr, uint16 size = 1) const;
+	bool readCodeByte(uint16 offset, byte &value) const;
+	bool readCodeWord(uint16 offset, uint16 &value) const;
+	bool writeCodeWord(uint16 offset, uint16 value);
+	bool readCodeRect(uint16 offset, Common::Rect &rect) const;
 	bool memoryReference(uint16 offset, DosMemoryReference &ref) const;
 	bool memoryReference(const byte *ptr, DosMemoryReference &ref) const;
 	byte *rawCodeChecked(uint16 offset, uint16 size = 1) const;
