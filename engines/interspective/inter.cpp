@@ -60,6 +60,53 @@ void Interpreter::init_opcodes() {
 template<>
 void Interpreter::init_opcodes<-1>() {}
 
+BytecodeCursor::BytecodeCursor() : _interpreter(0), _offset(0) {}
+
+BytecodeCursor::BytecodeCursor(Interpreter *interpreter, uint16 offset)
+	: _interpreter(interpreter), _offset(offset) {}
+
+bool BytecodeCursor::canRead(uint16 size) const {
+	return _interpreter && _interpreter->containsCodeRange(_offset, size);
+}
+
+bool BytecodeCursor::peekByte(uint16 relativeOffset, byte &value) const {
+	if (!_interpreter)
+		return false;
+
+	const uint32 absolute = uint32(_offset) + relativeOffset;
+	if (absolute > 0xffff || !_interpreter->containsCodeRange(uint16(absolute), 1))
+		return false;
+
+	value = *_interpreter->rawCode(uint16(absolute));
+	return true;
+}
+
+bool BytecodeCursor::readByte(byte &value) {
+	if (!peekByte(0, value))
+		return false;
+	++_offset;
+	return true;
+}
+
+bool BytecodeCursor::readUint16(uint16 &value) {
+	if (!canRead(2))
+		return false;
+	value = READ_LE_UINT16(_interpreter->rawCode(_offset));
+	_offset += 2;
+	return true;
+}
+
+bool BytecodeCursor::skip(uint16 count) {
+	if (!canRead(count))
+		return false;
+	_offset += count;
+	return true;
+}
+
+void BytecodeCursor::seekEnd() {
+	_offset = _interpreter ? _interpreter->codeSize() : 0;
+}
+
 Interpreter::Interpreter(Logic *l, byte *base, uint16 codeSize, const char *n) : _logic(l),
 																_engine(l->engine()),
 																_resources(_engine->resources()),
@@ -185,19 +232,18 @@ Status Interpreter::run(uint16 offset, int ifDepth) {
 		return kInvalidOpcode;
 	}
 
-	byte *last;
-	byte *code;
-	last = code = rawCodeChecked(offset);
+	uint16 lastOffset = offset;
+	BytecodeCursor code(this, offset);
 
 	int if_depth = ifDepth;
 	while (true) {
-		if (!containsCodePointer(code)) {
+		byte opcode = 0;
+		if (!code.peekByte(0, opcode)) {
 			warning("Interspective: bytecode pointer escaped %s segment", name());
 			return kInvalidOpcode;
 		}
 
-		byte opcode = *code;
-		last = code;
+		lastOffset = code.offset();
 
 		if (opcode > kOpcodeMax) {
 			return kInvalidOpcode;
@@ -210,28 +256,27 @@ Status Interpreter::run(uint16 offset, int ifDepth) {
 		ValueVector args;
 
 		for (uint i = 0; i < nargs; i++) {
-			if (!containsCodePointer(code, 2)) {
+			if (!code.canRead(2)) {
 				warning("Interspective: truncated argument list in %s at offset 0x%04x",
-						name(), uint16(last - _base));
+						name(), lastOffset);
 				return kInvalidOpcode;
 			}
 			args.push_back(getArgument(code));
 		}
 
 		if (nargs == 0) {
-			if (!containsCodePointer(code, 2)) {
+			if (!code.skip(2)) {
 				warning("Interspective: truncated zero-argument opcode in %s at offset 0x%04x",
-						name(), uint16(last - _base));
+						name(), lastOffset);
 				return kInvalidOpcode;
 			}
-			code += 2;
 		}
 
 		OpResult result(kThxBye);
 
 		if (opcode == 0x2c || opcode == 0x2d || opcode == 1 || if_depth == 0) {
 			Debug.opcodeStep();
-			result = (this->*handler)(args, CodePointer(last - _base, this), CodePointer(code - _base, this));
+			result = (this->*handler)(args, CodePointer(lastOffset, this), CodePointer(code.offset(), this));
 		} else {
 			debugC(3, kDebugLevelScript, "opcode 0x%02x skipped", opcode);
 			if (opcode > 1 && opcode < 0x26)
@@ -265,7 +310,7 @@ Status Interpreter::run(uint16 offset, int ifDepth) {
 						result.address.offset(), name());
 				return kInvalidOpcode;
 			}
-			code = _base + result.address.offset();
+			code.seek(result.address.offset());
 			break;
 		}
 		case kThxBye:
@@ -307,14 +352,13 @@ enum ArgumentTypes {
 };
 
 template<>
-Constant *Interpreter::readArgument<Constant>(byte *&code) {
-	if (!containsCodePointer(code, 2)) {
+Constant *Interpreter::readArgument<Constant>(BytecodeCursor &code) {
+	uint16 value = 0;
+	if (!code.readUint16(value)) {
 		warning("Interspective: truncated immediate argument in %s", name());
-		code = _base + _codeSize;
+		code.seekEnd();
 		return new Constant(0);
 	}
-	uint16 value = READ_LE_UINT16(code);
-	code += 2;
 	debugC(4, kDebugLevelScript, "read constant value %d as argument", value);
 	return new Constant(value);
 }
@@ -397,40 +441,38 @@ private:
 };
 
 template<>
-GlobalByteVariable *Interpreter::readArgument<GlobalByteVariable>(byte *&code) {
-	if (!containsCodePointer(code, 2)) {
+GlobalByteVariable *Interpreter::readArgument<GlobalByteVariable>(BytecodeCursor &code) {
+	uint16 index = 0;
+	if (!code.readUint16(index)) {
 		warning("Interspective: truncated global byte argument in %s", name());
-		code = _base + _codeSize;
+		code.seekEnd();
 		return new GlobalByteVariable(0, _resources);
 	}
-	uint16 index = READ_LE_UINT16(code);
-	code += 2;
 	debugC(4, kDebugLevelScript, "read global byte variable %d as argument", index);
 	return new GlobalByteVariable(index, _resources);
 }
 
 template<>
-GlobalWordVariable *Interpreter::readArgument<GlobalWordVariable>(byte *&code) {
-	if (!containsCodePointer(code, 2)) {
+GlobalWordVariable *Interpreter::readArgument<GlobalWordVariable>(BytecodeCursor &code) {
+	uint16 index = 0;
+	if (!code.readUint16(index)) {
 		warning("Interspective: truncated global word argument in %s", name());
-		code = _base + _codeSize;
+		code.seekEnd();
 		return new GlobalWordVariable(0, _resources);
 	}
-	uint16 index = READ_LE_UINT16(code) / 2;
-	code += 2;
+	index /= 2;
 	debugC(4, kDebugLevelScript, "read global word variable %d as argument", index);
 	return new GlobalWordVariable(index, _resources);
 }
 
 template<>
-CodePointer *Interpreter::readArgument<CodePointer>(byte *&code) {
-	if (!containsCodePointer(code, 2)) {
+CodePointer *Interpreter::readArgument<CodePointer>(BytecodeCursor &code) {
+	uint16 offset = 0;
+	if (!code.readUint16(offset)) {
 		warning("Interspective: truncated code-pointer argument in %s", name());
-		code = _base + _codeSize;
+		code.seekEnd();
 		return new CodePointer();
 	}
-	uint16 offset = READ_LE_UINT16(code);
-	code += 2;
 	debugC(4, kDebugLevelScript, "read code offset 0x%04x as argument", offset);
 	return new CodePointer(offset, this);
 }
@@ -462,10 +504,6 @@ private:
 	uint16 _rawLength;
 };
 
-static bool canReadBytes(const byte *code, const byte *end, uint count) {
-	return !end || (code && code <= end && uint(end - code) >= count);
-}
-
 static bool appendDecodedByte(byte *&dst, byte *dstEnd, byte value) {
 	if (dst >= dstEnd)
 		return false;
@@ -473,18 +511,25 @@ static bool appendDecodedByte(byte *&dst, byte *dstEnd, byte value) {
 	return true;
 }
 
-static bool decodeParametrizedString(Resources *resources, byte *base, byte *&code, const byte *end,
+static bool readAndAppendByte(BytecodeCursor &code, byte *&dst, byte *dstEnd) {
+	byte value = 0;
+	if (!code.readByte(value))
+		return false;
+	return appendDecodedByte(dst, dstEnd, value);
+}
+
+static bool decodeParametrizedString(Resources *resources, BytecodeCursor &code,
 									 byte *translateBuf, uint16 translateBufSize,
-									 uint16 &translatedLength, byte *&raw, uint16 &rawLength) {
+									 uint16 &translatedLength, uint16 &rawOffset, uint16 &rawLength) {
 	byte *str = translateBuf;
 	byte *const strEnd = translateBuf + translateBufSize - 1;
-	raw = code;
+	rawOffset = code.offset();
 	bool rawTerminated = false;
 
 	while (!rawTerminated) {
-		if (!canReadBytes(code, end, 1))
+		byte ch = 0;
+		if (!code.readByte(ch))
 			return false;
-		const byte ch = *(code++);
 		if (ch == 0)
 			break;
 
@@ -493,25 +538,23 @@ static bool decodeParametrizedString(Resources *resources, byte *base, byte *&co
 		switch (ch) {
 		case 14:
 		case kStringMove:
-			if (!canReadBytes(code, end, 4) ||
+			if (!code.canRead(4) ||
 				!appendDecodedByte(str, strEnd, ch) ||
-				!appendDecodedByte(str, strEnd, *(code++)) ||
-				!appendDecodedByte(str, strEnd, *(code++)) ||
-				!appendDecodedByte(str, strEnd, *(code++)) ||
-				!appendDecodedByte(str, strEnd, *(code++)))
+				!readAndAppendByte(code, str, strEnd) ||
+				!readAndAppendByte(code, str, strEnd) ||
+				!readAndAppendByte(code, str, strEnd) ||
+				!readAndAppendByte(code, str, strEnd))
 				return false;
 			break;
 		case kStringAdvance:
-			if (!canReadBytes(code, end, 1) ||
+			if (!code.canRead(1) ||
 				!appendDecodedByte(str, strEnd, ch) ||
-				!appendDecodedByte(str, strEnd, *(code++)))
+				!readAndAppendByte(code, str, strEnd))
 				return false;
 			break;
 		case kStringGlobalWord: {
-			if (!resources || !canReadBytes(code, end, 2))
+			if (!resources || !code.readUint16(offset))
 				return false;
-			offset = READ_LE_UINT16(code);
-			code += 2;
 			value = READ_LE_UINT16(resources->getGlobalWordVariable(offset / 2));
 			const uint remaining = uint(strEnd - str);
 			const int written = snprintf(reinterpret_cast<char *>(str), remaining + 1, "%d", value);
@@ -521,29 +564,27 @@ static bool decodeParametrizedString(Resources *resources, byte *base, byte *&co
 			break;
 		}
 		case kStringSetColour:
-			if (!canReadBytes(code, end, 1) ||
+			if (!code.canRead(1) ||
 				!appendDecodedByte(str, strEnd, ch) ||
-				!appendDecodedByte(str, strEnd, *(code++)))
+				!readAndAppendByte(code, str, strEnd))
 				return false;
 			break;
 		case kStringCountSpacesIf0:
 		case kStringCountSpacesIf1: {
-			if (!resources || !canReadBytes(code, end, 2))
+			if (!resources || !code.readUint16(offset))
 				return false;
 			// DOS FormatBubbleText_Inner consumes a two-byte global-byte
 			// offset after these conditional markers and skips forward to
 			// STX (0x02) when the condition matches. The raw string remains
 			// available via rawPointer(); the translated buffer should only
 			// contain text that survives the same condition.
-			offset = READ_LE_UINT16(code);
-			code += 2;
 			const byte state = *resources->getGlobalByteVariable(offset);
 			const bool skip = (ch == kStringCountSpacesIf0) ? (state == 0) : (state != 0);
 			if (skip) {
 				while (true) {
-					if (!canReadBytes(code, end, 1))
+					byte skipped = 0;
+					if (!code.readByte(skipped))
 						return false;
-					const byte skipped = *(code++);
 					if (skipped == 0) {
 						rawTerminated = true;
 						break;
@@ -565,17 +606,17 @@ static bool decodeParametrizedString(Resources *resources, byte *base, byte *&co
 				if (!appendDecodedByte(str, strEnd, ch))
 					return false;
 				while (true) {
-					if (!canReadBytes(code, end, 1))
+					byte optionCh = 0;
+					if (!code.readByte(optionCh))
 						return false;
-					const byte optionCh = *(code++);
 					if (!appendDecodedByte(str, strEnd, optionCh))
 						return false;
 					if (optionCh == 0)
 						break;
 				}
-				if (!canReadBytes(code, end, 2) ||
-					!appendDecodedByte(str, strEnd, *(code++)) ||
-					!appendDecodedByte(str, strEnd, *(code++)))
+				if (!code.canRead(2) ||
+					!readAndAppendByte(code, str, strEnd) ||
+					!readAndAppendByte(code, str, strEnd))
 					return false;
 			} else if (!appendDecodedByte(str, strEnd, ch)) {
 				return false;
@@ -586,59 +627,49 @@ static bool decodeParametrizedString(Resources *resources, byte *base, byte *&co
 	if (!appendDecodedByte(str, translateBuf + translateBufSize, 0))
 		return false;
 	translatedLength = uint16(str - translateBuf);
-	rawLength = uint16(code - raw);
-	(void)base;
+	rawLength = uint16(code.offset() - rawOffset);
 	return true;
 }
 
 template<>
-ParametrizedString *Interpreter::readArgument<ParametrizedString>(byte *&code) {
+ParametrizedString *Interpreter::readArgument<ParametrizedString>(BytecodeCursor &code) {
 	byte translateBuf[500];
-	byte *raw = code;
+	uint16 rawOffset = code.offset();
 	uint16 translatedLength = 0;
 	uint16 rawLength = 0;
-	const byte *end = _base + _codeSize;
-	if (!decodeParametrizedString(_resources, _base, code, end, translateBuf, sizeof(translateBuf),
-								  translatedLength, raw, rawLength))
+	if (!decodeParametrizedString(_resources, code, translateBuf, sizeof(translateBuf),
+								  translatedLength, rawOffset, rawLength))
 		error("malformed parametrized string argument");
 
 	debugC(4, kDebugLevelScript, "read parametrized string '%s' as argument", translateBuf);
 
 	DosMemoryReference rawRef;
-	memoryReference(raw, rawRef);
+	memoryReference(rawOffset, rawRef);
 	return new ParametrizedString(translateBuf, translatedLength, rawRef, rawLength);
 }
 
-static bool scanBytecodeArgument(Resources *resources, byte *base, byte *&code, const byte *end, Common::String *stringOut) {
-	if (!canReadBytes(code, end, 2))
+static bool scanBytecodeArgument(Resources *resources, BytecodeCursor &code, Common::String *stringOut) {
+	byte argumentType = 0;
+	if (!code.peekByte(1, argumentType) || !code.skip(2))
 		return false;
-
-	const uint8 argumentType = code[1];
-	code += 2;
 
 	switch (argumentType) {
 	case kArgumentImmediate:
 	case kArgumentMainWord:
 	case kArgumentMainByte:
 	case kArgumentCode:
-		if (!canReadBytes(code, end, 2))
-			return false;
-		code += 2;
-		return true;
+		return code.skip(2);
 	case kArgumentFieldByte:
 	case kArgumentFieldWord:
 	case kArgumentFieldWordAlt:
-		if (!canReadBytes(code, end, 4))
-			return false;
-		code += 4;
-		return true;
+		return code.skip(4);
 	case kArgumentString: {
 		byte translateBuf[500];
-		byte *raw = 0;
+		uint16 rawOffset = code.offset();
 		uint16 translatedLength = 0;
 		uint16 rawLength = 0;
-		if (!decodeParametrizedString(resources, base, code, end, translateBuf, sizeof(translateBuf),
-									  translatedLength, raw, rawLength))
+		if (!decodeParametrizedString(resources, code, translateBuf, sizeof(translateBuf),
+									  translatedLength, rawOffset, rawLength))
 			return false;
 		if (stringOut)
 			*stringOut = Common::String(reinterpret_cast<const char *>(translateBuf));
@@ -646,9 +677,10 @@ static bool scanBytecodeArgument(Resources *resources, byte *base, byte *&code, 
 	}
 	case kArgumentList:
 		while (true) {
-			if (!canReadBytes(code, end, 1))
+			byte value = 0;
+			if (!code.readByte(value))
 				return false;
-			if (*(code++) == 0xff)
+			if (value == 0xff)
 				return true;
 		}
 	default:
@@ -692,31 +724,27 @@ bool Interpreter::extractFirstStatusOverlayLine(uint16 offset, Common::String &t
 	if (!_base || offset >= _codeSize)
 		return false;
 
-	byte *code = _base + offset;
-	const byte *end = _base + _codeSize;
+	BytecodeCursor code(this, offset);
 	enum {
 		kMaxScannedOpcodes = 512
 	};
 
 	for (uint scanned = 0; scanned < kMaxScannedOpcodes; ++scanned) {
-		if (!canReadBytes(code, end, 1))
+		byte opcode = 0;
+		if (!code.peekByte(0, opcode))
 			return false;
-
-		const byte opcode = *code;
 		if (opcode > kOpcodeMax)
 			return false;
 
 		const uint8 nargs = _argumentsCounts[opcode];
 		Common::String statusText;
 		if (nargs == 0) {
-			if (!canReadBytes(code, end, 2))
+			if (!code.skip(2))
 				return false;
-			code += 2;
 		} else {
 			for (uint i = 0; i < nargs; ++i) {
 				const bool captureStatusText = opcode == 0x28 && i == 1;
-				if (!scanBytecodeArgument(_resources, _base, code, end,
-										  captureStatusText ? &statusText : 0))
+				if (!scanBytecodeArgument(_resources, code, captureStatusText ? &statusText : 0))
 					return false;
 			}
 		}
@@ -732,14 +760,12 @@ bool Interpreter::extractFirstStatusOverlayLine(uint16 offset, Common::String &t
 	return false;
 }
 
-Value *Interpreter::getArgument(byte *&code) {
-	if (!containsCodePointer(code, 2)) {
+Value *Interpreter::getArgument(BytecodeCursor &code) {
+	byte argument_type = 0;
+	if (!code.peekByte(1, argument_type) || !code.skip(2)) {
 		warning("Interspective: argument descriptor outside %s code segment", name());
 		return new Constant(0);
 	}
-
-	uint8 argument_type = code[1];
-	code += 2;
 
 	switch (argument_type) {
 	case kArgumentImmediate:
@@ -751,15 +777,17 @@ Value *Interpreter::getArgument(byte *&code) {
 	case kArgumentFieldByte:
 	case kArgumentFieldWord:
 	case kArgumentFieldWordAlt: {
-		if (!containsCodePointer(code, 4)) {
+		if (!code.canRead(4)) {
 			warning("Interspective: truncated record-field argument in %s", name());
-			code = _base + _codeSize;
+			code.seekEnd();
 			return new Constant(0);
 		}
-		const uint8 selector = code[0];
-		const uint8 offset = code[1];
-		const uint16 id = READ_LE_UINT16(code + 2);
-		code += 4;
+		byte selector = 0;
+		byte offset = 0;
+		uint16 id = 0;
+		code.readByte(selector);
+		code.readByte(offset);
+		code.readUint16(id);
 		const uint8 size = argument_type == kArgumentFieldByte ? 1 : 2;
 		debugC(4, kDebugLevelScript,
 			   "read record field selector=%u id=%u offset=0x%02x size=%u as argument",
@@ -769,18 +797,18 @@ Value *Interpreter::getArgument(byte *&code) {
 	case kArgumentString:
 		return readArgument<ParametrizedString>(code);
 	case kArgumentList: {
-		byte *ptr = code;
-		while (containsCodePointer(code) && *code != 0xff)
-			++code;
+		const uint16 rawOffset = code.offset();
+		byte value = 0;
+		while (code.readByte(value) && value != 0xff) {
+		}
 		DosMemoryReference ref;
-		memoryReference(ptr, ref);
-		if (!containsCodePointer(code)) {
+		memoryReference(rawOffset, ref);
+		if (value != 0xff) {
 			warning("Interspective: unterminated list argument in %s", name());
 			return new RawPointerArgument(ref);
 		}
-		++code;
 		debugC(4, kDebugLevelScript, "read raw list at offset 0x%04x as argument",
-			   uint16(ptr - _base));
+			   rawOffset);
 		return new RawPointerArgument(ref);
 	}
 	case kArgumentCode:

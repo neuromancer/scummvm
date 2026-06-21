@@ -37,10 +37,30 @@ class Opcode;
 class Engine;
 class Resources;
 class Graphics;
+class Interpreter;
 
 enum Status {
 	kReturned = 0,
 	kInvalidOpcode = 1
+};
+
+class BytecodeCursor {
+public:
+	BytecodeCursor();
+	BytecodeCursor(Interpreter *interpreter, uint16 offset);
+
+	uint16 offset() const { return _offset; }
+	bool canRead(uint16 size = 1) const;
+	bool peekByte(uint16 relativeOffset, byte &value) const;
+	bool readByte(byte &value);
+	bool readUint16(uint16 &value);
+	bool skip(uint16 count);
+	void seek(uint16 offset) { _offset = offset; }
+	void seekEnd();
+
+private:
+	Interpreter *_interpreter;
+	uint16 _offset;
 };
 
 class Interpreter {
@@ -75,8 +95,6 @@ public:
 	void tick();
 	void executeRestricted(byte *code);
 
-	Value *getArgument(byte *&code);
-
 	friend class Opcode;
 
 	template<int opcode>
@@ -110,7 +128,8 @@ public:
 private:
 	char _name[100];
 	template<class T>
-	T *readArgument(byte *&code);
+	T *readArgument(BytecodeCursor &code);
+	Value *getArgument(BytecodeCursor &code);
 
 	byte *_base;
 	uint16 _codeSize;
