@@ -35,18 +35,10 @@ using namespace Common;
 
 namespace Interspective {
 
-MainDat::MainDat(Resources *res) : Datafile(res), _dataLen(0), _actors(0), _actorsCount(0) {}
+MainDat::MainDat(Resources *res) : Datafile(res), _dataLen(0) {}
 
 const char *MainDat::filename() const {
 	return Engine::instance().mainDatFilename().c_str();
-}
-
-MainDat::~MainDat() {
-	if (_actors) {
-		for (int i = 0; i < _actorsCount; i++)
-			delete _actors[i];
-		delete[] _actors;
-	}
 }
 
 enum Offsets {
@@ -626,14 +618,14 @@ void MainDat::loadObjectStates() {
 
 void MainDat::loadActors(Interpreter *in) {
 	const MainDatFooter footer(_footer);
-	uint16 nactors = _actorsCount = footer.actorsCount();
+	uint16 nactors = footer.actorsCount();
 	uint16 actors = footer.actorsOffset();
-	assert(!_actors);
-	_actors = new Actor *[nactors];
+	assert(_actors.empty());
 	for (int i = 0; i < nactors; ++i) {
-		_actors[i] = new Actor(CodePointer(actors, in));
-		_actors[i]->setId(uint16(i + 1)); // DOS uses 1-based ids
-		_actors[i]->setPuppeteer(getPuppeteer(i + 1));
+		Common::ScopedPtr<Actor> actor(new Actor(CodePointer(actors, in)));
+		actor->setId(uint16(i + 1)); // DOS uses 1-based ids
+		actor->setPuppeteer(getPuppeteer(i + 1));
+		_actors.push_back(Common::move(actor));
 		actors += Actor::Size;
 	}
 }
@@ -654,7 +646,7 @@ void MainDat::parsePuppeteers() const {
 	for (int i = 0; i < count; i++) {
 		Common::Span<const byte> record = segment.span(uint32(footer.puppeteersOffset()) + uint32(i) * Puppeteer::kSize,
 													   Puppeteer::kSize);
-		Puppeteer p(record.data());
+		Puppeteer p(record);
 		_puppeteers[p.actorId()] = p;
 	}
 }
@@ -869,7 +861,7 @@ uint16 MainDat::getRoomLoopEntryPoint() const {
 }
 
 Actor *MainDat::actor(uint16 index) const {
-	return _actors[index];
+	return _actors[index].get();
 }
 
 uint16 MainDat::getRoomScriptId(uint16 room) const {

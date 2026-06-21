@@ -23,9 +23,9 @@
 #define INTERSPECTIVE_MAIN_DAT_H
 
 #include "common/array.h"
-#include "common/endian.h"
 #include "common/hashmap.h"
 #include "common/list.h"
+#include "common/ptr.h"
 #include "common/str.h"
 
 #include "interspective/actor.h"
@@ -42,7 +42,6 @@ class Interpreter;
 class MainDat : public Datafile {
 public:
 	MainDat(Resources *resources);
-	~MainDat();
 
 	// Resolved by the engine from the selected language: "iuc_main.dat" for the
 	// single-language release, or IUC_MAIN.<ext> for the multilingual CD.
@@ -96,7 +95,7 @@ public:
 	const byte *data() const { return _data.data(); }
 
 	Actor *actor(uint16 index) const;
-	uint16 actorsCount() const { return _actorsCount; }
+	uint16 actorsCount() const { return uint16(_actors.size()); }
 
 	// Seed Logic::_objectRoom with the initial object→room mapping from the
 	// global object-state table (DOS CS:[0x6d], iuc_main.dat footer offset
@@ -143,8 +142,7 @@ private:
 	Common::Array<byte> _data;
 	uint16 _dataLen;
 	byte _footer[kFooterLen];
-	Actor **_actors;
-	uint16 _actorsCount;
+	Common::Array<Common::ScopedPtr<Actor> > _actors;
 
 	bool imageDirectoryEntryOffset(uint16 index, uint32 &entryOffset) const;
 	void parsePuppeteers() const;

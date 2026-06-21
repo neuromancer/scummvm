@@ -24,15 +24,16 @@
 
 #include "common/array.h"
 #include "common/list.h"
+#include "common/ptr.h"
 #include "common/stream.h"
 
 #include "interspective/debug.h"
+#include "interspective/exit.h"
 #include "interspective/resources.h"
 
 namespace Interspective {
 //
 
-class Exit;
 class Actor;
 
 class Program : public StaticInspectable {
@@ -70,7 +71,7 @@ public:
 	Exit *getExit(uint16 index) const;
 	bool getExitRecordField(uint16 index, uint8 off, uint8 size, uint16 &value) const;
 	bool getExitRoomWord(uint16 index, uint16 &room) const;
-	uint16 exitsCount() const { return _exitsCount; }
+	uint16 exitsCount() const { return uint16(_exits.size()); }
 	Common::List<Exit *> exitsForRoom(uint16 room) const;
 
 	Actor *actor(uint16 index) const;
@@ -87,8 +88,7 @@ private:
 	uint16 _codeSize;
 	byte _footer[0x10];
 	Common::List<Actor *> _actors;
-	Exit **_exits;
-	uint16 _exitsCount;
+	Common::Array<Common::ScopedPtr<Exit> > _exits;
 };
 
 } // End of namespace Interspective

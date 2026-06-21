@@ -1316,15 +1316,14 @@ void Actor::callBacks() {
 	}
 }
 
-void Puppeteer::parse(const byte *data) {
-	_actorId = READ_LE_UINT16(data + kActorId);
-	_offset = READ_LE_UINT16(data + kMainCode);
+void Puppeteer::parse(Common::Span<const byte> data) {
+	assert(data.size() >= kSize);
+	_actorId = data.getUint16LEAt(kActorId);
+	_offset = data.getUint16LEAt(kMainCode);
 
 	assert(kTurnAnimators == kMoveAnimators + 16);
-	const byte *d = data + kMoveAnimators;
 	for (int i = 0; i < 16; i++) {
-		_animators[i] = READ_LE_UINT16(d);
-		d += 2;
+		_animators[i] = data.getUint16LEAt(kMoveAnimators + uint32(i) * 2);
 	}
 }
 

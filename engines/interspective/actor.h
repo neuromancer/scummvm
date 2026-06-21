@@ -23,11 +23,11 @@
 #define INTERSPECTIVE_ACTOR_H
 
 #include "common/array.h"
-#include "common/endian.h"
 #include "common/hashmap.h"
 #include "common/ptr.h"
 #include "common/queue.h"
 #include "common/rect.h"
+#include "common/span.h"
 
 #include "interspective/animation.h"
 #include "interspective/value.h"
@@ -68,7 +68,7 @@ public:
 		kSize = 0x24
 	};
 	Puppeteer() : _offset(0), _actorId(0) {}
-	Puppeteer(const byte *data) { parse(data); }
+	Puppeteer(Common::Span<const byte> data) { parse(data); }
 
 	uint16 mainCodeOffset() const { return _offset; }
 	uint16 offset() const { return _offset; }
@@ -78,7 +78,7 @@ public:
 	CodePointer turnAnimator(Direction d);
 
 private:
-	void parse(const byte *data);
+	void parse(Common::Span<const byte> data);
 
 	uint16 _actorId;
 	uint16 _offset;

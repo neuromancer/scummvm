@@ -107,7 +107,7 @@ private:
 } // namespace
 
 Program::Program(Common::ReadStream &file, uint16 id)
-	: _code(kDosResourceSegmentSize, byte(0)), _codeSize(0), _exits(0), _exitsCount(0) {
+	: _code(kDosResourceSegmentSize, byte(0)), _codeSize(0) {
 	uint16 length = file.readUint16LE(); // for this length
 	if (length > 25000)
 		error("too large a program (%d)", length);
@@ -138,7 +138,6 @@ void Program::loadActors(Interpreter *in) {
 
 Program::~Program() {
 	// _actors are cleaned up by the block Interpreter's destructor — see Interpreter::~Interpreter.
-	clearExits();
 }
 
 uint16 Program::begin() {
@@ -198,12 +197,7 @@ SpriteInfo Program::getSpriteInfo(uint16 index) const {
 }
 
 void Program::clearExits() {
-	if (_exits) {
-		for (int i = 0; i < _exitsCount; i++)
-			delete _exits[i];
-		delete[] _exits;
-		_exits = 0;
-	}
+	_exits.clear();
 }
 
 void Program::loadExits(Interpreter *in) {
@@ -214,25 +208,21 @@ void Program::loadExits(Interpreter *in) {
 
 	clearExits();
 
-	_exits = new Exit *[nexits];
-
 	for (int i = 0; i < nexits; ++i) {
-		_exits[i] = new Exit(CodePointer(exits, in), uint16(i + 1));
+		_exits.push_back(Common::ScopedPtr<Exit>(new Exit(CodePointer(exits, in), uint16(i + 1))));
 		exits += Exit::Size;
 	}
-
-	_exitsCount = nexits;
 }
 
 Exit *Program::getExit(uint16 index) const {
-	if (!_exits || index == 0 || index > _exitsCount)
+	if (index == 0 || index > exitsCount())
 		return nullptr;
-	return _exits[index - 1];
+	return _exits[index - 1].get();
 }
 
 bool Program::getExitRecordField(uint16 index, uint8 off, uint8 size, uint16 &value) const {
 	value = 0;
-	if (index == 0 || index > _exitsCount || size == 0 || size > 2 || off + size > Exit::Size)
+	if (index == 0 || index > exitsCount() || size == 0 || size > 2 || off + size > Exit::Size)
 		return false;
 
 	const ProgramFooter footer(_footer);
@@ -263,9 +253,11 @@ bool Program::getExitRoomWord(uint16 index, uint16 &room) const {
 
 Common::List<Exit *> Program::exitsForRoom(uint16 room) const {
 	Common::List<Exit *> room_exits;
-	for (int i = 0; i < _exitsCount; i++)
-		if (_exits[i]->room() == room)
-			room_exits.push_back(_exits[i]);
+	for (uint i = 0; i < _exits.size(); i++) {
+		Exit *exit = _exits[i].get();
+		if (exit->room() == room)
+			room_exits.push_back(exit);
+	}
 
 	return room_exits;
 }

@@ -66,12 +66,12 @@ public:
 	void setSpriteField(uint16 sprite);
 	const CodePointer &clickHandler() const { return _clickHandler; }
 
-	friend class Program;
-
-private:
-	Exit(const CodePointer &code, uint16 id);
 	virtual ~Exit() {}
 
+private:
+	friend class Program;
+
+	Exit(const CodePointer &code, uint16 id);
 	Sprite *sprite() const { return _sprite.get(); }
 
 	byte _zIndex;
