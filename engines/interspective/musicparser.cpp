@@ -62,7 +62,7 @@ static uint16 midiTuneIndexForScriptTune(uint16 tuneIdx) {
 	return tuneIdx + rolandBase;
 }
 
-MusicParser::MusicParser() : MidiParser(), _sfxPendingBeat(-1), _tune(0), _script(0), _musicType(MT_INVALID), _active(true),
+MusicParser::MusicParser() : MidiParser(), _sfxPendingBeat(-1), _musicType(MT_INVALID), _active(true),
 							 _currentTuneWord(0), _currentScriptMainOffset(0xffff), _driverCommandByte(0), _driverModeFlag(0),
 							 _sfxDataSize(0), _sfxBeatCount(0), _sfxCurrentBeat(-1), _sfxBeatTicks(0),
 							 _sfxTime(0), _sfxLastTick(0), _sfxPsecPerTick(500000 * 0x19 / 120), _sfxTick(0),
@@ -76,7 +76,7 @@ MusicParser::MusicParser() : MidiParser(), _sfxPendingBeat(-1), _tune(0), _scrip
 	debugC(1, kDebugLevelMusic, "Interspective music init: detected device id='%s' musicType=%d",
 		   devId.c_str(), int(_musicType));
 
-	_midiDriver = MidiDriver::createMidi(dev);
+	_midiDriver.reset(MidiDriver::createMidi(dev));
 	if (!_midiDriver) {
 		warning("Interspective music init: MidiDriver::createMidi returned NULL — music will be silent");
 		return;
@@ -114,7 +114,7 @@ MusicParser::MusicParser() : MidiParser(), _sfxPendingBeat(-1), _tune(0), _scrip
 	// (the base MidiParser::onTimer drives the standard event-stream model that
 	// our parseNextEvent() override no-ops; we run our own beat/channel/note
 	// state machine in MusicParser::tick instead).
-	setMidiDriver(_midiDriver);
+	setMidiDriver(_midiDriver.get());
 	setTimerRate(_midiDriver->getBaseTempo());
 	_midiDriver->setTimerCallback(this, &MusicParser::timerCallback);
 	debugC(1, kDebugLevelMusic, "Interspective music init: timer callback registered (timerRate=%u µs)",
@@ -133,26 +133,20 @@ MusicParser::~MusicParser() {
 	stopSfxNotes();
 	silence();
 	unloadMusic();
-	delete _tune;
-	_tune = 0;
-	delete _script;
-	_script = 0;
+	_tune.reset();
+	_script.reset();
 	if (_midiDriver) {
 		_midiDriver->close();
 		setMidiDriver(0);
-		delete _midiDriver;
+		_midiDriver.reset();
 	}
 }
 
 bool MusicParser::loadMusic(const byte *data, uint32 size) {
-	return loadMusic(data, size, 0xffff);
+	return loadMusic(Common::Span<const byte>(data, size), 0xffff);
 }
 
 bool MusicParser::loadMusic(Common::Span<const byte> data, uint16 mainOffset) {
-	return loadMusic(data.data(), data.size(), mainOffset);
-}
-
-bool MusicParser::loadMusic(const byte *data, uint32 size, uint16 mainOffset) {
 	Common::StackLock lock(_mutex);
 	if (!_midiDriver) {
 		warning("Interspective music: loadMusic skipped — no MIDI driver");
@@ -165,20 +159,19 @@ bool MusicParser::loadMusic(const byte *data, uint32 size, uint16 mainOffset) {
 	// matches what's already loaded.
 	if (_script && hasCurrentTune() &&
 		((mainOffset != 0xffff && _currentScriptMainOffset == mainOffset) ||
-		 (mainOffset == 0xffff && _script->base() == data)))
+		 (mainOffset == 0xffff && _script->matches(data))))
 		return true;
 
 	static int loadMusicCallCount = 0;
 	loadMusicCallCount++;
 	debugC(2, kDebugLevelMusic, "Interspective music: loadMusic called (#%d) data=%p size=%u",
-		   loadMusicCallCount, (const void *)data, (unsigned)size);
+		   loadMusicCallCount, (const void *)data.data(), (unsigned)data.size());
 
 	unloadMusic();
 	silence();
-	delete _script;
-	delete _tune;
-	_tune = 0;
-	_script = new MusicScript(data, size);
+	_script.reset();
+	_tune.reset();
+	_script.reset(new MusicScript(data));
 	_currentScriptMainOffset = mainOffset;
 
 	// Reset our custom music clock so tunes always start from tick 0. Without
@@ -194,7 +187,7 @@ bool MusicParser::loadMusic(const byte *data, uint32 size, uint16 mainOffset) {
 	_currentTuneWord = tuneIdx;
 	const uint16 midiTuneIdx = midiTuneIndexForScriptTune(tuneIdx);
 	debugC(1, kDebugLevelMusic, "Interspective music: loadMusic tune index = %u (data tune %u)", tuneIdx, midiTuneIdx);
-	_tune = new Tune(midiTuneIdx);
+	_tune.reset(new Tune(midiTuneIdx));
 
 	_numTracks = 1;
 	_ppqn = 120;
@@ -232,7 +225,7 @@ void MusicParser::tick() {
 	if (!reportedFirstTick) {
 		reportedFirstTick = true;
 		debugC(1, kDebugLevelMusic, "Interspective music: first MusicParser::tick fired (timerRate=%u psecPerTick=%u tune=%p)",
-			   (uint)_timerRate, (uint)_psecPerTick, (const void *)_tune);
+			   (uint)_timerRate, (uint)_psecPerTick, (const void *)_tune.get());
 	}
 
 	if (_tune && _tune->isPlaying()) {
@@ -315,26 +308,25 @@ void MusicParser::stopMusicNotesNotInSlots(const bool activeSlots[8][4]) {
 	}
 }
 
-bool MusicParser::playSfxTune(const byte *data, uint32 size) {
+bool MusicParser::playSfxTune(Common::Span<const byte> data) {
 	Common::StackLock lock(_mutex);
 	enum {
 		kTuneBeatCountOffset = 0x21,
 		kTuneHeaderSize = 0x25
 	};
 
-	if (!_driver || !data || size < kTuneHeaderSize || size > kSfxTuneBufferSize)
+	if (!_driver || !data || data.size() < kTuneHeaderSize || data.size() > kSfxTuneBufferSize)
 		return false;
 
 	stopSfxNotes();
 
-	const Common::Span<const byte> tune(data, size);
-	const uint16 beatCount = tune.getUint16LEAt(kTuneBeatCountOffset);
+	const uint16 beatCount = data.getUint16LEAt(kTuneBeatCountOffset);
 	const uint32 channelBase = kTuneHeaderSize + uint32(beatCount) * 8;
-	if (beatCount == 0 || channelBase >= size || channelBase + 16 > size)
+	if (beatCount == 0 || channelBase >= data.size() || channelBase + 16 > data.size())
 		return false;
 
-	memcpy(_sfxData, data, size);
-	_sfxDataSize = size;
+	memcpy(_sfxData, data.data(), data.size());
+	_sfxDataSize = data.size();
 	_sfxBeatCount = beatCount;
 	_sfxTime = 0;
 	_sfxLastTick = 0;
@@ -347,7 +339,7 @@ bool MusicParser::playSfxTune(const byte *data, uint32 size) {
 	}
 
 	debugC(1, kDebugLevelSound, "Interspective music: Roland SFX tune bytes=%u beats=%u",
-		   (uint)size, (uint)beatCount);
+		   (uint)data.size(), (uint)beatCount);
 	return true;
 }
 
@@ -671,29 +663,31 @@ void MusicParser::setMaxVolume(uint8 dosMusicMode) {
 		_driver->send(channel | kMidiChannelControl, MidiDriver::MIDI_CONTROLLER_VOLUME, 127);
 }
 
-MusicScript::MusicScript() : _code(0), _size(0), _offset(0) {}
+MusicScript::MusicScript() : _offset(0) {}
 
-MusicScript::MusicScript(const byte *data, uint32 size) : _code(data),
-														  _size(size),
-														  _offset(2) {}
+MusicScript::MusicScript(Common::Span<const byte> data) : _code(data), _offset(2) {}
+
+bool MusicScript::matches(Common::Span<const byte> data) const {
+	return _code.data() == data.data() && _code.size() == data.size();
+}
 
 bool MusicScript::canRead(uint32 offset, uint32 count) const {
 	if (!_code)
 		return false;
-	return _size == 0 || (offset <= _size && count <= _size - offset);
+	return offset <= _code.size() && count <= _code.size() - offset;
 }
 
 bool MusicScript::readByteAt(uint32 offset, byte &value) const {
 	if (!canRead(offset, 1))
 		return false;
-	value = Common::Span<const byte>(_code + offset, 1).getUint8At(0);
+	value = _code.getUint8At(offset);
 	return true;
 }
 
 bool MusicScript::readUint16LEAt(uint32 offset, uint16 &value) const {
 	if (!canRead(offset, 2))
 		return false;
-	value = Common::Span<const byte>(_code + offset, 2).getUint16LEAt(0);
+	value = _code.getUint16LEAt(offset);
 	return true;
 }
 
@@ -755,7 +749,7 @@ void MusicScript::tick() {
 				Music.stopMusic();
 				return;
 			}
-			const Common::Span<const byte> control(_code + _offset, 6);
+			const Common::Span<const byte> control(_code.subspan(_offset, 6));
 			// Op_f4 @ 1000:57aa only seeds the resident music driver's script
 			// pointer and tune word; these control opcodes are consumed by that
 			// driver. They do not emit a beat directly, so continue to the next
@@ -777,7 +771,7 @@ void MusicScript::tick() {
 				Music.stopMusic();
 				return;
 			}
-			const Common::Span<const byte> control(_code + _offset, 4);
+			const Common::Span<const byte> control(_code.subspan(_offset, 4));
 			debugC(2, kDebugLevelMusic,
 				   "will consume music script control 0x97 at 0x%x args=%02x %02x %02x",
 				   (uint)_offset, (uint)control.getUint8At(1),

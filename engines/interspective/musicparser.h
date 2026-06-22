@@ -25,6 +25,7 @@
 #include "common/array.h"
 #include "common/mutex.h"
 #include "common/noncopyable.h"
+#include "common/ptr.h"
 #include "common/queue.h"
 #include "common/singleton.h"
 #include "common/span.h"
@@ -150,11 +151,11 @@ private:
 class MusicScript : public Common::NonCopyable {
 public:
 	MusicScript();
-	MusicScript(const byte *data, uint32 size = 0);
+	MusicScript(Common::Span<const byte> data);
 	void parseNextEvent(EventInfo &info);
 	void tick();
 	uint16 getTune() const;
-	const byte *base() const { return _code; }
+	bool matches(Common::Span<const byte> data) const;
 	uint16 offset() const { return _offset; }
 	void setOffset(uint16 offset) { _offset = offset; }
 
@@ -165,8 +166,7 @@ private:
 	bool readByteAt(uint32 offset, byte &value) const;
 	bool readUint16LEAt(uint32 offset, uint16 &value) const;
 
-	const byte *_code;
-	uint32 _size;
+	Common::Span<const byte> _code;
 	uint16 _offset;
 };
 
@@ -202,7 +202,7 @@ public:
 						   uint16 currentTuneWord, uint8 active,
 						   uint8 driverCommandByte, uint8 driverModeFlag,
 						   uint16 beat, uint32 beatTicks);
-	bool playSfxTune(const byte *data, uint32 size);
+	bool playSfxTune(Common::Span<const byte> data);
 	void stopSfxNotes();
 	bool isSfxNotePlaying() const { return _sfxTunePlaying; }
 
@@ -227,7 +227,6 @@ private:
 	};
 
 	void parseNextEvent(EventInfo &info) override {}
-	bool loadMusic(const byte *data, uint32 size, uint16 mainOffset);
 	void stopMusicNotesNotInSlots(const bool activeSlots[8][4]);
 	bool setSfxBeat(uint16 beat);
 	void tickSfxTune();
@@ -247,9 +246,9 @@ private:
 	// the top of the next tick (-1 = none).
 	int32 _sfxPendingBeat;
 
-	Tune *_tune;
-	MidiDriver *_midiDriver;
-	MusicScript *_script;
+	Common::ScopedPtr<Tune> _tune;
+	Common::ScopedPtr<MidiDriver> _midiDriver;
+	Common::ScopedPtr<MusicScript> _script;
 	MusicType _musicType;
 	bool _active;
 	uint16 _currentTuneWord;

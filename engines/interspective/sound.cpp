@@ -438,7 +438,7 @@ bool Sound::playSfxSample(uint16 id, Audio::SoundHandle &handle) {
 	if (!loadSfxSample(id, pcm, rate, loop)) {
 		Common::Array<byte> tune;
 		if (loadRolandSfxTune(id, tune))
-			return Music.playSfxTune(&tune[0], tune.size());
+			return Music.playSfxTune(Common::Span<const byte>(tune.data(), tune.size()));
 		debugC(1, kDebugLevelSound, "Sound::playSfxSample(%u) — sample decode failed", id);
 		return false;
 	}
