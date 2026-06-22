@@ -117,6 +117,8 @@ public:
 	bool readCodeRect(uint16 offset, Common::Rect &rect) const;
 	bool memoryReference(uint16 offset, DosMemoryReference &ref) const;
 	uint16 codeSize() const { return uint16(_code.size()); }
+	Common::Span<const byte> codeSpan(uint16 offset, uint16 size) const;
+	Common::Span<byte> mutableCodeSpan(uint16 offset, uint16 size);
 	bool extractFirstStatusOverlayLine(uint16 offset, Common::String &text);
 
 	friend class CodePointer;

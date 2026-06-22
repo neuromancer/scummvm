@@ -136,9 +136,21 @@ void Interpreter::init() {
 }
 
 bool Interpreter::containsCodeRange(uint16 offset, uint16 size) const {
-	if (!_code.data())
+	if (!_code)
 		return false;
 	return offset <= _code.size() && size <= _code.size() - offset;
+}
+
+Common::Span<const byte> Interpreter::codeSpan(uint16 offset, uint16 size) const {
+	return containsCodeRange(offset, size)
+			   ? _code.subspan<const byte>(offset, size)
+			   : Common::Span<const byte>();
+}
+
+Common::Span<byte> Interpreter::mutableCodeSpan(uint16 offset, uint16 size) {
+	return containsCodeRange(offset, size)
+			   ? _code.subspan(offset, size)
+			   : Common::Span<byte>();
 }
 
 bool Interpreter::readCodeByte(uint16 offset, byte &value) const {
@@ -148,7 +160,7 @@ bool Interpreter::readCodeByte(uint16 offset, byte &value) const {
 				offset, uint(1), name(), uint(codeSize()));
 		return false;
 	}
-	value = _code.data()[offset];
+	value = codeSpan(offset, 1).getUint8At(0);
 	return true;
 }
 
@@ -159,7 +171,7 @@ bool Interpreter::readCodeWord(uint16 offset, uint16 &value) const {
 				offset, uint(2), name(), uint(codeSize()));
 		return false;
 	}
-	value = Common::Span<const byte>(_code.data() + offset, 2).getUint16LEAt(0);
+	value = codeSpan(offset, 2).getUint16LEAt(0);
 	return true;
 }
 
@@ -169,8 +181,9 @@ bool Interpreter::writeCodeWord(uint16 offset, uint16 value) {
 				offset, uint(2), name(), uint(codeSize()));
 		return false;
 	}
-	_code.data()[offset] = uint8(value & 0xff);
-	_code.data()[offset + 1] = uint8(value >> 8);
+	Common::Span<byte> dst = mutableCodeSpan(offset, 2);
+	dst[0] = uint8(value & 0xff);
+	dst[1] = uint8(value >> 8);
 	return true;
 }
 
@@ -499,13 +512,22 @@ CodePointer *Interpreter::readArgument<CodePointer>(BytecodeCursor &code) {
 
 class ParametrizedString : public Value {
 public:
-	ParametrizedString(byte *translated, uint16 len, const DosMemoryReference &rawRef, uint16 rawLength)
-		: _rawRef(rawRef), _rawLength(rawLength) {
-		memcpy(_translateBuf, translated, len);
-		_length = len;
+	ParametrizedString(Common::Span<const byte> translated, const DosMemoryReference &rawRef, uint16 rawLength)
+		: _length(0), _rawRef(rawRef), _rawLength(rawLength) {
+		const uint32 count = MIN<uint32>(translated.size(), sizeof(_translateBuf));
+		for (uint32 i = 0; i < count; ++i)
+			_translateBuf[i] = translated.getUint8At(i);
+		_length = uint16(count);
+		if (_length == 0 || _translateBuf[_length - 1] != 0) {
+			if (_length < sizeof(_translateBuf))
+				_translateBuf[_length++] = 0;
+			else
+				_translateBuf[sizeof(_translateBuf) - 1] = 0;
+		}
 	}
 	virtual const char *operator+() const {
-		return reinterpret_cast<const char *>(_translateBuf);
+		_inspect = dosByteSpanToString(translatedTextSpan());
+		return _inspect.c_str();
 	}
 	virtual Common::Span<const byte> translatedTextSpan() const { return Common::Span<const byte>(_translateBuf, _length); }
 	virtual operator uint16() const { return _length; }
@@ -520,27 +542,54 @@ private:
 	uint16 _length;
 	DosMemoryReference _rawRef;
 	uint16 _rawLength;
+	mutable Common::String _inspect;
 };
 
-static bool appendDecodedByte(byte *&dst, byte *dstEnd, byte value) {
-	if (dst >= dstEnd)
-		return false;
-	*dst++ = value;
-	return true;
-}
+class DecodedTextBuffer {
+public:
+	DecodedTextBuffer(Common::Span<byte> storage) : _storage(storage), _length(0) {}
 
-static bool readAndAppendByte(BytecodeCursor &code, byte *&dst, byte *dstEnd) {
+	bool appendPayload(byte value) {
+		if (_length + 1 >= _storage.size())
+			return false;
+		_storage[_length++] = value;
+		return true;
+	}
+
+	bool appendTerminator() {
+		if (_length >= _storage.size())
+			return false;
+		_storage[_length++] = 0;
+		return true;
+	}
+
+	bool appendDecimal(uint16 value) {
+		const Common::String formatted = Common::String::format("%u", value);
+		for (uint i = 0; i < formatted.size(); ++i) {
+			if (!appendPayload(byte(formatted[i])))
+				return false;
+		}
+		return true;
+	}
+
+	uint16 length() const { return uint16(_length); }
+
+private:
+	Common::Span<byte> _storage;
+	uint32 _length;
+};
+
+static bool readAndAppendByte(BytecodeCursor &code, DecodedTextBuffer &out) {
 	byte value = 0;
 	if (!code.readByte(value))
 		return false;
-	return appendDecodedByte(dst, dstEnd, value);
+	return out.appendPayload(value);
 }
 
 static bool decodeParametrizedString(Resources *resources, BytecodeCursor &code,
-									 byte *translateBuf, uint16 translateBufSize,
+									 Common::Span<byte> translateBuf,
 									 uint16 &translatedLength, uint16 &rawOffset, uint16 &rawLength) {
-	byte *str = translateBuf;
-	byte *const strEnd = translateBuf + translateBufSize - 1;
+	DecodedTextBuffer decoded(translateBuf);
 	rawOffset = code.offset();
 	bool rawTerminated = false;
 
@@ -557,34 +606,31 @@ static bool decodeParametrizedString(Resources *resources, BytecodeCursor &code,
 		case 14:
 		case kStringMove:
 			if (!code.canRead(4) ||
-				!appendDecodedByte(str, strEnd, ch) ||
-				!readAndAppendByte(code, str, strEnd) ||
-				!readAndAppendByte(code, str, strEnd) ||
-				!readAndAppendByte(code, str, strEnd) ||
-				!readAndAppendByte(code, str, strEnd))
+				!decoded.appendPayload(ch) ||
+				!readAndAppendByte(code, decoded) ||
+				!readAndAppendByte(code, decoded) ||
+				!readAndAppendByte(code, decoded) ||
+				!readAndAppendByte(code, decoded))
 				return false;
 			break;
 		case kStringAdvance:
 			if (!code.canRead(1) ||
-				!appendDecodedByte(str, strEnd, ch) ||
-				!readAndAppendByte(code, str, strEnd))
+				!decoded.appendPayload(ch) ||
+				!readAndAppendByte(code, decoded))
 				return false;
 			break;
 		case kStringGlobalWord: {
 			if (!resources || !code.readUint16(offset))
 				return false;
 			value = resources->globalWordAtByteOffset(offset);
-			const uint remaining = uint(strEnd - str);
-			const int written = snprintf(reinterpret_cast<char *>(str), remaining + 1, "%d", value);
-			if (written < 0 || uint(written) > remaining)
+			if (!decoded.appendDecimal(value))
 				return false;
-			str += written;
 			break;
 		}
 		case kStringSetColour:
 			if (!code.canRead(1) ||
-				!appendDecodedByte(str, strEnd, ch) ||
-				!readAndAppendByte(code, str, strEnd))
+				!decoded.appendPayload(ch) ||
+				!readAndAppendByte(code, decoded))
 				return false;
 			break;
 		case kStringCountSpacesIf0:
@@ -616,54 +662,57 @@ static bool decodeParametrizedString(Resources *resources, BytecodeCursor &code,
 		case kStringCountSpacesTerminate:
 			break;
 		case '\r':
-			if (!appendDecodedByte(str, strEnd, '\n'))
+			if (!decoded.appendPayload('\n'))
 				return false;
 			break;
 		default:
 			if (ch == kStringMenuOption) {
-				if (!appendDecodedByte(str, strEnd, ch))
+				if (!decoded.appendPayload(ch))
 					return false;
 				while (true) {
 					byte optionCh = 0;
 					if (!code.readByte(optionCh))
 						return false;
-					if (!appendDecodedByte(str, strEnd, optionCh))
+					if (!decoded.appendPayload(optionCh))
 						return false;
 					if (optionCh == 0)
 						break;
 				}
 				if (!code.canRead(2) ||
-					!readAndAppendByte(code, str, strEnd) ||
-					!readAndAppendByte(code, str, strEnd))
+					!readAndAppendByte(code, decoded) ||
+					!readAndAppendByte(code, decoded))
 					return false;
-			} else if (!appendDecodedByte(str, strEnd, ch)) {
+			} else if (!decoded.appendPayload(ch)) {
 				return false;
 			}
 		}
 	}
 
-	if (!appendDecodedByte(str, translateBuf + translateBufSize, 0))
+	if (!decoded.appendTerminator())
 		return false;
-	translatedLength = uint16(str - translateBuf);
+	translatedLength = decoded.length();
 	rawLength = uint16(code.offset() - rawOffset);
 	return true;
 }
 
 template<>
 ParametrizedString *Interpreter::readArgument<ParametrizedString>(BytecodeCursor &code) {
-	byte translateBuf[500];
+	byte translateStorage[500];
+	Common::Span<byte> translateBuf(translateStorage, sizeof(translateStorage));
 	uint16 rawOffset = code.offset();
 	uint16 translatedLength = 0;
 	uint16 rawLength = 0;
-	if (!decodeParametrizedString(_resources, code, translateBuf, sizeof(translateBuf),
+	if (!decodeParametrizedString(_resources, code, translateBuf,
 								  translatedLength, rawOffset, rawLength))
 		error("malformed parametrized string argument");
 
-	debugC(4, kDebugLevelScript, "read parametrized string '%s' as argument", translateBuf);
+	const Common::Span<const byte> translated = translateBuf.subspan<const byte>(0, translatedLength);
+	debugC(4, kDebugLevelScript, "read parametrized string '%s' as argument",
+		   dosByteSpanToString(translated).c_str());
 
 	DosMemoryReference rawRef;
 	memoryReference(rawOffset, rawRef);
-	return new ParametrizedString(translateBuf, translatedLength, rawRef, rawLength);
+	return new ParametrizedString(translated, rawRef, rawLength);
 }
 
 static bool scanBytecodeArgument(Resources *resources, BytecodeCursor &code, Common::String *stringOut) {
@@ -682,15 +731,16 @@ static bool scanBytecodeArgument(Resources *resources, BytecodeCursor &code, Com
 	case kArgumentFieldWordAlt:
 		return code.skip(4);
 	case kArgumentString: {
-		byte translateBuf[500];
+		byte translateStorage[500];
+		Common::Span<byte> translateBuf(translateStorage, sizeof(translateStorage));
 		uint16 rawOffset = code.offset();
 		uint16 translatedLength = 0;
 		uint16 rawLength = 0;
-		if (!decodeParametrizedString(resources, code, translateBuf, sizeof(translateBuf),
+		if (!decodeParametrizedString(resources, code, translateBuf,
 									  translatedLength, rawOffset, rawLength))
 			return false;
 		if (stringOut)
-			*stringOut = Common::String(reinterpret_cast<const char *>(translateBuf));
+			*stringOut = dosByteSpanToString(translateBuf.subspan<const byte>(0, translatedLength));
 		return true;
 	}
 	case kArgumentList:
@@ -708,20 +758,23 @@ static bool scanBytecodeArgument(Resources *resources, BytecodeCursor &code, Com
 
 static Common::String plainFirstLineForHover(const Common::String &text) {
 	Common::String line;
-	const byte *p = reinterpret_cast<const byte *>(text.c_str());
-	while (*p) {
-		const byte ch = *p++;
+	const Common::Span<const byte> bytes = dosByteSpanFromString(text);
+	uint32 pos = 0;
+	while (pos < bytes.size()) {
+		const byte ch = bytes.getUint8At(pos++);
+		if (ch == 0)
+			break;
 		if (ch == '\r' || ch == '\n')
 			break;
 		switch (ch) {
 		case kStringMove:
 		case 14:
-			p += 4;
+			pos = MIN<uint32>(pos + 4, bytes.size());
 			break;
 		case kStringSetColour:
 		case kStringAdvance:
 		case kStringCenter:
-			++p;
+			pos = MIN<uint32>(pos + 1, bytes.size());
 			break;
 		case kStringDefaultColour:
 		case 4:
@@ -739,7 +792,7 @@ static Common::String plainFirstLineForHover(const Common::String &text) {
 
 bool Interpreter::extractFirstStatusOverlayLine(uint16 offset, Common::String &text) {
 	text.clear();
-	if (!_code.data() || offset >= codeSize())
+	if (!containsCodeRange(offset))
 		return false;
 
 	BytecodeCursor code(this, offset);

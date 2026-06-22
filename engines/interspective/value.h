@@ -26,11 +26,36 @@
 #include "common/noncopyable.h"
 #include "common/ptr.h"
 #include "common/span.h"
+#include "common/str.h"
+#include "common/util.h"
 
 #include "interspective/debug.h"
 
 namespace Interspective {
 //
+
+inline Common::String dosByteSpanToString(Common::Span<const byte> text, uint32 length) {
+	Common::String out;
+	if (!text.data())
+		return out;
+	const uint32 count = MIN<uint32>(length, text.size());
+	for (uint32 i = 0; i < count; ++i)
+		out += char(text.getUint8At(i));
+	return out;
+}
+
+inline Common::String dosByteSpanToString(Common::Span<const byte> text) {
+	if (!text.data())
+		return Common::String();
+	uint32 length = 0;
+	while (length < text.size() && text.getUint8At(length) != 0)
+		++length;
+	return dosByteSpanToString(text, length);
+}
+
+inline Common::Span<const byte> dosByteSpanFromString(const Common::String &text) {
+	return Common::Span<const byte>(reinterpret_cast<const byte *>(text.c_str()), text.size() + 1);
+}
 
 enum OpcodeMode {
 	kCodeInitial = 0,
@@ -115,7 +140,7 @@ public:
 private:
 	Common::Span<byte> writableSpan(uint16 relativeOffset, uint16 length) const {
 		return contains(relativeOffset, length)
-				   ? Common::Span<byte>(_segment.data() + uint32(_offset) + relativeOffset, length)
+				   ? _segment.subspan(uint32(_offset) + relativeOffset, length)
 				   : Common::Span<byte>();
 	}
 
@@ -182,10 +207,7 @@ public:
 		if (!text.data())
 			return Common::String();
 
-		uint32 length = 0;
-		while (length < text.size() && text.getUint8At(length) != 0)
-			++length;
-		return Common::String(reinterpret_cast<const char *>(text.data()), length);
+		return dosByteSpanToString(text);
 	}
 	virtual uint16 rawLength() const { return 0; }
 	virtual bool memoryReference(DosMemoryReference &) const { return false; }

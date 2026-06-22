@@ -163,20 +163,20 @@ static bool spanCStringEquals(Common::Span<const byte> lhs, Common::Span<const b
 	return false;
 }
 
-static const char *debugCString(Common::Span<const byte> text) {
+static Common::String debugCString(Common::Span<const byte> text) {
 	if (!text.data())
-		return "(null)";
-	uint16 ignored = 0;
-	return spanCStringLength(text, ignored)
-			   ? reinterpret_cast<const char *>(text.data())
-			   : "(unterminated)";
+		return Common::String("(null)");
+	uint16 length = 0;
+	return spanCStringLength(text, length)
+			   ? dosByteSpanToString(text, length)
+			   : Common::String("(unterminated)");
 }
 
 static Common::String spanCString(Common::Span<const byte> text) {
 	uint16 length = 0;
 	if (!spanCStringLength(text, length))
 		return Common::String();
-	return Common::String(reinterpret_cast<const char *>(text.data()), length);
+	return dosByteSpanToString(text, length);
 }
 
 static void clearDosPascalBufferAt(const DosMemoryReference &ref) {
@@ -1079,7 +1079,7 @@ static bool runRawChoiceListModal(Common::Span<const byte> src, uint16 *selected
 	if (!appendRawModalChoices(src, encoded, rawChoices, choiceCount, maxTextWidth))
 		return false;
 
-	target = runEncodedChoiceModal(Common::Span<const byte>(&encoded[0], encoded.size()),
+	target = runEncodedChoiceModal(Common::Span<const byte>(encoded),
 								   choiceCount, maxTextWidth, selectedIndex);
 	if (selectedIndex && *selectedIndex == kVerbBubbleStashedSelection && target != 0xffff) {
 		debugC(1, kDebugLevelScript, "stashed formatted modal choice selected target=0x%04x", target);
@@ -1106,7 +1106,7 @@ static bool runRawChoiceListModal(Common::Span<const byte> src, uint16 *selected
 	// when the continuation has no nested selection.
 	Logic::FormattedBubble fb = Log.formatBubbleText(choice.line.empty()
 														  ? Common::Span<const byte>()
-														  : Common::Span<const byte>(&choice.line[0], choice.line.size()));
+														  : Common::Span<const byte>(choice.line));
 	Logic::ModalState &ms = Log.modalState();
 	seedFormattedModalState(ms, fb, fb.totalHeight, fb.rowCount, 3, ms.stashFlag);
 
@@ -1734,7 +1734,7 @@ OPCODE(0x47) {
 	const uint16 y = uint16(a[1]);
 	const byte color = uint8(uint16(a[2]) & 0xff);
 	debugC(1, kDebugLevelScript, "opcode 0x47: narrator at (%u,%u) color=%u lines=%u text='%s'",
-		   x, y, color, maxLines, debugCString(text));
+		   x, y, color, maxLines, debugCString(text).c_str());
 	if (sayNarratorOrSubtitle(text, x, y, color, maxLines, Graphics::kSpeechBubbleType1, current))
 		return kReturn;
 	return kThxBye;
@@ -1838,7 +1838,7 @@ OPCODE(0x54) {
 	const uint8 width = uint8(uint16(a[2]) & 0xff);
 	debugC(1, kDebugLevelScript,
 		   "opcode 0x54: RunMenuSelectAndBranch text='%s' at (%u,%u) size %ux%u",
-		   debugCString(text),
+		   debugCString(text).c_str(),
 		   left, top, width, height);
 	uint16 selectedIndex = 0xffff;
 	const uint16 result = _graphics->ask(left, top, width, height, text, &selectedIndex);
@@ -1906,7 +1906,7 @@ OPCODE(0x56) {
 	if (!text.data())
 		text = scriptTextSpanOrTranslated(a[1]);
 	debugC(2, kDebugLevelScript, "opcode 0x56: motion text frames=%u text='%s'",
-		   frames, debugCString(text));
+		   frames, debugCString(text).c_str());
 	Log.startMotionText(frames, text);
 	return kThxBye;
 }
@@ -3484,7 +3484,7 @@ OPCODE(0x22) {
 	Common::Span<const byte> s = translatedTextSpanOrScript(a[0], "opcode 0x22");
 	const Common::String &buf = Log.parserBuffer();
 	debugC(2, kDebugLevelScript, "opcode 0x22: if input '%s' == arg0 '%s'",
-		   buf.c_str(), debugCString(s));
+		   buf.c_str(), debugCString(s).c_str());
 	if (!spanCStringEquals(s, buf))
 		return kFail;
 	return kThxBye;
@@ -3905,7 +3905,7 @@ OPCODE(0x45) {
 	const uint16 y = uint16(a[1]);
 	const byte color = uint8(uint16(a[2]) & 0xff);
 	debugC(1, kDebugLevelScript, "opcode 0x45: narrator at (%u,%u) color=%u text='%s'",
-		   x, y, color, debugCString(text));
+		   x, y, color, debugCString(text).c_str());
 	if (sayNarratorOrSubtitle(text, x, y, color, 0, Graphics::kSpeechBubbleType1, current))
 		return kReturn;
 	return kThxBye;
@@ -3919,7 +3919,7 @@ OPCODE(0x46) {
 	const uint16 y = uint16(a[1]);
 	const byte color = uint8(uint16(a[2]) & 0xff);
 	debugC(1, kDebugLevelScript, "opcode 0x46: narrator (alt) at (%u,%u) color=%u text='%s'",
-		   x, y, color, debugCString(text));
+		   x, y, color, debugCString(text).c_str());
 	if (sayNarratorOrSubtitle(text, x, y, color, 0, Graphics::kSpeechBubbleType2, current))
 		return kReturn;
 	return kThxBye;
@@ -3940,7 +3940,7 @@ OPCODE(0x48) {
 	const uint16 y = uint16(a[1]);
 	const byte color = uint8(uint16(a[2]) & 0xff);
 	debugC(1, kDebugLevelScript, "opcode 0x48: narrator at (%u,%u) color=%u lines=%u text='%s'",
-		   x, y, color, maxLines, debugCString(text));
+		   x, y, color, maxLines, debugCString(text).c_str());
 	if (sayNarratorOrSubtitle(text, x, y, color, maxLines, Graphics::kSpeechBubbleType2, current))
 		return kReturn;
 	return kThxBye;
@@ -3997,7 +3997,7 @@ OPCODE(0x4e) {
 	Logic::ModalState &ms = Log.modalState();
 	seedFormattedModalState(ms, fb, fb.totalHeight, fb.rowCount, 3, 0);
 	debugC(1, kDebugLevelScript, "opcode 0x4e: DrawTextRectWithChoices text='%s' lines=%u h=%u",
-		   debugCString(formatText), fb.lineCount, fb.totalHeight);
+		   debugCString(formatText).c_str(), fb.lineCount, fb.totalHeight);
 	uint16 selectedIndex = 0xffff;
 	uint16 target = 0xffff;
 	if (runFormattedChoiceModal(fb, fb.rowCount, &selectedIndex, target)) {
@@ -4041,7 +4041,7 @@ OPCODE(0x4f) {
 	applyFormattedTextLimit9bcc(limit, menuValue, rows);
 	seedFormattedModalState(ms, fb, menuValue, rows, 3, 0);
 	debugC(1, kDebugLevelScript, "opcode 0x4f: DrawTextRectWithChoicesAlt text='%s' limit=%u",
-		   debugCString(formatText), limit);
+		   debugCString(formatText).c_str(), limit);
 	uint16 selectedIndex = 0xffff;
 	uint16 target = 0xffff;
 	if (runFormattedChoiceModal(fb, rows, &selectedIndex, target)) {
@@ -4075,7 +4075,7 @@ OPCODE(0x50) {
 	Logic::ModalState &ms = Log.modalState();
 	seedFormattedModalState(ms, fb, fb.totalHeight, fb.rowCount, 1, 1);
 	debugC(1, kDebugLevelScript, "opcode 0x50: OpenVerbMenuModal text='%s'",
-		   debugCString(formatText));
+		   debugCString(formatText).c_str());
 	uint16 selectedIndex = 0xffff;
 	uint16 target = 0xffff;
 	if (runFormattedChoiceModal(fb, fb.rowCount, &selectedIndex, target)) {
@@ -4114,7 +4114,7 @@ OPCODE(0x51) {
 	applyFormattedTextLimit9bcc(limit, menuValue, rows);
 	seedFormattedModalState(ms, fb, menuValue, rows, 1, 1);
 	debugC(1, kDebugLevelScript, "opcode 0x51: OpenVerbMenuModalAlt text='%s' limit=%u",
-		   debugCString(formatText), limit);
+		   debugCString(formatText).c_str(), limit);
 	uint16 selectedIndex = 0xffff;
 	uint16 target = 0xffff;
 	if (runFormattedChoiceModal(fb, rows, &selectedIndex, target)) {
@@ -4158,7 +4158,7 @@ OPCODE(0x52) {
 	ms.textContinuationPtr = 0;
 	ms.menuDone = false;
 	debugC(1, kDebugLevelScript, "opcode 0x52: DrawFixedTextBubble text='%s' h=%u",
-		   debugCString(measureText), fb.totalHeight);
+		   debugCString(measureText).c_str(), fb.totalHeight);
 	uint16 selectedIndex = 0xffff;
 	uint16 target = 0xffff;
 	if (runRawChoiceListModal(measureText, &selectedIndex, target)) {
@@ -4213,14 +4213,14 @@ OPCODE(0x53) {
 		ms.menuChoiceCount = 0;
 		ms.stashFlag = 0;
 		debugC(1, kDebugLevelScript, "opcode 0x53: DrawFixedTextBubbleStashed (STASHED) text='%s'",
-			   debugCString(measureText));
+			   debugCString(measureText).c_str());
 	} else {
 		// Same as Op_52.
 		ms.paletteMode = 2;
 		ms.menuChoiceCount = 0;
 		ms.stashFlag = 0;
 		debugC(1, kDebugLevelScript, "opcode 0x53: DrawFixedTextBubbleStashed (FIXED, no stash) text='%s'",
-			   debugCString(measureText));
+			   debugCString(measureText).c_str());
 	}
 	ms.activeAx = fb.maxLineWidth;
 	ms.activeBx = fb.lineCount;

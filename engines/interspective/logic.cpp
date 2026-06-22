@@ -69,7 +69,7 @@ Common::Span<const byte> Logic::textSpan(const byte *src, uint32 maxBytes) {
 }
 
 Common::Span<const byte> Logic::textSpan(const Common::String &src) {
-	return Common::Span<const byte>(reinterpret_cast<const byte *>(src.c_str()), src.size() + 1);
+	return dosByteSpanFromString(src);
 }
 
 Common::Span<const byte> Logic::textSpan(const DosMemoryReference &ref) {
