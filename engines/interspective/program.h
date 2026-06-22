@@ -44,7 +44,6 @@ public:
 	~Program();
 
 	uint16 begin();
-	byte *localVariable(uint16 offset);
 	uint16 roomHandler(uint16 room);
 	uint16 codeSize() const { return _codeSize; }
 	Common::Span<byte> mutableCodeImage();

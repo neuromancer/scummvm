@@ -51,7 +51,10 @@ namespace {
 
 class ProgramFooter {
 public:
-	ProgramFooter(const byte *footer) : _footer(footer, 0x10) {}
+	template <size_t N>
+	ProgramFooter(const byte (&footer)[N]) : _footer(footer, N) {
+		assert(N >= 0x10);
+	}
 
 	uint16 exitsCount() const { return wordAt(kExitsCount); }
 	uint16 actorsCount() const { return wordAt(kActorsCount); }
@@ -68,40 +71,35 @@ private:
 
 class ProgramCodeSegment {
 public:
-	ProgramCodeSegment(Common::Span<byte> data) : _readData(data.data()), _writeData(data.data()), _size(data.size()) {}
-	ProgramCodeSegment(Common::Span<const byte> data) : _readData(data.data()), _writeData(0), _size(data.size()) {}
+	ProgramCodeSegment(Common::Span<byte> data) : _data(data), _mutableData(data) {}
+	ProgramCodeSegment(Common::Span<const byte> data) : _data(data) {}
 
 	bool contains(uint32 offset, uint32 size) const {
-		return offset <= _size && size <= _size - offset;
+		return offset <= _data.size() && size <= _data.size() - offset;
 	}
 
 	Common::Span<const byte> span(uint32 offset) const {
-		assert(offset <= _size);
-		return Common::Span<const byte>(_readData + offset, _size - offset);
+		assert(offset <= _data.size());
+		return _data.subspan(offset);
 	}
 
 	Common::Span<const byte> span(uint32 offset, uint32 size) const {
 		assert(contains(offset, size));
-		return Common::Span<const byte>(_readData + offset, size);
+		return _data.subspan(offset, size);
 	}
 
 	Common::Span<byte> mutableSpan(uint32 offset, uint32 size) const {
-		assert(_writeData);
+		assert(_mutableData);
 		assert(contains(offset, size));
-		return Common::Span<byte>(_writeData + offset, size);
-	}
-
-	byte *mutablePtr(uint32 offset) const {
-		return mutableSpan(offset, _size - offset).data();
+		return _mutableData.subspan(offset, size);
 	}
 
 	uint8 byteAt(uint32 offset) const { return span(offset, 1).getUint8At(0); }
 	uint16 wordAt(uint32 offset) const { return span(offset, 2).getUint16LEAt(0); }
 
 private:
-	const byte *_readData;
-	byte *_writeData;
-	uint32 _size;
+	Common::Span<const byte> _data;
+	Common::Span<byte> _mutableData;
 };
 
 } // namespace
@@ -170,10 +168,6 @@ Common::Span<byte> Program::mutableDosSegment() {
 
 Common::Span<const byte> Program::dosSegment() const {
 	return Common::Span<const byte>(_code.data(), _code.size());
-}
-
-byte *Program::localVariable(uint16 offset) {
-	return ProgramCodeSegment(mutableDosSegment()).mutablePtr(offset);
 }
 
 uint16 Program::roomHandler(uint16 room) {

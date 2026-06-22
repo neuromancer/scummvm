@@ -33,7 +33,7 @@ namespace {
 
 class MapEntryTable {
 public:
-	MapEntryTable(byte *data, uint32 size) : _data(data), _size(size) {}
+	MapEntryTable(Common::Span<byte> data) : _data(data) {}
 
 	uint32 offsetOfEntry(uint16 index, const char *filename) const {
 		const int32 offset = entryOffset(index);
@@ -62,23 +62,22 @@ private:
 	}
 
 	bool contains(int32 offset, uint32 size) const {
-		return offset >= 0 && uint32(offset) <= _size && size <= _size - uint32(offset);
+		return offset >= 0 && contains(uint32(offset), size);
 	}
 
 	bool contains(uint32 offset, uint32 size) const {
-		return offset <= _size && size <= _size - offset;
+		return offset <= _data.size() && size <= _data.size() - offset;
 	}
 
 	Common::Span<const byte> entrySpan(uint32 offset, uint32 size) const {
-		return Common::Span<const byte>(_data + offset, size);
+		return _data.subspan(offset, size);
 	}
 
 	Common::Span<byte> mutableEntrySpan(uint32 offset, uint32 size) const {
-		return Common::Span<byte>(_data + offset, size);
+		return _data.subspan(offset, size);
 	}
 
-	byte *_data;
-	uint32 _size;
+	Common::Span<byte> _data;
 };
 
 } // namespace
@@ -90,11 +89,11 @@ void MapFile::readFile(SeekableReadStream &stream) {
 }
 
 uint32 MapFile::offsetOfEntry(uint16 index) {
-	return MapEntryTable(_data, sizeof(_data)).offsetOfEntry(index, filename());
+	return MapEntryTable(Common::Span<byte>(_data, sizeof(_data))).offsetOfEntry(index, filename());
 }
 
 void MapFile::patchEntryLow16(uint16 index, uint16 value) {
-	MapEntryTable(_data, sizeof(_data)).patchLow16(index, value);
+	MapEntryTable(Common::Span<byte>(_data, sizeof(_data))).patchLow16(index, value);
 }
 
 } // End of namespace Interspective

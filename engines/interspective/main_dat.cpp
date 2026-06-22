@@ -147,7 +147,10 @@ void writeUint16LE(Common::Span<byte> data, uint32 offset, uint16 value) {
 
 class MainDatFooter {
 public:
-	MainDatFooter(const byte *footer) : _footer(footer, 0xB6) {}
+	template <size_t N>
+	MainDatFooter(const byte (&footer)[N]) : _footer(footer, N) {
+		assert(N >= 0xB6);
+	}
 
 	uint16 progEntriesCount0() const { return wordAt(kProgEntriesCount0); }
 	uint16 progEntriesCount1() const { return wordAt(kProgEntriesCount1); }
@@ -293,11 +296,11 @@ private:
 
 class MainDatSegment {
 public:
-	MainDatSegment(Common::Span<byte> data) : _readData(data.data()), _writeData(data.data()), _size(data.size()) {}
-	MainDatSegment(Common::Span<const byte> data) : _readData(data.data()), _writeData(0), _size(data.size()) {}
+	MainDatSegment(Common::Span<byte> data) : _data(data), _mutableData(data) {}
+	MainDatSegment(Common::Span<const byte> data) : _data(data) {}
 
 	bool contains(uint32 offset, uint32 size) const {
-		return offset <= _size && size <= _size - offset;
+		return offset <= _data.size() && size <= _data.size() - offset;
 	}
 
 	bool containsSigned(int32 offset, uint32 size) const {
@@ -305,23 +308,19 @@ public:
 	}
 
 	Common::Span<const byte> span(uint32 offset) const {
-		assert(offset <= _size);
-		return Common::Span<const byte>(_readData + offset, _size - offset);
+		assert(offset <= _data.size());
+		return _data.subspan(offset);
 	}
 
 	Common::Span<const byte> span(uint32 offset, uint32 size) const {
 		assert(contains(offset, size));
-		return Common::Span<const byte>(_readData + offset, size);
+		return _data.subspan(offset, size);
 	}
 
 	Common::Span<byte> mutableSpan(uint32 offset, uint32 size) const {
-		assert(_writeData);
+		assert(_mutableData);
 		assert(contains(offset, size));
-		return Common::Span<byte>(_writeData + offset, size);
-	}
-
-	byte *mutablePtr(uint32 offset) const {
-		return mutableSpan(offset, _size - offset).data();
+		return _mutableData.subspan(offset, size);
 	}
 
 	uint8 byteAt(uint32 offset) const { return span(offset, 1).getUint8At(0); }
@@ -330,9 +329,8 @@ public:
 	void writeWordAt(uint32 offset, uint16 value) const { writeUint16LE(mutableSpan(offset, 2), 0, value); }
 
 private:
-	const byte *_readData;
-	byte *_writeData;
-	uint32 _size;
+	Common::Span<const byte> _data;
+	Common::Span<byte> _mutableData;
 };
 
 class MainDatImageEntry {
