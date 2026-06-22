@@ -610,6 +610,18 @@ bool MusicParser::isPlaying() const {
 	return _tune && _tune->isPlaying();
 }
 
+static uint32 unpackSavedMusicBeatTicks(uint32 packedPosition) {
+	return packedPosition & 0x3f;
+}
+
+static uint8 unpackSavedMusicTempoParameter(uint32 packedPosition) {
+	return (packedPosition >> 8) & 0xff;
+}
+
+static uint16 unpackSavedMusicScriptOffset(uint32 packedPosition) {
+	return packedPosition >> 16;
+}
+
 uint8 MusicParser::currentTempoParameter() const {
 	if (!_tempo)
 		return 0;
@@ -636,11 +648,11 @@ void MusicParser::requestStopCurrent() {
 
 void MusicParser::restoreSavedState(Common::Span<const byte> script, uint16 scriptMainOffset,
 									uint16 currentTuneWord, uint8 active,
-									uint8 driverCommandByte, uint8 driverModeFlag, uint16 beat, uint32 beatTicks) {
+									uint8 driverCommandByte, uint8 driverModeFlag, uint16 beat, uint32 packedPosition) {
 	Common::StackLock lock(_mutex);
-	const uint32 savedBeatTicks = beatTicks & 0x3f;
-	const uint8 savedTempoParameter = (beatTicks >> 8) & 0xff;
-	const uint16 savedScriptOffset = beatTicks >> 16;
+	const uint32 savedBeatTicks = unpackSavedMusicBeatTicks(packedPosition);
+	const uint8 savedTempoParameter = unpackSavedMusicTempoParameter(packedPosition);
+	const uint16 savedScriptOffset = unpackSavedMusicScriptOffset(packedPosition);
 	_active = active != 0;
 	_driverCommandByte = driverCommandByte;
 	_driverModeFlag = driverModeFlag;

@@ -187,41 +187,73 @@ struct MusicStateSyncResult {
 	bool stopSfx;
 };
 
+struct SavedMusicState {
+	SavedMusicState() : active(0), currentTune(0), scriptMainOffset(0xffff), beat(0xffff),
+						packedPosition(0), commandByte(0), modeFlag(0), musicMode(0), sfxMode(0) {}
+	uint8 active;
+	uint16 currentTune;
+	uint16 scriptMainOffset;
+	uint16 beat;
+	uint32 packedPosition;
+	uint8 commandByte;
+	uint8 modeFlag;
+	uint8 musicMode;
+	uint8 sfxMode;
+};
+
+static uint32 packSavedMusicPosition(uint32 beatTicks, uint8 tempoParameter, uint16 scriptCursor) {
+	// The low six bits are the DOS beat tick (0..63). The remaining bytes are
+	// ScummVM-side modeled driver state needed to resume the same speed/script
+	// cursor while keeping the version-1 stream shape unchanged.
+	return (beatTicks & 0x3f) | (uint32(tempoParameter) << 8) | (uint32(scriptCursor) << 16);
+}
+
+static SavedMusicState currentSavedMusicState(uint8 currentMusicMode, uint8 currentSfxMode) {
+	SavedMusicState state;
+	state.active = Music.isActive() ? 1 : 0;
+	state.currentTune = Music.currentTuneWord();
+	state.scriptMainOffset = Music.currentScriptMainOffset();
+	state.beat = Music.currentBeat();
+	state.packedPosition = packSavedMusicPosition(Music.currentBeatTicks(),
+												  Music.currentTempoParameter(),
+												  Music.currentScriptOffset());
+	state.commandByte = Music.driverCommandByte();
+	state.modeFlag = Music.driverModeFlag();
+	state.musicMode = currentMusicMode;
+	state.sfxMode = currentSfxMode;
+	return state;
+}
+
+static void syncSavedMusicState(Common::Serializer &s, SavedMusicState &state) {
+	s.syncAsByte(state.active);
+	s.syncAsUint16LE(state.currentTune);
+	s.syncAsUint16LE(state.scriptMainOffset);
+	s.syncAsUint16LE(state.beat);
+	s.syncAsUint32LE(state.packedPosition);
+	s.syncAsByte(state.commandByte);
+	s.syncAsByte(state.modeFlag);
+	s.syncAsByte(state.musicMode);
+	s.syncAsByte(state.sfxMode);
+}
+
+static Common::Span<const byte> musicScriptFromMain(Resources *resources, uint16 scriptMainOffset) {
+	if (scriptMainOffset == 0xffff || !resources || !resources->mainDat())
+		return Common::Span<const byte>();
+
+	Common::Span<const byte> mainData = resources->mainDat()->data();
+	if (scriptMainOffset >= mainData.size())
+		return Common::Span<const byte>();
+	return mainData.subspan(scriptMainOffset);
+}
+
 static MusicStateSyncResult synchronizeMusicState(Common::Serializer &s, Resources *resources,
 												  uint8 currentMusicMode, uint8 currentSfxMode) {
 	MusicStateSyncResult result;
-	uint8 active = Music.isActive() ? 1 : 0;
-	uint16 currentTune = Music.currentTuneWord();
-	uint16 scriptOffset = Music.currentScriptMainOffset();
-	uint16 beat = Music.currentBeat();
-	uint32 beatTicks = Music.currentBeatTicks();
-	const uint16 musicScriptCursor = Music.currentScriptOffset();
-	const uint8 musicTempoParameter = Music.currentTempoParameter();
-	uint8 commandByte = Music.driverCommandByte();
-	uint8 modeFlag = Music.driverModeFlag();
-	uint8 savedMusicMode = currentMusicMode;
-	uint8 savedSfxMode = currentSfxMode;
-
-	if (!s.isLoading()) {
-		// The low six bits are the DOS beat tick (0..63). Preserve the save stream
-		// shape while carrying the resident-driver tempo/script cursor needed
-		// to restore music at the same speed after a reload.
-		beatTicks = (beatTicks & 0x3f) | (uint32(musicTempoParameter) << 8) |
-					(uint32(musicScriptCursor) << 16);
-	}
-
-	s.syncAsByte(active);
-	s.syncAsUint16LE(currentTune);
-	s.syncAsUint16LE(scriptOffset);
-	s.syncAsUint16LE(beat);
-	s.syncAsUint32LE(beatTicks);
-	s.syncAsByte(commandByte);
-	s.syncAsByte(modeFlag);
-	s.syncAsByte(savedMusicMode);
-	s.syncAsByte(savedSfxMode);
+	SavedMusicState state = currentSavedMusicState(currentMusicMode, currentSfxMode);
+	syncSavedMusicState(s, state);
 
 	if (s.isLoading()) {
-		if (savedSfxMode != currentSfxMode)
+		if (state.sfxMode != currentSfxMode)
 			result.disableSfx = true;
 
 		if (currentMusicMode == 0) {
@@ -234,19 +266,15 @@ static MusicStateSyncResult synchronizeMusicState(Common::Serializer &s, Resourc
 		// is validated/restored.
 		result.stopSfx = true;
 
-		if (savedMusicMode != currentMusicMode) {
+		if (state.musicMode != currentMusicMode) {
 			Music.stopMusic();
 			result.disableAllSound = true;
 			return result;
 		}
 
-		Common::Span<const byte> script;
-		if (scriptOffset != 0xffff && resources && resources->mainDat()) {
-			Common::Span<const byte> mainData = resources->mainDat()->data();
-			if (scriptOffset < mainData.size())
-				script = mainData.subspan(scriptOffset);
-		}
-		Music.restoreSavedState(script, scriptOffset, currentTune, active, commandByte, modeFlag, beat, beatTicks);
+		const Common::Span<const byte> script = musicScriptFromMain(resources, state.scriptMainOffset);
+		Music.restoreSavedState(script, state.scriptMainOffset, state.currentTune, state.active,
+								state.commandByte, state.modeFlag, state.beat, state.packedPosition);
 	}
 	return result;
 }

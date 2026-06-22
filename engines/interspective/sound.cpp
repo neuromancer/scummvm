@@ -232,38 +232,57 @@ bool Sound::isSfxPlaying() const {
 		   Music.isSfxNotePlaying();
 }
 
-void Sound::synchronize(Common::Serializer &s) {
-	uint8 active = _active ? 1 : 0;
-	uint16 state66fe = _state66fe;
-	uint16 state6700 = _state6700;
-	uint16 state6702 = _state6702;
-	uint16 state6704 = _state6704;
-	uint16 state6706 = _state6706;
-	uint16 state6708 = _state6708;
-	uint16 state670a = _state670a;
-	uint16 state670c = _state670c;
+struct SavedSfxState {
+	SavedSfxState() : active(0), state66fe(0), state6700(0), state6702(0), state6704(0),
+					  state6706(0), state6708(0), state670a(0), state670c(0) {}
+	uint8 active;
+	uint16 state66fe;
+	uint16 state6700;
+	uint16 state6702;
+	uint16 state6704;
+	uint16 state6706;
+	uint16 state6708;
+	uint16 state670a;
+	uint16 state670c;
+};
 
-	s.syncAsByte(active);
-	s.syncAsUint16LE(state66fe);
-	s.syncAsUint16LE(state6700);
-	s.syncAsUint16LE(state6702);
-	s.syncAsUint16LE(state6704);
-	s.syncAsUint16LE(state6706);
-	s.syncAsUint16LE(state6708);
-	s.syncAsUint16LE(state670a);
-	s.syncAsUint16LE(state670c);
+static void syncSavedSfxState(Common::Serializer &s, SavedSfxState &state) {
+	s.syncAsByte(state.active);
+	s.syncAsUint16LE(state.state66fe);
+	s.syncAsUint16LE(state.state6700);
+	s.syncAsUint16LE(state.state6702);
+	s.syncAsUint16LE(state.state6704);
+	s.syncAsUint16LE(state.state6706);
+	s.syncAsUint16LE(state.state6708);
+	s.syncAsUint16LE(state.state670a);
+	s.syncAsUint16LE(state.state670c);
+}
+
+void Sound::synchronize(Common::Serializer &s) {
+	SavedSfxState state;
+	state.active = _active ? 1 : 0;
+	state.state66fe = _state66fe;
+	state.state6700 = _state6700;
+	state.state6702 = _state6702;
+	state.state6704 = _state6704;
+	state.state6706 = _state6706;
+	state.state6708 = _state6708;
+	state.state670a = _state670a;
+	state.state670c = _state670c;
+
+	syncSavedSfxState(s, state);
 
 	if (s.isLoading()) {
 		stopAll();
-		_active = active != 0;
-		_state66fe = state66fe;
-		_state6700 = state6700;
-		_state6702 = state6702;
-		_state6704 = state6704;
-		_state6706 = state6706;
-		_state6708 = state6708;
-		_state670a = state670a;
-		_state670c = state670c;
+		_active = state.active != 0;
+		_state66fe = state.state66fe;
+		_state6700 = state.state6700;
+		_state6702 = state.state6702;
+		_state6704 = state.state6704;
+		_state6706 = state.state6706;
+		_state6708 = state.state6708;
+		_state670a = state.state670a;
+		_state670c = state.state670c;
 	}
 }
 

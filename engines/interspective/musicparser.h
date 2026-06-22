@@ -201,7 +201,7 @@ public:
 	void restoreSavedState(Common::Span<const byte> script, uint16 scriptMainOffset,
 						   uint16 currentTuneWord, uint8 active,
 						   uint8 driverCommandByte, uint8 driverModeFlag,
-						   uint16 beat, uint32 beatTicks);
+						   uint16 beat, uint32 packedPosition);
 	bool playSfxTune(Common::Span<const byte> data);
 	void stopSfxNotes();
 	bool isSfxNotePlaying() const { return _sfxTunePlaying; }
