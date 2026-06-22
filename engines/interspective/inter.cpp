@@ -203,7 +203,7 @@ bool Interpreter::memoryReference(uint16 offset, DosMemoryReference &ref) const 
 		ref = DosMemoryReference();
 		return false;
 	}
-	ref = DosMemoryReference(_code.data(), codeSize(), offset);
+	ref = DosMemoryReference(_code, offset);
 	return true;
 }
 
@@ -440,9 +440,9 @@ private:
 	mutable char _inspect[48];
 };
 
-class RawPointerArgument : public Value {
+class DosMemoryArgument : public Value {
 public:
-	RawPointerArgument(const DosMemoryReference &ref) : _ref(ref) {}
+	DosMemoryArgument(const DosMemoryReference &ref) : _ref(ref) {}
 	virtual operator uint16() const {
 		return _ref.valid() ? _ref.offset() : 0;
 	}
@@ -451,7 +451,7 @@ public:
 		return ref.valid();
 	}
 	virtual const char *operator+() const {
-		snprintf(_inspect, sizeof(_inspect), "raw pointer 0x%04x", uint16(*this));
+		snprintf(_inspect, sizeof(_inspect), "memory offset 0x%04x", uint16(*this));
 		return _inspect;
 	}
 
@@ -823,11 +823,11 @@ Value *Interpreter::getArgument(BytecodeCursor &code) {
 		memoryReference(rawOffset, ref);
 		if (value != 0xff) {
 			warning("Interspective: unterminated list argument in %s", name());
-			return new RawPointerArgument(ref);
+			return new DosMemoryArgument(ref);
 		}
 		debugC(4, kDebugLevelScript, "read raw list at offset 0x%04x as argument",
 			   rawOffset);
-		return new RawPointerArgument(ref);
+		return new DosMemoryArgument(ref);
 	}
 	case kArgumentCode:
 		return readArgument<CodePointer>(code);

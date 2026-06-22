@@ -47,74 +47,57 @@ class Interpreter;
 
 class DosMemoryReference {
 public:
-	DosMemoryReference() : _base(nullptr), _size(0), _offset(0), _valid(false) {}
-	DosMemoryReference(byte *base, uint16 size, uint16 offset)
-		: _base(base), _size(size), _offset(offset), _valid(base != nullptr && offset < size) {}
+	DosMemoryReference() : _offset(0), _valid(false) {}
+	DosMemoryReference(Common::Span<byte> segment, uint16 offset)
+		: _segment(segment), _offset(offset), _valid(segment.data() != nullptr && offset < segment.size()) {}
 
 	bool valid() const { return _valid; }
-	byte *base() const { return _base; }
-	uint16 size() const { return _size; }
+	uint16 size() const { return uint16(_segment.size()); }
 	uint16 offset() const { return _offset; }
-	uint16 remaining() const { return valid() ? uint16(_size - _offset) : 0; }
+	uint16 remaining() const { return valid() ? uint16(_segment.size() - _offset) : 0; }
 	uint16 remainingFrom(uint16 relativeOffset) const {
-		return contains(relativeOffset, 0) ? uint16(_size - uint32(_offset) - relativeOffset) : 0;
+		return contains(relativeOffset, 0) ? uint16(_segment.size() - uint32(_offset) - relativeOffset) : 0;
 	}
 
 	bool contains(uint16 relativeOffset, uint16 length = 1) const {
 		if (!valid())
 			return false;
 		const uint32 absolute = uint32(_offset) + relativeOffset;
-		return absolute <= _size && length <= _size - absolute;
-	}
-
-	byte *ptr(uint16 relativeOffset = 0) const {
-		return contains(relativeOffset) ? _base + _offset + relativeOffset : nullptr;
+		return absolute <= _segment.size() && length <= _segment.size() - absolute;
 	}
 
 	Common::Span<const byte> span(uint16 relativeOffset = 0) const {
 		const uint16 count = remainingFrom(relativeOffset);
-		return count != 0 ? Common::Span<const byte>(_base + _offset + relativeOffset, count)
-						  : Common::Span<const byte>();
+		return count != 0 ? span(relativeOffset, count) : Common::Span<const byte>();
 	}
 
 	Common::Span<const byte> span(uint16 relativeOffset, uint16 length) const {
 		return contains(relativeOffset, length)
-				   ? Common::Span<const byte>(_base + _offset + relativeOffset, length)
+				   ? _segment.subspan<const byte>(uint32(_offset) + relativeOffset, length)
 				   : Common::Span<const byte>();
-	}
-
-	Common::Span<byte> mutableSpan(uint16 relativeOffset = 0) const {
-		const uint16 count = remainingFrom(relativeOffset);
-		return count != 0 ? Common::Span<byte>(_base + _offset + relativeOffset, count)
-						  : Common::Span<byte>();
-	}
-
-	Common::Span<byte> mutableSpan(uint16 relativeOffset, uint16 length) const {
-		return contains(relativeOffset, length)
-				   ? Common::Span<byte>(_base + _offset + relativeOffset, length)
-				   : Common::Span<byte>();
 	}
 
 	bool readByte(uint16 relativeOffset, byte &value) const {
 		value = 0;
 		if (!contains(relativeOffset))
 			return false;
-		value = _base[_offset + relativeOffset];
+		value = _segment.getUint8At(uint32(_offset) + relativeOffset);
 		return true;
 	}
 
 	bool writeByte(uint16 relativeOffset, byte value) const {
 		if (!contains(relativeOffset))
 			return false;
-		_base[_offset + relativeOffset] = value;
+		writableSpan(relativeOffset, 1)[0] = value;
 		return true;
 	}
 
 	bool fillBytes(uint16 relativeOffset, uint16 length, byte value) const {
 		if (!contains(relativeOffset, length))
 			return false;
+		Common::Span<byte> bytes = writableSpan(relativeOffset, length);
 		for (uint16 i = 0; i < length; ++i)
-			_base[_offset + relativeOffset + i] = value;
+			bytes[i] = value;
 		return true;
 	}
 
@@ -123,15 +106,20 @@ public:
 			return false;
 		const uint16 count = remaining();
 		for (uint16 i = 0; i < count; ++i) {
-			if (_base[_offset + i] == value)
+			if (_segment.getUint8At(uint32(_offset) + i) == value)
 				return true;
 		}
 		return false;
 	}
 
 private:
-	byte *_base;
-	uint16 _size;
+	Common::Span<byte> writableSpan(uint16 relativeOffset, uint16 length) const {
+		return contains(relativeOffset, length)
+				   ? Common::Span<byte>(_segment.data() + uint32(_offset) + relativeOffset, length)
+				   : Common::Span<byte>();
+	}
+
+	Common::Span<byte> _segment;
 	uint16 _offset;
 	bool _valid;
 };
