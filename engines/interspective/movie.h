@@ -23,6 +23,7 @@
 #define INTERSPECTIVE_MOVIE_H
 
 #include "common/ptr.h"
+#include "common/path.h"
 #include "common/stream.h"
 
 #include "interspective/resources.h"
@@ -32,7 +33,7 @@ namespace Interspective {
 class Movie {
 public:
 	virtual ~Movie();
-	static Common::ScopedPtr<Movie> fromFile(const char *name);
+	static Common::ScopedPtr<Movie> fromFile(const Common::Path &name);
 	void setFrameDelay(uint delay);
 	bool play();
 

@@ -172,6 +172,13 @@ static const char *debugCString(Common::Span<const byte> text) {
 			   : "(unterminated)";
 }
 
+static Common::String spanCString(Common::Span<const byte> text) {
+	uint16 length = 0;
+	if (!spanCStringLength(text, length))
+		return Common::String();
+	return Common::String(reinterpret_cast<const char *>(text.data()), length);
+}
+
 static void clearDosPascalBufferAt(const DosMemoryReference &ref) {
 	if (!ref.valid())
 		return;
@@ -2847,10 +2854,11 @@ OPCODE(0xc7) {
 	// logic-dirty/change-room/refresh-interface flags; the change-room flag
 	// reloads g_loaded_backdrop_id and restores the room palette target.
 	const uint16 frameDelay = uint16(a[1]);
-	byte *movieName = a[0].bytePointer();
+	Common::Span<const byte> movieNameBytes = translatedTextSpanOrScript(a[0], "opcode 0xc7");
+	const Common::String movieName = spanCString(movieNameBytes);
 	debugC(2, kDebugLevelScript, "opcode 0xc7: play movie %s with slowness %u",
-		   movieName ? reinterpret_cast<char *>(movieName) : "(null)", frameDelay);
-	Common::ScopedPtr<Movie> movie = Movie::fromFile(reinterpret_cast<char *>(movieName));
+		   movieName.empty() ? "(null)" : movieName.c_str(), frameDelay);
+	Common::ScopedPtr<Movie> movie = Movie::fromFile(Common::Path(movieName));
 	if (movie) {
 		movie->setFrameDelay(frameDelay);
 		movie->play();

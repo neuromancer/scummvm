@@ -34,15 +34,16 @@
 namespace Interspective {
 //
 
-Common::ScopedPtr<Movie> Movie::fromFile(const char *name) {
-	if (!name || !*name) {
+Common::ScopedPtr<Movie> Movie::fromFile(const Common::Path &name) {
+	const Common::String debugName = name.toString();
+	if (debugName.empty()) {
 		debugC(1, kDebugLevelGraphics, "movie open skipped: empty filename");
 		return Common::ScopedPtr<Movie>();
 	}
 
 	Common::ScopedPtr<Common::File> file(new Common::File);
 	if (!file->open(name)) {
-		debugC(1, kDebugLevelGraphics, "movie open failed: %s", name);
+		debugC(1, kDebugLevelGraphics, "movie open failed: %s", debugName.c_str());
 		return Common::ScopedPtr<Movie>();
 	}
 

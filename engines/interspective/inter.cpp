@@ -488,10 +488,6 @@ public:
 	virtual operator uint16() const {
 		return _ref.valid() ? _ref.offset() : 0;
 	}
-	virtual byte *bytePointer() { return _ref.ptr(); }
-	virtual const byte *bytePointer() const { return _ref.ptr(); }
-	virtual byte *rawPointer() { return _ref.ptr(); }
-	virtual byte *rawBase() { return _ref.base(); }
 	virtual bool memoryReference(DosMemoryReference &ref) const {
 		ref = _ref;
 		return ref.valid();
@@ -553,12 +549,8 @@ public:
 	virtual const char *operator+() const {
 		return reinterpret_cast<const char *>(_translateBuf);
 	}
-	virtual byte *bytePointer() { return _translateBuf; }
-	virtual const byte *bytePointer() const { return _translateBuf; }
 	virtual Common::Span<const byte> translatedTextSpan() const { return Common::Span<const byte>(_translateBuf, _length); }
 	virtual operator uint16() const { return _length; }
-	virtual byte *rawPointer() { return _rawRef.ptr(); }
-	virtual byte *rawBase() { return _rawRef.base(); }
 	virtual uint16 rawLength() const { return _rawLength; }
 	virtual bool memoryReference(DosMemoryReference &ref) const {
 		ref = _rawRef;
@@ -644,7 +636,7 @@ static bool decodeParametrizedString(Resources *resources, BytecodeCursor &code,
 			// DOS FormatBubbleText_Inner consumes a two-byte global-byte
 			// offset after these conditional markers and skips forward to
 			// STX (0x02) when the condition matches. The raw string remains
-			// available via rawPointer(); the translated buffer should only
+			// available via memoryReference(); the translated buffer should only
 			// contain text that survives the same condition.
 			const byte state = resources->globalByte(offset);
 			const bool skip = (ch == kStringCountSpacesIf0) ? (state == 0) : (state != 0);

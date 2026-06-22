@@ -179,15 +179,22 @@ public:
 
 	virtual bool holdsCode() const { return false; }
 
-	virtual byte *bytePointer() { return nullptr; }
-	virtual const byte *bytePointer() const { return nullptr; }
 	virtual Common::Span<const byte> translatedTextSpan() const { return Common::Span<const byte>(); }
 	virtual operator const Common::String() const {
-		const byte *b = bytePointer();
-		return Common::String(reinterpret_cast<const char *>(b));
+		Common::Span<const byte> text = translatedTextSpan();
+		if (!text.data()) {
+			DosMemoryReference ref;
+			if (memoryReference(ref))
+				text = ref.span();
+		}
+		if (!text.data())
+			return Common::String();
+
+		uint32 length = 0;
+		while (length < text.size() && text.getUint8At(length) != 0)
+			++length;
+		return Common::String(reinterpret_cast<const char *>(text.data()), length);
 	}
-	virtual byte *rawPointer() { return nullptr; }
-	virtual byte *rawBase() { return nullptr; }
 	virtual uint16 rawLength() const { return 0; }
 	virtual bool memoryReference(DosMemoryReference &) const { return false; }
 
@@ -248,8 +255,6 @@ public:
 	Interpreter *interpreter() const { return _interpreter; }
 	bool isEmpty() const { return _interpreter == 0; }
 	void reset() { _interpreter = 0; }
-	virtual byte *rawPointer() { return _interpreter ? code() : nullptr; }
-	virtual byte *rawBase() { return _interpreter ? base() : nullptr; }
 	virtual bool memoryReference(DosMemoryReference &ref) const;
 
 	template<typename T>
