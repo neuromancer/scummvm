@@ -53,12 +53,46 @@ DECLARE_SINGLETON(Interspective::Graphics);
 namespace Interspective {
 
 enum {
-	kFontChangeableColour = 235
+	kFontChangeableColour = 235,
+	kPaletteEntrySize = 3,
+	kPaletteColourCount = 256,
+	kPaletteByteCount = kPaletteColourCount * kPaletteEntrySize
 };
 
 static byte *surfacePixelAt(::Graphics::Surface *surface, int x, int y) {
 	assert(surface && surface->format.bytesPerPixel == 1);
 	return reinterpret_cast<byte *>(surface->getBasePtr(x, y));
+}
+
+static Common::Span<byte> surfaceRowBytes(Surface *surface, int x, int y, uint width) {
+	assert(surface);
+	return Common::Span<byte>(surface->pixelAt(x, y), width);
+}
+
+static Common::Span<const byte> surfaceRowBytes(const Surface *surface, int x, int y, uint width) {
+	assert(surface);
+	return Common::Span<const byte>(surface->pixelAt(x, y), width);
+}
+
+static void copyBytes(Common::Span<byte> dst, Common::Span<const byte> src) {
+	assert(dst.size() >= src.size());
+	Common::copy(src.begin(), src.end(), dst.begin());
+}
+
+static Common::Span<byte> paletteBytes(byte *palette) {
+	return Common::Span<byte>(palette, kPaletteByteCount);
+}
+
+static Common::Span<byte> paletteRange(byte *palette, uint start, uint num) {
+	return paletteBytes(palette).subspan(start * kPaletteEntrySize, num * kPaletteEntrySize);
+}
+
+static Common::Span<const byte> paletteSource(const byte *colours, uint num) {
+	return colours ? Common::Span<const byte>(colours, num * kPaletteEntrySize) : Common::Span<const byte>();
+}
+
+static byte paletteComponent(Common::Span<const byte> palette, uint colour, uint component) {
+	return palette.getUint8At(colour * kPaletteEntrySize + component);
 }
 
 class GraphicsTextCursor {
@@ -285,10 +319,13 @@ void Graphics::setEngine(Engine *engine) {
 	_fadeFlags = kFullFade;
 	_fadeStart = 0;
 	_fadeCount = 256;
-	Common::fill(_roomPalette, _roomPalette + sizeof(_roomPalette), 0);
-	Common::fill(_interfacePalette, _interfacePalette + sizeof(_interfacePalette), 0);
+	Common::Span<byte> roomPalette = paletteBytes(_roomPalette);
+	Common::Span<byte> interfacePalette = paletteBytes(_interfacePalette);
+	Common::Span<byte> conversationPalette = paletteBytes(_conversationSavedPalette);
+	Common::fill(roomPalette.begin(), roomPalette.end(), 0);
+	Common::fill(interfacePalette.begin(), interfacePalette.end(), 0);
 	Common::fill(_tintedPalette, _tintedPalette + sizeof(_tintedPalette), 0);
-	Common::fill(_conversationSavedPalette, _conversationSavedPalette + sizeof(_conversationSavedPalette), 0);
+	Common::fill(conversationPalette.begin(), conversationPalette.end(), 0);
 	_conversationPaletteRestorePending = false;
 
 	_speechText.clear();
@@ -593,7 +630,7 @@ void Graphics::loadInterface() {
 
 void Graphics::prepareInterfacePalette() {
 	debugC(1, kDebugLevelGraphics, "preparing interface palette");
-	setPalette(_interfacePalette + 160 * 3, 160, 96);
+	setPalette(paletteRange(_interfacePalette, 160, 96).data(), 160, 96);
 }
 
 void Graphics::paintInterface() {
@@ -677,10 +714,10 @@ void Graphics::paintRoomCloseUp() {
 	_inventoryCloseUpObjectId = 0;
 	const int srcLeft = CLIP<int>(_roomCloseUpPoint.x - 0x1b, 0, 0x10a);
 	const int srcTop = CLIP<int>(_roomCloseUpPoint.y - 0x0b, 0, 0x82);
+	const Surface *framebuffer = _framebuffer.get();
 	for (int y = 0; y < kCloseUpContentHeight; ++y) {
-		const byte *src = _framebuffer->pixelAt(srcLeft, srcTop + y);
-		byte *dst = _framebuffer->pixelAt(kCloseUpContentLeft, kCloseUpContentTop + y);
-		memcpy(dst, src, kCloseUpContentWidth);
+		copyBytes(surfaceRowBytes(_framebuffer.get(), kCloseUpContentLeft, kCloseUpContentTop + y, kCloseUpContentWidth),
+				  surfaceRowBytes(framebuffer, srcLeft, srcTop + y, kCloseUpContentWidth));
 	}
 
 	MainDat *mainDat = _resources ? _resources->mainDat() : 0;
@@ -876,7 +913,7 @@ bool Graphics::setStatusOverlayText(Common::Span<const byte> text) {
 
 		if (plainTextLineWidth(Common::Span<const byte>(line, len + 1)) > 0x38)
 			return false;
-		_statusOverlayLines.push_back(Common::String(reinterpret_cast<const char *>(line)));
+		_statusOverlayLines.push_back(dosByteSpanToString(Common::Span<const byte>(line, len)));
 		done = terminator == 0;
 	}
 
@@ -1023,7 +1060,7 @@ void Graphics::willFadein(FadeFlags f) {
 	_fadeFlags = f;
 	if (f & kPartialFade) {
 		clearPaletteRange(160, 96);
-		storePaletteTarget(_interfacePalette + 160 * 3, 160, 96);
+		storePaletteTarget(paletteRange(_interfacePalette, 160, 96), 160, 96);
 	} else {
 		clearPaletteRange(0, 256);
 	}
@@ -1047,12 +1084,10 @@ void Graphics::paintBackdrop() {
 
 	const int copyWidth = MIN<int>(320, _backdrop->w - srcX);
 	const int copyHeight = MIN<int>(viewHeight, _backdrop->h - srcY);
-	const byte *src = _backdrop->pixelAt(srcX, srcY);
-	byte *dst = _framebuffer->pixelAt(0, 0);
+	const Surface *backdrop = _backdrop.get();
 	for (int y = 0; y < copyHeight; ++y) {
-		memcpy(dst, src, copyWidth);
-		dst += _framebuffer->pitch;
-		src += _backdrop->pitch;
+		copyBytes(surfaceRowBytes(_framebuffer.get(), 0, y, uint(copyWidth)),
+				  surfaceRowBytes(backdrop, srcX, srcY + y, uint(copyWidth)));
 	}
 
 	if (logic) {
@@ -1448,7 +1483,7 @@ static void positionInlineVerbBubbleChoices(Graphics *graphics, const Common::Re
 		return;
 
 	Common::Array<byte> normalized = normalizeBubbleInput(string);
-	Logic::FormattedBubble metrics = Log.formatBubbleText(Common::Span<const byte>(&normalized[0], normalized.size()));
+	Logic::FormattedBubble metrics = Log.formatBubbleText(Common::Span<const byte>(normalized));
 	const uint16 rows = MAX<uint16>(1, metrics.rowCount);
 	const uint16 roundedWidthExtra = metrics.maxLineWidth & ~uint16(3);
 	uint16 currentLeft = uint16(bubbleRect.left + 15 + 10);
@@ -1632,7 +1667,7 @@ void Graphics::prepareConversationPalette() {
 
 void Graphics::beginConversationModal() {
 	if (!_conversationPaletteRestorePending)
-		memcpy(_conversationSavedPalette, _roomPalette, sizeof(_conversationSavedPalette));
+		copyBytes(paletteBytes(_conversationSavedPalette), paletteBytes(_roomPalette));
 	prepareConversationPalette();
 	_conversationPaletteRestorePending = true;
 }
@@ -2281,11 +2316,11 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, Commo
 										   uint16 forcedWidthExtra) {
 	int left = pos.x;
 	int top = pos.y;
-	const char *debugText = string.data() ? reinterpret_cast<const char *>(string.data()) : "(null)";
-	debugC(1, kDebugLevelGraphics, "painting speech bubble \"%s\" at %d:%d", debugText, left, top);
+	const Common::String debugText = string.data() ? dosByteSpanToString(string) : Common::String("(null)");
+	debugC(1, kDebugLevelGraphics, "painting speech bubble \"%s\" at %d:%d", debugText.c_str(), left, top);
 
 	Common::Array<byte> normalized = normalizeBubbleInput(string);
-	Logic::FormattedBubble metrics = Log.formatBubbleText(Common::Span<const byte>(&normalized[0], normalized.size()));
+	Logic::FormattedBubble metrics = Log.formatBubbleText(Common::Span<const byte>(normalized));
 	const uint16 rows = forcedRows != 0 ? forcedRows : MAX<uint16>(1, metrics.rowCount);
 	const uint16 widthExtra = forcedWidthExtra != 0xffff ? forcedWidthExtra : metrics.maxLineWidth;
 
@@ -2418,7 +2453,7 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, Commo
 			left -= left + int(widthExtra) + 0x41 - 320;
 		break;
 	}
-	debugC(2, kDebugLevelGraphics, "painting speech bubble \"%s\" at (adjusted) %d:%d", debugText, left, top);
+	debugC(2, kDebugLevelGraphics, "painting speech bubble \"%s\" at (adjusted) %d:%d", debugText.c_str(), left, top);
 
 	uint8 vertical_tiles = 1;
 	const uint16 bubbleHeight = MAX<uint16>(60, rows * kLineHeight + 16);
@@ -3155,13 +3190,14 @@ void Graphics::hookAfterRepaint(CodePointer &p) {
 
 void Graphics::clearPalette(int offset, int count) {
 	byte pal[0x300];
-	Common::fill(pal, pal + 0x300, 0);
-	storePaletteTarget(pal, offset, count);
+	Common::Span<byte> palette = paletteBytes(pal);
+	Common::fill(palette.begin(), palette.end(), 0);
+	storePaletteTarget(palette, offset, count);
 	_system->getPaletteManager()->setPalette(pal, offset, count);
 }
 
 void Graphics::setPalette(const byte *colours, uint start, uint num) {
-	storePaletteTarget(colours, start, num);
+	storePaletteTarget(paletteSource(colours, num), start, num);
 
 	if (!_willFadein)
 		_system->getPaletteManager()->setPalette(colours, start, num);
@@ -3169,21 +3205,26 @@ void Graphics::setPalette(const byte *colours, uint start, uint num) {
 	updateTintedPalette();
 }
 
-void Graphics::storePaletteTarget(const byte *colours, uint start, uint num) {
-	if (!colours || start >= 256)
+void Graphics::storePaletteTarget(Common::Span<const byte> colours, uint start, uint num) {
+	if (!colours.data() || start >= kPaletteColourCount)
 		return;
 
-	num = MIN<uint>(num, 256 - start);
-	memcpy(_roomPalette + start * 3, colours, num * 3);
+	num = MIN<uint>(num, kPaletteColourCount - start);
+	const uint bytes = num * kPaletteEntrySize;
+	if (colours.size() < bytes)
+		return;
+	copyBytes(paletteRange(_roomPalette, start, num), colours.subspan(0, bytes));
 }
 
 void Graphics::updateTintedPalette() {
 	// DOS BuildDitherTable @ 1000:177a maps each palette entry to the
 	// nearest luma among interface/bright palette entries
 	// 0xae/0xaf, 0xbe/0xbf, 0xce/0xcf, 0xde/0xdf.
+	const Common::Span<const byte> roomPalette = paletteBytes(_roomPalette);
 	for (int i = 0; i < 256; ++i) {
-		const byte *colour = _roomPalette + i * 3;
-		const byte luma = (30 * colour[0] + 60 * colour[1] + 10 * colour[2]) / 100;
+		const byte luma = (30 * paletteComponent(roomPalette, i, 0) +
+						   60 * paletteComponent(roomPalette, i, 1) +
+						   10 * paletteComponent(roomPalette, i, 2)) / 100;
 
 		byte curr = 174;
 		byte best_diff = 255;
@@ -3191,7 +3232,7 @@ void Graphics::updateTintedPalette() {
 
 		for (int j = 0; j < 4; j++) {
 			for (int k = 0; k < 2; k++) {
-				int16 diff = _roomPalette[(curr + k) * 3] - luma;
+				int16 diff = paletteComponent(roomPalette, curr + k, 0) - luma;
 				if (diff < 0)
 					diff = -diff;
 				if (diff < best_diff) {
@@ -3287,60 +3328,64 @@ struct Tr {
 void Graphics::fadeIn(const byte *colours, uint start, uint num) {
 	byte buf[0x300];
 	if (!colours) {
-		memcpy(buf, _roomPalette + start * 3, num * 3);
+		copyBytes(Common::Span<byte>(buf, num * kPaletteEntrySize),
+				  paletteRange(_roomPalette, start, num));
 		colours = buf;
 	}
 
-	const int bytes = num * 3;
+	const uint bytes = num * kPaletteEntrySize;
+	const Common::Span<const byte> source = paletteSource(colours, num);
 	byte current[0x300];
+	Common::Span<byte> currentBytes(current, bytes);
 
-	Common::fill(current, current + bytes, 0);
+	Common::fill(currentBytes.begin(), currentBytes.end(), 0);
 
 	byte off = 255;
 	for (int j = 0; j < 63; j++) {
 		off -= 4;
-		for (int i = 0; i < bytes; i++)
-			current[i] = colours[i] - MIN(off, colours[i]);
+		for (uint i = 0; i < bytes; i++)
+			currentBytes[i] = source.getUint8At(i) - MIN(off, source.getUint8At(i));
 
-		_system->getPaletteManager()->setPalette((current), start, num);
+		_system->getPaletteManager()->setPalette(currentBytes.data(), start, num);
 		_system->updateScreen();
 		Eng.delay(1000 / 25);
 
 		if (Log.canSkipCutscene() && Eng.escapePressed()) {
 			Log.requestSkipCutscene();
-			_system->getPaletteManager()->setPalette(colours, start, num);
-			storePaletteTarget(colours, start, num);
+			_system->getPaletteManager()->setPalette(source.data(), start, num);
+			storePaletteTarget(source, start, num);
 			updateTintedPalette();
 			_system->updateScreen();
 			return;
 		}
 	}
 
-	_system->getPaletteManager()->setPalette(colours, start, num);
-	storePaletteTarget(colours, start, num);
+	_system->getPaletteManager()->setPalette(source.data(), start, num);
+	storePaletteTarget(source, start, num);
 	updateTintedPalette();
 }
 
 bool Graphics::fadeOut(FadeFlags f) {
-	int bytes = 0x300;
-	int offset = 0;
-	int colours = 256;
+	uint bytes = kPaletteByteCount;
+	uint offset = 0;
+	uint colours = kPaletteColourCount;
 	byte current[0x300];
 
 	if (f == kPartialFade) {
-		bytes = 96 * 3;
+		bytes = 96 * kPaletteEntrySize;
 		offset = 160;
 		colours = 96;
 	}
 
-	memcpy(current, _roomPalette + offset * 3, bytes);
+	Common::Span<byte> currentBytes(current, bytes);
+	copyBytes(currentBytes, paletteRange(_roomPalette, offset, colours));
 
 	for (int j = 0; j < 63; j++) {
-		for (int i = 0; i < bytes; i++)
-			current[i] -= MIN<byte>(4, current[i]);
+		for (uint i = 0; i < bytes; i++)
+			currentBytes[i] -= MIN<byte>(4, currentBytes[i]);
 
-		_system->getPaletteManager()->setPalette((current), offset, colours);
-		storePaletteTarget(current, offset, colours);
+		_system->getPaletteManager()->setPalette(currentBytes.data(), offset, colours);
+		storePaletteTarget(Common::Span<const byte>(current, bytes), offset, colours);
 		_system->updateScreen();
 		Eng.delay(1000 / 25);
 

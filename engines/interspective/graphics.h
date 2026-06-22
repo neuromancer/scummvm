@@ -242,7 +242,7 @@ private:
 	void clearPalette(int start = 0, int count = 256);
 	void fadeIn(const byte *colours = 0, uint start = 0, uint num = 256);
 	void updateTintedPalette();
-	void storePaletteTarget(const byte *colours, uint start, uint num);
+	void storePaletteTarget(Common::Span<const byte> colours, uint start, uint num);
 	void beginFrame();
 	void markFullRedraw() const;
 
