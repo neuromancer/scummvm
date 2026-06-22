@@ -21,7 +21,7 @@
 
 #include "interspective/mapfile.h"
 
-#include "common/endian.h"
+#include "common/span.h"
 #include "common/textconsole.h"
 #include "common/util.h"
 
@@ -43,7 +43,7 @@ public:
 			return 0;
 		}
 
-		return READ_LE_UINT32(entryPtr(uint32(offset)));
+		return entrySpan(uint32(offset), 4).getUint32LEAt(0);
 	}
 
 	void patchLow16(uint16 index, uint16 value) const {
@@ -51,7 +51,9 @@ public:
 		if (index == 0 || !contains(offset, 2))
 			return;
 
-		WRITE_LE_UINT16(entryPtr(offset), value);
+		Common::Span<byte> entry = mutableEntrySpan(offset, 2);
+		entry[0] = uint8(value & 0xff);
+		entry[1] = uint8(value >> 8);
 	}
 
 private:
@@ -67,8 +69,12 @@ private:
 		return offset <= _size && size <= _size - offset;
 	}
 
-	byte *entryPtr(uint32 offset) const {
-		return _data + offset;
+	Common::Span<const byte> entrySpan(uint32 offset, uint32 size) const {
+		return Common::Span<const byte>(_data + offset, size);
+	}
+
+	Common::Span<byte> mutableEntrySpan(uint32 offset, uint32 size) const {
+		return Common::Span<byte>(_data + offset, size);
 	}
 
 	byte *_data;

@@ -22,6 +22,7 @@
 #include "interspective/prog_dat.h"
 
 #include "common/file.h"
+#include "common/span.h"
 #include "common/util.h"
 
 #include "interspective/innocent.h"
@@ -66,7 +67,7 @@ Program *ProgDat::getScript(uint16 id) {
 	if (entryOffset + 4 > _data.size())
 		error("ProgDat::getScript: script id %u outside directory", id);
 
-	uint32 offset = READ_LE_UINT32(_data.data() + entryOffset);
+	uint32 offset = Common::Span<const byte>(_data.data() + entryOffset, 4).getUint32LEAt(0);
 	_file.get()->seek(offset);
 
 	return new Program(*_file, id);

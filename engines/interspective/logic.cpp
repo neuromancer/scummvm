@@ -19,7 +19,6 @@
  *
  */
 
-#include "common/endian.h"
 #include "common/memstream.h"
 #include "common/serializer.h"
 #include "common/util.h"
@@ -2788,8 +2787,8 @@ bool Logic::castEntryActive(uint16 id) const {
 			continue;
 		if (e.animation)
 			return !e.animation->castWaitComplete();
-		if (READ_LE_UINT16(e.raw + 2) == 0 && e.interpreter) {
-			const uint16 scriptOffset = uint16(READ_LE_UINT16(e.raw + 4) + id);
+		if (e.storedScriptSegmentWord() == 0 && e.interpreter) {
+			const uint16 scriptOffset = uint16(e.storedScriptOffsetBase() + id);
 			byte scriptOpcode = 0;
 			if (e.interpreter->readCodeByte(scriptOffset, scriptOpcode) && scriptOpcode == 0xff)
 				return false;

@@ -522,6 +522,12 @@ public:
 			for (uint8 i = 0; i < 81; ++i)
 				raw[i] = 0;
 		}
+		uint16 storedScriptSegmentWord() const {
+			return Common::Span<const byte>(raw, sizeof(raw)).getUint16LEAt(2);
+		}
+		uint16 storedScriptOffsetBase() const {
+			return Common::Span<const byte>(raw, sizeof(raw)).getUint16LEAt(4);
+		}
 	};
 	enum { kCastTableCap = 18 };
 	bool castTableRegister(uint16 id, int16 x, int16 y, Interpreter *interpreter);

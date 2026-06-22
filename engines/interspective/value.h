@@ -23,7 +23,6 @@
 #define INTERSPECTIVE_VARIABLES_H
 
 #include "common/array.h"
-#include "common/endian.h"
 #include "common/noncopyable.h"
 #include "common/ptr.h"
 #include "common/span.h"

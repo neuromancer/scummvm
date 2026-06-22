@@ -21,7 +21,6 @@
 
 #include "interspective/debugger.h"
 
-#include "common/endian.h"
 #include "common/rect.h"
 
 #include "interspective/actor.h"

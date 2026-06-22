@@ -21,8 +21,8 @@
 
 #include "interspective/inter.h"
 
-#include "common/endian.h"
 #include "common/list.h"
+#include "common/span.h"
 #include "common/str.h"
 #include "common/textconsole.h"
 #include "common/util.h"
@@ -184,7 +184,7 @@ bool Interpreter::readCodeWord(uint16 offset, uint16 &value) const {
 	byte *ptr = rawCodeChecked(offset, 2);
 	if (!ptr)
 		return false;
-	value = READ_LE_UINT16(ptr);
+	value = Common::Span<const byte>(ptr, 2).getUint16LEAt(0);
 	return true;
 }
 
@@ -192,7 +192,8 @@ bool Interpreter::writeCodeWord(uint16 offset, uint16 value) {
 	byte *ptr = rawCodeChecked(offset, 2);
 	if (!ptr)
 		return false;
-	WRITE_LE_UINT16(ptr, value);
+	ptr[0] = uint8(value & 0xff);
+	ptr[1] = uint8(value >> 8);
 	return true;
 }
 

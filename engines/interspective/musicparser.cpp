@@ -24,7 +24,6 @@
 #include "audio/mididrv.h"
 #include "audio/mixer.h"
 #include "common/config-manager.h"
-#include "common/endian.h"
 #include "common/system.h"
 
 #include "interspective/innocent.h"
