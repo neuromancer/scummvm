@@ -81,6 +81,37 @@ static void appendSilence(Common::Array<byte> &out, uint32 samples) {
 		out[oldSize + i] = 0x80;
 }
 
+static bool readFileRange(const Common::String &name, uint32 offset, uint32 size, Common::Array<byte> &out) {
+	out.clear();
+	if (size == 0)
+		return true;
+
+	Common::File file;
+	if (!file.open(Common::Path(name)))
+		return false;
+	if (offset > file.size() || size > uint32(file.size()) - offset)
+		return false;
+
+	out.resize(size);
+	file.seek(offset);
+	return file.read(out.data(), size) == size;
+}
+
+static Common::SharedPtr<byte> copyToSharedBuffer(Common::Span<const byte> data) {
+	Common::SharedPtr<byte> buffer(new byte[data.size()], Common::ArrayDeleter<byte>());
+	Common::copy(data.begin(), data.end(), buffer.get());
+	return buffer;
+}
+
+static Audio::SeekableAudioStream *makeRawSfxStream(Common::Span<const byte> pcm, int rate) {
+	Common::SharedPtr<byte> pcmData = copyToSharedBuffer(pcm);
+	Common::ScopedPtr<Common::SeekableReadStream> pcmStream(new Common::MemoryReadStream(pcmData, pcm.size()));
+	Audio::SeekableAudioStream *raw = Audio::makeRawStream(pcmStream.get(), rate, Audio::FLAG_UNSIGNED, DisposeAfterUse::YES);
+	if (raw)
+		pcmStream.release();
+	return raw;
+}
+
 static bool parseVocSfxBlocks(Common::Span<const byte> data, Common::Array<byte> &pcm,
 							  int &rate, bool &loop) {
 	uint32 pos = 0;
@@ -379,15 +410,10 @@ bool Sound::loadSfxSample(uint16 id, Common::Array<byte> &pcm, int &rate, bool &
 	if (sample.bank == 0 || sample.bank > _sfxBanks.size())
 		return false;
 	Common::String name = _sfxBanks[sample.bank - 1].filename;
-	Common::File file;
-	if (!file.open(Common::Path(name)))
-		return false;
 
 	const uint32 bytes = sample.end - sample.offset;
 	Common::Array<byte> raw;
-	raw.resize(bytes);
-	file.seek(sample.offset);
-	if (file.read(raw.data(), bytes) != bytes)
+	if (!readFileRange(name, sample.offset, bytes, raw))
 		return false;
 
 	pcm.clear();
@@ -408,16 +434,10 @@ bool Sound::loadRolandSfxTune(uint16 id, Common::Array<byte> &tune) const {
 	if (bank.mode != 4)
 		return false;
 
-	Common::File file;
-	if (!file.open(Common::Path(bank.filename)))
-		return false;
-
 	const uint32 bytes = sample.end - sample.offset;
 	if (bytes < 0x25)
 		return false;
-	tune.resize(bytes);
-	file.seek(sample.offset);
-	if (file.read(tune.data(), bytes) != bytes)
+	if (!readFileRange(bank.filename, sample.offset, bytes, tune))
 		return false;
 
 	const Common::Span<const byte> tuneData(tune);
@@ -441,17 +461,11 @@ bool Sound::playSfxSample(uint16 id, Audio::SoundHandle &handle) {
 		return false;
 	}
 
-	Common::SharedPtr<byte> pcmData(new byte[pcm.size()], Common::ArrayDeleter<byte>());
-	Common::copy(pcm.begin(), pcm.end(), pcmData.get());
-
-	Common::ScopedPtr<Common::SeekableReadStream> pcmStream(new Common::MemoryReadStream(pcmData, pcm.size()));
-	Audio::SeekableAudioStream *raw = Audio::makeRawStream(pcmStream.get(),
-														   rate, Audio::FLAG_UNSIGNED, DisposeAfterUse::YES);
+	Common::ScopedPtr<Audio::SeekableAudioStream> raw(makeRawSfxStream(Common::Span<const byte>(pcm), rate));
 	if (!raw)
 		return false;
-	pcmStream.release();
 
-	Audio::AudioStream *stream = loop ? Audio::makeLoopingAudioStream(raw, 0) : raw;
+	Audio::AudioStream *stream = loop ? Audio::makeLoopingAudioStream(raw.release(), 0) : raw.release();
 	g_system->getMixer()->playStream(Audio::Mixer::kSFXSoundType, &handle,
 									 stream, -1, Audio::Mixer::kMaxChannelVolume, 0, DisposeAfterUse::YES);
 	debugC(1, kDebugLevelSound, "Sound::playSfxSample(%u) — %u bytes @ %d Hz%s",
