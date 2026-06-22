@@ -1163,9 +1163,9 @@ public:
 	// restores it. DOS uses a single slot, not a stack.
 	// _animations is saved as a list snapshot so the sub-scene's
 	// loadActors-appended entries can be unwound on pop. The Program
-	// SharedPtr preserves the old _code buffer; Animation::dropBaseIfIn
-	// is skipped while a snapshot exists so the saved actors' _base
-	// pointers remain valid.
+	// and Interpreter SharedPtrs preserve the old script segment;
+	// Animation::dropScriptIfInterpreter is skipped while a snapshot exists
+	// so the saved actors' interpreter/offset attachments remain valid.
 	struct SceneFrame {
 		Common::SharedPtr<Program> blockProgram;
 		Common::SharedPtr<Interpreter> blockInterpreter;

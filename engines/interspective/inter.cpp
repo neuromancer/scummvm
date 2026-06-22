@@ -107,12 +107,11 @@ void BytecodeCursor::seekEnd() {
 	_offset = _interpreter ? _interpreter->codeSize() : 0;
 }
 
-Interpreter::Interpreter(Logic *l, byte *base, uint16 codeSize, const char *n) : _logic(l),
+Interpreter::Interpreter(Logic *l, Common::Span<byte> code, const char *n) : _logic(l),
 																_engine(l->engine()),
 																_resources(_engine->resources()),
-																_base(base),
-																_codeSize(codeSize),
-																_roomLoop(0) {
+																_code(code) {
+	assert(code.size() <= 0xffff);
 	init_opcodes<255>();
 	Common::strlcpy(_name, n ? n : "", sizeof(_name));
 	init();
@@ -126,21 +125,6 @@ Interpreter::~Interpreter() {
 	_animations.clear();
 }
 
-void Interpreter::tick() {
-	if (_roomLoop) {
-		if (!containsCodePointer(_roomLoop)) {
-			warning("Interspective: room-loop pointer outside %s code segment", name());
-			_roomLoop = 0;
-			return;
-		}
-		run(uint16(_roomLoop - _base), kCodeRoomLoop);
-	}
-}
-
-void Interpreter::setRoomLoop(byte *code) {
-	_roomLoop = code;
-}
-
 /* mode:
 0 - initialization,
 1 - room handler,
@@ -152,55 +136,48 @@ void Interpreter::init() {
 }
 
 bool Interpreter::containsCodeRange(uint16 offset, uint16 size) const {
-	if (!_base)
+	if (!_code.data())
 		return false;
-	return offset <= _codeSize && size <= _codeSize - offset;
-}
-
-bool Interpreter::containsCodePointer(const byte *ptr, uint16 size) const {
-	if (!_base || !ptr)
-		return false;
-
-	const uintptr base = reinterpret_cast<uintptr>(_base);
-	const uintptr address = reinterpret_cast<uintptr>(ptr);
-	if (address < base)
-		return false;
-
-	const uintptr offset = address - base;
-	return offset <= _codeSize && size <= _codeSize - offset;
+	return offset <= _code.size() && size <= _code.size() - offset;
 }
 
 bool Interpreter::readCodeByte(uint16 offset, byte &value) const {
 	value = 0;
-	byte *ptr = rawCodeChecked(offset, 1);
-	if (!ptr)
+	if (!containsCodeRange(offset, 1)) {
+		warning("Interspective: code range 0x%04x+%u outside %s segment size %u",
+				offset, uint(1), name(), uint(codeSize()));
 		return false;
-	value = *ptr;
+	}
+	value = _code.data()[offset];
 	return true;
 }
 
 bool Interpreter::readCodeWord(uint16 offset, uint16 &value) const {
 	value = 0;
-	byte *ptr = rawCodeChecked(offset, 2);
-	if (!ptr)
+	if (!containsCodeRange(offset, 2)) {
+		warning("Interspective: code range 0x%04x+%u outside %s segment size %u",
+				offset, uint(2), name(), uint(codeSize()));
 		return false;
-	value = Common::Span<const byte>(ptr, 2).getUint16LEAt(0);
+	}
+	value = Common::Span<const byte>(_code.data() + offset, 2).getUint16LEAt(0);
 	return true;
 }
 
 bool Interpreter::writeCodeWord(uint16 offset, uint16 value) {
-	byte *ptr = rawCodeChecked(offset, 2);
-	if (!ptr)
+	if (!containsCodeRange(offset, 2)) {
+		warning("Interspective: code range 0x%04x+%u outside %s segment size %u",
+				offset, uint(2), name(), uint(codeSize()));
 		return false;
-	ptr[0] = uint8(value & 0xff);
-	ptr[1] = uint8(value >> 8);
+	}
+	_code.data()[offset] = uint8(value & 0xff);
+	_code.data()[offset + 1] = uint8(value >> 8);
 	return true;
 }
 
 bool Interpreter::readCodeRect(uint16 offset, Common::Rect &rect) const {
 	if (!containsCodeRange(offset, 8)) {
 		warning("Interspective: code rectangle 0x%04x+8 outside %s segment size %u",
-				offset, name(), uint(_codeSize));
+				offset, name(), uint(codeSize()));
 		return false;
 	}
 	uint16 left = 0;
@@ -222,31 +199,12 @@ bool Interpreter::readCodeRect(uint16 offset, Common::Rect &rect) const {
 bool Interpreter::memoryReference(uint16 offset, DosMemoryReference &ref) const {
 	if (!containsCodeRange(offset)) {
 		warning("Interspective: memory reference 0x%04x outside %s segment size %u",
-				offset, name(), uint(_codeSize));
+				offset, name(), uint(codeSize()));
 		ref = DosMemoryReference();
 		return false;
 	}
-	ref = DosMemoryReference(_base, _codeSize, offset);
+	ref = DosMemoryReference(_code.data(), codeSize(), offset);
 	return true;
-}
-
-bool Interpreter::memoryReference(const byte *ptr, DosMemoryReference &ref) const {
-	if (!containsCodePointer(ptr)) {
-		warning("Interspective: memory pointer outside %s segment", name());
-		ref = DosMemoryReference();
-		return false;
-	}
-	ref = DosMemoryReference(_base, _codeSize, uint16(ptr - _base));
-	return true;
-}
-
-byte *Interpreter::rawCodeChecked(uint16 offset, uint16 size) const {
-	if (!containsCodeRange(offset, size)) {
-		warning("Interspective: code range 0x%04x+%u outside %s segment size %u",
-				offset, uint(size), name(), uint(_codeSize));
-		return 0;
-	}
-	return _base + offset;
 }
 
 Status Interpreter::run(uint16 offset, OpcodeMode mode) {
@@ -781,7 +739,7 @@ static Common::String plainFirstLineForHover(const Common::String &text) {
 
 bool Interpreter::extractFirstStatusOverlayLine(uint16 offset, Common::String &text) {
 	text.clear();
-	if (!_base || offset >= _codeSize)
+	if (!_code.data() || offset >= codeSize())
 		return false;
 
 	BytecodeCursor code(this, offset);

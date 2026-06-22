@@ -25,6 +25,7 @@
 #include "common/array.h"
 #include "common/list.h"
 #include "common/ptr.h"
+#include "common/span.h"
 #include "common/stream.h"
 
 #include "interspective/debug.h"
@@ -45,22 +46,10 @@ public:
 	uint16 begin();
 	byte *localVariable(uint16 offset);
 	uint16 roomHandler(uint16 room);
-	byte *base() const { return const_cast<byte *>(_code.data()); }
-
-	// Range check: does p point into this block's _code buffer? Used by
-	// Logic::doChangeRoom to find any animation whose script PC was
-	// rebased into this (about-to-be-freed) block via Op_be/etc., so we
-	// can null out their _base before the buffer goes away.
-	bool contains(const byte *p) const {
-		const byte *code = _code.data();
-		return code && p >= code && p < code + _codeSize;
-	}
-
-	// Endpoints exposed so `Animation::dropBaseIfIn(low, high)` callers
-	// don't need access to private fields.
-	const byte *codeBegin() const { return _code.data(); }
-	const byte *codeEnd() const { return _code.data() + _codeSize; }
 	uint16 codeSize() const { return _codeSize; }
+	Common::Span<byte> mutableCodeImage();
+	Common::Span<const byte> codeImage() const;
+	bool replaceCodeImage(const Common::Array<byte> &data);
 
 	SpriteInfo getSpriteInfo(uint16 index) const;
 
@@ -83,6 +72,8 @@ private:
 	void clearExits();
 
 	uint16 entryPointOffset();
+	Common::Span<byte> mutableDosSegment();
+	Common::Span<const byte> dosSegment() const;
 
 	Common::Array<byte> _code;
 	uint16 _codeSize;

@@ -24,6 +24,7 @@
 
 #include "common/list.h"
 #include "common/rect.h"
+#include "common/span.h"
 #include "common/str.h"
 #include "common/util.h"
 
@@ -81,7 +82,7 @@ private:
 	};
 
 public:
-	Interpreter(Logic *l, byte *base, uint16 codeSize, const char *name);
+	Interpreter(Logic *l, Common::Span<byte> code, const char *name);
 	~Interpreter();
 
 	void init();
@@ -92,8 +93,6 @@ public:
 	 * @param mode interpreting mode.
 	 */
 	Status run(uint16 offset, OpcodeMode mode);
-	void tick();
-	void executeRestricted(byte *code);
 
 	friend class Opcode;
 
@@ -111,17 +110,13 @@ public:
 
 	const char *name() const { return _name; }
 
-	byte *rawCode(uint16 offset) const { return _base + offset; }
 	bool containsCodeRange(uint16 offset, uint16 size = 1) const;
-	bool containsCodePointer(const byte *ptr, uint16 size = 1) const;
 	bool readCodeByte(uint16 offset, byte &value) const;
 	bool readCodeWord(uint16 offset, uint16 &value) const;
 	bool writeCodeWord(uint16 offset, uint16 value);
 	bool readCodeRect(uint16 offset, Common::Rect &rect) const;
 	bool memoryReference(uint16 offset, DosMemoryReference &ref) const;
-	bool memoryReference(const byte *ptr, DosMemoryReference &ref) const;
-	byte *rawCodeChecked(uint16 offset, uint16 size = 1) const;
-	uint16 codeSize() const { return _codeSize; }
+	uint16 codeSize() const { return uint16(_code.size()); }
 	bool extractFirstStatusOverlayLine(uint16 offset, Common::String &text);
 
 	friend class CodePointer;
@@ -135,8 +130,7 @@ private:
 	T *readArgument(BytecodeCursor &code);
 	Value *getArgument(BytecodeCursor &code);
 
-	byte *_base;
-	uint16 _codeSize;
+	Common::Span<byte> _code;
 	uint16 _mode;
 	uint16 _runEntry; // entry offset of current run(); DOS wait handlers use
 					  // the per-opcode g_block_start_di/es snapshot instead.
@@ -147,10 +141,6 @@ public:
 private:
 	Status run(uint16 offset);
 	Status run(uint16 offset, int ifDepth);
-
-	void setRoomLoop(byte *code);
-
-	byte *_roomLoop;
 
 	Common::List<Animation *> _animations;
 

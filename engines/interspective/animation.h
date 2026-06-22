@@ -61,7 +61,7 @@ public:
 	virtual void setAnimation(uint16 anim) { _offset = anim; }
 
 	virtual bool isActor() const { return false; }
-	bool scriptActive() const { return _base != 0; }
+	bool scriptActive() const { return _scriptInterpreter != 0; }
 	uint16 mainSpriteId() const { return _mainSpriteId; }
 	bool hasMainSpriteForDraw() const { return _mainSpriteId != 0xffff && _mainSprite.get(); }
 	int16 drawY() const { return int16(_position.y); }
@@ -69,15 +69,12 @@ public:
 	int8 zIndex() const { return _zIndex; }
 	void setCastTableRunner(bool v) { _castTableRunner = v; }
 
-	// Used by Logic::doChangeRoom before freeing the outgoing block's
-	// code buffer. If this animation's _base lies within the [low, high)
-	// range, null it out so Animation::tick() short-circuits cleanly
-	// instead of dereferencing freed memory next frame. Re-attaching to
-	// a valid script later is the script's responsibility (Op_bd/be/b9).
-	void dropBaseIfIn(const byte *low, const byte *high) {
-		if (_base && _base >= low && _base < high) {
+	// Used by Logic::doChangeRoom before replacing the outgoing block
+	// interpreter. Animations that were attached to that interpreter must
+	// stop ticking until a script explicitly re-attaches them.
+	void dropScriptIfInterpreter(const Interpreter *interpreter) {
+		if (_scriptInterpreter == interpreter)
 			clearScript();
-		}
 	}
 
 protected:
@@ -189,11 +186,9 @@ protected:
 	bool _explicitFrameDelay;
 	int8 _zIndex;
 	Common::Point _position;
-		/** start of the animation code */
-		byte *_base;
-		/** current position  in the animation */
-		uint16 _offset;
-		Interpreter *_scriptInterpreter;
+	/** current position in the animation, relative to _baseOffset */
+	uint16 _offset;
+	Interpreter *_scriptInterpreter;
 	char _debugInfo[50];
 	Common::List<Sprite *> _sprites;
 	Common::SharedPtr<Interspective::Sprite> _mainSprite;

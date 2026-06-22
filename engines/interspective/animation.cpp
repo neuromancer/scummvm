@@ -86,14 +86,14 @@ Animation::Animation(const CodePointer &code, Common::Point position) : _positio
 																		_ticksLeft(0),
 																		_explicitFrameDelay(false),
 																		_zIndex(-1),
-																		_scriptInterpreter(code.interpreter()),
+																		_scriptInterpreter(0),
 																		_mainSpriteId(0xffff),
 																		_counter(0),
 																		_castTableRunner(false),
+																		_baseOffset(0),
 																		_debugInvalid(false),
 																		_opRingIdx(0) {
-	_base = _scriptInterpreter ? _scriptInterpreter->rawCodeChecked(code.offset(), 0) : 0;
-	_baseOffset = _base ? code.offset() : 0;
+	attachScript(code.interpreter(), code.offset());
 	_resources = code.interpreter()->resources();
 	for (int i = 0; i < 16; i++) {
 		_opRing[i].pc = 0xffff;
@@ -126,7 +126,7 @@ Animation::Status Animation::tick() {
 
 	Status status = kOk;
 	bool ranScript = false;
-	while (status == kOk && _base) {
+	while (status == kOk && scriptActive()) {
 		byte opByte = 0;
 		currentScriptByte(opByte);
 		int8 opcode = -dosSignedByte(opByte);
@@ -206,7 +206,7 @@ bool Animation::castWaitComplete() const {
 	// DOS FindCastByActorId @ 1000:67f5 resumes Op_c6 when no matching
 	// active cast exists, or when cast field +0x0a is zero and the next
 	// script byte at field +0x0c is the 0xff sentinel.
-	if (!_castTableRunner || !_base)
+	if (!_castTableRunner || !scriptActive())
 		return true;
 	if (_ticksLeft != 0)
 		return false;
@@ -272,12 +272,15 @@ void Animation::Sprite::paint(Graphics *g) const {
 }
 
 void Animation::attachScript(Interpreter *interpreter, uint16 baseOffset, uint16 pc) {
-	_scriptInterpreter = interpreter;
-	_base = interpreter ? interpreter->rawCodeChecked(baseOffset, 0) : 0;
-	if (_base) {
+	if (interpreter && interpreter->containsCodeRange(baseOffset, 0)) {
+		_scriptInterpreter = interpreter;
 		_baseOffset = baseOffset;
 		_offset = pc;
 	} else {
+		if (interpreter) {
+			warning("Interspective: animation script base 0x%04x outside %s segment size %u",
+					baseOffset, interpreter->name(), uint(interpreter->codeSize()));
+		}
 		_baseOffset = 0;
 		_offset = 0;
 		_scriptInterpreter = 0;
@@ -285,7 +288,6 @@ void Animation::attachScript(Interpreter *interpreter, uint16 baseOffset, uint16
 }
 
 void Animation::clearScript() {
-	_base = 0;
 	_baseOffset = 0;
 	_offset = 0;
 	_scriptInterpreter = 0;
@@ -301,7 +303,7 @@ void Animation::rebaseScript(uint16 baseOffset) {
 
 bool Animation::readScriptByte(int32 relative, byte &value, bool warn) const {
 	value = 0;
-	if (!_scriptInterpreter || !_base) {
+	if (!scriptActive()) {
 		if (warn)
 			warning("Interspective: script byte read through inactive animation %s", _debugInfo);
 		return false;
@@ -322,7 +324,7 @@ bool Animation::readScriptByte(int32 relative, byte &value, bool warn) const {
 
 bool Animation::readScriptWord(int32 relative, uint16 &value, bool warn) const {
 	value = 0;
-	if (!_scriptInterpreter || !_base) {
+	if (!scriptActive()) {
 		if (warn)
 			warning("Interspective: script word read through inactive animation %s", _debugInfo);
 		return false;
@@ -977,7 +979,7 @@ OPCODE(0x17) {
 	// The base Animation here drives cast-entry scripts whose `_baseOffset`
 	// is the cast id's code offset (Logic::castTableRegister → CodePointer(id))
 	// and is generally non-zero, so a plain `_offset = target` would land at
-	// `_base + _baseOffset + target` instead of the segment-absolute target.
+	// `_baseOffset + target` instead of the segment-absolute target.
 	// Mirror Actor::setActorCodeOffset's rebase exactly.
 	const byte val = embeddedByte();
 	const uint16 jumpTarget = shift();

@@ -71,7 +71,7 @@ Actor::Actor(const CodePointer &code) : Animation(code, Common::Point()), _id(0)
 }
 
 bool Actor::isFine() const {
-	return _room == Log.currentRoom() && _base && !_attentionNeeded &&
+	return _room == Log.currentRoom() && scriptActive() && !_attentionNeeded &&
 		   (!_framequeue.empty() || !_confused || _nextDirection);
 }
 
@@ -107,7 +107,7 @@ void Actor::setAnimation(uint16 offset) {
 	// CodePointer callers (Op_b9/Op_be/etc.) may select block code.
 	attachScript(Log.mainInterpreter(), offset);
 	resetActorStateFields();
-	if (_base) {
+	if (scriptActive()) {
 		setRecordSegment(actorCodeSegmentTag(_scriptInterpreter));
 		setRecordScriptBase(_baseOffset);
 	} else {
@@ -151,7 +151,7 @@ void Actor::resetActorStateFields() {
 }
 
 void Actor::setActorCodeOffset(uint16 offset) {
-	if (!_base)
+	if (!scriptActive())
 		return;
 
 	rebaseScript(offset);
@@ -194,7 +194,7 @@ void Actor::prepareRoomEntryActiveActor() {
 		Interpreter *const interp = blockSegment ? Log.blockInterpreter() : Log.mainInterpreter();
 		if (interp) {
 			attachScript(interp, codeOffset, scriptPc());
-			if (_base) {
+			if (scriptActive()) {
 				setRecordScriptPointer(actorCodeSegmentTag(interp), codeOffset, _offset);
 			} else {
 				clearScript();
@@ -217,7 +217,7 @@ void Actor::syncStateToRecordFields() {
 	// as first-class members plus a sparse byte map for less common offsets;
 	// keep the sparse record synchronized before/after save/load so helpers
 	// that read raw DOS fields see the same state as the renderer/ticker.
-	if (_base) {
+	if (scriptActive()) {
 		setRecordScriptPointer(actorCodeSegmentTag(_scriptInterpreter), _baseOffset, _offset);
 	} else {
 		clearRecordScriptPointer();
@@ -359,7 +359,7 @@ void Actor::syncWaitCallbacks(Common::Serializer &s) {
 
 void Actor::synchronize(Common::Serializer &s) {
 	uint8 baseSource = 0;
-	if (s.isSaving() && _base) {
+	if (s.isSaving() && scriptActive()) {
 		if (_scriptInterpreter == Log.blockInterpreter())
 			baseSource = 2;
 		else
@@ -495,7 +495,7 @@ void Actor::decrementTicksLeft() {
 	_ticksLeft = uint16(_ticksLeft - 1);
 	setRecordTicksLeft(_ticksLeft);
 	byte op = 0;
-	if (_ticksLeft == 0 && _base && currentScriptByte(op) && dosSignedByte(op) == -2) {
+	if (_ticksLeft == 0 && scriptActive() && currentScriptByte(op) && dosSignedByte(op) == -2) {
 		// DOS 1000:64ed..64f3 marks field +0x64 when the next actor
 		// opcode is ActorOp_02_UnregisterAndEnd (0xfe).
 		setConfusedRecord(true);
@@ -904,7 +904,7 @@ void Actor::moveTo(uint16 frame) {
 	}
 
 	debugC(1, kDebugLevelActor | kDebugLevelEvents, "moveTo(%u): path from frame %u:%s", (uint)frame, (uint)cur.index(), s.c_str());
-	if (!_base)
+	if (!scriptActive())
 		nextFrame();
 }
 
@@ -1183,7 +1183,7 @@ Animation::Status Actor::tick() {
 		Log.setCurrentEntityId(_id);
 
 		Animation::Status s = kOk;
-		if (_base) {
+		if (scriptActive()) {
 			if (_ticksLeft) {
 				debugC(5, kDebugLevelAnimation, "ticking animation %s (ticks left: %u)", _debugInfo, _ticksLeft);
 				decrementTicksLeft();
@@ -1196,7 +1196,7 @@ Animation::Status Actor::tick() {
 				s = Animation::tick();
 				if (_debug)
 					gDebugLevel -= 3;
-				if (_base)
+				if (scriptActive())
 					setScriptPc(_offset);
 				else
 					clearRecordScriptPointer();
@@ -1479,7 +1479,7 @@ static void paintActorMoveSlotWithDrawMode(Graphics *g, Resources *resources, co
 void Actor::paint(Graphics *g, uint16 drawMode) {
 	if (_room != Log.currentRoom())
 		return;
-	if (!_base)
+	if (!scriptActive())
 		return;
 	if (!hasMainSpriteForDraw())
 		return;

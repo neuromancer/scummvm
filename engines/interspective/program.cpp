@@ -68,8 +68,8 @@ private:
 
 class ProgramCodeSegment {
 public:
-	ProgramCodeSegment(byte *data, uint32 size) : _readData(data), _writeData(data), _size(size) {}
-	ProgramCodeSegment(const byte *data, uint32 size) : _readData(data), _writeData(0), _size(size) {}
+	ProgramCodeSegment(Common::Span<byte> data) : _readData(data.data()), _writeData(data.data()), _size(data.size()) {}
+	ProgramCodeSegment(Common::Span<const byte> data) : _readData(data.data()), _writeData(0), _size(data.size()) {}
 
 	bool contains(uint32 offset, uint32 size) const {
 		return offset <= _size && size <= _size - offset;
@@ -114,7 +114,7 @@ Program::Program(Common::ReadStream &file, uint16 id)
 
 	_codeSize = length;
 
-	ProgramCodeSegment code(base(), kDosResourceSegmentSize);
+	ProgramCodeSegment code(mutableDosSegment());
 	Common::Span<byte> payload = code.mutableSpan(2, length - 2);
 	file.read(payload.data(), payload.size());
 	Resources::descramble(payload.data(), payload.size());
@@ -148,12 +148,36 @@ uint16 Program::entryPointOffset() {
 	return ProgramFooter(_footer).entryPointOffset();
 }
 
+Common::Span<byte> Program::mutableCodeImage() {
+	return Common::Span<byte>(_code.data(), _codeSize);
+}
+
+Common::Span<const byte> Program::codeImage() const {
+	return Common::Span<const byte>(_code.data(), _codeSize);
+}
+
+bool Program::replaceCodeImage(const Common::Array<byte> &data) {
+	if (data.size() != _codeSize)
+		return false;
+	if (_codeSize != 0)
+		memcpy(_code.data(), &data[0], _codeSize);
+	return true;
+}
+
+Common::Span<byte> Program::mutableDosSegment() {
+	return Common::Span<byte>(_code.data(), _code.size());
+}
+
+Common::Span<const byte> Program::dosSegment() const {
+	return Common::Span<const byte>(_code.data(), _code.size());
+}
+
 byte *Program::localVariable(uint16 offset) {
-	return ProgramCodeSegment(base(), kDosResourceSegmentSize).mutablePtr(offset);
+	return ProgramCodeSegment(mutableDosSegment()).mutablePtr(offset);
 }
 
 uint16 Program::roomHandler(uint16 room) {
-	const ProgramCodeSegment code(base(), _codeSize);
+	const ProgramCodeSegment code(codeImage());
 	uint32 indexOffset = 2;
 
 	uint16 r;
@@ -173,7 +197,7 @@ uint16 Program::roomHandler(uint16 room) {
 
 SpriteInfo Program::getSpriteInfo(uint16 index) const {
 	const ProgramFooter footer(_footer);
-	const ProgramCodeSegment code(base(), _codeSize);
+	const ProgramCodeSegment code(codeImage());
 	const uint16 spritemapOffset = footer.spriteMapOffset();
 
 	// Bound check matching MainDat::getSpriteInfo. The footer doesn't
@@ -226,7 +250,7 @@ bool Program::getExitRecordField(uint16 index, uint8 off, uint8 size, uint16 &va
 		return false;
 
 	const ProgramFooter footer(_footer);
-	const ProgramCodeSegment code(base(), _codeSize);
+	const ProgramCodeSegment code(codeImage());
 	const uint16 exits = footer.exitsOffset();
 	const uint32 fieldOffset = uint32(exits) + uint32(index - 1) * Exit::Size + off;
 	if (fieldOffset + size > _codeSize)
@@ -241,10 +265,10 @@ bool Program::getExitRoomWord(uint16 index, uint16 &room) const {
 		return false;
 
 	const ProgramFooter footer(_footer);
-	const ProgramCodeSegment code(base(), kDosResourceSegmentSize);
+	const ProgramCodeSegment code(dosSegment());
 	const uint16 exits = footer.exitsOffset();
 	const uint16 off = uint16(exits + uint16(index - 1) * Exit::Size);
-	if (off > kDosResourceSegmentSize - 2)
+	if (!code.contains(off, 2))
 		return false;
 
 	room = code.wordAt(off);

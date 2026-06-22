@@ -32,6 +32,7 @@
 #include "common/savefile.h"
 #include "common/scummsys.h"
 #include "common/serializer.h"
+#include "common/span.h"
 #include "common/system.h"
 #include "engines/metaengine.h"
 #include "engines/util.h"
@@ -352,8 +353,10 @@ Common::Error Engine::saveGameStream(Common::WriteStream *stream, bool isAutosav
 		uint16 blockSize = _logic->blockProgram() ? _logic->blockProgram()->codeSize() : 0;
 		s.syncAsUint16LE(blockId);
 		s.syncAsUint16LE(blockSize);
-		if (blockSize != 0)
-			s.syncBytes(_logic->blockProgram()->base(), blockSize);
+		if (blockSize != 0) {
+			Common::Span<byte> blockCode = _logic->blockProgram()->mutableCodeImage();
+			s.syncBytes(blockCode.data(), blockCode.size());
+		}
 
 		_logic->synchronize(s);
 		if (_sound)

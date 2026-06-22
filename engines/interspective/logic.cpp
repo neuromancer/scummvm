@@ -588,7 +588,7 @@ uint16 Logic::updateAutoCloseTimerSprite() {
 
 void Logic::init() {
 	_toplevelInterpreter = Common::SharedPtr<Interpreter>(
-		new Interpreter(this, _resources->mainBase(), _resources->mainDat()->dataSize(), "main code"));
+		new Interpreter(this, Common::Span<byte>(_resources->mainBase(), _resources->mainDat()->dataSize()), "main code"));
 }
 
 void Logic::initCode() {
@@ -1304,34 +1304,27 @@ void Logic::doChangeRoom() {
 		}
 
 		// Block change: any animation (including main-code actors like
-		// the protagonist whose _base was rebased into block code via
-		// Op_be/Op_b9/etc.) holds a raw pointer into _blockProgram->_code.
-		// Reassigning _blockProgram below frees that buffer; the next
-		// tick would dereference freed memory and ASan-trip in
-		// Animation::tick at `_base + _offset`. Find any such animation
-		// and drop its _base now — the actor becomes inert until the
-		// script re-attaches it (Op_bd/Op_be).
+		// the protagonist whose script was rebased into block code via
+		// Op_be/Op_b9/etc.) is attached to the outgoing block interpreter.
+		// Replacing the interpreter below invalidates that attachment, so
+		// drop it now; the actor becomes inert until a script re-attaches
+		// it (Op_bd/Op_be).
 		// EXCEPTION: when a saved scene frame is holding a SharedPtr to
-		// the outgoing _blockProgram, its _code buffer survives the
-		// reassignment — Op_01's pop will restore the program. Skip the
-		// drop in that case so the saved actors' _base pointers remain
-		// valid for the popped scene to resume.
-		Program *oldProgram = _blockProgram.get();
-		const bool oldProgramPreserved =
-			(_savedScene && _savedScene->blockProgram == _blockProgram) || (_roomBackup.valid && _roomBackup.blockProgram == _blockProgram);
-		if (oldProgram && !oldProgramPreserved) {
-			const byte *lo = oldProgram->codeBegin();
-			const byte *hi = oldProgram->codeEnd();
+		// the outgoing interpreter, Op_01/status restore will restore it.
+		// Skip the drop in that case so saved actors resume with the same
+		// interpreter/offset attachment.
+		const bool oldBlockPreserved =
+			(_savedScene && _savedScene->blockInterpreter.get() == oldBlock) ||
+			(_roomBackup.valid && _roomBackup.blockInterpreter.get() == oldBlock);
+		if (oldBlock && !oldBlockPreserved) {
 			foreach (Animation *, _animations)
-				(*it)->dropBaseIfIn(lo, hi);
+				(*it)->dropScriptIfInterpreter(oldBlock);
 		}
 
 		_currentBlock = newBlock;
 		_blockProgram = Common::SharedPtr<Program>(_resources->loadCodeBlock(newBlock));
 		if (_loadBlockOverrideId == newBlock && !_loadBlockOverrideData.empty()) {
-			if (_blockProgram->codeSize() == _loadBlockOverrideData.size()) {
-				memcpy(_blockProgram->base(), &_loadBlockOverrideData[0], _loadBlockOverrideData.size());
-			} else {
+			if (!_blockProgram->replaceCodeImage(_loadBlockOverrideData)) {
 				setPendingError(0x07);
 				warning("Interspective: saved block %u image size %u does not match loaded block size %u",
 						(uint)newBlock, (uint)_loadBlockOverrideData.size(), (uint)_blockProgram->codeSize());
@@ -1347,7 +1340,7 @@ void Logic::doChangeRoom() {
 		snprintf(buf, 100, "block %d code", newBlock);
 
 		_blockInterpreter = Common::SharedPtr<Interpreter>(
-			new Interpreter(this, _blockProgram->base(), _blockProgram->codeSize(), buf));
+			new Interpreter(this, _blockProgram->mutableCodeImage(), buf));
 		_blockProgram->loadActors(_blockInterpreter.get());
 		_blockProgram->loadExits(_blockInterpreter.get());
 
@@ -1808,7 +1801,7 @@ CodePointer Logic::switchToScene(uint16 sceneId, const CodePointer &resumePC) {
 	snprintf(buf, sizeof(buf), "scene %u code", sceneId);
 	_sceneProgramKeepAlive = Common::SharedPtr<Program>(_resources->loadSceneCodeBlock(sceneId));
 	_sceneInterpreterKeepAlive = Common::SharedPtr<Interpreter>(
-		new Interpreter(this, _sceneProgramKeepAlive->base(), _sceneProgramKeepAlive->codeSize(), buf));
+		new Interpreter(this, _sceneProgramKeepAlive->mutableCodeImage(), buf));
 
 	_currentBlock = uint16(_resources->mainDat()->roomProgramCount() + sceneId);
 	_blockProgram = _sceneProgramKeepAlive;

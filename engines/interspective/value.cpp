@@ -54,14 +54,6 @@ void CodePointer::run(OpcodeMode mode) const {
 		_interpreter->run(_offset, mode);
 }
 
-byte *CodePointer::code() const {
-	return _interpreter ? _interpreter->rawCodeChecked(_offset) : 0;
-}
-
-byte *CodePointer::base() const {
-	return _interpreter ? _interpreter->rawCodeChecked(0) : 0;
-}
-
 bool CodePointer::memoryReference(DosMemoryReference &ref) const {
 	return _interpreter && _interpreter->memoryReference(_offset, ref);
 }

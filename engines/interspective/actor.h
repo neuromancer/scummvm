@@ -274,14 +274,13 @@ public:
 	// _frame (field+0x61), _nextFrame (field+0x62), clears the walk word
 	// at +0x6b, then runs SetActorPosition (frame X/Y -> _position).
 	// InitActorState in DOS preserves the actor's existing code offset,
-	// so we mirror that by leaving _base/_offset alone (unlike setRoom
-	// which jumps the script to puppeteer.mainCode and clears the sprite
-	// — too aggressive and crashes for actors whose puppeteer isn't
-	// initialised yet).
+	// so we mirror that by leaving the script attachment/offset alone
+	// (unlike setRoom which jumps the script to puppeteer.mainCode and
+	// clears the sprite — too aggressive and crashes for actors whose
+	// puppeteer isn't initialised yet).
 	void placeIn(uint16 room, uint16 frame, uint16 nextFrame = 0);
 
 	bool isFine() const;
-	bool scriptActive() const { return _base != 0; }
 	bool animReady() const;
 	bool idleReady() const;
 
