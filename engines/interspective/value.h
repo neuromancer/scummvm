@@ -145,6 +145,10 @@ inline int16 dosSignedWord(uint16 value) {
 	return (value & 0x8000) ? int16(int32(value) - 0x10000) : int16(value);
 }
 
+inline int8 dosSignedByte(uint8 value) {
+	return (value & 0x80) ? int8(int16(value) - 0x100) : int8(value);
+}
+
 class Value : public NumericInspectable<uint16> {
 public:
 	virtual ~Value() {}

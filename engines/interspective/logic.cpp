@@ -1453,7 +1453,7 @@ void Logic::paintDirtyObjectPlacements(Graphics *graphics, int16 layer) {
 		if (slot.objId == 0)
 			continue;
 
-		if (int8(objectField(slot.objId, 0x0e)) != layer)
+		if (dosSignedByte(objectField(slot.objId, 0x0e)) != layer)
 			continue;
 
 		const int16 targetX = slot.targetX;

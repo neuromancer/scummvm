@@ -412,7 +412,7 @@ static int16 findObjectLayer(Logic *logic, uint16 id, uint16 spriteId) {
 
 	logic->setObjectField(id, 0x0e, low);
 	logic->setObjectField(id, 0x0f, high);
-	return int8(low);
+	return dosSignedByte(low);
 }
 
 static void rebuildDrawCommands(Graphics *graphics, Logic *logic) {
@@ -431,7 +431,7 @@ static void rebuildDrawCommands(Graphics *graphics, Logic *logic) {
 				return;
 			continue;
 		}
-		if (!logic->addDrawCommand(1, id, int8(logic->recordField(1, id, 0x0b, 1))))
+		if (!logic->addDrawCommand(1, id, dosSignedByte(uint8(logic->recordField(1, id, 0x0b, 1)))))
 			return;
 	}
 

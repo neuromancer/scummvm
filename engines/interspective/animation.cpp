@@ -129,7 +129,7 @@ Animation::Status Animation::tick() {
 	while (status == kOk && _base) {
 		byte opByte = 0;
 		currentScriptByte(opByte);
-		int8 opcode = -int8(opByte);
+		int8 opcode = -dosSignedByte(opByte);
 		if (opcode <= 0 || opcode >= 0x27) {
 			// Dump 16 bytes around the bad PC so the misalignment can be
 			// traced back to whichever upstream handler over/under-consumed.
@@ -362,13 +362,13 @@ int8 Animation::shiftByte() {
 		return 0;
 	}
 	_offset += 1;
-	return int8(value);
+	return dosSignedByte(value);
 }
 
 int8 Animation::embeddedByte() const {
 	byte value = 0;
 	readScriptByte(-1, value);
-	return int8(value);
+	return dosSignedByte(value);
 }
 
 uint8 Animation::animationField(uint8 off) const {
@@ -428,7 +428,7 @@ void Animation::setPositionFromFrame(uint8 frame) {
 
 	setAnimationRecordDrawLayer(bl);
 	setAnimationRecordSecondaryZone(bh);
-	_zIndex = int8(bl);
+	_zIndex = dosSignedByte(bl);
 }
 
 void Animation::copyAnimationIntervalToTicks() {
@@ -552,10 +552,8 @@ OPCODE(0x04) {
 }
 
 OPCODE(0x05) {
-	byte x = shiftByte();
-	int8 xoff = *reinterpret_cast<int8 *>(&x);
-	byte y = shiftByte();
-	int8 yoff = *reinterpret_cast<int8 *>(&y);
+	const int8 xoff = shiftByte();
+	const int8 yoff = shiftByte();
 	uint16 sprite = shift();
 
 	debugC(3, kDebugLevelAnimation, "anim opcode 0x05: move by %d:%d, set main sprite to %d, frame done", xoff, yoff, sprite);
@@ -733,7 +731,7 @@ OPCODE(0x1a) {
 
 	setAnimationRecordDrawLayer(v);
 	setAnimationRecordAutoZoneLayerEnabled(false);
-	_zIndex = int8(v);
+	_zIndex = dosSignedByte(v);
 
 	return kOk;
 }
@@ -921,7 +919,7 @@ OPCODE(0x15) {
 		return kOk;
 	}
 
-	const int8 delta = int8(uint8(target - current));
+	const int8 delta = dosSignedByte(uint8(target - current));
 	uint8 next = 0x63;
 	if (delta < 0) {
 		if (delta <= -6) {

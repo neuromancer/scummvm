@@ -440,7 +440,7 @@ void Actor::synchronize(Common::Serializer &s) {
 		return;
 
 	_position = Common::Point(int16(posX), int16(posY));
-	_interval = int8(interval);
+	_interval = dosSignedByte(interval);
 	_ticksLeft = ticksLeft;
 	_zIndex = zIndex;
 	_baseOffset = baseOffset;
@@ -495,7 +495,7 @@ void Actor::decrementTicksLeft() {
 	_ticksLeft = uint16(_ticksLeft - 1);
 	setRecordTicksLeft(_ticksLeft);
 	byte op = 0;
-	if (_ticksLeft == 0 && _base && currentScriptByte(op) && int8(op) == -2) {
+	if (_ticksLeft == 0 && _base && currentScriptByte(op) && dosSignedByte(op) == -2) {
 		// DOS 1000:64ed..64f3 marks field +0x64 when the next actor
 		// opcode is ActorOp_02_UnregisterAndEnd (0xfe).
 		setConfusedRecord(true);
@@ -541,13 +541,13 @@ void Actor::updateZoneAtPoint() {
 	if (!autoZoneLayerEnabled())
 		bl = recordDrawLayer();
 	setRecordDrawLayer(bl);
-	_zIndex = int8(bl);
+	_zIndex = dosSignedByte(bl);
 	if (previousLayer != bl || previousSecondaryZone != bh) {
 		debugC(4, kDebugLevelActor | kDebugLevelGraphics,
 			   "DOS UpdateActorAnimation/FindZoneAtPoint: actor %u pos=(%d,%d) frame=%u "
 			   "autoZone=%u layer %d->%d secondary %u->%u zoneA=%d zoneB=%d",
 			   _id, _position.x, _position.y, _frame,
-			   autoZoneLayerEnabled() ? 1 : 0, int8(previousLayer), int8(bl),
+			   autoZoneLayerEnabled() ? 1 : 0, dosSignedByte(previousLayer), dosSignedByte(bl),
 			   previousSecondaryZone, bh, matchedCollisionZone, matchedZoneB);
 	}
 }
@@ -1230,7 +1230,7 @@ void Actor::readHeader(const CodePointer &code) {
 
 	_interval = byteAt(kOffsetInterval);
 	_ticksLeft = wordAt(kOffsetTicksLeft);
-	_zIndex = int8(byteAt(kOffsetDrawLayer));
+	_zIndex = dosSignedByte(byteAt(kOffsetDrawLayer));
 	_position = Common::Point(dosSignedWord(wordAt(kOffsetLeft)), dosSignedWord(wordAt(kOffsetTop)));
 	const uint16 segment = wordAt(kOffsetSegment);
 	const uint16 codeOffset = wordAt(kOffsetScriptBase);
@@ -1540,7 +1540,7 @@ Direction operator>>(Direction _a, Direction _b) {
 		a += 8;
 	if (a > 8)
 		a -= 8;
-	return *reinterpret_cast<Direction *>(&a);
+	return Direction(a);
 }
 
 template<int opcode>
@@ -1809,7 +1809,7 @@ OPCODE(0x15) {
 		return kOk;
 	}
 	// Reproduces DOS 8-bit signed branches @ 1000:6c79..1000:6cba.
-	const int8 delta = int8(uint8(target - current));
+	const int8 delta = dosSignedByte(uint8(target - current));
 	uint8 next = 0x63;
 	if (delta < 0) {
 		if (delta <= -6) {
@@ -1914,7 +1914,7 @@ OPCODE(0x1a) {
 	debugC(3, kDebugLevelAnimation, "actor opcode 0x1a: SetField12ClearFlag16 = %d [DOS Op_1b]", v);
 	setRecordDrawLayer(v);
 	setAutoZoneLayerEnabled(false);
-	_zIndex = int8(v);
+	_zIndex = dosSignedByte(v);
 	return kOk;
 }
 

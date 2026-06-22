@@ -302,7 +302,7 @@ static HitTarget hitNoSpriteExitAtPoint(Logic &logic, Common::Point world) {
 		const int16 right = int16(left + int16(logic.recordField(1, id, 6, 1)));
 		const int16 bottom = int16(top + int16(logic.recordField(1, id, 7, 1)));
 		const Common::Rect area(left, top, right, bottom);
-		const int16 z = int16(int8(logic.recordField(1, id, 0x0b, 1)));
+		const int16 z = int16(dosSignedByte(uint8(logic.recordField(1, id, 0x0b, 1))));
 		if (containsDosInclusive(area, world) && z < best.z) {
 			best.type = 1;
 			best.id = id;
