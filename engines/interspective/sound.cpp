@@ -22,8 +22,11 @@
 #include "audio/audiostream.h"
 #include "audio/decoders/raw.h"
 #include "audio/mixer.h"
+#include "common/algorithm.h"
 #include "common/debug.h"
 #include "common/file.h"
+#include "common/memstream.h"
+#include "common/ptr.h"
 #include "common/serializer.h"
 #include "common/span.h"
 #include "common/str.h"
@@ -61,18 +64,12 @@ static int vocRateFromExtendedTimeConstant(uint16 tc, uint8 channels) {
 	return denom > 0 ? MAX<int>(1000, 256000000 / denom / channelCount) : 11025;
 }
 
-static void appendBytes(Common::Array<byte> &out, const byte *src, uint32 len) {
-	if (len == 0)
+static void appendBytes(Common::Array<byte> &out, Common::Span<const byte> src) {
+	if (src.size() == 0)
 		return;
 	const uint oldSize = out.size();
-	out.resize(oldSize + len);
-	memcpy(&out[oldSize], src, len);
-}
-
-static void appendBytes(Common::Array<byte> &out, Common::Span<const byte> src) {
-	if (!src.data() || src.size() == 0)
-		return;
-	appendBytes(out, src.data(), src.size());
+	out.resize(oldSize + src.size());
+	Common::copy(src.begin(), src.end(), out.begin() + oldSize);
 }
 
 static void appendSilence(Common::Array<byte> &out, uint32 samples) {
@@ -80,7 +77,8 @@ static void appendSilence(Common::Array<byte> &out, uint32 samples) {
 		return;
 	const uint oldSize = out.size();
 	out.resize(oldSize + samples);
-	memset(&out[oldSize], 0x80, samples);
+	for (uint32 i = 0; i < samples; ++i)
+		out[oldSize + i] = 0x80;
 }
 
 static bool parseVocSfxBlocks(Common::Span<const byte> data, Common::Array<byte> &pcm,
@@ -138,9 +136,9 @@ static bool parseVocSfxBlocks(Common::Span<const byte> data, Common::Array<byte>
 		case 7:
 			if (repeatActive && repeatCount != 0xffff && pcm.size() > repeatStart) {
 				Common::Array<byte> repeated;
-				appendBytes(repeated, &pcm[repeatStart], pcm.size() - repeatStart);
+				appendBytes(repeated, Common::Span<const byte>(pcm).subspan(repeatStart));
 				for (uint16 i = 0; i < repeatCount; ++i)
-					appendBytes(pcm, &repeated[0], repeated.size());
+					appendBytes(pcm, Common::Span<const byte>(repeated));
 			}
 			repeatActive = false;
 			break;
@@ -389,11 +387,11 @@ bool Sound::loadSfxSample(uint16 id, Common::Array<byte> &pcm, int &rate, bool &
 	Common::Array<byte> raw;
 	raw.resize(bytes);
 	file.seek(sample.offset);
-	if (file.read(&raw[0], bytes) != bytes)
+	if (file.read(raw.data(), bytes) != bytes)
 		return false;
 
 	pcm.clear();
-	return parseVocSfxBlocks(Common::Span<const byte>(&raw[0], raw.size()), pcm, rate, loop);
+	return parseVocSfxBlocks(Common::Span<const byte>(raw), pcm, rate, loop);
 }
 
 bool Sound::loadRolandSfxTune(uint16 id, Common::Array<byte> &tune) const {
@@ -419,10 +417,10 @@ bool Sound::loadRolandSfxTune(uint16 id, Common::Array<byte> &tune) const {
 		return false;
 	tune.resize(bytes);
 	file.seek(sample.offset);
-	if (file.read(&tune[0], bytes) != bytes)
+	if (file.read(tune.data(), bytes) != bytes)
 		return false;
 
-	const Common::Span<const byte> tuneData(&tune[0], tune.size());
+	const Common::Span<const byte> tuneData(tune);
 	const uint16 beatCount = tuneData.getUint16LEAt(0x21);
 	const uint32 channelBase = 0x25 + uint32(beatCount) * 8;
 	return beatCount != 0 && channelBase < tune.size() && channelBase + 16 <= tune.size();
@@ -438,22 +436,20 @@ bool Sound::playSfxSample(uint16 id, Audio::SoundHandle &handle) {
 	if (!loadSfxSample(id, pcm, rate, loop)) {
 		Common::Array<byte> tune;
 		if (loadRolandSfxTune(id, tune))
-			return Music.playSfxTune(Common::Span<const byte>(tune.data(), tune.size()));
+			return Music.playSfxTune(Common::Span<const byte>(tune));
 		debugC(1, kDebugLevelSound, "Sound::playSfxSample(%u) — sample decode failed", id);
 		return false;
 	}
 
-	byte *buf = (byte *)malloc(pcm.size());
-	if (!buf)
-		return false;
-	memcpy(buf, &pcm[0], pcm.size());
+	Common::SharedPtr<byte> pcmData(new byte[pcm.size()], Common::ArrayDeleter<byte>());
+	Common::copy(pcm.begin(), pcm.end(), pcmData.get());
 
-	Audio::SeekableAudioStream *raw = Audio::makeRawStream(buf, pcm.size(),
+	Common::ScopedPtr<Common::SeekableReadStream> pcmStream(new Common::MemoryReadStream(pcmData, pcm.size()));
+	Audio::SeekableAudioStream *raw = Audio::makeRawStream(pcmStream.get(),
 														   rate, Audio::FLAG_UNSIGNED, DisposeAfterUse::YES);
-	if (!raw) {
-		free(buf);
+	if (!raw)
 		return false;
-	}
+	pcmStream.release();
 
 	Audio::AudioStream *stream = loop ? Audio::makeLoopingAudioStream(raw, 0) : raw;
 	g_system->getMixer()->playStream(Audio::Mixer::kSFXSoundType, &handle,
