@@ -26,6 +26,7 @@
 #include "common/hashmap.h"
 #include "common/ptr.h"
 #include "common/singleton.h"
+#include "common/span.h"
 #include "common/stream.h"
 #include "graphics/surface.h"
 
@@ -114,8 +115,7 @@ public:
 
 	Surface *loadBackdrop(uint16 index, byte *palette);
 
-	/* pointer to the base of the main code */
-	byte *mainBase() const;
+	Common::Span<byte> mainData() const;
 	/* initial entry point offset */
 	uint16 mainEntryPoint() const;
 	uint16 mainRoomLoopEntryPoint() const;

@@ -26,6 +26,7 @@
 #include "common/hashmap.h"
 #include "common/list.h"
 #include "common/ptr.h"
+#include "common/span.h"
 #include "common/str.h"
 
 #include "interspective/actor.h"
@@ -88,11 +89,11 @@ public:
 
 	uint16 interfaceImageIndex() const;
 
-	byte *getEntryPoint() const;
+	uint16 entryPointOffset() const;
 	uint16 getRoomLoopEntryPoint() const;
 	uint16 dataSize() const { return _dataLen; }
-	byte *data() { return _data.data(); }
-	const byte *data() const { return _data.data(); }
+	Common::Span<byte> mutableData();
+	Common::Span<const byte> data() const;
 
 	Actor *actor(uint16 index) const;
 	uint16 actorsCount() const { return uint16(_actors.size()); }

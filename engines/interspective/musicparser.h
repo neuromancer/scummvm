@@ -176,6 +176,7 @@ public:
 	~MusicParser();
 
 	bool loadMusic(const byte *data, uint32 size = 0) override;
+	bool loadMusic(Common::Span<const byte> data, uint16 mainOffset);
 	static void timerCallback(void *data) { ((MusicParser *)data)->tick(); }
 	void tick();
 	uint32 getTick() override { return _tick; }
@@ -188,7 +189,7 @@ public:
 	bool isPlaying() const;
 	bool hasCurrentTune() const { return _currentTuneWord != 0; }
 	uint16 currentTuneWord() const { return _currentTuneWord; }
-	const byte *currentScriptBase() const { return _script ? _script->base() : 0; }
+	uint16 currentScriptMainOffset() const { return _script ? _currentScriptMainOffset : 0xffff; }
 	uint16 currentScriptOffset() const { return _script ? _script->offset() : 0; }
 	uint16 currentBeat() const { return _tune ? _tune->beatId() : 0xffff; }
 	uint32 currentBeatTicks() const { return _tune ? _tune->beatTicks() : 0; }
@@ -197,7 +198,8 @@ public:
 	uint8 driverModeFlag() const { return _driverModeFlag; }
 	bool isActive() const { return _active; }
 	void setActive(bool active) { _active = active; }
-	void restoreSavedState(const byte *script, uint16 currentTuneWord, uint8 active,
+	void restoreSavedState(Common::Span<const byte> script, uint16 scriptMainOffset,
+						   uint16 currentTuneWord, uint8 active,
 						   uint8 driverCommandByte, uint8 driverModeFlag,
 						   uint16 beat, uint32 beatTicks);
 	bool playSfxTune(const byte *data, uint32 size);
@@ -225,6 +227,7 @@ private:
 	};
 
 	void parseNextEvent(EventInfo &info) override {}
+	bool loadMusic(const byte *data, uint32 size, uint16 mainOffset);
 	void stopMusicNotesNotInSlots(const bool activeSlots[8][4]);
 	bool setSfxBeat(uint16 beat);
 	void tickSfxTune();
@@ -250,6 +253,7 @@ private:
 	MusicType _musicType;
 	bool _active;
 	uint16 _currentTuneWord;
+	uint16 _currentScriptMainOffset;
 	uint8 _driverCommandByte;
 	uint8 _driverModeFlag;
 	enum { kSfxTuneBufferSize = 0x320 };

@@ -588,7 +588,7 @@ uint16 Logic::updateAutoCloseTimerSprite() {
 
 void Logic::init() {
 	_toplevelInterpreter = Common::SharedPtr<Interpreter>(
-		new Interpreter(this, Common::Span<byte>(_resources->mainBase(), _resources->mainDat()->dataSize()), "main code"));
+		new Interpreter(this, _resources->mainData(), "main code"));
 }
 
 void Logic::initCode() {

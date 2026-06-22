@@ -192,7 +192,7 @@ static MusicStateSyncResult synchronizeMusicState(Common::Serializer &s, Resourc
 	MusicStateSyncResult result;
 	uint8 active = Music.isActive() ? 1 : 0;
 	uint16 currentTune = Music.currentTuneWord();
-	uint16 scriptOffset = 0xffff;
+	uint16 scriptOffset = Music.currentScriptMainOffset();
 	uint16 beat = Music.currentBeat();
 	uint32 beatTicks = Music.currentBeatTicks();
 	const uint16 musicScriptCursor = Music.currentScriptOffset();
@@ -202,15 +202,6 @@ static MusicStateSyncResult synchronizeMusicState(Common::Serializer &s, Resourc
 	uint8 savedMusicMode = currentMusicMode;
 	uint8 savedSfxMode = currentSfxMode;
 
-	byte *mainBase = resources ? resources->mainBase() : 0;
-	const uint32 mainSize = (resources && resources->mainDat()) ? resources->mainDat()->dataSize() : 0;
-	const byte *scriptBase = Music.currentScriptBase();
-	if (scriptBase && mainBase) {
-		const uintptr mainAddr = reinterpret_cast<uintptr>(mainBase);
-		const uintptr scriptAddr = reinterpret_cast<uintptr>(scriptBase);
-		if (scriptAddr >= mainAddr && scriptAddr < mainAddr + mainSize)
-			scriptOffset = uint16(scriptAddr - mainAddr);
-	}
 	if (!s.isLoading()) {
 		// The low six bits are the DOS beat tick (0..63). Preserve the save stream
 		// shape while carrying the resident-driver tempo/script cursor needed
@@ -249,10 +240,13 @@ static MusicStateSyncResult synchronizeMusicState(Common::Serializer &s, Resourc
 			return result;
 		}
 
-		const byte *script = 0;
-		if (scriptOffset != 0xffff && mainBase && scriptOffset < mainSize)
-			script = mainBase + scriptOffset;
-		Music.restoreSavedState(script, currentTune, active, commandByte, modeFlag, beat, beatTicks);
+		Common::Span<const byte> script;
+		if (scriptOffset != 0xffff && resources && resources->mainDat()) {
+			Common::Span<const byte> mainData = resources->mainDat()->data();
+			if (scriptOffset < mainData.size())
+				script = Common::Span<const byte>(mainData.data() + scriptOffset, mainData.size() - scriptOffset);
+		}
+		Music.restoreSavedState(script, scriptOffset, currentTune, active, commandByte, modeFlag, beat, beatTicks);
 	}
 	return result;
 }
@@ -345,9 +339,10 @@ Common::Error Engine::saveGameStream(Common::WriteStream *stream, bool isAutosav
 		s.syncVersion(kSaveVersion);
 
 		MainDat *main = _resources->mainDat();
-		uint16 mainSize = main->dataSize();
+		Common::Span<byte> mainData = main->mutableData();
+		uint16 mainSize = mainData.size();
 		s.syncAsUint16LE(mainSize);
-		s.syncBytes(main->data(), mainSize);
+		s.syncBytes(mainData.data(), mainData.size());
 
 		uint16 blockId = _logic->currentBlock();
 		uint16 blockSize = _logic->blockProgram() ? _logic->blockProgram()->codeSize() : 0;
@@ -388,7 +383,8 @@ Common::Error Engine::loadGameStream(Common::SeekableReadStream *stream) {
 	s.syncAsUint16LE(mainSize);
 	if (mainSize != main->dataSize())
 		return Common::kReadingFailed;
-	s.syncBytes(main->data(), mainSize);
+	Common::Span<byte> mainData = main->mutableData();
+	s.syncBytes(mainData.data(), mainData.size());
 
 	uint16 blockId = 0xffff;
 	uint16 blockSize = 0;

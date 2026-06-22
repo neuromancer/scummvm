@@ -3213,7 +3213,7 @@ OPCODE(0xf4) {
 			   "Interspective music: opcode 0xf4 emitted (call #%d, script offset 0x%04x)",
 			   op_f4_calls, scriptOff);
 	const Common::Span<const byte> script = scriptRef.span();
-	Music.loadMusic(script.data(), script.size());
+	Music.loadMusic(script, scriptOff);
 	return kThxBye;
 }
 

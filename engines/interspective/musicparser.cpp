@@ -63,7 +63,7 @@ static uint16 midiTuneIndexForScriptTune(uint16 tuneIdx) {
 }
 
 MusicParser::MusicParser() : MidiParser(), _sfxPendingBeat(-1), _tune(0), _script(0), _musicType(MT_INVALID), _active(true),
-							 _currentTuneWord(0), _driverCommandByte(0), _driverModeFlag(0),
+							 _currentTuneWord(0), _currentScriptMainOffset(0xffff), _driverCommandByte(0), _driverModeFlag(0),
 							 _sfxDataSize(0), _sfxBeatCount(0), _sfxCurrentBeat(-1), _sfxBeatTicks(0),
 							 _sfxTime(0), _sfxLastTick(0), _sfxPsecPerTick(500000 * 0x19 / 120), _sfxTick(0),
 							 _sfxTunePlaying(false), _time(0), _lastTick(0), _tick(0) {
@@ -145,6 +145,14 @@ MusicParser::~MusicParser() {
 }
 
 bool MusicParser::loadMusic(const byte *data, uint32 size) {
+	return loadMusic(data, size, 0xffff);
+}
+
+bool MusicParser::loadMusic(Common::Span<const byte> data, uint16 mainOffset) {
+	return loadMusic(data.data(), data.size(), mainOffset);
+}
+
+bool MusicParser::loadMusic(const byte *data, uint32 size, uint16 mainOffset) {
 	Common::StackLock lock(_mutex);
 	if (!_midiDriver) {
 		warning("Interspective music: loadMusic skipped — no MIDI driver");
@@ -155,7 +163,9 @@ bool MusicParser::loadMusic(const byte *data, uint32 size) {
 	// pointer many times per second. Rebuilding while the MIDI timer
 	// thread is ticking can free _tune mid-iteration, so skip if data
 	// matches what's already loaded.
-	if (_script && _script->base() == data && hasCurrentTune())
+	if (_script && hasCurrentTune() &&
+		((mainOffset != 0xffff && _currentScriptMainOffset == mainOffset) ||
+		 (mainOffset == 0xffff && _script->base() == data)))
 		return true;
 
 	static int loadMusicCallCount = 0;
@@ -169,6 +179,7 @@ bool MusicParser::loadMusic(const byte *data, uint32 size) {
 	delete _tune;
 	_tune = 0;
 	_script = new MusicScript(data, size);
+	_currentScriptMainOffset = mainOffset;
 
 	// Reset our custom music clock so tunes always start from tick 0. Without
 	// this, _tick keeps growing across loadMusic calls, and Note::reset (which
@@ -582,6 +593,7 @@ uint8 MusicParser::currentTempoParameter() const {
 void MusicParser::stopMusic() {
 	Common::StackLock lock(_mutex);
 	_currentTuneWord = 0;
+	_currentScriptMainOffset = 0xffff;
 	_driverCommandByte = 0;
 	silence();
 	unloadMusic();
@@ -594,7 +606,8 @@ void MusicParser::requestStopCurrent() {
 	_driverCommandByte = 1;
 }
 
-void MusicParser::restoreSavedState(const byte *script, uint16 currentTuneWord, uint8 active,
+void MusicParser::restoreSavedState(Common::Span<const byte> script, uint16 scriptMainOffset,
+									uint16 currentTuneWord, uint8 active,
 									uint8 driverCommandByte, uint8 driverModeFlag, uint16 beat, uint32 beatTicks) {
 	Common::StackLock lock(_mutex);
 	const uint32 savedBeatTicks = beatTicks & 0x3f;
@@ -604,19 +617,20 @@ void MusicParser::restoreSavedState(const byte *script, uint16 currentTuneWord, 
 	_driverCommandByte = driverCommandByte;
 	_driverModeFlag = driverModeFlag;
 
-	if (!script || currentTuneWord == 0 || !_midiDriver) {
+	if (!script.data() || currentTuneWord == 0 || !_midiDriver) {
 		stopMusic();
 		_currentTuneWord = 0;
 		return;
 	}
 
 	stopMusic();
-	if (!loadMusic(script)) {
+	if (!loadMusic(script, scriptMainOffset)) {
 		_currentTuneWord = 0;
 		return;
 	}
 
 	_currentTuneWord = currentTuneWord;
+	_currentScriptMainOffset = scriptMainOffset;
 	_driverCommandByte = driverCommandByte;
 	_driverModeFlag = driverModeFlag;
 	if (_tune)

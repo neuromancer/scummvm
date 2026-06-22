@@ -365,12 +365,12 @@ void Resources::descramble(byte *data, uint32 len) {
 		data[i] ^= 0x6f;
 }
 
-byte *Resources::mainBase() const {
-	return _main.get()->data();
+Common::Span<byte> Resources::mainData() const {
+	return _main.get()->mutableData();
 }
 
 uint16 Resources::mainEntryPoint() const {
-	return _main.get()->getEntryPoint() - mainBase();
+	return _main.get()->entryPointOffset();
 }
 
 uint16 Resources::mainRoomLoopEntryPoint() const {
