@@ -244,7 +244,7 @@ static MusicStateSyncResult synchronizeMusicState(Common::Serializer &s, Resourc
 		if (scriptOffset != 0xffff && resources && resources->mainDat()) {
 			Common::Span<const byte> mainData = resources->mainDat()->data();
 			if (scriptOffset < mainData.size())
-				script = Common::Span<const byte>(mainData.data() + scriptOffset, mainData.size() - scriptOffset);
+				script = mainData.subspan(scriptOffset);
 		}
 		Music.restoreSavedState(script, scriptOffset, currentTune, active, commandByte, modeFlag, beat, beatTicks);
 	}
@@ -393,7 +393,7 @@ Common::Error Engine::loadGameStream(Common::SeekableReadStream *stream) {
 	Common::Array<byte> blockData;
 	if (blockSize != 0) {
 		blockData.resize(blockSize);
-		s.syncBytes(&blockData[0], blockSize);
+		s.syncBytes(blockData.data(), blockSize);
 		_logic->setLoadBlockImageOverride(blockId, blockData);
 	}
 

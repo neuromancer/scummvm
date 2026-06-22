@@ -21,6 +21,7 @@
 
 #include "interspective/program.h"
 
+#include "common/algorithm.h"
 #include "common/span.h"
 #include "common/util.h"
 
@@ -157,8 +158,11 @@ Common::Span<const byte> Program::codeImage() const {
 bool Program::replaceCodeImage(const Common::Array<byte> &data) {
 	if (data.size() != _codeSize)
 		return false;
-	if (_codeSize != 0)
-		memcpy(_code.data(), &data[0], _codeSize);
+	if (_codeSize != 0) {
+		Common::Span<byte> dst = mutableCodeImage();
+		const Common::Span<const byte> src(data);
+		Common::copy(src.begin(), src.end(), dst.begin());
+	}
 	return true;
 }
 

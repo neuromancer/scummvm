@@ -1251,6 +1251,7 @@ private:
 	SpeechSlot *findFreeSpeechSlot();
 	const SpeechSlot *findSpeechSlotForOwner(uint16 owner) const;
 	SpeechSlot *findSpeechSlotForOwner(uint16 owner);
+	uint16 speechSlotIndex(const SpeechSlot &slot) const;
 	void clearSpeechSlot(SpeechSlot &slot);
 	void startSpeechSlotPage(SpeechSlot &slot, uint page);
 	bool initSpeechSlot(SpeechSlot &slot, const Common::String &text, uint16 maxLines);

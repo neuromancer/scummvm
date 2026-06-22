@@ -19,6 +19,7 @@
  *
  */
 
+#include "common/algorithm.h"
 #include "common/memstream.h"
 #include "common/serializer.h"
 #include "common/util.h"
@@ -312,14 +313,15 @@ static void captureActorState(Actor *actor, Common::Array<byte> &state) {
 		return;
 
 	state.resize(size);
-	memcpy(&state[0], stream.getData(), size);
+	const Common::Span<const byte> captured(stream.getData(), size);
+	Common::copy(captured.begin(), captured.end(), state.begin());
 }
 
 static void restoreActorState(Actor *actor, const Common::Array<byte> &state) {
 	if (!actor || state.empty())
 		return;
 
-	Common::MemoryReadStream stream(&state[0], state.size(), DisposeAfterUse::NO);
+	Common::MemoryReadStream stream(state.data(), state.size(), DisposeAfterUse::NO);
 	Common::Serializer serializer(&stream, nullptr);
 	actor->synchronize(serializer);
 }
@@ -1653,7 +1655,7 @@ void Logic::tickMotionText() {
 
 void Logic::paintMotionText() {
 	if (_motionTextTicks && !_motionText.empty())
-		Graf.paintMotionText(Common::Span<const byte>(&_motionText[0], _motionText.size()));
+		Graf.paintMotionText(Common::Span<const byte>(_motionText));
 }
 
 bool Logic::enableObjectFlag1(uint16 id) {
@@ -3909,6 +3911,14 @@ Logic::SpeechSlot *Logic::findSpeechSlotForOwner(uint16 owner) {
 	return nullptr;
 }
 
+uint16 Logic::speechSlotIndex(const SpeechSlot &slot) const {
+	for (uint i = 0; i < _speechSlots.size(); ++i) {
+		if (&_speechSlots[i] == &slot)
+			return uint16(i);
+	}
+	return 0xffff;
+}
+
 void Logic::clearSpeechSlot(SpeechSlot &slot) {
 	slot.callbacks.clear();
 	slot = SpeechSlot();
@@ -4016,7 +4026,7 @@ bool Logic::allocNarratorSpeech(Common::Span<const byte> text, uint16 x, uint16 
 		return false;
 	debugC(1, kDebugLevelGraphics, "alloc narrator speech slot type=%u ownerRoom=%u at %u:%u color=%u maxLines=%u text=\"%s\"",
 		   type, uint16(_currentRoom), x, y, color, maxLines, copied.c_str());
-	_uiTextSpeechSlot = uint16(slot - &_speechSlots[0]);
+	_uiTextSpeechSlot = speechSlotIndex(*slot);
 	if (!initSpeechSlot(*slot, copied, maxLines))
 		clearSpeechSlot(*slot);
 	return slot->framesLeft != 0;
@@ -4041,7 +4051,7 @@ bool Logic::uiTextSpeechSlotActive() const {
 
 void Logic::stashUiTextSpeechSlotForOwner(uint16 owner) {
 	if (SpeechSlot *slot = findSpeechSlotForOwner(owner))
-		_uiTextSpeechSlot = uint16(slot - &_speechSlots[0]);
+		_uiTextSpeechSlot = speechSlotIndex(*slot);
 }
 
 const Common::String &Logic::speechTextForOwner(uint16 owner) const {
