@@ -555,6 +555,7 @@ public:
 	}
 	virtual byte *bytePointer() { return _translateBuf; }
 	virtual const byte *bytePointer() const { return _translateBuf; }
+	virtual Common::Span<const byte> translatedTextSpan() const { return Common::Span<const byte>(_translateBuf, _length); }
 	virtual operator uint16() const { return _length; }
 	virtual byte *rawPointer() { return _rawRef.ptr(); }
 	virtual byte *rawBase() { return _rawRef.base(); }

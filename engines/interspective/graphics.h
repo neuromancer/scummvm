@@ -115,6 +115,7 @@ public:
 	void clearSpeech();
 	void runWhenSaid(const CodePointer &p);
 
+	uint16 ask(uint16 left, uint16 top, byte width, byte height, Common::Span<const byte> string, uint16 *selectedIndex = 0);
 	uint16 ask(uint16 left, uint16 top, byte width, byte height, byte *string, uint16 *selectedIndex = 0);
 	uint16 askVerbBubble(byte paletteMode, Common::Span<const byte> string, uint16 *selectedIndex = 0);
 	uint16 askVerbBubble(byte paletteMode, byte *string, uint16 *selectedIndex = 0);

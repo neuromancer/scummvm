@@ -2141,6 +2141,10 @@ bool Graphics::showVerbBubbleText(byte paletteMode, Common::Span<const byte> str
 }
 
 uint16 Graphics::ask(uint16 left, uint16 top, byte width, byte height, byte *string, uint16 *selectedIndex) {
+	return ask(left, top, width, height, Logic::textSpan(string), selectedIndex);
+}
+
+uint16 Graphics::ask(uint16 left, uint16 top, byte width, byte height, Common::Span<const byte> string, uint16 *selectedIndex) {
 	if (selectedIndex)
 		*selectedIndex = 0xffff;
 

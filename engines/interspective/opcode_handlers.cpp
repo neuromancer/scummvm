@@ -98,7 +98,7 @@ static Common::Span<const byte> scriptTextSpanOrTranslated(Value &arg) {
 	DosMemoryReference ref;
 	if (arg.memoryReference(ref))
 		return Logic::textSpan(ref);
-	return Logic::textSpan(arg.bytePointer());
+	return arg.translatedTextSpan();
 }
 
 static Common::Span<const byte> terminatedScriptTextSpanOrTranslated(Value &arg, const char *context) {
@@ -109,7 +109,67 @@ static Common::Span<const byte> terminatedScriptTextSpanOrTranslated(Value &arg,
 		warning("Interspective: unterminated text argument at 0x%04x in %s",
 				ref.offset(), context);
 	}
-	return Logic::textSpan(arg.bytePointer());
+	return arg.translatedTextSpan();
+}
+
+static Common::Span<const byte> translatedTextSpanOrScript(Value &arg, const char *context) {
+	Common::Span<const byte> translated = arg.translatedTextSpan();
+	if (translated.data())
+		return translated;
+	return terminatedScriptTextSpanOrTranslated(arg, context);
+}
+
+static bool spanCStringLength(Common::Span<const byte> text, uint16 &length) {
+	length = 0;
+	if (!text.data())
+		return false;
+
+	for (uint32 pos = 0; pos < text.size(); ++pos) {
+		if (text.getUint8At(pos) != 0)
+			continue;
+		if (pos > 0xffff)
+			return false;
+		length = uint16(pos);
+		return true;
+	}
+	return false;
+}
+
+static bool spanCStringEquals(Common::Span<const byte> text, const Common::String &rhs) {
+	uint16 length = 0;
+	if (!spanCStringLength(text, length) || length != rhs.size())
+		return false;
+	for (uint16 i = 0; i < length; ++i) {
+		if (text.getUint8At(i) != byte(rhs[i]))
+			return false;
+	}
+	return true;
+}
+
+static bool spanCStringEquals(Common::Span<const byte> lhs, Common::Span<const byte> rhs) {
+	if (!lhs.data() || !rhs.data())
+		return false;
+
+	uint32 pos = 0;
+	while (pos < lhs.size() && pos < rhs.size()) {
+		const byte l = lhs.getUint8At(pos);
+		const byte r = rhs.getUint8At(pos);
+		if (l != r)
+			return false;
+		if (l == 0)
+			return true;
+		++pos;
+	}
+	return false;
+}
+
+static const char *debugCString(Common::Span<const byte> text) {
+	if (!text.data())
+		return "(null)";
+	uint16 ignored = 0;
+	return spanCStringLength(text, ignored)
+			   ? reinterpret_cast<const char *>(text.data())
+			   : "(unterminated)";
 }
 
 static void clearDosPascalBufferAt(const DosMemoryReference &ref) {
@@ -186,10 +246,14 @@ static void popDosPascalByteAt(const DosMemoryReference &ref) {
 
 static void applyFormattedTextLimit9bcc(uint16 limit, uint16 &height, uint16 &rows);
 
-static uint16 speechDisplayTicks(const byte *text, uint16 maxLines) {
+static uint16 speechDisplayTicks(Common::Span<const byte> text, uint16 maxLines) {
 	Common::String normalized;
-	for (const byte *p = text; p && *p; ++p)
-		normalized += char(*p == '\n' ? '\r' : *p);
+	for (uint32 pos = 0; pos < text.size(); ++pos) {
+		const byte ch = text.getUint8At(pos);
+		if (ch == 0)
+			break;
+		normalized += char(ch == '\n' ? '\r' : ch);
+	}
 	Logic::FormattedBubble fb = Log.formatBubbleText(Logic::textSpan(normalized));
 	uint16 height = fb.totalHeight;
 	uint16 rows = fb.rowCount;
@@ -215,7 +279,7 @@ static void speakOrSubtitle(Actor *speaker, const Common::String &text, uint16 m
 		const Common::Span<const byte> textBytes = Logic::textSpan(text);
 		if (length > 0)
 			Graf.sayAt(textBytes.data(),
-					   length, speechDisplayTicks(textBytes.data(), maxLines),
+					   length, speechDisplayTicks(textBytes, maxLines),
 					   0xa4, 0x14, 0xeb, maxLines, Graphics::kSpeechBubbleType2, true);
 		return;
 	}
@@ -349,11 +413,11 @@ static SpeechDeferResult deferMainSpeechNoTargetUntilReady(Actor *protag, const 
 	return deferSpeechUntilReady(protag, current);
 }
 
-static bool sayNarratorOrSubtitle(const byte *text, uint16 x, uint16 y, byte color, uint16 maxLines,
+static bool sayNarratorOrSubtitle(Common::Span<const byte> text, uint16 x, uint16 y, byte color, uint16 maxLines,
 								  Graphics::SpeechBubbleMode bubbleMode, const CodePointer &current) {
-	if (!text)
+	uint16 length = 0;
+	if (!spanCStringLength(text, length))
 		return false;
-	const uint16 length = (uint16)strlen(reinterpret_cast<const char *>(text));
 	if (length == 0)
 		return false;
 	const uint16 ticks = speechDisplayTicks(text, maxLines);
@@ -364,9 +428,9 @@ static bool sayNarratorOrSubtitle(const byte *text, uint16 x, uint16 y, byte col
 		return true;
 	}
 	if (Log.inStatusMode())
-		Graf.sayAt(text, length, ticks, x, y, color, maxLines, bubbleMode, true);
+		Graf.sayAt(text.data(), length, ticks, x, y, color, maxLines, bubbleMode, true);
 	else
-		Log.allocNarratorSpeech(text, length, x, y, color, maxLines, uint8(bubbleMode));
+		Log.allocNarratorSpeech(text.data(), length, x, y, color, maxLines, uint8(bubbleMode));
 	return false;
 }
 
@@ -1657,13 +1721,13 @@ OPCODE(0x47) {
 	// (no actor — bubble at the explicit (x,y) position with the
 	// given color). C++ uses Graphics::sayAt to render at (x, y)
 	// with the color arg.
-	const byte *text = a[4].bytePointer();
+	Common::Span<const byte> text = terminatedScriptTextSpanOrTranslated(a[4], "opcode 0x47");
 	const uint16 maxLines = uint16(a[3]);
 	const uint16 x = uint16(a[0]);
 	const uint16 y = uint16(a[1]);
 	const byte color = uint8(uint16(a[2]) & 0xff);
 	debugC(1, kDebugLevelScript, "opcode 0x47: narrator at (%u,%u) color=%u lines=%u text='%s'",
-		   x, y, color, maxLines, text ? reinterpret_cast<const char *>(text) : "(null)");
+		   x, y, color, maxLines, debugCString(text));
 	if (sayNarratorOrSubtitle(text, x, y, color, maxLines, Graphics::kSpeechBubbleType1, current))
 		return kReturn;
 	return kThxBye;
@@ -1760,14 +1824,14 @@ OPCODE(0x54) {
 	// IS already the "looked-up index"; Graphics::ask integrates the
 	// indices lookup into its option-rendering path, so we don't need
 	// to re-apply the g_menu_item_indices mapping.
-	byte *text = a[4].bytePointer();
+	Common::Span<const byte> text = terminatedScriptTextSpanOrTranslated(a[4], "opcode 0x54");
 	const uint16 left = uint16(a[0]);
 	const uint16 top = uint16(a[1]);
 	const uint8 height = uint8(uint16(a[3]) & 0xff);
 	const uint8 width = uint8(uint16(a[2]) & 0xff);
 	debugC(1, kDebugLevelScript,
 		   "opcode 0x54: RunMenuSelectAndBranch text='%s' at (%u,%u) size %ux%u",
-		   text ? reinterpret_cast<const char *>(text) : "(null)",
+		   debugCString(text),
 		   left, top, width, height);
 	uint16 selectedIndex = 0xffff;
 	const uint16 result = _graphics->ask(left, top, width, height, text, &selectedIndex);
@@ -1831,12 +1895,11 @@ OPCODE(0x56) {
 		return kReturn;
 	}
 	const uint16 frames = uint16(a[0]);
-	const byte *translatedText = a[1].bytePointer();
 	Common::Span<const byte> text = rawScriptSpan(a[1]);
 	if (!text.data())
-		text = Logic::textSpan(translatedText);
+		text = scriptTextSpanOrTranslated(a[1]);
 	debugC(2, kDebugLevelScript, "opcode 0x56: motion text frames=%u text='%s'",
-		   frames, translatedText ? reinterpret_cast<const char *>(translatedText) : "(null)");
+		   frames, debugCString(text));
 	Log.startMotionText(frames, text);
 	return kThxBye;
 }
@@ -3410,15 +3473,11 @@ OPCODE(0x22) {
 	//   on arg0 side). Skip on mismatch.
 	// C++ models the parser buffer via `Logic::_parserBuffer`. Filled
 	// by Op_e9 (append), cleared by Op_e7, popped by Op_eb.
-	const byte *s = a[0].bytePointer();
+	Common::Span<const byte> s = translatedTextSpanOrScript(a[0], "opcode 0x22");
 	const Common::String &buf = Log.parserBuffer();
 	debugC(2, kDebugLevelScript, "opcode 0x22: if input '%s' == arg0 '%s'",
-		   buf.c_str(), s ? reinterpret_cast<const char *>(s) : "(null)");
-	if (!s)
-		return kFail;
-	if (strlen(reinterpret_cast<const char *>(s)) != buf.size())
-		return kFail;
-	if (memcmp(s, buf.c_str(), buf.size()) != 0)
+		   buf.c_str(), debugCString(s));
+	if (!spanCStringEquals(s, buf))
 		return kFail;
 	return kThxBye;
 }
@@ -3429,24 +3488,15 @@ OPCODE(0x23) {
 	//   arg1 is null-terminated chars.
 	//   Compare byte-by-byte for `length` chars; both must end together.
 	// In C++ both arg0 and arg1 are `ParametrizedString` instances:
-	//   `bytePointer()` returns the translated, null-terminated
+	//   `translatedTextSpan()` returns the translated, null-terminated
 	//   `_translateBuf`; `uint16(a[i])` returns the `_length` field. The
 	//   DOS arg0/arg1 format asymmetry (length-prefix vs null-term) is
 	//   flattened by the C++ argument loader. The Ghidra-faithful
-	//   comparison is "are the two translated strings equal?". `_length`
-	//   includes the terminating NUL in C++, while DOS's CL counter does
-	//   not, so use strlen() for the payload length.
-	const byte *s = a[0].bytePointer();
-	const byte *t = a[1].bytePointer();
-	const uint16 sLen = s ? uint16(strlen(reinterpret_cast<const char *>(s))) : 0;
+	//   comparison is "are the two translated strings equal?".
+	Common::Span<const byte> s = translatedTextSpanOrScript(a[0], "opcode 0x23 arg0");
+	Common::Span<const byte> t = translatedTextSpanOrScript(a[1], "opcode 0x23 arg1");
 	debugC(2, kDebugLevelScript, "opcode 0x23: if %s == %s", +a[0], +a[1]);
-	if (!s || !t)
-		return kFail;
-	for (uint16 i = 0; i < sLen; ++i) {
-		if (t[i] == 0 || s[i] != t[i]) // arg1 ended early or mismatch
-			return kFail;
-	}
-	if (t[sLen] != 0) // arg1 has more chars beyond arg0's length
+	if (!spanCStringEquals(s, t))
 		return kFail;
 	return kThxBye;
 }
@@ -3842,12 +3892,12 @@ OPCODE(0x45) {
 	//   else status-mode subtitle.
 	// AllocSpeechSlot_NoFormatting = narrator-style bubble at the
 	// explicit (x, y) with color — NOT tied to any actor.
-	const byte *text = a[3].bytePointer();
+	Common::Span<const byte> text = terminatedScriptTextSpanOrTranslated(a[3], "opcode 0x45");
 	const uint16 x = uint16(a[0]);
 	const uint16 y = uint16(a[1]);
 	const byte color = uint8(uint16(a[2]) & 0xff);
 	debugC(1, kDebugLevelScript, "opcode 0x45: narrator at (%u,%u) color=%u text='%s'",
-		   x, y, color, text ? reinterpret_cast<const char *>(text) : "(null)");
+		   x, y, color, debugCString(text));
 	if (sayNarratorOrSubtitle(text, x, y, color, 0, Graphics::kSpeechBubbleType1, current))
 		return kReturn;
 	return kThxBye;
@@ -3856,12 +3906,12 @@ OPCODE(0x46) {
 	// DOS Op_46_SpeakWithDelayAlt @ 1000:3e5e: identical body to 0x45
 	// except it seeds AX=2 for the alternate bubble mode before the
 	// shared explicit-position narrator path stores the color hint.
-	const byte *text = a[3].bytePointer();
+	Common::Span<const byte> text = terminatedScriptTextSpanOrTranslated(a[3], "opcode 0x46");
 	const uint16 x = uint16(a[0]);
 	const uint16 y = uint16(a[1]);
 	const byte color = uint8(uint16(a[2]) & 0xff);
 	debugC(1, kDebugLevelScript, "opcode 0x46: narrator (alt) at (%u,%u) color=%u text='%s'",
-		   x, y, color, text ? reinterpret_cast<const char *>(text) : "(null)");
+		   x, y, color, debugCString(text));
 	if (sayNarratorOrSubtitle(text, x, y, color, 0, Graphics::kSpeechBubbleType2, current))
 		return kReturn;
 	return kThxBye;
@@ -3876,13 +3926,13 @@ OPCODE(0x48) {
 	// lines, text). Same shared-tail as Op_47 but reads via
 	// ReadVarBySlot_RHS (different argument-resolution path); for
 	// the script-observable behaviour the args have the same meaning.
-	const byte *text = a[4].bytePointer();
+	Common::Span<const byte> text = terminatedScriptTextSpanOrTranslated(a[4], "opcode 0x48");
 	const uint16 maxLines = uint16(a[3]);
 	const uint16 x = uint16(a[0]);
 	const uint16 y = uint16(a[1]);
 	const byte color = uint8(uint16(a[2]) & 0xff);
 	debugC(1, kDebugLevelScript, "opcode 0x48: narrator at (%u,%u) color=%u lines=%u text='%s'",
-		   x, y, color, maxLines, text ? reinterpret_cast<const char *>(text) : "(null)");
+		   x, y, color, maxLines, debugCString(text));
 	if (sayNarratorOrSubtitle(text, x, y, color, maxLines, Graphics::kSpeechBubbleType2, current))
 		return kReturn;
 	return kThxBye;
@@ -3934,14 +3984,12 @@ OPCODE(0x4e) {
 	//   MOV [0x66c6], 3              ; palette mode = 3 (text-rect+choices)
 	//   MOV [0x6741], 0              ; clear stash flag
 	//   JMP SetRectAndApply           ; → 0x3f86 → JMP RunVerbMenuModalLoop.
-	const byte *text = a[0].bytePointer();
 	Common::Span<const byte> formatText = terminatedScriptTextSpanOrTranslated(a[0], "opcode 0x4e");
 	Logic::FormattedBubble fb = _logic->formatBubbleText(formatText);
 	Logic::ModalState &ms = Log.modalState();
 	seedFormattedModalState(ms, fb, fb.totalHeight, fb.rowCount, 3, 0);
 	debugC(1, kDebugLevelScript, "opcode 0x4e: DrawTextRectWithChoices text='%s' lines=%u h=%u",
-		   text ? reinterpret_cast<const char *>(text) : "(null)",
-		   fb.lineCount, fb.totalHeight);
+		   debugCString(formatText), fb.lineCount, fb.totalHeight);
 	uint16 selectedIndex = 0xffff;
 	uint16 target = 0xffff;
 	if (runFormattedChoiceModal(fb, fb.rowCount, &selectedIndex, target)) {
@@ -3976,7 +4024,6 @@ OPCODE(0x4f) {
 	// = "DrawTextRectWithChoices but using arg1 as text, with arg0 as
 	// the row/page limit for the formatter helper. Final state matches
 	// Op_4e after the adjusted AX/DX pair."
-	const byte *text = a[1].bytePointer();
 	Common::Span<const byte> formatText = terminatedScriptTextSpanOrTranslated(a[1], "opcode 0x4f");
 	Logic::FormattedBubble fb = _logic->formatBubbleText(formatText);
 	Logic::ModalState &ms = Log.modalState();
@@ -3986,7 +4033,7 @@ OPCODE(0x4f) {
 	applyFormattedTextLimit9bcc(limit, menuValue, rows);
 	seedFormattedModalState(ms, fb, menuValue, rows, 3, 0);
 	debugC(1, kDebugLevelScript, "opcode 0x4f: DrawTextRectWithChoicesAlt text='%s' limit=%u",
-		   text ? reinterpret_cast<const char *>(text) : "(null)", limit);
+		   debugCString(formatText), limit);
 	uint16 selectedIndex = 0xffff;
 	uint16 target = 0xffff;
 	if (runFormattedChoiceModal(fb, rows, &selectedIndex, target)) {
@@ -4015,13 +4062,12 @@ OPCODE(0x50) {
 	//   MOV [0x66c6], 1            ; palette mode = 1 (verb-menu modal)
 	//   MOV [0x6741], 1            ; SET stash flag
 	//   ; falls through to SetRectAndApply.
-	const byte *text = a[0].bytePointer();
 	Common::Span<const byte> formatText = terminatedScriptTextSpanOrTranslated(a[0], "opcode 0x50");
 	Logic::FormattedBubble fb = _logic->formatBubbleText(formatText);
 	Logic::ModalState &ms = Log.modalState();
 	seedFormattedModalState(ms, fb, fb.totalHeight, fb.rowCount, 1, 1);
 	debugC(1, kDebugLevelScript, "opcode 0x50: OpenVerbMenuModal text='%s'",
-		   text ? reinterpret_cast<const char *>(text) : "(null)");
+		   debugCString(formatText));
 	uint16 selectedIndex = 0xffff;
 	uint16 target = 0xffff;
 	if (runFormattedChoiceModal(fb, fb.rowCount, &selectedIndex, target)) {
@@ -4051,7 +4097,6 @@ OPCODE(0x51) {
 	//   CALL 9bcc                   ; limit returned height/rows
 	//   MOV [0x66c2], AX; MOV [0x66c4], AX
 	//   JMP 0x3f6f (Op_50's tail: palette=1, stash=1).
-	const byte *text = a[1].bytePointer();
 	Common::Span<const byte> formatText = terminatedScriptTextSpanOrTranslated(a[1], "opcode 0x51");
 	Logic::FormattedBubble fb = _logic->formatBubbleText(formatText);
 	Logic::ModalState &ms = Log.modalState();
@@ -4061,7 +4106,7 @@ OPCODE(0x51) {
 	applyFormattedTextLimit9bcc(limit, menuValue, rows);
 	seedFormattedModalState(ms, fb, menuValue, rows, 1, 1);
 	debugC(1, kDebugLevelScript, "opcode 0x51: OpenVerbMenuModalAlt text='%s' limit=%u",
-		   text ? reinterpret_cast<const char *>(text) : "(null)", limit);
+		   debugCString(formatText), limit);
 	uint16 selectedIndex = 0xffff;
 	uint16 target = 0xffff;
 	if (runFormattedChoiceModal(fb, rows, &selectedIndex, target)) {
@@ -4090,7 +4135,6 @@ OPCODE(0x52) {
 	//   MOV [0x66c2], 0;             ; choice count = 0 (no choices)
 	//   MOV [0x6741], 0;             ; clear stash
 	//   JMP SetRectAndApply.
-	const byte *text = a[0].bytePointer();
 	Common::Span<const byte> measureText = scriptTextSpanOrTranslated(a[0]);
 	Logic::FormattedBubble fb = _logic->measureVerbBubbleText(measureText);
 	Logic::ModalState &ms = Log.modalState();
@@ -4106,7 +4150,7 @@ OPCODE(0x52) {
 	ms.textContinuationPtr = 0;
 	ms.menuDone = false;
 	debugC(1, kDebugLevelScript, "opcode 0x52: DrawFixedTextBubble text='%s' h=%u",
-		   text ? reinterpret_cast<const char *>(text) : "(null)", fb.totalHeight);
+		   debugCString(measureText), fb.totalHeight);
 	uint16 selectedIndex = 0xffff;
 	uint16 target = 0xffff;
 	if (runRawChoiceListModal(measureText, &selectedIndex, target)) {
@@ -4144,7 +4188,6 @@ OPCODE(0x53) {
 	//     CALL MeasureVerbBubbleTextHeight
 	//     MOV [0x66c6], 2; MOV [0x66c2], 0; MOV [0x6741], 0
 	//     JMP SetRectAndApply
-	const byte *text = a[0].bytePointer();
 	Common::Span<const byte> measureText = scriptTextSpanOrTranslated(a[0]);
 	Logic::ModalState &ms = Log.modalState();
 	const bool useStash = ms.stashFlag != 0;
@@ -4162,14 +4205,14 @@ OPCODE(0x53) {
 		ms.menuChoiceCount = 0;
 		ms.stashFlag = 0;
 		debugC(1, kDebugLevelScript, "opcode 0x53: DrawFixedTextBubbleStashed (STASHED) text='%s'",
-			   text ? reinterpret_cast<const char *>(text) : "(null)");
+			   debugCString(measureText));
 	} else {
 		// Same as Op_52.
 		ms.paletteMode = 2;
 		ms.menuChoiceCount = 0;
 		ms.stashFlag = 0;
 		debugC(1, kDebugLevelScript, "opcode 0x53: DrawFixedTextBubbleStashed (FIXED, no stash) text='%s'",
-			   text ? reinterpret_cast<const char *>(text) : "(null)");
+			   debugCString(measureText));
 	}
 	ms.activeAx = fb.maxLineWidth;
 	ms.activeBx = fb.lineCount;

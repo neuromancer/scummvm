@@ -181,6 +181,7 @@ public:
 
 	virtual byte *bytePointer() { return nullptr; }
 	virtual const byte *bytePointer() const { return nullptr; }
+	virtual Common::Span<const byte> translatedTextSpan() const { return Common::Span<const byte>(); }
 	virtual operator const Common::String() const {
 		const byte *b = bytePointer();
 		return Common::String(reinterpret_cast<const char *>(b));
