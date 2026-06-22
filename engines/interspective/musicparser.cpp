@@ -23,6 +23,7 @@
 
 #include "audio/mididrv.h"
 #include "audio/mixer.h"
+#include "common/algorithm.h"
 #include "common/config-manager.h"
 #include "common/system.h"
 
@@ -67,7 +68,7 @@ MusicParser::MusicParser() : MidiParser(), _sfxPendingBeat(-1), _musicType(MT_IN
 							 _sfxDataSize(0), _sfxBeatCount(0), _sfxCurrentBeat(-1), _sfxBeatTicks(0),
 							 _sfxTime(0), _sfxLastTick(0), _sfxPsecPerTick(500000 * 0x19 / 120), _sfxTick(0),
 							 _sfxTunePlaying(false), _time(0), _lastTick(0), _tick(0) {
-	memset(_sfxData, 0, sizeof(_sfxData));
+	clearSfxData();
 	clearSfxState();
 	const uint32 devTypes = MDT_MIDI | MDT_ADLIB | MDT_PREFER_GM;
 	MidiDriver::DeviceHandle dev = MidiDriver::detectDevice(devTypes);
@@ -252,6 +253,13 @@ void MusicParser::tick() {
 
 static byte notes[8][4];
 
+static void clearMusicNoteTable() {
+	for (uint channel = 0; channel < ARRAYSIZE(notes); ++channel) {
+		Common::Span<byte> channelNotes(notes[channel], ARRAYSIZE(notes[channel]));
+		Common::fill(channelNotes.begin(), channelNotes.end(), 0);
+	}
+}
+
 enum {
 	kMidiNoteOff = 0x80,
 	kMidiNoteOn = 0x90,
@@ -281,7 +289,7 @@ static uint8 clampMidiControllerValue(uint8 value) {
 void MusicParser::silence() {
 	debugC(2, kDebugLevelMusic, "turning off all notes");
 	if (!_driver) {
-		memset(notes, 0, sizeof(notes));
+		clearMusicNoteTable();
 		return;
 	}
 
@@ -290,13 +298,13 @@ void MusicParser::silence() {
 			if (notes[channel - 2][i])
 				Music._driver->send(channel | kMidiNoteOff, notes[channel - 2][i], 0);
 
-	memset(notes, 0, sizeof(notes));
+	clearMusicNoteTable();
 }
 
-void MusicParser::stopMusicNotesNotInSlots(const bool activeSlots[8][4]) {
+void MusicParser::stopMusicNotesNotInBeat(const Beat &beat) {
 	for (int channel = 0; channel < 8; channel++) {
 		for (int slot = 0; slot < 4; slot++) {
-			if (!notes[channel][slot] || activeSlots[channel][slot])
+			if (!notes[channel][slot] || beat.hasNoteSlot(channel, slot))
 				continue;
 
 			debugC(2, kDebugLevelMusic, "turning off orphaned note %d on channel %d slot %d",
@@ -325,7 +333,7 @@ bool MusicParser::playSfxTune(Common::Span<const byte> data) {
 	if (beatCount == 0 || channelBase >= data.size() || channelBase + 16 > data.size())
 		return false;
 
-	memcpy(_sfxData, data.data(), data.size());
+	copySfxData(data);
 	_sfxDataSize = data.size();
 	_sfxBeatCount = beatCount;
 	_sfxTime = 0;
@@ -357,10 +365,37 @@ void MusicParser::stopSfxNotes() {
 	clearSfxState();
 }
 
-void MusicParser::clearSfxState() {
-	memset(_sfxChannels, 0, sizeof(_sfxChannels));
+void MusicParser::clearSfxData() {
+	Common::Span<byte> data(_sfxData, sizeof(_sfxData));
+	Common::fill(data.begin(), data.end(), 0);
+}
+
+void MusicParser::copySfxData(Common::Span<const byte> data) {
+	Common::Span<byte> target(_sfxData, data.size());
+	Common::copy(data.begin(), data.end(), target.begin());
+}
+
+void MusicParser::resetSfxChannel(SfxChannel &channel, uint8 midiChannel) {
+	for (uint8 i = 0; i < ARRAYSIZE(channel.notes); ++i) {
+		channel.notes[i].pos = 0;
+		channel.notes[i].tick = 0;
+		channel.notes[i].note = 0;
+		channel.notes[i].active = false;
+		channel.notes[i].playing = false;
+	}
+	channel.initPos = 0;
+	channel.midiChannel = midiChannel;
+	channel.active = false;
+	channel.notInitialized = false;
+}
+
+void MusicParser::resetSfxChannels() {
 	for (uint8 i = 0; i < ARRAYSIZE(_sfxChannels); ++i)
-		_sfxChannels[i].midiChannel = i + 2;
+		resetSfxChannel(_sfxChannels[i], i + 2);
+}
+
+void MusicParser::clearSfxState() {
+	resetSfxChannels();
 	_sfxDataSize = 0;
 	_sfxBeatCount = 0;
 	_sfxCurrentBeat = -1;
@@ -383,24 +418,25 @@ bool MusicParser::setSfxBeat(uint16 beat) {
 		return false;
 	}
 
-	uint8 heldNotes[8][4];
-	bool heldPlaying[8][4];
-	memset(heldNotes, 0, sizeof(heldNotes));
-	memset(heldPlaying, 0, sizeof(heldPlaying));
+	struct HeldSfxNote {
+		HeldSfxNote() : note(0), playing(false) {}
+		uint8 note;
+		bool playing;
+	};
+	HeldSfxNote held[8][4];
 	for (uint8 channel = 0; channel < ARRAYSIZE(_sfxChannels); ++channel) {
 		for (uint8 noteIndex = 0; noteIndex < ARRAYSIZE(_sfxChannels[channel].notes); ++noteIndex) {
 			const SfxNote &note = _sfxChannels[channel].notes[noteIndex];
-			heldNotes[channel][noteIndex] = note.note;
-			heldPlaying[channel][noteIndex] = note.playing;
+			held[channel][noteIndex].note = note.note;
+			held[channel][noteIndex].playing = note.playing;
 		}
 	}
 
-	memset(_sfxChannels, 0, sizeof(_sfxChannels));
+	resetSfxChannels();
 	for (uint8 i = 0; i < ARRAYSIZE(_sfxChannels); ++i) {
-		_sfxChannels[i].midiChannel = i + 2;
 		for (uint8 noteIndex = 0; noteIndex < ARRAYSIZE(_sfxChannels[i].notes); ++noteIndex) {
-			_sfxChannels[i].notes[noteIndex].note = heldNotes[i][noteIndex];
-			_sfxChannels[i].notes[noteIndex].playing = heldPlaying[i][noteIndex];
+			_sfxChannels[i].notes[noteIndex].note = held[i][noteIndex].note;
+			_sfxChannels[i].notes[noteIndex].playing = held[i][noteIndex].playing;
 		}
 	}
 
@@ -831,8 +867,9 @@ enum {
 };
 
 Tune::Tune(uint16 index) {
-	memset(_data, 0, sizeof(_data));
-	Res.loadTune(index, Common::Span<byte>(_data, sizeof(_data)));
+	Common::Span<byte> tuneBuffer(_data, sizeof(_data));
+	Common::fill(tuneBuffer.begin(), tuneBuffer.end(), 0);
+	Res.loadTune(index, tuneBuffer);
 
 	const Common::Span<const byte> tuneData(_data, sizeof(_data));
 	uint16 nbeats = tuneData.getUint16LEAt(kTuneBeatCountOffset);
@@ -886,12 +923,7 @@ void Tune::setBeat(uint16 index) {
 		Music.stopMusic();
 		return;
 	}
-	bool activeSlots[8][4];
-	memset(activeSlots, 0, sizeof(activeSlots));
-	for (int channel = 0; channel < 8; channel++)
-		for (int slot = 0; slot < 4; slot++)
-			activeSlots[channel][slot] = _beats[index].hasNoteSlot(channel, slot);
-	Music.stopMusicNotesNotInSlots(activeSlots);
+	Music.stopMusicNotesNotInBeat(_beats[index]);
 	_currentBeat = index;
 	_beats[_currentBeat].reset();
 	_beatticks = 0;

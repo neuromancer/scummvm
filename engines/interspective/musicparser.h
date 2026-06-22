@@ -227,11 +227,15 @@ private:
 	};
 
 	void parseNextEvent(EventInfo &info) override {}
-	void stopMusicNotesNotInSlots(const bool activeSlots[8][4]);
+	void stopMusicNotesNotInBeat(const Beat &beat);
 	bool setSfxBeat(uint16 beat);
 	void tickSfxTune();
 	void tickSfxNote(SfxNote &note, uint8 channel);
 	void execSfxCommand(uint8 command, uint8 parameter, uint8 channel, SfxNote *note);
+	void clearSfxData();
+	void copySfxData(Common::Span<const byte> data);
+	void resetSfxChannel(SfxChannel &channel, uint8 midiChannel);
+	void resetSfxChannels();
 	void clearSfxState();
 
 	// Serializes the MIDI timer thread (tick() -> _tune->tick() / tickSfxTune())
