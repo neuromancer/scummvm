@@ -436,8 +436,16 @@ public:
 		return value;
 	}
 
-	const char *string() const {
-		return reinterpret_cast<const char *>(_data.getUnsafeDataAt(_offset));
+	Common::String string() const {
+		Common::String result;
+		uint32 pos = _offset;
+		while (pos < _data.size()) {
+			const byte ch = _data.getUint8At(pos++);
+			if (ch == 0)
+				break;
+			result += char(ch);
+		}
+		return result;
 	}
 
 	void skipCString() {
@@ -754,9 +762,10 @@ Common::List<Common::String> MainDat::musicFiles() const {
 	for (; file_count > 0; file_count--) {
 		table.readWord();           // data set id
 		byte type = table.readByte(); // music type (1 - adlib, 4 - roland)
+		const Common::String filename = table.string();
 		debugC(2, kDebugLevelFiles | kDebugLevelMusic, "found music file %s type %d",
-			   table.string(), type);
-		files.push_back(Common::String(table.string()));
+			   filename.c_str(), type);
+		files.push_back(filename);
 		table.skipCString();
 	}
 

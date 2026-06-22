@@ -843,7 +843,8 @@ Tune::Tune(uint16 index) {
 
 	for (uint i = 0; i < _beats.size(); i++) {
 		debugC(2, kDebugLevelMusic, "found beat at offset 0x%x", (uint)(kTuneHeaderSize + i * 8));
-		_beats[i] = Beat(beats.subspan(i * 8, 8), channels, tuneData);
+		_beats[i] = Beat(beats.subspan(i * 8, 8), channels,
+						 kTuneHeaderSize + uint32(nbeats) * 8, tuneData);
 	}
 
 	_currentBeat = 0;
@@ -934,7 +935,8 @@ void Tune::tick() {
 
 Beat::Beat() {}
 
-Beat::Beat(Common::Span<const byte> def, Common::Span<const byte> channels, Common::Span<const byte> tune) {
+Beat::Beat(Common::Span<const byte> def, Common::Span<const byte> channels, uint32 channelsOffset,
+		   Common::Span<const byte> tune) {
 	for (int i = 0; i < 8; i++) {
 		const uint8 channelIndex = def.getUint8At(i);
 		if (channelIndex) {
@@ -944,7 +946,7 @@ Beat::Beat(Common::Span<const byte> def, Common::Span<const byte> channels, Comm
 				continue;
 			}
 			debugC(2, kDebugLevelMusic, "found channel at offset 0x%x",
-				   (uint)(channels.data() + off - tune.data()));
+				   uint(channelsOffset + off));
 			_channels[i] = Channel(channels.subspan(off, 16), tune, i + 2);
 		}
 	}

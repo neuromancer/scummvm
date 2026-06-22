@@ -103,7 +103,8 @@ private:
 class Beat {
 public:
 	Beat();
-	Beat(Common::Span<const byte> def, Common::Span<const byte> channels, Common::Span<const byte> tune);
+	Beat(Common::Span<const byte> def, Common::Span<const byte> channels, uint32 channelsOffset,
+		 Common::Span<const byte> tune);
 	bool hasNoteSlot(byte channel, byte note) const;
 	uint activeChannels() const {
 		uint n = 0;

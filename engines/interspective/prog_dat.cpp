@@ -67,7 +67,7 @@ Program *ProgDat::getScript(uint16 id) {
 	if (entryOffset + 4 > _data.size())
 		error("ProgDat::getScript: script id %u outside directory", id);
 
-	uint32 offset = Common::Span<const byte>(_data.data() + entryOffset, 4).getUint32LEAt(0);
+	const uint32 offset = Common::Span<const byte>(_data.data(), _data.size()).getUint32LEAt(entryOffset);
 	_file.get()->seek(offset);
 
 	return new Program(*_file, id);

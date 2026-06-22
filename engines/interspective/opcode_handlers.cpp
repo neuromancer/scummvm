@@ -986,13 +986,13 @@ static bool appendRawModalChoices(Common::Span<const byte> src, Common::Array<by
 	};
 
 	while (pos < src.size()) {
-		if (src.data()[pos] == 0xff) {
+		if (src.getUint8At(pos) == 0xff) {
 			sawTerminator = true;
 			break;
 		}
 
 		bool visible = true;
-		const byte marker = src.data()[pos];
+		const byte marker = src.getUint8At(pos);
 		if (marker == 0x0a || marker == 0x0b) {
 			++pos;
 			const uint16 offset = readUint16LE();
@@ -1013,9 +1013,9 @@ static bool appendRawModalChoices(Common::Span<const byte> src, Common::Array<by
 		}
 
 		const uint32 lineStart = pos;
-		while (pos < src.size() && src.data()[pos] != 0 && src.data()[pos] != 0xff)
+		while (pos < src.size() && src.getUint8At(pos) != 0 && src.getUint8At(pos) != 0xff)
 			++pos;
-		if (pos >= src.size() || src.data()[pos] == 0xff)
+		if (pos >= src.size() || src.getUint8At(pos) == 0xff)
 			break;
 		const uint lineLen = uint(pos - lineStart);
 		++pos;
@@ -1041,9 +1041,9 @@ static bool appendRawModalChoices(Common::Span<const byte> src, Common::Array<by
 		Common::String label;
 		RawModalChoice rawChoice;
 		rawChoice.target = target;
-		rawChoice.terminal = lineLen != 0 && src.data()[lineStart] == 0x04;
+		rawChoice.terminal = lineLen != 0 && src.getUint8At(lineStart) == 0x04;
 		for (uint i = 0; i < lineLen; ++i) {
-			const byte ch = src.data()[lineStart + i];
+			const byte ch = src.getUint8At(lineStart + i);
 			label += char(ch);
 			encoded.push_back(ch);
 			rawChoice.line.push_back(ch);

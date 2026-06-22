@@ -85,7 +85,7 @@ public:
 	bool readByte(byte &value) {
 		if (!canRead(1))
 			return fail(1);
-		value = _bytes.data()[_pos++];
+		value = _bytes.getUint8At(_pos++);
 		return true;
 	}
 

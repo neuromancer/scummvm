@@ -1261,7 +1261,7 @@ static Common::Array<byte> normalizeBubbleInput(Common::Span<const byte> string)
 		// the byte after a speech newline for a 2-byte global-var offset and
 		// over-reads the byte table (formerly an ASan heap-buffer-overflow
 		// in formatBubbleText's global-byte lookup).
-		byte ch = string.data()[pos++];
+		byte ch = string.getUint8At(pos++);
 		if (ch == '\n')
 			ch = '\r';
 		out.push_back(ch);
@@ -1281,14 +1281,14 @@ static Common::Array<byte> normalizeBubbleInput(Common::Span<const byte> string)
 			break;
 		}
 		for (uint i = 0; i < extra; ++i)
-			out.push_back(string.data()[pos++]);
+			out.push_back(string.getUint8At(pos++));
 
 		if (ch != kStringMenuOption)
 			continue;
 
 		bool sawLabelTerminator = false;
 		while (pos < string.size()) {
-			byte lit = string.data()[pos++];
+			byte lit = string.getUint8At(pos++);
 			if (lit == '\n')
 				lit = '\r';
 			out.push_back(lit);
@@ -1301,8 +1301,8 @@ static Common::Array<byte> normalizeBubbleInput(Common::Span<const byte> string)
 			warnTruncated();
 			break;
 		}
-		out.push_back(string.data()[pos++]);
-		out.push_back(string.data()[pos++]);
+		out.push_back(string.getUint8At(pos++));
+		out.push_back(string.getUint8At(pos++));
 	}
 
 	if (out.empty() || out.back() != 0)
@@ -1322,16 +1322,16 @@ static bool parseVerbBubbleChoices(Common::Span<const byte> string, Common::Arra
 		}
 	};
 
-	while (string.data() && pos < string.size() && string.data()[pos] != 0) {
-		if (string.data()[pos] != kStringMenuOption) {
+	while (string.data() && pos < string.size() && string.getUint8At(pos) != 0) {
+		if (string.getUint8At(pos) != kStringMenuOption) {
 			++pos;
 			continue;
 		}
 
 		++pos;
 		Common::String label;
-		while (pos < string.size() && string.data()[pos] != 0)
-			label += char(string.data()[pos++]);
+		while (pos < string.size() && string.getUint8At(pos) != 0)
+			label += char(string.getUint8At(pos++));
 		if (pos >= string.size()) {
 			warnTruncated();
 			break;
@@ -1455,13 +1455,13 @@ static void positionInlineVerbBubbleChoices(Graphics *graphics, const Common::Re
 	Common::Span<const byte> formatted = Logic::textSpan(metrics.text);
 	uint32 pos = 0;
 
-	while (pos < formatted.size() && formatted.data()[pos] != 0) {
-		const byte ch = formatted.data()[pos++];
+	while (pos < formatted.size() && formatted.getUint8At(pos) != 0) {
+		const byte ch = formatted.getUint8At(pos++);
 		switch (ch) {
 		case kStringCenter: {
 			if (pos >= formatted.size())
 				return;
-			const byte lineWidth = formatted.data()[pos++];
+			const byte lineWidth = formatted.getUint8At(pos++);
 			const uint16 centered = uint16(roundedWidthExtra + 0x41 - lineWidth);
 			currentLeft = uint16(bubbleRect.left + (centered >> 1));
 			break;
@@ -1469,7 +1469,7 @@ static void positionInlineVerbBubbleChoices(Graphics *graphics, const Common::Re
 		case kStringAdvance:
 			if (pos >= formatted.size())
 				return;
-			currentLeft += formatted.data()[pos++];
+			currentLeft += formatted.getUint8At(pos++);
 			break;
 		case '\n':
 		case '\r':
@@ -1493,8 +1493,8 @@ static void positionInlineVerbBubbleChoices(Graphics *graphics, const Common::Re
 			VerbBubbleChoice choice;
 			choice.textLeft = currentLeft;
 			choice.textTop = currentTop;
-			while (pos < formatted.size() && formatted.data()[pos] != 0) {
-				const byte lit = formatted.data()[pos++];
+			while (pos < formatted.size() && formatted.getUint8At(pos) != 0) {
+				const byte lit = formatted.getUint8At(pos++);
 				choice.label += char(lit);
 				// DOS render loop @ 1000:928c (CMP AL,0x4 / JZ) skips 0x04
 				// entirely — no glyph, no cursor advance — and the stored
@@ -1529,8 +1529,8 @@ static void collectVerbBubbleLines(Common::Span<const byte> string, Common::Arra
 	Common::String line;
 	if (!string.data())
 		return;
-	for (uint32 pos = 0; pos < string.size() && string.data()[pos] != 0; ++pos) {
-		const byte ch = string.data()[pos];
+	for (uint32 pos = 0; pos < string.size() && string.getUint8At(pos) != 0; ++pos) {
+		const byte ch = string.getUint8At(pos);
 		if (ch == '\r' || ch == '\n') {
 			if (!line.empty())
 				lines.push_back(line);
@@ -1890,7 +1890,7 @@ uint16 Graphics::askVerbBubbleText(byte paletteMode, Common::Span<const byte> st
 								   uint16 timeoutFrames) {
 	if (selectedIndex)
 		*selectedIndex = 0xffff;
-	if (!string.data() || string.size() == 0 || string.data()[0] == 0)
+	if (!string.data() || string.size() == 0 || string.getUint8At(0) == 0)
 		return 0xffff;
 
 	const SpeechBubbleMode bubbleMode = verbBubbleModeForPalette(paletteMode);
@@ -2047,7 +2047,7 @@ bool Graphics::showVerbBubbleText(byte paletteMode, const byte *string, uint16 f
 
 bool Graphics::showVerbBubbleText(byte paletteMode, Common::Span<const byte> string, uint16 frames,
 								  uint16 forcedRows, uint16 forcedWidthExtra) {
-	if (!string.data() || string.size() == 0 || string.data()[0] == 0)
+	if (!string.data() || string.size() == 0 || string.getUint8At(0) == 0)
 		return false;
 
 	const SpeechBubbleMode bubbleMode = verbBubbleModeForPalette(paletteMode);
@@ -2505,15 +2505,15 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, Commo
 		uint32 textPos = 0;
 
 		bool stopText = false;
-		while (textPos < formatted.size() && formatted.data()[textPos] != 0 && !stopText) {
-			const byte ch = formatted.data()[textPos++];
+		while (textPos < formatted.size() && formatted.getUint8At(textPos) != 0 && !stopText) {
+			const byte ch = formatted.getUint8At(textPos++);
 			switch (ch) {
 			case kStringCenter: {
 				if (textPos >= formatted.size()) {
 					stopText = true;
 					break;
 				}
-				const byte lineWidth = formatted.data()[textPos++];
+				const byte lineWidth = formatted.getUint8At(textPos++);
 				// DOS RenderSpeechBubbleText @ 1000:91c9 consumes the next
 				// byte as a precomputed line width and centers within the
 				// bubble frame, not within the screen.
@@ -2526,7 +2526,7 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, Commo
 					stopText = true;
 					break;
 				}
-				currentLeft += formatted.data()[textPos++];
+				currentLeft += formatted.getUint8At(textPos++);
 				break;
 			case '\n':
 			case '\r':
@@ -2549,11 +2549,11 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, Commo
 					stopText = true;
 					break;
 				}
-				currentColour = formatted.data()[textPos++];
+				currentColour = formatted.getUint8At(textPos++);
 				break;
 			case kStringMenuOption:
-				while (textPos < formatted.size() && formatted.data()[textPos] != 0)
-					currentLeft += paintChar(currentLeft, currentTop, currentColour, formatted.data()[textPos++], bubble);
+				while (textPos < formatted.size() && formatted.getUint8At(textPos) != 0)
+					currentLeft += paintChar(currentLeft, currentTop, currentColour, formatted.getUint8At(textPos++), bubble);
 				if (textPos >= formatted.size()) {
 					stopText = true;
 					break;
