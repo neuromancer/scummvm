@@ -53,6 +53,33 @@ public:
 	void create(uint16 width, uint16 height) {
 		::Graphics::Surface::create(width, height, ::Graphics::PixelFormat::createFormatCLUT8());
 	}
+
+	byte *pixels() {
+		assert(format.bytesPerPixel == 1);
+		return reinterpret_cast<byte *>(getPixels());
+	}
+	const byte *pixels() const {
+		assert(format.bytesPerPixel == 1);
+		return reinterpret_cast<const byte *>(getPixels());
+	}
+	byte *pixelAt(int x, int y) {
+		assert(format.bytesPerPixel == 1);
+		return reinterpret_cast<byte *>(getBasePtr(x, y));
+	}
+	const byte *pixelAt(int x, int y) const {
+		assert(format.bytesPerPixel == 1);
+		return reinterpret_cast<const byte *>(getBasePtr(x, y));
+	}
+	byte *row(int y) { return pixelAt(0, y); }
+	const byte *row(int y) const { return pixelAt(0, y); }
+	Common::Span<byte> pixelSpan(uint32 size) {
+		assert(size <= uint32(h) * uint32(pitch));
+		return Common::Span<byte>(pixels(), size);
+	}
+	Common::Span<const byte> pixelSpan(uint32 size) const {
+		assert(size <= uint32(h) * uint32(pitch));
+		return Common::Span<const byte>(pixels(), size);
+	}
 };
 
 class Sprite : public Surface {

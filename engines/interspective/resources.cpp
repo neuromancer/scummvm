@@ -86,8 +86,8 @@ void Surface::blit(const Surface *s, Common::Rect r, Common::Point srcOffset, in
 	if (r.isEmpty())
 		return;
 
-	const byte *src = reinterpret_cast<const byte *>(s->getBasePtr(srcOffset.x, srcOffset.y));
-	byte *dest = reinterpret_cast<byte *>(getBasePtr(r.left, r.top));
+	const byte *src = s->pixelAt(srcOffset.x, srcOffset.y);
+	byte *dest = pixelAt(r.left, r.top);
 	int rw = r.width();
 	int rh = r.height();
 
@@ -310,7 +310,7 @@ Image *Resources::loadImage(uint16 index) const {
 	Common::SharedPtr<Image> img(new Image);
 	img->create(320, 200);
 	assert(img->pitch == 320);
-	loadImage(index, Common::Span<byte>(reinterpret_cast<byte *>(img->getPixels()), 320 * 200));
+	loadImage(index, img->pixelSpan(320 * 200));
 	_imageCache[index] = img;
 	return img.get();
 }
@@ -391,7 +391,7 @@ Surface *Resources::loadBackdrop(uint16 index, Common::Span<byte> palette) {
 	assert(backdrop->pitch == width);
 
 	const uint32 imageSize = uint32(width) * uint32(height);
-	decodeImage(stream, Common::Span<byte>(reinterpret_cast<byte *>(backdrop->getPixels()), imageSize));
+	decodeImage(stream, backdrop->pixelSpan(imageSize));
 
 	stream->readByte(); // skip zero
 
@@ -443,8 +443,8 @@ Sprite *Image::cut(Common::Rect rect) const {
 	Sprite *sprite = new Sprite;
 	sprite->create(rect.width(), rect.height());
 
-	const byte *src = reinterpret_cast<const byte *>(getBasePtr(rect.left, rect.top));
-	byte *dest = reinterpret_cast<byte *>(sprite->getPixels());
+	const byte *src = pixelAt(rect.left, rect.top);
+	byte *dest = sprite->pixels();
 	for (uint16 y = 0; y < rect.height(); y++) {
 		Common::copy(src, src + rect.width(), dest);
 		src += pitch;
@@ -458,7 +458,7 @@ enum {
 };
 
 void Sprite::recolour(byte colour) {
-	byte *data = reinterpret_cast<byte *>(getPixels());
+	byte *data = pixels();
 	for (uint16 y = 0; y < h; ++y) {
 		for (uint16 x = 0; x < w; ++x) {
 			if (data[x] == kChangeableColour)

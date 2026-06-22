@@ -56,6 +56,11 @@ enum {
 	kFontChangeableColour = 235
 };
 
+static byte *surfacePixelAt(::Graphics::Surface *surface, int x, int y) {
+	assert(surface && surface->format.bytesPerPixel == 1);
+	return reinterpret_cast<byte *>(surface->getBasePtr(x, y));
+}
+
 class GraphicsTextCursor {
 public:
 	GraphicsTextCursor(Common::Span<const byte> bytes, const char *context)
@@ -194,8 +199,8 @@ public:
 		const byte textColor = byte(color & 0xff);
 
 		for (int row = 0; row < clipped.height(); ++row) {
-			const byte *src = reinterpret_cast<const byte *>(glyph->getBasePtr(srcX, srcY + row));
-			byte *dest = reinterpret_cast<byte *>(dst->getBasePtr(clipped.left, clipped.top + row));
+			const byte *src = glyph->pixelAt(srcX, srcY + row);
+			byte *dest = surfacePixelAt(dst, clipped.left, clipped.top + row);
 			for (int col = 0; col < clipped.width(); ++col) {
 				if (src[col] == 0)
 					continue;
@@ -263,7 +268,7 @@ static uint16 inventoryObjectAtPoint(Logic *logic, Resources *resources,
 		Common::ScopedPtr<Sprite> sprite(resources->loadSprite(spriteId));
 		const int16 sx = int16(screen.x - topLeft.x);
 		const int16 sy = int16(screen.y - topLeft.y);
-		const byte *pixel = reinterpret_cast<const byte *>(sprite->getBasePtr(sx, sy));
+		const byte *pixel = sprite->pixelAt(sx, sy);
 		if (pixel && *pixel != 0)
 			return id;
 	}
@@ -582,7 +587,7 @@ void Graphics::loadInterface() {
 	debugC(1, kDebugLevelGraphics, "loading interface");
 	_interface = new Surface;
 	_interface->create(320, 50);
-	_resources->loadInterfaceImage(Common::Span<byte>(reinterpret_cast<byte *>(_interface->getPixels()), 0x3c00),
+	_resources->loadInterfaceImage(_interface->pixelSpan(0x3c00),
 								   Common::Span<byte>(_interfacePalette, sizeof(_interfacePalette)));
 }
 
@@ -673,8 +678,8 @@ void Graphics::paintRoomCloseUp() {
 	const int srcLeft = CLIP<int>(_roomCloseUpPoint.x - 0x1b, 0, 0x10a);
 	const int srcTop = CLIP<int>(_roomCloseUpPoint.y - 0x0b, 0, 0x82);
 	for (int y = 0; y < kCloseUpContentHeight; ++y) {
-		const byte *src = reinterpret_cast<const byte *>(_framebuffer->getBasePtr(srcLeft, srcTop + y));
-		byte *dst = reinterpret_cast<byte *>(_framebuffer->getBasePtr(kCloseUpContentLeft, kCloseUpContentTop + y));
+		const byte *src = _framebuffer->pixelAt(srcLeft, srcTop + y);
+		byte *dst = _framebuffer->pixelAt(kCloseUpContentLeft, kCloseUpContentTop + y);
 		memcpy(dst, src, kCloseUpContentWidth);
 	}
 
@@ -1042,8 +1047,8 @@ void Graphics::paintBackdrop() {
 
 	const int copyWidth = MIN<int>(320, _backdrop->w - srcX);
 	const int copyHeight = MIN<int>(viewHeight, _backdrop->h - srcY);
-	const byte *src = reinterpret_cast<const byte *>(_backdrop->getBasePtr(srcX, srcY));
-	byte *dst = reinterpret_cast<byte *>(_framebuffer->getBasePtr(0, 0));
+	const byte *src = _backdrop->pixelAt(srcX, srcY);
+	byte *dst = _framebuffer->pixelAt(0, 0);
 	for (int y = 0; y < copyHeight; ++y) {
 		memcpy(dst, src, copyWidth);
 		dst += _framebuffer->pitch;
@@ -1759,7 +1764,7 @@ uint16 Graphics::askVerbBubble(byte paletteMode, Common::Span<const byte> string
 			paintStashedVerbBubble(this, _engine ? _engine->logic() : 0, _framebuffer.get(),
 								   stashedHover, &stashedChoices);
 
-		_system->copyRectToScreen(reinterpret_cast<byte *>(_framebuffer->getPixels()),
+		_system->copyRectToScreen(_framebuffer->pixels(),
 								  _framebuffer->pitch, 0, 0, 320, 200);
 		_system->updateScreen();
 	};
@@ -1907,7 +1912,7 @@ uint16 Graphics::askVerbBubbleText(byte paletteMode, Common::Span<const byte> st
 			paintStashedVerbBubble(this, _engine ? _engine->logic() : 0, _framebuffer.get(),
 								   stashedHover, &stashedChoices);
 
-		_system->copyRectToScreen(reinterpret_cast<byte *>(_framebuffer->getPixels()),
+		_system->copyRectToScreen(_framebuffer->pixels(),
 								  _framebuffer->pitch, 0, 0, 320, 200);
 		_system->updateScreen();
 	};
@@ -2059,7 +2064,7 @@ bool Graphics::showVerbBubbleText(byte paletteMode, Common::Span<const byte> str
 		if (paletteMode == 4)
 			paintStashedVerbBubble(this, _engine ? _engine->logic() : 0, _framebuffer.get(), -1, 0);
 
-		_system->copyRectToScreen(reinterpret_cast<byte *>(_framebuffer->getPixels()),
+		_system->copyRectToScreen(_framebuffer->pixels(),
 								  _framebuffer->pitch, 0, 0, 320, 200);
 		_system->updateScreen();
 	};
@@ -2203,7 +2208,7 @@ uint16 Graphics::ask(uint16 left, uint16 top, byte width, byte height, Common::S
 	// (but it does look nicer this way)
 	paintText(10, 16, 254, string, &frame);
 
-	_system->copyRectToScreen(reinterpret_cast<byte *>(frame.getPixels()), frame.pitch, left, top, width * kFrameTileWidth, height * kFrameTileHeight + 4);
+	_system->copyRectToScreen(frame.pixels(), frame.pitch, left, top, width * kFrameTileWidth, height * kFrameTileHeight + 4);
 
 	showCursor();
 	bool done = false;
@@ -2948,15 +2953,14 @@ Common::Rect Graphics::paintLayerScaledSprite(const Sprite *sprite, Common::Poin
 	transformed.create(scaledWidth, scaledHeight);
 	transformed.fillRect(Common::Rect(0, 0, scaledWidth, scaledHeight), 0);
 
-	const byte *srcPixels = reinterpret_cast<const byte *>(sprite->getPixels());
 	int transformedY = scaledHeight - 1;
 	for (int srcY = sprite->h - 1, rowPattern = 0; srcY >= 0; --srcY, rowPattern = (rowPattern + 1) & 0x0f) {
 		if (!kLayerScaleRows[pattern][rowPattern])
 			continue;
 
 		int transformedX = 0;
-		const byte *src = srcPixels + srcY * sprite->pitch;
-		byte *dst = reinterpret_cast<byte *>(transformed.getBasePtr(0, transformedY));
+		const byte *src = sprite->row(srcY);
+		byte *dst = transformed.row(transformedY);
 		for (int srcX = 0, colPattern = 0; srcX < sprite->w; ++srcX, colPattern = (colPattern + 1) & 0x0f) {
 			if (!kLayerScaleCols[pattern][colPattern])
 				continue;
@@ -3038,7 +3042,7 @@ void Graphics::markDirtyRect(Common::Rect r) const {
 
 void Graphics::updateScreen() {
 	if (_fullRedrawPending || _willFadein) {
-		_system->copyRectToScreen(reinterpret_cast<byte *>(_framebuffer->getPixels()), _framebuffer->pitch, 0, 0, 320, 200);
+		_system->copyRectToScreen(_framebuffer->pixels(), _framebuffer->pitch, 0, 0, 320, 200);
 		_previousDirtyRects.clear();
 		_previousDirtyRects.push_back(Common::Rect(0, 0, 320, 200));
 		_fullRedrawPending = false;
@@ -3058,7 +3062,7 @@ void Graphics::updateScreen() {
 
 		for (uint i = 0; i < rects.size(); ++i) {
 			const Common::Rect &r = rects[i];
-			_system->copyRectToScreen(reinterpret_cast<byte *>(_framebuffer->getBasePtr(r.left, r.top)),
+			_system->copyRectToScreen(_framebuffer->pixelAt(r.left, r.top),
 									  _framebuffer->pitch, r.left, r.top, r.width(), r.height());
 		}
 		_previousDirtyRects = _dirtyRects;
@@ -3082,7 +3086,7 @@ void Graphics::showCursor() {
 	Common::ScopedPtr<Sprite> cursor(_resources->getCursor());
 	assert(cursor->pitch == cursor->w);
 	::Graphics::CursorManager &m = ::Graphics::CursorManager::instance();
-	m.replaceCursor(reinterpret_cast<byte *>(cursor->getPixels()), cursor->w, cursor->h, cursor->_hotPoint.x, cursor->_hotPoint.y, 0);
+	m.replaceCursor(cursor->pixels(), cursor->w, cursor->h, cursor->_hotPoint.x, cursor->_hotPoint.y, 0);
 	m.showMouse(true);
 	_hostCursorShown = true;
 }
@@ -3116,7 +3120,7 @@ void Graphics::updateModalCursor(uint16 cursorKey, uint16 tableFooterOffset, boo
 	Common::ScopedPtr<Sprite> cursor(_resources->loadSprite(spriteId));
 	assert(cursor->pitch == cursor->w);
 	::Graphics::CursorManager &m = ::Graphics::CursorManager::instance();
-	m.replaceCursor(reinterpret_cast<byte *>(cursor->getPixels()), cursor->w, cursor->h, cursor->_hotPoint.x, cursor->_hotPoint.y, 0);
+	m.replaceCursor(cursor->pixels(), cursor->w, cursor->h, cursor->_hotPoint.x, cursor->_hotPoint.y, 0);
 	m.showMouse(true);
 	_hostCursorShown = true;
 }
@@ -3239,11 +3243,11 @@ void Graphics::applyRoomChangeWipe() {
 		for (int y = 0; y < viewHeight; ++y) {
 			const int x = diag - y;
 			if (x >= 0 && x < 320)
-				*reinterpret_cast<byte *>(_framebuffer->getBasePtr(x, y)) = 0;
+				*_framebuffer->pixelAt(x, y) = 0;
 		}
 
 		if ((diag & 3) == 0) {
-			_system->copyRectToScreen(reinterpret_cast<byte *>(_framebuffer->getBasePtr(0, 0)),
+			_system->copyRectToScreen(_framebuffer->pixelAt(0, 0),
 									  _framebuffer->pitch, 0, 0, 320, viewHeight);
 			_system->updateScreen();
 			Eng.delay(1);
@@ -3254,7 +3258,7 @@ void Graphics::applyRoomChangeWipe() {
 	// leaves the visible playfield black until the restart-room path paints
 	// the newly loaded backdrop.
 	_framebuffer->fillRect(view, 0);
-	_system->copyRectToScreen(reinterpret_cast<byte *>(_framebuffer->getBasePtr(0, 0)),
+	_system->copyRectToScreen(_framebuffer->pixelAt(0, 0),
 							  _framebuffer->pitch, 0, 0, 320, viewHeight);
 	_system->updateScreen();
 	markFullRedraw();

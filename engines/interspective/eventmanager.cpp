@@ -78,7 +78,7 @@ static bool spriteContainsWorldPoint(Resources *resources, uint16 spriteId,
 	if (sx < 0 || sy < 0 || sx >= sprite->w || sy >= sprite->h)
 		return false;
 
-	const byte *pixel = reinterpret_cast<const byte *>(sprite->getBasePtr(sx, sy));
+	const byte *pixel = sprite->pixelAt(sx, sy);
 	return pixel && *pixel != 0;
 }
 
@@ -334,7 +334,7 @@ static bool spriteContainsTopLeftPoint(Resources *resources, uint16 spriteId,
 	if (sx < 0 || sy < 0 || sx >= sprite->w || sy >= sprite->h)
 		return false;
 
-	const byte *pixel = reinterpret_cast<const byte *>(sprite->getBasePtr(sx, sy));
+	const byte *pixel = sprite->pixelAt(sx, sy);
 	return pixel && *pixel != 0;
 }
 

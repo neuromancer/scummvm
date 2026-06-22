@@ -114,7 +114,7 @@ bool Movie::loadKeyFrame() {
 		return false;
 	}
 
-	Resources::decodeImage(_f.get(), Common::Span<byte>(reinterpret_cast<byte *>(_s.getPixels()), w * h));
+	Resources::decodeImage(_f.get(), _s.pixelSpan(w * h));
 
 	(void)_f->readByte();
 	Resources::readPalette(_f.get(), Common::Span<byte>(_pal, sizeof(_pal)));
@@ -142,7 +142,7 @@ bool Movie::loadIFrame() {
 	assert(_s.pitch == 320);
 
 	int left = 320 * 200;
-	byte *dest = reinterpret_cast<byte *>(_s.getPixels());
+	byte *dest = _s.pixels();
 
 	while (left) {
 		byte b = _f->readByte();
@@ -195,7 +195,7 @@ bool Movie::loadIFrame() {
 
 void Movie::showFrame() {
 	Engine::instance()._system->copyRectToScreen(
-		reinterpret_cast<byte *>(_s.getPixels()), _s.pitch, 0, 0, _s.w, _s.h);
+		_s.pixels(), _s.pitch, 0, 0, _s.w, _s.h);
 
 	Engine::instance()._system->updateScreen();
 }
