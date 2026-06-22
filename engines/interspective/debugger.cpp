@@ -151,7 +151,8 @@ bool Debugger::cmd_paintText(int argc, const char **argv) {
 			if (argc >= 5)
 				colour = atoi(argv[4]);
 		}
-		_vm->graphics()->paintText(left, top, colour, const_cast<byte *>(reinterpret_cast<const byte *>(argv[1])));
+		const Common::String text(argv[1]);
+		_vm->graphics()->paintText(left, top, colour, Logic::textSpan(text));
 	} else
 		debugPrintf("Syntax: paint_text <text> [<left> <top> [<colour>]]\n");
 

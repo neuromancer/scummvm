@@ -138,58 +138,6 @@ static inline uint16 recordWordWithByte(uint16 oldValue, uint8 baseOff, uint8 of
 	return uint16((oldValue & ~(0xffu << shift)) | (uint16(value) << shift));
 }
 
-static uint16 motionTextStreamLength(const byte *text) {
-	if (!text)
-		return 0;
-
-	const uint16 kMaxMotionTextBytes = 4096;
-	const byte *p = text;
-	uint16 length = 0;
-
-	while (length < kMaxMotionTextBytes) {
-		const byte ch = *p++;
-		++length;
-		if (ch == 0)
-			return length;
-
-		uint16 extra = 0;
-		switch (ch) {
-		case 14:
-		case kStringMove:
-			extra = 4;
-			break;
-		case kStringSetColour:
-		case kStringAdvance:
-			extra = 1;
-			break;
-		case kStringGlobalWord:
-		case kStringCountSpacesIf0:
-		case kStringCountSpacesIf1:
-			extra = 2;
-			break;
-		case kStringMenuOption:
-			while (length < kMaxMotionTextBytes) {
-				const byte optionCh = *p++;
-				++length;
-				if (optionCh == 0)
-					break;
-			}
-			extra = 2;
-			break;
-		default:
-			break;
-		}
-
-		while (extra != 0 && length < kMaxMotionTextBytes) {
-			++p;
-			++length;
-			--extra;
-		}
-	}
-
-	return length;
-}
-
 static int16 cameraMaxOrigin(uint16 backdropSize, uint16 viewportSize) {
 	return backdropSize > viewportSize ? int16(backdropSize - viewportSize) : 0;
 }
@@ -1683,12 +1631,6 @@ bool Logic::queueDeferred(const CodePointer &p) {
 	return false;
 }
 
-void Logic::startMotionText(uint16 ticks, const byte *text, uint16 length) {
-	if (text && length == 0)
-		length = motionTextStreamLength(text);
-	startMotionText(ticks, text ? Common::Span<const byte>(text, length) : Common::Span<const byte>());
-}
-
 void Logic::startMotionText(uint16 ticks, Common::Span<const byte> text) {
 	_motionTextTicks = ticks;
 	_motionText.clear();
@@ -3089,10 +3031,6 @@ Logic::FormattedBubble Logic::formatBubbleText(Common::Span<const byte> src) con
 	return out;
 }
 
-Logic::FormattedBubble Logic::formatBubbleText(const byte *src) const {
-	return formatBubbleText(textSpan(src));
-}
-
 Logic::FormattedBubble Logic::measureVerbBubbleText(Common::Span<const byte> src) const {
 	FormattedBubble out;
 	out.lineCount = 0;
@@ -3210,10 +3148,6 @@ Logic::FormattedBubble Logic::measureVerbBubbleText(Common::Span<const byte> src
 	return out;
 }
 
-Logic::FormattedBubble Logic::measureVerbBubbleText(const byte *src) const {
-	return measureVerbBubbleText(textSpan(src));
-}
-
 Common::String Logic::prepareTextStrippedForRender(Common::Span<const byte> src, bool *truncated) const {
 	if (truncated)
 		*truncated = false;
@@ -3324,10 +3258,6 @@ Common::String Logic::prepareTextStrippedForRender(Common::Span<const byte> src,
 	}
 
 	return out;
-}
-
-Common::String Logic::prepareTextStrippedForRender(const byte *src, bool *truncated) const {
-	return prepareTextStrippedForRender(textSpan(src), truncated);
 }
 
 bool Logic::cancelDeferred(const CodePointer &p) {
@@ -4058,9 +3988,9 @@ void Logic::activateActorSpeechAfterPostMove(Actor *actor) {
 	setLogicDirty();
 }
 
-bool Logic::allocNarratorSpeech(const byte *text, uint16 length, uint16 x, uint16 y,
+bool Logic::allocNarratorSpeech(Common::Span<const byte> text, uint16 x, uint16 y,
 								byte color, uint16 maxLines, uint8 type) {
-	if (!text || length == 0)
+	if (!text.data() || text.size() == 0)
 		return false;
 
 	SpeechSlot *slot = findFreeSpeechSlot();
@@ -4075,7 +4005,15 @@ bool Logic::allocNarratorSpeech(const byte *text, uint16 length, uint16 x, uint1
 	slot->refX = x;
 	slot->refY = y;
 	slot->color = color;
-	Common::String copied(reinterpret_cast<const char *>(text), length);
+	Common::String copied;
+	for (uint32 i = 0; i < text.size(); ++i) {
+		const byte ch = text.getUint8At(i);
+		if (ch == 0)
+			break;
+		copied += char(ch);
+	}
+	if (copied.empty())
+		return false;
 	debugC(1, kDebugLevelGraphics, "alloc narrator speech slot type=%u ownerRoom=%u at %u:%u color=%u maxLines=%u text=\"%s\"",
 		   type, uint16(_currentRoom), x, y, color, maxLines, copied.c_str());
 	_uiTextSpeechSlot = uint16(slot - &_speechSlots[0]);

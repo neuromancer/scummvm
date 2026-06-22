@@ -96,7 +96,7 @@ public:
 	bool palettePending() const { return _willFadein || _inFade; }
 	void setInFade(bool v) { _inFade = v; }
 
-	void say(const byte *text, uint16, uint16 frames = 50);
+	void say(Common::Span<const byte> text, uint16 frames = 50);
 	// DOS Op_47/0x48: narrator bubble with explicit position + color.
 	// x/y in DOS units (Op_45..0x48 resolve arg0 into CX/x, arg1 into DX/y).
 	// color = 0xeb is the canonical DOS narrator color; 0xae is shadow.
@@ -107,7 +107,7 @@ public:
 		kSpeechBubbleVerbTopLeft = 3,   // DOS ComputeBubbleRect_TopLeft + raw row layout
 		kSpeechBubbleVerbBottomLeft = 4 // DOS ComputeBubbleRect_BottomLeft + raw row layout
 	};
-	void sayAt(const byte *text, uint16 length, uint16 frames,
+	void sayAt(Common::Span<const byte> text, uint16 frames,
 			   uint16 x, uint16 y, byte color, uint16 maxLines = 0,
 			   SpeechBubbleMode bubbleMode = kSpeechBubbleType1,
 			   bool forceBubble = false);
@@ -116,40 +116,26 @@ public:
 	void runWhenSaid(const CodePointer &p);
 
 	uint16 ask(uint16 left, uint16 top, byte width, byte height, Common::Span<const byte> string, uint16 *selectedIndex = 0);
-	uint16 ask(uint16 left, uint16 top, byte width, byte height, byte *string, uint16 *selectedIndex = 0);
 	uint16 askVerbBubble(byte paletteMode, Common::Span<const byte> string, uint16 *selectedIndex = 0);
-	uint16 askVerbBubble(byte paletteMode, byte *string, uint16 *selectedIndex = 0);
 	uint16 askVerbBubbleText(byte paletteMode, Common::Span<const byte> string, uint16 *selectedIndex = 0,
 							  uint16 timeoutFrames = 0);
-	uint16 askVerbBubbleText(byte paletteMode, const byte *string, uint16 *selectedIndex = 0,
-							  uint16 timeoutFrames = 0);
 	bool showVerbBubbleText(byte paletteMode, Common::Span<const byte> string, uint16 frames,
-							uint16 forcedRows = 0, uint16 forcedWidthExtra = 0xffff);
-	bool showVerbBubbleText(byte paletteMode, const byte *string, uint16 frames,
 							uint16 forcedRows = 0, uint16 forcedWidthExtra = 0xffff);
 	Common::Rect paintText(uint16 left, uint16 top, byte colour, Common::Span<const byte> string) {
 		return paintText(left, top, colour, string, _framebuffer.get(), 0, 0, 0);
 	}
-	Common::Rect paintText(uint16 left, uint16 top, byte colour, const byte *string);
 
 	Common::Rect textMetrics(Common::Span<const byte> string, uint16 *lines = 0, uint16 left = 0, uint16 top = 0) {
 		return paintText(left, top, 235, string, 0, lines, 0, 0);
 	}
-	Common::Rect textMetrics(const byte *string, uint16 *lines = 0, uint16 left = 0, uint16 top = 0);
 	Common::Rect paintText(uint16 left, uint16 top, byte colour, Common::Span<const byte> string, Surface *s, uint16 *lines = 0, uint8 firstLineExtraIndent = 0, int flags = 0);
-	Common::Rect paintText(uint16 left, uint16 top, byte colour, const byte *string, Surface *s, uint16 *lines = 0, uint8 firstLineExtraIndent = 0, int flags = 0);
 	Common::Rect paintTextOneDirty(uint16 left, uint16 top, byte colour, Common::Span<const byte> string);
-	Common::Rect paintTextOneDirty(uint16 left, uint16 top, byte colour, const byte *string);
 	void clearStatusScreenText();
 	void rememberStatusScreenText(uint16 left, uint16 top, byte colour, const Common::String &text);
 	void paintMotionText(Common::Span<const byte> stream);
-	void paintMotionText(const byte *stream, uint16 length);
 	uint16 plainTextLineWidth(Common::Span<const byte> string) const;
-	uint16 plainTextLineWidth(const byte *string) const;
 	Common::Rect paintPlainTextLine(uint16 left, uint16 top, byte colour, Common::Span<const byte> string, bool markDirty = true);
-	Common::Rect paintPlainTextLine(uint16 left, uint16 top, byte colour, const byte *string, bool markDirty = true);
 	bool setStatusOverlayText(Common::Span<const byte> text);
-	bool setStatusOverlayText(const byte *text);
 	void setInterfaceOverlayAnimationMask(uint16 mask);
 	void setRoomCloseUp(Common::Point point);
 	void clearRoomCloseUp();
@@ -158,9 +144,6 @@ public:
 
 	void paintSpeechBubbleColumn(Sprite *top, Sprite *fill, Common::Point &point, uint8 fill_tiles, Surface *dest);
 	Common::Rect paintSpeechInBubble(Common::Point pos, byte colour, Common::Span<const byte> string, Surface *dest,
-									 SpeechBubbleMode mode = kSpeechBubbleAuto, bool renderText = true,
-									 uint16 forcedRows = 0, uint16 forcedWidthExtra = 0xffff);
-	Common::Rect paintSpeechInBubble(Common::Point pos, byte colour, const byte *string, Surface *dest,
 									 SpeechBubbleMode mode = kSpeechBubbleAuto, bool renderText = true,
 									 uint16 forcedRows = 0, uint16 forcedWidthExtra = 0xffff);
 
@@ -219,7 +202,6 @@ private:
 
 	byte clampChar(byte ch) const;
 	uint16 calculateLineWidth(Common::Span<const byte> string) const;
-	uint16 calculateLineWidth(const byte *string) const;
 	void prepareConversationPalette();
 	void beginConversationModal();
 	void finishConversationModal();

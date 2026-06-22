@@ -635,11 +635,8 @@ public:
 	static Common::Span<const byte> textSpan(const Common::String &src);
 	static Common::Span<const byte> textSpan(const DosMemoryReference &ref);
 	FormattedBubble formatBubbleText(Common::Span<const byte> src) const;
-	FormattedBubble formatBubbleText(const byte *src) const;
 	FormattedBubble measureVerbBubbleText(Common::Span<const byte> src) const;
-	FormattedBubble measureVerbBubbleText(const byte *src) const;
 	Common::String prepareTextStrippedForRender(Common::Span<const byte> src, bool *truncated) const;
-	Common::String prepareTextStrippedForRender(const byte *src, bool *truncated) const;
 	uint16 bubbleLineHeight() const { return _bubbleLineHeight; }
 	void setBubbleLineHeight(uint16 h) { _bubbleLineHeight = h; }
 	// Second drag-target slot (DS:0x667e — `g_drag_target_mode40`),
@@ -1108,7 +1105,6 @@ public:
 	bool cancelDeferred(const CodePointer &p);
 
 	bool motionTextActive() const { return _motionTextTicks != 0; }
-	void startMotionText(uint16 ticks, const byte *text, uint16 length);
 	void startMotionText(uint16 ticks, Common::Span<const byte> text);
 	void tickMotionText();
 	void paintMotionText();
@@ -1120,7 +1116,7 @@ public:
 	bool allocActorSpeechAt(Actor *actor, const Common::String &text, Common::Point pos, uint16 maxLines = 0);
 	bool allocActorSpeechForPostMove(Actor *actor, const Common::String &text, uint16 maxLines = 0);
 	void activateActorSpeechAfterPostMove(Actor *actor);
-	bool allocNarratorSpeech(const byte *text, uint16 length, uint16 x, uint16 y,
+	bool allocNarratorSpeech(Common::Span<const byte> text, uint16 x, uint16 y,
 							 byte color, uint16 maxLines, uint8 type);
 	bool speechSlotActiveForOwner(uint16 owner) const;
 	bool anySpeechSlotActive() const;

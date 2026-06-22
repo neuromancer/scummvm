@@ -285,8 +285,8 @@ static void speakOrSubtitle(Actor *speaker, const Common::String &text, uint16 m
 		const uint16 length = uint16(text.size());
 		const Common::Span<const byte> textBytes = Logic::textSpan(text);
 		if (length > 0)
-			Graf.sayAt(textBytes.data(),
-					   length, speechDisplayTicks(textBytes, maxLines),
+			Graf.sayAt(textBytes.subspan(0, length),
+					   speechDisplayTicks(textBytes, maxLines),
 					   0xa4, 0x14, 0xeb, maxLines, Graphics::kSpeechBubbleType2, true);
 		return;
 	}
@@ -435,9 +435,9 @@ static bool sayNarratorOrSubtitle(Common::Span<const byte> text, uint16 x, uint1
 		return true;
 	}
 	if (Log.inStatusMode())
-		Graf.sayAt(text.data(), length, ticks, x, y, color, maxLines, bubbleMode, true);
+		Graf.sayAt(text.subspan(0, length), ticks, x, y, color, maxLines, bubbleMode, true);
 	else
-		Log.allocNarratorSpeech(text.data(), length, x, y, color, maxLines, uint8(bubbleMode));
+		Log.allocNarratorSpeech(text.subspan(0, length), x, y, color, maxLines, uint8(bubbleMode));
 	return false;
 }
 
@@ -860,7 +860,7 @@ static bool showFormattedModalTextAndWait(const Logic::FormattedBubble &fb,
 		ms.textContinuationPtr = 0;
 		return false;
 	}
-	Graf.say(visibleBytes.data(), length, MAX<uint16>(1, frames));
+	Graf.say(visibleBytes.subspan(0, length), MAX<uint16>(1, frames));
 	Graf.runWhenSaid(next);
 	return true;
 }

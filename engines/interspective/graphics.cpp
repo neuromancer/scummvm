@@ -843,10 +843,6 @@ void Graphics::paintAutoCloseTimer() {
 	paint(sprite.get(), Common::Point(0x40, 0xbe), kPaintPositionIsTop | kPaintNoDirty);
 }
 
-bool Graphics::setStatusOverlayText(const byte *text) {
-	return setStatusOverlayText(Logic::textSpan(text));
-}
-
 bool Graphics::setStatusOverlayText(Common::Span<const byte> text) {
 	_statusOverlayLines.clear();
 	if (!text.data())
@@ -1717,10 +1713,6 @@ static void paintVerbBubbleConnectors(Graphics *graphics, Resources *resources,
 	graphics->paint(connector, connectorPos, dest, Graphics::kPaintPositionIsTop);
 }
 
-uint16 Graphics::askVerbBubble(byte paletteMode, byte *string, uint16 *selectedIndex) {
-	return askVerbBubble(paletteMode, Logic::textSpan(string), selectedIndex);
-}
-
 uint16 Graphics::askVerbBubble(byte paletteMode, Common::Span<const byte> string, uint16 *selectedIndex) {
 	if (selectedIndex)
 		*selectedIndex = 0xffff;
@@ -1881,11 +1873,6 @@ uint16 Graphics::askVerbBubble(byte paletteMode, Common::Span<const byte> string
 	return result;
 }
 
-uint16 Graphics::askVerbBubbleText(byte paletteMode, const byte *string, uint16 *selectedIndex,
-								   uint16 timeoutFrames) {
-	return askVerbBubbleText(paletteMode, Logic::textSpan(string), selectedIndex, timeoutFrames);
-}
-
 uint16 Graphics::askVerbBubbleText(byte paletteMode, Common::Span<const byte> string, uint16 *selectedIndex,
 								   uint16 timeoutFrames) {
 	if (selectedIndex)
@@ -2039,12 +2026,6 @@ uint16 Graphics::askVerbBubbleText(byte paletteMode, Common::Span<const byte> st
 	return result;
 }
 
-bool Graphics::showVerbBubbleText(byte paletteMode, const byte *string, uint16 frames,
-								  uint16 forcedRows, uint16 forcedWidthExtra) {
-	return showVerbBubbleText(paletteMode, Logic::textSpan(string), frames,
-							  forcedRows, forcedWidthExtra);
-}
-
 bool Graphics::showVerbBubbleText(byte paletteMode, Common::Span<const byte> string, uint16 frames,
 								  uint16 forcedRows, uint16 forcedWidthExtra) {
 	if (!string.data() || string.size() == 0 || string.getUint8At(0) == 0)
@@ -2138,10 +2119,6 @@ bool Graphics::showVerbBubbleText(byte paletteMode, Common::Span<const byte> str
 	hideCursor();
 	finishConversationModal();
 	return continueModal && !modalQuitRequested(_engine);
-}
-
-uint16 Graphics::ask(uint16 left, uint16 top, byte width, byte height, byte *string, uint16 *selectedIndex) {
-	return ask(left, top, width, height, Logic::textSpan(string), selectedIndex);
 }
 
 uint16 Graphics::ask(uint16 left, uint16 top, byte width, byte height, Common::Span<const byte> string, uint16 *selectedIndex) {
@@ -2291,13 +2268,6 @@ void Graphics::paintSpeechBubbleColumn(Sprite *top, Sprite *fill, Common::Point 
 		paint(fill, point, dest, kPaintPositionIsTop);
 		point.y += 6;
 	}
-}
-
-Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, const byte *string, Surface *bubble,
-										   SpeechBubbleMode mode, bool renderText, uint16 forcedRows,
-										   uint16 forcedWidthExtra) {
-	return paintSpeechInBubble(pos, colour, Logic::textSpan(string), bubble, mode, renderText,
-							   forcedRows, forcedWidthExtra);
 }
 
 Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, Common::Span<const byte> string, Surface *bubble,
@@ -2586,18 +2556,6 @@ Common::Rect Graphics::paintSpeechInBubble(Common::Point pos, byte colour, Commo
 	return rect;
 }
 
-Common::Rect Graphics::paintText(uint16 left, uint16 top, byte colour, const byte *string) {
-	return paintText(left, top, colour, Logic::textSpan(string));
-}
-
-Common::Rect Graphics::textMetrics(const byte *string, uint16 *lines, uint16 left, uint16 top) {
-	return textMetrics(Logic::textSpan(string), lines, left, top);
-}
-
-Common::Rect Graphics::paintText(uint16 left, uint16 top, byte colour, const byte *string, Surface *dest, uint16 *_lines, uint8 firstLineExtraIndent, int flags) {
-	return paintText(left, top, colour, Logic::textSpan(string), dest, _lines, firstLineExtraIndent, flags);
-}
-
 Common::Rect Graphics::paintText(uint16 left, uint16 top, byte colour, Common::Span<const byte> string, Surface *dest, uint16 *_lines, uint8 firstLineExtraIndent, int flags) {
 	uint16 current_left = left + firstLineExtraIndent;
 	uint16 current_top = top;
@@ -2666,10 +2624,6 @@ Common::Rect Graphics::paintText(uint16 left, uint16 top, byte colour, Common::S
 	return Common::Rect(left, top, max_left, current_top + kLineHeight);
 }
 
-Common::Rect Graphics::paintTextOneDirty(uint16 left, uint16 top, byte colour, const byte *string) {
-	return paintTextOneDirty(left, top, colour, Logic::textSpan(string));
-}
-
 Common::Rect Graphics::paintTextOneDirty(uint16 left, uint16 top, byte colour, Common::Span<const byte> string) {
 	Common::Rect rect = paintText(left, top, colour, string, _framebuffer.get(), 0, 0, kPaintNoDirty);
 	markDirtyRect(rect);
@@ -2708,10 +2662,6 @@ void Graphics::paintStatusScreenText() {
 		paintText(it->left, it->top, it->colour,
 				  Logic::textSpan(it->text),
 				  _framebuffer.get(), 0, 0, kPaintNoDirty);
-}
-
-void Graphics::paintMotionText(const byte *stream, uint16 length) {
-	paintMotionText(stream ? Common::Span<const byte>(stream, length) : Common::Span<const byte>());
 }
 
 void Graphics::paintMotionText(Common::Span<const byte> stream) {
@@ -2771,10 +2721,6 @@ void Graphics::paintMotionText(Common::Span<const byte> stream) {
 	}
 }
 
-uint16 Graphics::plainTextLineWidth(const byte *string) const {
-	return plainTextLineWidth(Logic::textSpan(string));
-}
-
 uint16 Graphics::plainTextLineWidth(Common::Span<const byte> string) const {
 	uint16 total = 0;
 	for (uint32 pos = 0; string.data() && pos < string.size(); ++pos) {
@@ -2786,10 +2732,6 @@ uint16 Graphics::plainTextLineWidth(Common::Span<const byte> string) const {
 		total += getGlyphWidth(ch);
 	}
 	return total;
-}
-
-Common::Rect Graphics::paintPlainTextLine(uint16 left, uint16 top, byte colour, const byte *string, bool markDirty) {
-	return paintPlainTextLine(left, top, colour, Logic::textSpan(string), markDirty);
 }
 
 Common::Rect Graphics::paintPlainTextLine(uint16 left, uint16 top, byte colour, Common::Span<const byte> string, bool markDirty) {
@@ -2845,10 +2787,6 @@ byte Graphics::clampChar(byte ch) const {
 	if (ch <= '~')
 		return ch;
 	return '?';
-}
-
-uint16 Graphics::calculateLineWidth(const byte *string) const {
-	return calculateLineWidth(Logic::textSpan(string));
 }
 
 uint16 Graphics::calculateLineWidth(Common::Span<const byte> string) const {
@@ -3411,15 +3349,21 @@ bool Graphics::fadeOut(FadeFlags f) {
 	return true;
 }
 
-void Graphics::say(const byte *text, uint16 length, uint16 frames) {
+void Graphics::say(Common::Span<const byte> text, uint16 frames) {
 	// Default narrator position/color = top-left, color 235. Op_47/0x48
 	// use sayAt() instead.
-	sayAt(text, length, frames, 0, 0, 235);
+	sayAt(text, frames, 0, 0, 235);
 }
 
-static Common::Array<Common::String> paginateSpeechText(const byte *text, uint16 length, uint16 maxLines) {
+static Common::Array<Common::String> paginateSpeechText(Common::Span<const byte> text, uint16 maxLines) {
 	Common::Array<Common::String> pages;
-	Common::String full(reinterpret_cast<const char *>(text), length);
+	Common::String full;
+	for (uint32 i = 0; text.data() && i < text.size(); ++i) {
+		const byte ch = text.getUint8At(i);
+		if (ch == 0)
+			break;
+		full += char(ch);
+	}
 	if (maxLines == 0) {
 		pages.push_back(full);
 		return pages;
@@ -3450,10 +3394,10 @@ static Common::Array<Common::String> paginateSpeechText(const byte *text, uint16
 	return pages;
 }
 
-void Graphics::sayAt(const byte *text, uint16 length, uint16 frames,
+void Graphics::sayAt(Common::Span<const byte> text, uint16 frames,
 					 uint16 x, uint16 y, byte color, uint16 maxLines,
 					 SpeechBubbleMode bubbleMode, bool forceBubble) {
-	Common::Array<Common::String> pages = paginateSpeechText(text, length, maxLines);
+	Common::Array<Common::String> pages = paginateSpeechText(text, maxLines);
 	bool started = false;
 	for (uint i = 0; i < pages.size(); ++i) {
 		SpeechEntry e;
