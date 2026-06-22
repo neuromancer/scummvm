@@ -81,23 +81,22 @@ public:
 	/**
 	 * Load an image. Automatically consult maps to choose the right file.
 	 * @param index image index,
-	 * @param target buffer,
-	 * @param size of the image,
+	 * @param target image output buffer,
 	 * @param palette optional buffer to read the palette to (size 0x300).
 	 */
-	void loadImage(uint16 index, byte *target, uint32 size, byte *palette = 0) const;
+	void loadImage(uint16 index, Common::Span<byte> target, Common::Span<byte> palette = Common::Span<byte>()) const;
 
 	/**
 	 * Loads an image given index.
 	 * @returns pointer to the image. Please don't delete it, Resources owns it.
 	 */
 	Image *loadImage(uint16 index) const;
-	void loadTune(uint16 index, byte *target) const;
+	void loadTune(uint16 index, Common::Span<byte> target) const;
 
 	Common::ReadStream *tuneStream(uint16 index) const;
 
-	void loadInterfaceImage(byte *target, byte *palette = 0) {
-		loadImage(_main.get()->interfaceImageIndex(), target, 0x3c00, palette);
+	void loadInterfaceImage(Common::Span<byte> target, Common::Span<byte> palette = Common::Span<byte>()) {
+		loadImage(_main.get()->interfaceImageIndex(), target, palette);
 	}
 
 	uint16 blockOfRoom(uint16 room) const;
@@ -113,7 +112,7 @@ public:
 	void setGlobalWord(uint16 wordIndex, uint16 value) const;
 	uint16 globalWordAtByteOffset(uint16 byteOffset) const;
 
-	Surface *loadBackdrop(uint16 index, byte *palette);
+	Surface *loadBackdrop(uint16 index, Common::Span<byte> palette);
 
 	Common::Span<byte> mainData() const;
 	/* initial entry point offset */
@@ -136,8 +135,8 @@ public:
 	MainDat *mainDat() const { return _main.get(); }
 	MapFile *graphicsMap() const { return _graphicsMap.get(); }
 
-	static void decodeImage(Common::ReadStream *stream, byte *target, uint32 size);
-	static void readPalette(Common::ReadStream *stream, byte *palette);
+	static void decodeImage(Common::ReadStream *stream, Common::Span<byte> target);
+	static void readPalette(Common::ReadStream *stream, Common::Span<byte> palette);
 
 private:
 	MapFile *tuneMap() const { return _tuneMap.get(); }

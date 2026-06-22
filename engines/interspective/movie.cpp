@@ -114,10 +114,10 @@ bool Movie::loadKeyFrame() {
 		return false;
 	}
 
-	Resources::decodeImage(_f.get(), reinterpret_cast<byte *>(_s.getPixels()), w * h);
+	Resources::decodeImage(_f.get(), Common::Span<byte>(reinterpret_cast<byte *>(_s.getPixels()), w * h));
 
 	(void)_f->readByte();
-	Resources::readPalette(_f.get(), _pal);
+	Resources::readPalette(_f.get(), Common::Span<byte>(_pal, sizeof(_pal)));
 	if (_f->eos() || _f->err()) {
 		debugC(1, kDebugLevelGraphics, "movie key frame read failed");
 		return false;

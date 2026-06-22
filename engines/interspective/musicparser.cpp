@@ -832,7 +832,7 @@ enum {
 
 Tune::Tune(uint16 index) {
 	memset(_data, 0, sizeof(_data));
-	Res.loadTune(index, _data);
+	Res.loadTune(index, Common::Span<byte>(_data, sizeof(_data)));
 
 	const Common::Span<const byte> tuneData(_data, sizeof(_data));
 	uint16 nbeats = tuneData.getUint16LEAt(kTuneBeatCountOffset);

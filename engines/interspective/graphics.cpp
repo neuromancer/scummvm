@@ -582,7 +582,8 @@ void Graphics::loadInterface() {
 	debugC(1, kDebugLevelGraphics, "loading interface");
 	_interface = new Surface;
 	_interface->create(320, 50);
-	_resources->loadInterfaceImage(reinterpret_cast<byte *>(_interface->getPixels()), _interfacePalette);
+	_resources->loadInterfaceImage(Common::Span<byte>(reinterpret_cast<byte *>(_interface->getPixels()), 0x3c00),
+								   Common::Span<byte>(_interfacePalette, sizeof(_interfacePalette)));
 }
 
 void Graphics::prepareInterfacePalette() {
@@ -987,7 +988,7 @@ void Graphics::paintCursorObjectName() {
 
 void Graphics::setBackdrop(uint16 id) {
 	byte palette[0x300];
-	_backdrop = Common::SharedPtr<Surface>(_resources->loadBackdrop(id, palette));
+	_backdrop = Common::SharedPtr<Surface>(_resources->loadBackdrop(id, Common::Span<byte>(palette, sizeof(palette))));
 	setPalette(palette, 0, 256);
 	_conversationPaletteRestorePending = false;
 	prepareInterfacePalette();
@@ -1006,9 +1007,9 @@ void Graphics::clearBackdrop(byte colour) {
 
 void Graphics::loadGraphicPalette(uint16 id) {
 	byte palette[0x300];
-	byte *scratch = new byte[320 * 200];
-	_resources->loadImage(id, scratch, 320 * 200, palette);
-	delete[] scratch;
+	Common::Array<byte> scratch(320 * 200);
+	_resources->loadImage(id, Common::Span<byte>(scratch.data(), scratch.size()),
+						  Common::Span<byte>(palette, sizeof(palette)));
 	setPalette(palette, 0, 256);
 }
 

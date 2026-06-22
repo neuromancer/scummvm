@@ -282,16 +282,17 @@ Common::ReadStream *Resources::tuneStream(uint16 index) const {
 	return file;
 }
 
-void Resources::readPalette(Common::ReadStream *stream, byte *palette) {
-	stream->read(palette, 3 * 256);
+void Resources::readPalette(Common::ReadStream *stream, Common::Span<byte> palette) {
+	assert(palette.size() >= 3 * 256);
+	stream->read(palette.data(), 3 * 256);
 }
 
-void Resources::loadImage(uint16 index, byte *target, uint32 size, byte *palette) const {
+void Resources::loadImage(uint16 index, Common::Span<byte> target, Common::Span<byte> palette) const {
 	Common::ReadStream *file = imageStream(index);
 	(void)file->readUint16LE();
 	(void)file->readUint16LE(); // we know size alright
 
-	decodeImage(file, target, size);
+	decodeImage(file, target);
 
 	if (!palette)
 		return;
@@ -309,24 +310,26 @@ Image *Resources::loadImage(uint16 index) const {
 	Common::SharedPtr<Image> img(new Image);
 	img->create(320, 200);
 	assert(img->pitch == 320);
-	loadImage(index, reinterpret_cast<byte *>(img->getPixels()), 320 * 200);
+	loadImage(index, Common::Span<byte>(reinterpret_cast<byte *>(img->getPixels()), 320 * 200));
 	_imageCache[index] = img;
 	return img.get();
 }
 
-void Resources::loadTune(uint16 index, byte *target) const {
+void Resources::loadTune(uint16 index, Common::Span<byte> target) const {
 	Common::ReadStream *file = tuneStream(index);
 	// Tune buffers are sized at Tune::kTuneBufferSize (0x8000). The DOS engine reads up to its
 	// full buffer length here too — actual tune size varies and isn't stored in the index.
-	file->read(target, 0x8000);
+	assert(target.size() >= 0x8000);
+	file->read(target.data(), 0x8000);
 }
 
-void Resources::decodeImage(Common::ReadStream *stream, byte *target, uint32 size) {
+void Resources::decodeImage(Common::ReadStream *stream, Common::Span<byte> target) {
 	enum {
 		kRunFlag = 0xc0
 	};
 
-	while (size) {
+	uint32 pos = 0;
+	while (pos < target.size()) {
 		byte color = stream->readByte();
 
 		uint8 runLength = 1;
@@ -336,8 +339,8 @@ void Resources::decodeImage(Common::ReadStream *stream, byte *target, uint32 siz
 		}
 
 		for (; runLength; runLength--) {
-			*(target++) = color;
-			if (!--size)
+			target[pos++] = color;
+			if (pos == target.size())
 				return;
 		}
 	}
@@ -377,7 +380,7 @@ uint16 Resources::mainRoomLoopEntryPoint() const {
 	return _main.get()->getRoomLoopEntryPoint();
 }
 
-Surface *Resources::loadBackdrop(uint16 index, byte *palette) {
+Surface *Resources::loadBackdrop(uint16 index, Common::Span<byte> palette) {
 	Common::ReadStream *stream = imageStream(index);
 
 	uint16 width = stream->readUint16LE();
@@ -388,7 +391,7 @@ Surface *Resources::loadBackdrop(uint16 index, byte *palette) {
 	assert(backdrop->pitch == width);
 
 	const uint32 imageSize = uint32(width) * uint32(height);
-	decodeImage(stream, reinterpret_cast<byte *>(backdrop->getPixels()), imageSize);
+	decodeImage(stream, Common::Span<byte>(reinterpret_cast<byte *>(backdrop->getPixels()), imageSize));
 
 	stream->readByte(); // skip zero
 
