@@ -20,12 +20,13 @@
  */
 
 #include "mads/core/game.h"
+#include "mads/core/mcga.h"
+#include "mads/core/pal.h"
 #include "mads/nebular/global.h"
 #include "mads/nebular/nebular.h"
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section3.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
@@ -45,7 +46,7 @@ static Scratch local;
 
 
 static void setRightView(int view) {
-	if (local._rightItemId < 8) _scene->_sequences.remove(_globals._sequenceIndexes[10]);
+	if (local._rightItemId < 8) kernel_seq_delete(g_sequence_ids[10]);
 
 	int spriteNum;
 	switch (view) {
@@ -71,29 +72,29 @@ static void setRightView(int view) {
 	}
 
 	if (view != 8) {
-		_globals._sequenceIndexes[10] = _scene->_sequences.startCycle(_globals._spriteIndexes[spriteNum], false, 1);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[10], 0);
+		g_sequence_ids[10] = kernel_seq_stamp(g_sprite_ids[spriteNum], false, 1);
+		kernel_seq_depth(g_sequence_ids[10], 0);
 	}
 
-	_globals[kRightView320] = local._rightItemId = view;
+	global[kRightView320] = local._rightItemId = view;
 }
 
 static void setLeftView(int view) {
 	if (local._leftItemId < 10)
-		_scene->_sequences.remove(_globals._sequenceIndexes[0]);
+		kernel_seq_delete(g_sequence_ids[0]);
 
 	if (view != 10) {
-		_globals._sequenceIndexes[0] = _scene->_sequences.addReverseSpriteCycle(_globals._spriteIndexes[view], false, 6, 0, 0, 18);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[0], 0);
+		g_sequence_ids[0] = kernel_seq_backward(g_sprite_ids[view], false, 6, 18, 0, 0);
+		kernel_seq_depth(g_sequence_ids[0], 0);
 		if (!local._blinkFl)
-			_scene->_sequences.setAnimRange(_globals._sequenceIndexes[0], 2, 2);
+			kernel_seq_range(g_sequence_ids[0], 2, 2);
 	}
 
 	local._leftItemId = view;
 }
 
 static void handleButtons() {
-	switch (_action._activeAction._objectNameId) {
+	switch (player2.words[1]) {
 	case 0x2DD:
 		local._buttonId = 5;
 		break;
@@ -173,32 +174,32 @@ static void room_320_init() {
 	local._lastFrame = 0;
 
 	for (int i = 0; i < 10; i++)
-		_globals._spriteIndexes[i] = _scene->_sprites.addSprites(formAnimName('M', i));
+		g_sprite_ids[i] = kernel_load_series(kernel_name('M', i), 0);
 
 	for (int i = 0; i < 8; i++)
-		_globals._spriteIndexes[10 + i] = _scene->_sprites.addSprites(formAnimName('N', i));
+		g_sprite_ids[10 + i] = kernel_load_series(kernel_name('N', i), 0);
 
-	_globals._spriteIndexes[18] = _scene->_sprites.addSprites("*REXHAND");
-	_game._player._visible = false;
+	g_sprite_ids[18] = kernel_load_series("*REXHAND", 0);
+	player.walker_visible = false;
 
-	setRightView(_globals[kRightView320]);
+	setRightView(global[kRightView320]);
 	setLeftView(0);
 
-	_vm->_palette->setEntry(252, 63, 30, 20);
-	_vm->_palette->setEntry(253, 45, 15, 10);
+	pal_change_color(252, 63, 30, 20);
+	pal_change_color(253, 45, 15, 10);
 
 	section_3_music();
 }
 
 static void room_320_daemon() {
-	if (_scene->_animation[0] != nullptr) {
-		if (local._lastFrame != _scene->_animation[0]->getCurrentFrame()) {
-			local._lastFrame = _scene->_animation[0]->getCurrentFrame();
+	if (kernel_anim[0].anim != nullptr) {
+		if (local._lastFrame != kernel_anim[0].frame) {
+			local._lastFrame = kernel_anim[0].frame;
 			switch (local._lastFrame) {
 			case 95:
 				local._blinkFl = true;
 				setLeftView(9);
-				_vm->_sound->command(41);
+				g_engine->_soundManager->command(41, 0);
 				break;
 
 			case 139:
@@ -207,13 +208,13 @@ static void room_320_daemon() {
 				break;
 
 			case 191:
-				_scene->_kernelMessages.add(Common::Point(1, 1), 0xFDFC, 0, 0, 60, _game.getQuote(0xFE));
+				kernel_message_add(quote_string(kernel.quotes, 0xFE), 1, 1, 0xFDFC, 60, 0, 0);
 				break;
 
 			case 417:
 			case 457:
-				_vm->_screen->_shakeCountdown = 40;
-				_vm->_sound->command(59);
+				mcga_shakes = 40;
+				g_engine->_soundManager->command(59, 0);
 				break;
 
 			case 430:
@@ -227,77 +228,77 @@ static void room_320_daemon() {
 		}
 	}
 
-	if (_game._trigger == 70) {
-		_globals[kAfterHavoc] = true;
-		_globals[kTeleporterRoom + 1] = 351;
-		_scene->_nextSceneId = 361;
+	if (kernel.trigger == 70) {
+		global[kAfterHavoc] = true;
+		global[kTeleporterRoom + 1] = 351;
+		new_room = 361;
 	}
 }
 
 static void room_320_parser() {
-	if (_action._lookFlag)
-		_vm->_dialogs->show(32011);
+	if (player.look_around)
+		text_show(32011);
 	else if ((player_said_1(press) || player_said_1(push)) &&
 		(player_said_1(left_1_key) || player_said_1(left_2_key) || player_said_1(left_3_key) || player_said_1(left_4_key) ||
 			player_said_1(green_button) || player_said_1(red_button) || player_said_1(right_1_key) || player_said_1(right_2_key) ||
 			player_said_1(right_3_key) || player_said_1(right_4_key) || player_said_1(right_5_key) || player_said_1(right_6_key) ||
 			player_said_1(right_7_key) || player_said_1(right_8_key)
 			)) {
-		switch (_game._trigger) {
+		switch (kernel.trigger) {
 		case 0:
-			_game._player._stepEnabled = false;
+			player.commands_allowed = false;
 			handleButtons();
-			_globals._sequenceIndexes[18] = _scene->_sequences.startPingPongCycle(_globals._spriteIndexes[18], local._flippedFl, 4, 2, 0, 0);
-			_scene->_sequences.setScale(_globals._sequenceIndexes[18], 60);
-			_scene->_sequences.setPosition(_globals._sequenceIndexes[18], Common::Point(local._posX, 170));
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[18], 0);
-			_scene->_sequences.addSubEntry(_globals._sequenceIndexes[18], SEQUENCE_TRIGGER_LOOP, 0, 1);
-			_scene->_sequences.addSubEntry(_globals._sequenceIndexes[18], SEQUENCE_TRIGGER_EXPIRE, 0, 2);
+			g_sequence_ids[18] = kernel_seq_pingpong(g_sprite_ids[18], local._flippedFl, 4, 0, 0, 2);
+			kernel_seq_scale(g_sequence_ids[18], 60);
+			kernel_seq_loc(g_sequence_ids[18], local._posX, 170);
+			kernel_seq_depth(g_sequence_ids[18], 0);
+			kernel_seq_trigger(g_sequence_ids[18], KERNEL_TRIGGER_LOOP, 0, 1);
+			kernel_seq_trigger(g_sequence_ids[18], KERNEL_TRIGGER_EXPIRE, 0, 2);
 			break;
 
 		case 1:
 			if (local._buttonId >= 6) {
-				_vm->_sound->command(60);
+				g_engine->_soundManager->command(60, 0);
 				setRightView(local._buttonId - 6);
 			}
 			if (local._buttonId == 4) {
-				_vm->_sound->command(38);
+				g_engine->_soundManager->command(38, 0);
 				if (local._leftItemId == 3)
 					setLeftView(0);
 				else
 					setLeftView(3);
 			}
 			if (local._buttonId == 5) {
-				_vm->_sound->command(38);
+				g_engine->_soundManager->command(38, 0);
 				if (local._leftItemId == 1)
 					setLeftView(2);
 				else
 					setLeftView(1);
 			}
 			if (local._buttonId <= 3) {
-				_vm->_sound->command(60);
+				g_engine->_soundManager->command(60, 0);
 				setLeftView(local._buttonId + 5);
 			}
 			break;
 
 		case 2:
-			_game._player._stepEnabled = true;
+			player.commands_allowed = true;
 			if (local._buttonId == 5) {
 				if (local._leftItemId == 2) {
-					_game._player._stepEnabled = false;
+					player.commands_allowed = false;
 					setRightView(8);
 					setLeftView(10);
-					_scene->_kernelMessages.reset();
-					_scene->resetScene();
-					_globals._spriteIndexes[2] = _scene->_sprites.addSprites(formAnimName('m', 2));
-					_globals._spriteIndexes[4] = _scene->_sprites.addSprites(formAnimName('m', 4));
-					_globals._spriteIndexes[9] = _scene->_sprites.addSprites(formAnimName('m', 9));
+					kernel_message_purge();
+					kernel_dump_all();
+					g_sprite_ids[2] = kernel_load_series(kernel_name('m', 2), 0);
+					g_sprite_ids[4] = kernel_load_series(kernel_name('m', 4), 0);
+					g_sprite_ids[9] = kernel_load_series(kernel_name('m', 9), 0);
 					local._blinkFl = false;
 					setLeftView(2);
-					_game.loadQuoteSet(0xFE, 0);
-					_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-					_scene->loadAnimation(formAnimName('a', -1), 70);
-					_vm->_sound->command(17);
+					kernel.quotes = quote_load(0xFE, 0);
+					kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+					kernel_run_animation(kernel_name('a', -1), 70);
+					g_engine->_soundManager->command(17, 0);
 				}
 			}
 			break;
@@ -306,43 +307,43 @@ static void room_320_parser() {
 			break;
 		}
 	} else if (player_said_2(leave, security_station))
-		_scene->_nextSceneId = 311;
+		new_room = 311;
 	else if (player_said_2(look, right_monitor))
-		_vm->_dialogs->show(32001);
+		text_show(32001);
 	else if (player_said_2(look, left_monitor))
-		_vm->_dialogs->show(32002);
+		text_show(32002);
 	else if (player_said_2(look, desk))
-		_vm->_dialogs->show(32003);
+		text_show(32003);
 	else if (player_said_2(look, security_station))
-		_vm->_dialogs->show(32004);
+		text_show(32004);
 	else if (player_said_2(look, mug))
-		_vm->_dialogs->show(32005);
+		text_show(32005);
 	else if (player_said_2(look, doughnut))
-		_vm->_dialogs->show(32006);
+		text_show(32006);
 	else if (player_said_2(look, magazine))
-		_vm->_dialogs->show(32007);
+		text_show(32007);
 	else if (player_said_2(look, paper_football))
-		_vm->_dialogs->show(32008);
+		text_show(32008);
 	else if (player_said_2(look, newspaper))
-		_vm->_dialogs->show(32009);
+		text_show(32009);
 	else if (player_said_2(look, clipboard))
-		_vm->_dialogs->show(32010);
+		text_show(32010);
 	else if (player_said_2(take, mug))
-		_vm->_dialogs->show(32012);
+		text_show(32012);
 	else if (player_said_2(take, clipboard))
-		_vm->_dialogs->show(32013);
+		text_show(32013);
 	else if (player_said_2(take, doughnut) || player_said_2(eat, doughnut))
-		_vm->_dialogs->show(32014);
+		text_show(32014);
 	else if (player_said_2(take, paper_football))
-		_vm->_dialogs->show(32015);
+		text_show(32015);
 	else if (player_said_2(take, magazine))
-		_vm->_dialogs->show(32016);
+		text_show(32016);
 	else if (player_said_2(take, newspaper))
-		_vm->_dialogs->show(32017);
+		text_show(32017);
 	else
 		return;
 
-	_action._inProgress = false;
+	player.command_ready = false;
 }
 
 void room_320_synchronize(Common::Serializer &s) {

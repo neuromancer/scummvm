@@ -26,6 +26,9 @@ For a more comprehensive changelog of the latest experimental code, see:
      devices.
    - Switched Nuked-OPL3 AdLib emulator to Nuked-OPL3-fast fork.
 
+ AWE:
+   - Fix sound code crash in OpenBSD
+
  Bagel:
    - Fix saving options for Hodj n' Podj's Th Gesng Gme.
 
@@ -47,7 +50,8 @@ For a more comprehensive changelog of the latest experimental code, see:
    - Fix M&M1 spelling mistakes.
    - Improved M&M1 Enhanced mouse support, character generation, and general in-game UI.
    - Fixed cutscene subtitle rendering.
-   - Added Xeen French translation
+   - Added Xeen French translation.
+   - Fix Pharoah voice line repeating in Dark Side of Xeen intro
 
  NANCY:
    - Generic flags are no longer cleared when saving or auto-saving. Clearing

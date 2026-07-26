@@ -19,317 +19,319 @@
  *
  */
 
+#include "mads/core/config.h"
 #include "mads/core/game.h"
 #include "mads/nebular/global.h"
 #include "mads/nebular/nebular.h"
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section8.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
 namespace Rooms {
 
 static void room_803_init() {
-	_globals[kBetweenRooms] = false;
-	_game._player._visible = false;
-	_globals._spriteIndexes[1] = _scene->_sprites.addSprites(formAnimName('f', 1));
-	_globals._spriteIndexes[9] = _scene->_sprites.addSprites("*RXMBD_2");
-	_globals._spriteIndexes[6] = _scene->_sprites.addSprites(formAnimName('d', 1));
+	global[kBetweenRooms] = false;
+	player.walker_visible = false;
+	g_sprite_ids[1] = kernel_load_series(kernel_name('f', 1), 0);
+	g_sprite_ids[9] = kernel_load_series("*RXMBD_2", 0);
+	g_sprite_ids[6] = kernel_load_series(kernel_name('d', 1), 0);
 
-	_game.loadQuoteSet(0x31B, 0x31C, 0x31D, 0x31E, 0x31F, 0x320, 0x321, 0x322, 0);
+	kernel.quotes = quote_load(0x31B, 0x31C, 0x31D, 0x31E, 0x31F, 0x320, 0x321, 0x322, 0);
 
-	if (_globals[kHoppyDead]) {
-		_globals._spriteIndexes[7] = _scene->_sprites.addSprites(formAnimName('e', 1));
-		_globals._sequenceIndexes[7] = _scene->_sequences.startCycle(_globals._spriteIndexes[7], false, 1);
-		int idx = _scene->_dynamicHotspots.add(words_guts, words_walkto, _globals._sequenceIndexes[7], Common::Rect(0, 0, 0, 0));
-		_scene->_dynamicHotspots.setPosition(idx, Common::Point(66, 123), FACING_SOUTH);
+	if (global[kHoppyDead]) {
+		g_sprite_ids[7] = kernel_load_series(kernel_name('e', 1), 0);
+		g_sequence_ids[7] = kernel_seq_stamp(g_sprite_ids[7], false, 1);
+		int idx = kernel_add_dynamic(words_guts, words_walkto, 0, g_sequence_ids[7], 0, 0, 0, 0);
+		kernel_dynamic_walk(idx, 66, 123, FACING_SOUTH);
 	}
 
-	if (!_globals[kBeamIsUp] && !_globals[kReturnFromCut] && (!_globals[kFromCockpit] || _globals[kExitShip])) {
-		_globals._sequenceIndexes[1] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[1], false, 8, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[1], 2, 2);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[1], 1);
+	if (!global[kBeamIsUp] && !global[kReturnFromCut] && (!global[kFromCockpit] || global[kExitShip])) {
+		g_sequence_ids[1] = kernel_seq_forward(g_sprite_ids[1], false, 8, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[1], 2, 2);
+		kernel_seq_depth(g_sequence_ids[1], 1);
 	}
 
-	if (!_globals[kFromCockpit]) {
-		if (!_globals[kReturnFromCut]) {
-			if (_scene->_priorSceneId != RETURNING_FROM_DIALOG) {
-				_game._player._playerPos = Common::Point(15, 130);
-				_game._player._facing = FACING_EAST;
+	if (!global[kFromCockpit]) {
+		if (!global[kReturnFromCut]) {
+			if (previous_room != KERNEL_RESTORING_GAME) {
+				player.x = 15;
+				player.y = 130;
+				player.facing = FACING_EAST;
 			}
-			_game._player._visible = true;
-		} else if (!_globals[kBeamIsUp]) {
-			_globals._spriteIndexes[3] = _scene->_sprites.addSprites(formAnimName('a', 1));
-			_globals._spriteIndexes[2] = _scene->_sprites.addSprites(formAnimName('a', 3));
-			_globals._spriteIndexes[4] = _scene->_sprites.addSprites(formAnimName('a', 2));
-			_game._player._visible = false;
-			_game._player._stepEnabled = false;
-			_globals._sequenceIndexes[3] = _scene->_sequences.startCycle(_globals._spriteIndexes[3], false, 1);
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[3], 15);
-			_globals._sequenceIndexes[3] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[3], false, 8, 1, 0, 0);
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[3], 1);
-			_scene->_sequences.addSubEntry(_globals._sequenceIndexes[3], SEQUENCE_TRIGGER_EXPIRE, 0, 80);
-			_vm->_sound->command(14);
+			player.walker_visible = true;
+		} else if (!global[kBeamIsUp]) {
+			g_sprite_ids[3] = kernel_load_series(kernel_name('a', 1), 0);
+			g_sprite_ids[2] = kernel_load_series(kernel_name('a', 3), 0);
+			g_sprite_ids[4] = kernel_load_series(kernel_name('a', 2), 0);
+			player.walker_visible = false;
+			player.commands_allowed = false;
+			g_sequence_ids[3] = kernel_seq_stamp(g_sprite_ids[3], false, 1);
+			kernel_seq_depth(g_sequence_ids[3], 15);
+			g_sequence_ids[3] = kernel_seq_forward(g_sprite_ids[3], false, 8, 0, 0, 1);
+			kernel_seq_depth(g_sequence_ids[3], 1);
+			kernel_seq_trigger(g_sequence_ids[3], KERNEL_TRIGGER_EXPIRE, 0, 80);
+			g_engine->_soundManager->command(14, 0);
 		}
 
-		if (_globals[kBeamIsUp] && !_globals[kReturnFromCut]) {
-			if (_globals[kForceBeamDown])
-				_game._player._visible = false;
+		if (global[kBeamIsUp] && !global[kReturnFromCut]) {
+			if (global[kForceBeamDown])
+				player.walker_visible = false;
 			else
-				_game._player._visible = true;
+				player.walker_visible = true;
 
-			_globals._spriteIndexes[5] = _scene->_sprites.addSprites(formAnimName('b', 1));
-			_vm->_sound->command(15);
-			_game._player._stepEnabled = false;
-			_globals._sequenceIndexes[5] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[5], false, 12, 1, 0, 0);
-			_scene->_sequences.setAnimRange(_globals._sequenceIndexes[5], 1, 6);
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[5], 1);
-			_scene->_sequences.addSubEntry(_globals._sequenceIndexes[5], SEQUENCE_TRIGGER_EXPIRE, 0, 100);
+			g_sprite_ids[5] = kernel_load_series(kernel_name('b', 1), 0);
+			g_engine->_soundManager->command(15, 0);
+			player.commands_allowed = false;
+			g_sequence_ids[5] = kernel_seq_forward(g_sprite_ids[5], false, 12, 0, 0, 1);
+			kernel_seq_range(g_sequence_ids[5], 1, 6);
+			kernel_seq_depth(g_sequence_ids[5], 1);
+			kernel_seq_trigger(g_sequence_ids[5], KERNEL_TRIGGER_EXPIRE, 0, 100);
 		}
-	} else if (!_globals[kExitShip]) {
-		if (!_globals[kBeamIsUp]) {
-			_globals._spriteIndexes[3] = _scene->_sprites.addSprites(formAnimName('a', 1));
-			_game._player._visible = false;
-			_game._player._stepEnabled = false;
-			_globals._sequenceIndexes[3] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[3], false, 8, 1, 0, 0);
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[3], 1);
-			_scene->_sequences.addSubEntry(_globals._sequenceIndexes[3], SEQUENCE_TRIGGER_EXPIRE, 0, 130);
-			_vm->_sound->command(14);
+	} else if (!global[kExitShip]) {
+		if (!global[kBeamIsUp]) {
+			g_sprite_ids[3] = kernel_load_series(kernel_name('a', 1), 0);
+			player.walker_visible = false;
+			player.commands_allowed = false;
+			g_sequence_ids[3] = kernel_seq_forward(g_sprite_ids[3], false, 8, 0, 0, 1);
+			kernel_seq_depth(g_sequence_ids[3], 1);
+			kernel_seq_trigger(g_sequence_ids[3], KERNEL_TRIGGER_EXPIRE, 0, 130);
+			g_engine->_soundManager->command(14, 0);
 		} else {
-			_globals._spriteIndexes[8] = _scene->_sprites.addSprites(formAnimName('c', 1));
-			_game._player._visible = false;
-			_game._player._stepEnabled = false;
-			_globals._sequenceIndexes[8] = _scene->_sequences.startCycle(_globals._spriteIndexes[8], false, 1);
-			_globals._sequenceIndexes[8] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[8], false, 8, 1, 0, 0);
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[8], 1);
-			_scene->_sequences.addSubEntry(_globals._sequenceIndexes[8], SEQUENCE_TRIGGER_EXPIRE, 0, 140);
+			g_sprite_ids[8] = kernel_load_series(kernel_name('c', 1), 0);
+			player.walker_visible = false;
+			player.commands_allowed = false;
+			g_sequence_ids[8] = kernel_seq_stamp(g_sprite_ids[8], false, 1);
+			g_sequence_ids[8] = kernel_seq_forward(g_sprite_ids[8], false, 8, 0, 0, 1);
+			kernel_seq_depth(g_sequence_ids[8], 1);
+			kernel_seq_trigger(g_sequence_ids[8], KERNEL_TRIGGER_EXPIRE, 0, 140);
 		}
 	} else {
-		_game._player._stepEnabled = false;
-		_game._player._playerPos = Common::Point(197, 96);
-		_game._player._facing = FACING_SOUTHWEST;
-		_game._player._visible = true;
-		_globals._spriteIndexes[6] = _scene->_sprites.addSprites(formAnimName('d', 1));
-		_globals._sequenceIndexes[6] = _scene->_sequences.startCycle(_globals._spriteIndexes[6], false, 19);
-		_scene->_sequences.addTimer(1, 150);
+		player.commands_allowed = false;
+		player.x = 197;
+		player.y = 96;
+		player.facing = FACING_SOUTHWEST;
+		player.walker_visible = true;
+		g_sprite_ids[6] = kernel_load_series(kernel_name('d', 1), 0);
+		g_sequence_ids[6] = kernel_seq_stamp(g_sprite_ids[6], false, 19);
+		kernel_timing_trigger(1, 150);
 	}
 
 	section_8_music();
 }
 
 static void room_803_daemon() {
-	if (_game._trigger == 120) {
-		_globals._sequenceIndexes[6] = _scene->_sequences.startCycle(_globals._spriteIndexes[6], false, 19);
-		_scene->_nextSceneId = 804;
+	if (kernel.trigger == 120) {
+		g_sequence_ids[6] = kernel_seq_stamp(g_sprite_ids[6], false, 19);
+		new_room = 804;
 	}
 
-	if (_game._trigger == 100) {
-		_globals._sequenceIndexes[1] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[1], false, 8, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[1], 2, 2);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[1], 1);
-		if (!_globals[kHoppyDead]) {
-			_globals._sequenceIndexes[5] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[5], false, 7, 1, 0, 0);
-			_scene->_sequences.setAnimRange(_globals._sequenceIndexes[5], 7, 12);
-			_scene->_sequences.addSubEntry(_globals._sequenceIndexes[5], SEQUENCE_TRIGGER_EXPIRE, 0, 101);
+	if (kernel.trigger == 100) {
+		g_sequence_ids[1] = kernel_seq_forward(g_sprite_ids[1], false, 8, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[1], 2, 2);
+		kernel_seq_depth(g_sequence_ids[1], 1);
+		if (!global[kHoppyDead]) {
+			g_sequence_ids[5] = kernel_seq_forward(g_sprite_ids[5], false, 7, 0, 0, 1);
+			kernel_seq_range(g_sequence_ids[5], 7, 12);
+			kernel_seq_trigger(g_sequence_ids[5], KERNEL_TRIGGER_EXPIRE, 0, 101);
 		} else {
-			_globals._sequenceIndexes[5] = _scene->_sequences.startCycle(_globals._spriteIndexes[5], false, -2);
-			int idx = _scene->_dynamicHotspots.add(words_guts, words_walkto, _globals._sequenceIndexes[5], Common::Rect(0, 0, 0, 0));
-			_scene->_dynamicHotspots.setPosition(idx, Common::Point(66, 123), FACING_SOUTH);
-			_vm->_sound->command(16);
-			_globals[kCameFromCut] = true;
-			_globals[kBeamIsUp] = false;
-			_globals[kReturnFromCut] = false;
-			_globals[kDontRepeat] = false;
-			_globals[kHoppyDead] = true;
-			_globals[kHasWatchedAntigrav] = true;
+			g_sequence_ids[5] = kernel_seq_stamp(g_sprite_ids[5], false, -2);
+			int idx = kernel_add_dynamic(words_guts, words_walkto, 0, g_sequence_ids[5], 0, 0, 0, 0);
+			kernel_dynamic_walk(idx, 66, 123, FACING_SOUTH);
+			g_engine->_soundManager->command(16, 0);
+			global[kCameFromCut] = true;
+			global[kBeamIsUp] = false;
+			global[kReturnFromCut] = false;
+			global[kDontRepeat] = false;
+			global[kHoppyDead] = true;
+			global[kHasWatchedAntigrav] = true;
 
-			if (_globals[kForceBeamDown])
-				_scene->_nextSceneId = _scene->_priorSceneId;
+			if (global[kForceBeamDown])
+				new_room = previous_room;
 			else
-				_game._player._stepEnabled = true;
+				player.commands_allowed = true;
 		}
 	}
 
-	if (_game._trigger == 101) {
-		_globals._sequenceIndexes[5] = _scene->_sequences.startCycle(_globals._spriteIndexes[5], false, -2);
-		int idx = _scene->_dynamicHotspots.add(words_guts, words_walkto, _globals._sequenceIndexes[5], Common::Rect(0, 0, 0, 0));
-		_scene->_dynamicHotspots.setPosition(idx, Common::Point(66, 123), FACING_SOUTH);
-		_vm->_sound->command(16);
-		_globals[kCameFromCut] = true;
-		_globals[kBeamIsUp] = false;
-		_globals[kReturnFromCut] = false;
-		_globals[kDontRepeat] = false;
-		_globals[kHoppyDead] = true;
-		_globals[kHasWatchedAntigrav] = true;
+	if (kernel.trigger == 101) {
+		g_sequence_ids[5] = kernel_seq_stamp(g_sprite_ids[5], false, -2);
+		int idx = kernel_add_dynamic(words_guts, words_walkto, 0, g_sequence_ids[5], 0, 0, 0, 0);
+		kernel_dynamic_walk(idx, 66, 123, FACING_SOUTH);
+		g_engine->_soundManager->command(16, 0);
+		global[kCameFromCut] = true;
+		global[kBeamIsUp] = false;
+		global[kReturnFromCut] = false;
+		global[kDontRepeat] = false;
+		global[kHoppyDead] = true;
+		global[kHasWatchedAntigrav] = true;
 
-		if (_globals[kForceBeamDown])
-			_scene->_nextSceneId = _scene->_priorSceneId;
+		if (global[kForceBeamDown])
+			new_room = previous_room;
 		else
-			_game._player._stepEnabled = true;
+			player.commands_allowed = true;
 	}
 
-	if (_game._trigger == 80) {
-		if (!_globals[kHoppyDead])
-			_scene->_sequences.addTimer(350, 70);
+	if (kernel.trigger == 80) {
+		if (!global[kHoppyDead])
+			kernel_timing_trigger(350, 70);
 
-		_globals._sequenceIndexes[4] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[4], false, 12, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[4], 1, 3);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[4], SEQUENCE_TRIGGER_EXPIRE, 0, 90);
+		g_sequence_ids[4] = kernel_seq_forward(g_sprite_ids[4], false, 12, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[4], 1, 3);
+		kernel_seq_trigger(g_sequence_ids[4], KERNEL_TRIGGER_EXPIRE, 0, 90);
 	}
 
-	if (_game._trigger == 70) {
-		_globals._sequenceIndexes[2] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[2], false, 8, 1, 0, 0);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[2], SEQUENCE_TRIGGER_EXPIRE, 0, 71);
-		_vm->_sound->command(31);
+	if (kernel.trigger == 70) {
+		g_sequence_ids[2] = kernel_seq_forward(g_sprite_ids[2], false, 8, 0, 0, 1);
+		kernel_seq_trigger(g_sequence_ids[2], KERNEL_TRIGGER_EXPIRE, 0, 71);
+		g_engine->_soundManager->command(31, 0);
 	}
 
-	if (_game._trigger == 71)
-		_scene->_sequences.addTimer(200, 110);
+	if (kernel.trigger == 71)
+		kernel_timing_trigger(200, 110);
 
-	if (_game._trigger == 90) {
-		int syncIdx = _globals._sequenceIndexes[4];
-		_globals._sequenceIndexes[4] = _scene->_sequences.startPingPongCycle(_globals._spriteIndexes[4], false, 15, 0, 0, 0);
-		_scene->_sequences.updateTimeout(_globals._sequenceIndexes[4], syncIdx);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[4], 4, 9);
-		if (_globals[kHoppyDead])
-			_scene->_sequences.addTimer(200, 110);
+	if (kernel.trigger == 90) {
+		int syncIdx = g_sequence_ids[4];
+		g_sequence_ids[4] = kernel_seq_pingpong(g_sprite_ids[4], false, 15, 0, 0, 0);
+		kernel_seq_timeout(syncIdx, g_sequence_ids[4]);
+		kernel_seq_range(g_sequence_ids[4], 4, 9);
+		if (global[kHoppyDead])
+			kernel_timing_trigger(200, 110);
 	}
 
-	if (_game._trigger == 110)
-		_scene->_nextSceneId = 808;
+	if (kernel.trigger == 110)
+		new_room = 808;
 
-	if (_game._trigger == 130) {
-		_globals[kBeamIsUp] = true;
-		_scene->_nextSceneId = 804;
+	if (kernel.trigger == 130) {
+		global[kBeamIsUp] = true;
+		new_room = 804;
 	}
 
-	if (_game._trigger == 140) {
-		if (!_globals[kWindowFixed]) {
-			_scene->_nextSceneId = 810;
-			_globals[kInSpace] = true;
+	if (kernel.trigger == 140) {
+		if (!global[kWindowFixed]) {
+			new_room = 810;
+			global[kInSpace] = true;
 		} else {
-			if (!_globals[kShieldModInstalled])
-				_game._winStatus = 1;
-			else if (!_globals[kTargetModInstalled])
-				_game._winStatus = 2;
+			if (!global[kShieldModInstalled])
+				win_status = WIN_QUICK_DEATH;
+			else if (!global[kTargetModInstalled])
+				win_status = WIN_SLOW_DEATH;
 			else
-				_game._winStatus = 3;
+				win_status = WIN_ALL_THE_MONEY;
 
 			game.going = false;
 			return;
 		}
 	}
 
-	if (_game._trigger == 150) {
-		_scene->_sequences.remove(_globals._sequenceIndexes[6]);
-		_vm->_sound->command(18);
-		_globals._sequenceIndexes[6] = _scene->_sequences.addReverseSpriteCycle(_globals._spriteIndexes[6], false, 8, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[6], 1, 19);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[6], 4);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[6], SEQUENCE_TRIGGER_EXPIRE, 0, 151);
+	if (kernel.trigger == 150) {
+		kernel_seq_delete(g_sequence_ids[6]);
+		g_engine->_soundManager->command(18, 0);
+		g_sequence_ids[6] = kernel_seq_backward(g_sprite_ids[6], false, 8, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[6], 1, 19);
+		kernel_seq_depth(g_sequence_ids[6], 4);
+		kernel_seq_trigger(g_sequence_ids[6], KERNEL_TRIGGER_EXPIRE, 0, 151);
 	}
 
-	if (_game._trigger == 151) {
-		_globals[kBeamIsUp] = false;
-		_globals[kFromCockpit] = false;
-		_globals[kExitShip] = false;
-		_game._player._stepEnabled = true;
+	if (kernel.trigger == 151) {
+		global[kBeamIsUp] = false;
+		global[kFromCockpit] = false;
+		global[kExitShip] = false;
+		player.commands_allowed = true;
 	}
 }
 
 static void room_803_pre_parser() {
 	if (player_said_2(walk_down, path_to_west))
-		_game._player._walkOffScreenSceneId = 802;
+		player.walk_off_edge_to_room = 802;
 
 	if (player_said_2(take, ship))
-		_game._player._needToWalk = false;
+		player.need_to_walk = false;
 }
 
 static void room_803_parser() {
 	if (player_said_2(take, guts)) {
-		switch (_game._trigger) {
+		switch (kernel.trigger) {
 		case 0:
-			_game._player._stepEnabled = false;
-			_game._player._visible = false;
-			_globals._sequenceIndexes[9] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[9], true, 6, 1, 0, 0);
-			_scene->_sequences.setAnimRange(_globals._sequenceIndexes[9], 1, 4);
-			_scene->_sequences.setMsgLayout(_globals._sequenceIndexes[9]);
-			_scene->_sequences.addSubEntry(_globals._sequenceIndexes[9], SEQUENCE_TRIGGER_EXPIRE, 0, 160);
+			player.commands_allowed = false;
+			player.walker_visible = false;
+			g_sequence_ids[9] = kernel_seq_forward(g_sprite_ids[9], true, 6, 0, 0, 1);
+			kernel_seq_range(g_sequence_ids[9], 1, 4);
+			kernel_seq_player(g_sequence_ids[9], false);
+			kernel_seq_trigger(g_sequence_ids[9], KERNEL_TRIGGER_EXPIRE, 0, 160);
 			break;
 
 		case 160:
 		{
-			int syncIdx = _globals._sequenceIndexes[9];
-			_globals._sequenceIndexes[9] = _scene->_sequences.startCycle(_globals._spriteIndexes[9], false, 4);
-			_scene->_sequences.updateTimeout(_globals._sequenceIndexes[9], syncIdx);
-			_scene->_sequences.setMsgLayout(_globals._sequenceIndexes[9]);
-			_scene->_sequences.addTimer(60, 161);
+			int syncIdx = g_sequence_ids[9];
+			g_sequence_ids[9] = kernel_seq_stamp(g_sprite_ids[9], false, 4);
+			kernel_seq_timeout(syncIdx, g_sequence_ids[9]);
+			kernel_seq_player(g_sequence_ids[9], false);
+			kernel_timing_trigger(60, 161);
 		}
 		break;
 
 		case 161:
 		{
-			int quoteId = 0x31A + _vm->getRandomNumber(1, 8);
-			_scene->_kernelMessages.add(Common::Point(64, 67), 0x1110, 32, 0, 80, _game.getQuote(quoteId));
-			_scene->_sequences.addTimer(60, 162);
+			int quoteId = 0x31A + g_engine->getRandomNumber(1, 8);
+			kernel_message_add(quote_string(kernel.quotes, quoteId), 64, 67, 0x1110, 80, 0, 32);
+			kernel_timing_trigger(60, 162);
 		}
 		break;
 
 		case 162:
-			_scene->_sequences.remove(_globals._sequenceIndexes[9]);
-			_globals._sequenceIndexes[9] = _scene->_sequences.addReverseSpriteCycle(_globals._spriteIndexes[9], true, 6, 1, 0, 0);
-			_scene->_sequences.setAnimRange(_globals._sequenceIndexes[9], 1, 4);
-			_scene->_sequences.setMsgLayout(_globals._sequenceIndexes[9]);
-			_scene->_sequences.addSubEntry(_globals._sequenceIndexes[9], SEQUENCE_TRIGGER_EXPIRE, 0, 163);
+			kernel_seq_delete(g_sequence_ids[9]);
+			g_sequence_ids[9] = kernel_seq_backward(g_sprite_ids[9], true, 6, 0, 0, 1);
+			kernel_seq_range(g_sequence_ids[9], 1, 4);
+			kernel_seq_player(g_sequence_ids[9], false);
+			kernel_seq_trigger(g_sequence_ids[9], KERNEL_TRIGGER_EXPIRE, 0, 163);
 			break;
 
 		case 163:
-			_game._player._priorTimer = _scene->_frameStartTime + _game._player._ticksAmount;
-			_game._player._visible = true;
-			_game._player._stepEnabled = true;
+			player.clock = kernel.clock + player.frame_delay;
+			player.walker_visible = true;
+			player.commands_allowed = true;
 			break;
 
 		default:
 			break;
 		}
 	} else if (player_said_2(enter, ship)) {
-		_vm->_sound->command(17);
-		_game._player._stepEnabled = false;
-		_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-		_globals._sequenceIndexes[6] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[6], false, 8, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[6], 1, 19);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[6], 4);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[6], SEQUENCE_TRIGGER_EXPIRE, 0, 120);
-		_globals[kBeamIsUp] = false;
+		g_engine->_soundManager->command(17, 0);
+		player.commands_allowed = false;
+		kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+		g_sequence_ids[6] = kernel_seq_forward(g_sprite_ids[6], false, 8, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[6], 1, 19);
+		kernel_seq_depth(g_sequence_ids[6], 4);
+		kernel_seq_trigger(g_sequence_ids[6], KERNEL_TRIGGER_EXPIRE, 0, 120);
+		global[kBeamIsUp] = false;
 	} else if (player_said_2(look, launch_pad))
-		_vm->_dialogs->show(80310);
-	else if (_action._lookFlag)
-		_vm->_dialogs->show(80310);
+		text_show(80310);
+	else if (player.look_around)
+		text_show(80310);
 	else if (player_said_2(look, pad_to_west))
-		_vm->_dialogs->show(80311);
+		text_show(80311);
 	else if (player_said_2(look, guts)) {
-		if (_game._storyMode == STORYMODE_NICE)
-			_vm->_dialogs->show(80312);
+		if (config_file.naughtiness == NICE)
+			text_show(80312);
 		else
-			_vm->_dialogs->show(80313);
+			text_show(80313);
 	} else if (player_said_2(look, bushes))
-		_vm->_dialogs->show(80315);
+		text_show(80315);
 	else if (player_said_2(look, ship))
-		_vm->_dialogs->show(80317);
+		text_show(80317);
 	else if (player_said_2(look, tower))
-		_vm->_dialogs->show(80318);
+		text_show(80318);
 	else if (player_said_2(look, tree) || player_said_2(look, trees))
-		_vm->_dialogs->show(80319);
+		text_show(80319);
 	else if (player_said_2(look, sky))
-		_vm->_dialogs->show(80320);
+		text_show(80320);
 	else if (player_said_2(take, ship))
-		_vm->_dialogs->show(80321);
+		text_show(80321);
 	else
 		return;
 
-	_action._inProgress = false;
+	player.command_ready = false;
 }
 
 void room_803_synchronize(Common::Serializer &s) {
@@ -345,11 +347,11 @@ void room_803_preload() {
 	section_8_walker();
 	section_8_interface();
 
-	_scene->addActiveVocab(words_guts);
-	_scene->addActiveVocab(words_walkto);
+	vocab_make_active(words_guts);
+	vocab_make_active(words_walkto);
 
-	if ((!_globals[kFromCockpit] && _globals[kReturnFromCut] && !_globals[kBeamIsUp])
-		|| (_globals[kFromCockpit] && !_globals[kExitShip])) {
+	if ((!global[kFromCockpit] && global[kReturnFromCut] && !global[kBeamIsUp])
+		|| (global[kFromCockpit] && !global[kExitShip])) {
 		*player.series_name = '\0';
 		player.walker_must_reload = true;
 	}

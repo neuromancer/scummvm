@@ -19,13 +19,13 @@
  *
  */
 
+#include "mads/core/config.h"
 #include "mads/core/game.h"
 #include "mads/nebular/global.h"
 #include "mads/nebular/nebular.h"
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section1.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
@@ -39,79 +39,83 @@ static Scratch local;
 
 
 static void room_105_init() {
-	_globals._spriteIndexes[1] = _scene->_sprites.addSprites(formAnimName('m', 1));
-	_globals._spriteIndexes[4] = _scene->_sprites.addSprites(formAnimName('f', 4));
-	_globals._sequenceIndexes[1] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[1], false, 8, 0, 0, 0);
+	g_sprite_ids[1] = kernel_load_series(kernel_name('m', 1), 0);
+	g_sprite_ids[4] = kernel_load_series(kernel_name('f', 4), 0);
+	g_sequence_ids[1] = kernel_seq_forward(g_sprite_ids[1], false, 8, 0, 0, 0);
 
-	if (_globals[kFishIn105]) {
-		_globals._sequenceIndexes[4] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[4], false, 6, 0, 0, 0);
-		_scene->_sequences.setPosition(_globals._sequenceIndexes[4], Common::Point(48, 144));
+	if (global[kFishIn105]) {
+		g_sequence_ids[4] = kernel_seq_forward(g_sprite_ids[4], false, 6, 0, 0, 0);
+		kernel_seq_loc(g_sequence_ids[4], 48, 144);
 
-		int idx = _scene->_dynamicHotspots.add(words_dead_fish, words_swim_to, _globals._sequenceIndexes[4], Common::Rect(0, 0, 0, 0));
-		_scene->_dynamicHotspots.setPosition(idx, Common::Point(56, 141), FACING_NORTHWEST);
+		int idx = kernel_add_dynamic(words_dead_fish, words_swim_to, 0, g_sequence_ids[4], 0, 0, 0, 0);
+		kernel_dynamic_walk(idx, 56, 141, FACING_NORTHWEST);
 	}
 
-	if (_scene->_priorSceneId == 104)
-		_game._player._playerPos = Common::Point(13, 97);
-	else if (_scene->_priorSceneId != RETURNING_FROM_DIALOG)
-		_game._player._playerPos = Common::Point(116, 147);
+	if (previous_room == 104) {
+		player.x = 13;
+		player.y = 97;
+	}
+	else if (previous_room != KERNEL_RESTORING_GAME) {
+		player.x = 116;
+		player.y = 147;
+	}
 
-	_game.loadQuoteSet(0x4A, 0x4B, 0x4C, 0x35, 0x34, 0);
+	kernel.quotes = quote_load(0x4A, 0x4B, 0x4C, 0x35, 0x34, 0);
 	local._explosionFl = false;
 
 	section_1_music();
 }
 
 static void room_105_daemon() {
-	if ((_game._player._playerPos == Common::Point(170, 87)) && (_game._trigger || !local._explosionFl)) {
+	if ((Common::Point(player.x, player.y) == Common::Point(170, 87)) && (kernel.trigger || !local._explosionFl)) {
 		local._explosionFl = true;
-		switch (_game._trigger) {
+		switch (kernel.trigger) {
 		case 0:
-			_scene->_kernelMessages.reset();
-			_scene->resetScene();
-			_game._player._stepEnabled = false;
-			_game._player._visible = false;
+			kernel_message_purge();
+			kernel_dump_all();
+			player.commands_allowed = false;
+			player.walker_visible = false;
 
-			_globals._spriteIndexes[0] = _scene->_sprites.addSprites(formAnimName('m', 0));
-			_globals._spriteIndexes[2] = _scene->_sprites.addSprites(formAnimName('m', 2));
-			_globals._spriteIndexes[3] = _scene->_sprites.addSprites(formAnimName('m', 3));
-			_vm->_sound->command(33);
-			_scene->clearSequenceList();
-			_vm->_palette->refreshSceneColors();
+			g_sprite_ids[0] = kernel_load_series(kernel_name('m', 0), 0);
+			g_sprite_ids[2] = kernel_load_series(kernel_name('m', 2), 0);
+			g_sprite_ids[3] = kernel_load_series(kernel_name('m', 3), 0);
+			g_engine->_soundManager->command(33, 0);
+			kernel_seq_init();
+			kernel_new_palette();
 
-			_globals._sequenceIndexes[0] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[0], false, 6, 1, 0, 0);
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[0], 8);
-			_scene->_sequences.addSubEntry(_globals._sequenceIndexes[0], SEQUENCE_TRIGGER_EXPIRE, 0, 1);
+			g_sequence_ids[0] = kernel_seq_forward(g_sprite_ids[0], false, 6, 0, 0, 1);
+			kernel_seq_depth(g_sequence_ids[0], 8);
+			kernel_seq_trigger(g_sequence_ids[0], KERNEL_TRIGGER_EXPIRE, 0, 1);
 
-			if (_game._storyMode >= STORYMODE_NICE)
-				_scene->_sequences.addSubEntry(_globals._sequenceIndexes[0], SEQUENCE_TRIGGER_SPRITE, 8, 3);
+			if (config_file.naughtiness >= NICE)
+				kernel_seq_trigger(g_sequence_ids[0], KERNEL_TRIGGER_SPRITE, 8, 3);
 			break;
 
 		case 1:
-			_globals._sequenceIndexes[3] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[3], false, 6, 0, 0, 0);
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[3], 8);
-			_scene->_sequences.setAnimRange(_globals._sequenceIndexes[3], -2, -2);
-			_globals._sequenceIndexes[2] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[2], false, 9, 1, 0, 0);
-			_scene->_sequences.updateTimeout(_globals._sequenceIndexes[2], _globals._sequenceIndexes[0]);
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[2], 8);
-			_scene->_sequences.setAnimRange(_globals._sequenceIndexes[2], 5, 7);
-			_scene->_sequences.addSubEntry(_globals._sequenceIndexes[2], SEQUENCE_TRIGGER_EXPIRE, 0, 2);
+			g_sequence_ids[3] = kernel_seq_forward(g_sprite_ids[3], false, 6, 0, 0, 0);
+			kernel_seq_depth(g_sequence_ids[3], 8);
+			kernel_seq_range(g_sequence_ids[3], -2, -2);
+			g_sequence_ids[2] = kernel_seq_forward(g_sprite_ids[2], false, 9, 0, 0, 1);
+			kernel_seq_timeout(g_sequence_ids[0], g_sequence_ids[2]);
+			kernel_seq_depth(g_sequence_ids[2], 8);
+			kernel_seq_range(g_sequence_ids[2], 5, 7);
+			kernel_seq_trigger(g_sequence_ids[2], KERNEL_TRIGGER_EXPIRE, 0, 2);
 			break;
 
 		case 2:
 		{
-			int oldIdx = _globals._sequenceIndexes[2];
-			_globals._sequenceIndexes[2] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[2], false, 9, 0, 0, 0);
-			_scene->_sequences.updateTimeout(_globals._sequenceIndexes[2], oldIdx);
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[2], 8);
-			_scene->_sequences.addTimer(90, 3);
+			int oldIdx = g_sequence_ids[2];
+			g_sequence_ids[2] = kernel_seq_forward(g_sprite_ids[2], false, 9, 0, 0, 0);
+			kernel_seq_timeout(oldIdx, g_sequence_ids[2]);
+			kernel_seq_depth(g_sequence_ids[2], 8);
+			kernel_timing_trigger(90, 3);
 		}
 		break;
 
 		case 3:
-			_vm->_dialogs->show(10507);
-			_scene->_reloadSceneFlag = true;
-			_scene->_sequences.addTimer(90, 4);
+			text_show(10507);
+			kernel.force_restart = true;
+			kernel_timing_trigger(90, 4);
 			break;
 
 		default:
@@ -119,65 +123,65 @@ static void room_105_daemon() {
 		}
 	}
 
-	if (_game._player._moving && (_scene->_rails.getNext() > 0)) {
-		_game._player.cancelCommand();
-		_game._player.startWalking(Common::Point(170, 87), FACING_NONE);
-		_scene->_rails.resetNext();
+	if (player.walking && (player.next_special_code > 0)) {
+		player_cancel_command();
+		player_start_walking(170, 87, FACING_NONE);
+		player.next_special_code = 0;
 	}
 
-	if ((_game._player._special > 0) && _game._player._stepEnabled)
-		_game._player._stepEnabled = false;
+	if ((player.special_code > 0) && player.commands_allowed)
+		player.commands_allowed = false;
 }
 
 static void room_105_pre_parser() {
 	if (player_said_2(swim_towards, western_cliff_face))
-		_game._player._walkOffScreenSceneId = 104;
+		player.walk_off_edge_to_room = 104;
 
 	if (player_said_2(swim_towards, open_area_to_south))
-		_game._player._walkOffScreenSceneId = 107;
+		player.walk_off_edge_to_room = 107;
 
 	if (player_said_1(mine) && (player_said_1(talkto) || player_said_1(look)))
-		_game._player._needToWalk = false;
+		player.need_to_walk = false;
 }
 
 static void room_105_parser() {
-	if (_action._lookFlag)
-		_vm->_dialogs->show(10512);
-	else if (player_said_2(take, dead_fish) && _globals[kFishIn105]) {
-		if (_game._objects.isInInventory(OBJ_DEAD_FISH)) {
-			int randVal = _vm->getRandomNumber(74, 76);
-			_scene->_kernelMessages.reset();
-			_scene->_kernelMessages.add(Common::Point(0, 0), 0x1110, 34, 0, 120, _game.getQuote(randVal));
+	if (player.look_around)
+		text_show(10512);
+	else if (player_said_2(take, dead_fish) && global[kFishIn105]) {
+		if (player_has(OBJ_DEAD_FISH)) {
+			int randVal = g_engine->getRandomNumber(74, 76);
+			kernel_message_purge();
+			kernel_message_add(quote_string(kernel.quotes, randVal), 0, 0, 0x1110, 120, 0, 34);
 		} else {
-			_scene->_sequences.remove(_globals._sequenceIndexes[4]);
-			_game._objects.addToInventory(OBJ_DEAD_FISH);
-			_globals[kFishIn105] = false;
-			_vm->_dialogs->showItem(OBJ_DEAD_FISH, 802, 0);
+			kernel_seq_delete(g_sequence_ids[4]);
+			inter_give_to_player(OBJ_DEAD_FISH);
+			global[kFishIn105] = false;
+			object_examine(OBJ_DEAD_FISH, 802, 0);
 		}
 	} else if (player_said_2(look, western_cliff_face))
-		_vm->_dialogs->show(10501);
+		text_show(10501);
 	else if (player_said_2(look, cliff_face))
-		_vm->_dialogs->show(10502);
+		text_show(10502);
 	else if (player_said_2(look, ocean_floor))
-		_vm->_dialogs->show(10503);
+		text_show(10503);
 	else if (player_said_2(look, medical_waste))
-		_vm->_dialogs->show(10504);
+		text_show(10504);
 	else if (player_said_2(take, medical_waste))
-		_vm->_dialogs->show(10505);
+		text_show(10505);
 	else if (player_said_2(look, mine))
-		_vm->_dialogs->show(10506);
+		text_show(10506);
 	else if (player_said_2(look, dead_fish))
-		_vm->_dialogs->show(10508);
+		text_show(10508);
 	else if (player_said_2(look, surface))
-		_vm->_dialogs->show(10509);
+		text_show(10509);
 	else if (player_said_2(look, open_area_to_south))
-		_vm->_dialogs->show(10510);
+		text_show(10510);
 	else if (player_said_2(look, rocks))
-		_vm->_dialogs->show(10511);
+		text_show(10511);
 	else
 		return;
 
-	_action._inProgress = false;
+	player.command_ready = false;
 }
 
 void room_105_synchronize(Common::Serializer &s) {
@@ -190,7 +194,7 @@ void room_105_preload() {
 	room_parser_code_pointer = room_105_parser;
 	room_daemon_code_pointer = room_105_daemon;
 
-	anim_himem_preload(formAnimName('A', -1), 3);
+	anim_himem_preload(kernel_name('A', -1), 3);
 
 	section_1_walker();
 	section_1_interface();

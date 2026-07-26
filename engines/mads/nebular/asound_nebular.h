@@ -27,28 +27,6 @@
 namespace MADS {
 namespace RexNebular {
 
-class RexSoundManager : public SoundManager {
-protected:
-	void loadDriver(int sectionNum) override;
-
-public:
-	RexSoundManager(Audio::Mixer *mixer, bool &soundFlag) : SoundManager(mixer, soundFlag) {
-	}
-	~RexSoundManager() override {
-	}
-
-	void validate() override;
-};
-
-class RexASound : public ASound {
-protected:
-	void channelCommand(byte *&pSrc, bool &updateFlag) override;
-
-public:
-	RexASound(Audio::Mixer *mixer, OPL::OPL *opl,
-		const Common::Path &filename, int dataOffset, int dataSize);
-};
-
 class ASound1 : public RexASound {
 private:
 	typedef int (ASound1:: *CommandPtr)();
@@ -92,7 +70,7 @@ private:
 	void command111213();
 	int command2627293032();
 public:
-	ASound1(Audio::Mixer *mixer, OPL::OPL *opl);
+	ASound1(Audio::Mixer *mixer);
 
 	int command(int commandId, int param) override;
 };
@@ -144,7 +122,7 @@ private:
 	void command9Randomize();
 	void command9Apply(byte *data, int val, int incr);
 public:
-	ASound2(Audio::Mixer *mixer, OPL::OPL *opl);
+	ASound2(Audio::Mixer *mixer);
 
 	int command(int commandId, int param) override;
 };
@@ -204,7 +182,7 @@ private:
 	void command9Randomize();
 	void command9Apply(byte *data, int val, int incr);
 public:
-	ASound3(Audio::Mixer *mixer, OPL::OPL *opl);
+	ASound3(Audio::Mixer *mixer);
 
 	int command(int commandId, int param) override;
 };
@@ -242,7 +220,7 @@ private:
 
 	void method1();
 public:
-	ASound4(Audio::Mixer *mixer, OPL::OPL *opl);
+	ASound4(Audio::Mixer *mixer);
 
 	int command(int commandId, int param) override;
 };
@@ -288,7 +266,7 @@ private:
 	int command42();
 	int command43();
 public:
-	ASound5(Audio::Mixer *mixer, OPL::OPL *opl);
+	ASound5(Audio::Mixer *mixer);
 
 	int command(int commandId, int param) override;
 };
@@ -317,7 +295,7 @@ private:
 	int command25();
 	int command29();
 public:
-	ASound6(Audio::Mixer *mixer, OPL::OPL *opl);
+	ASound6(Audio::Mixer *mixer);
 
 	int command(int commandId, int param) override;
 };
@@ -349,7 +327,7 @@ private:
 	int command36();
 	int command37();
 public:
-	ASound7(Audio::Mixer *mixer, OPL::OPL *opl);
+	ASound7(Audio::Mixer *mixer);
 
 	int command(int commandId, int param) override;
 };
@@ -392,18 +370,30 @@ private:
 	void method1(byte *pData);
 	void adjustRange(byte *pData, byte v, int incr);
 public:
-	ASound8(Audio::Mixer *mixer, OPL::OPL *opl);
+	ASound8(Audio::Mixer *mixer);
 
 	int command(int commandId, int param) override;
 };
 
 class ASound9 : public RexASound {
 private:
-	int _v1, _v2;
-	byte *_soundPtr;
+	/**
+	 * Deferred sound-loader callback state (word_1949E/word_194A0/_soundPtr
+	 * in the original disassembly). Unlike every other Rex Nebular driver,
+	 * ASound9 arms a recurring timer that re-invokes a scheduled loader
+	 * function every _callbackPeriod ticks, without ever clearing the
+	 * pointer itself (the loader body clears it if it wants the recurrence
+	 * to stop).
+	 */
+	typedef void (ASound9:: *CallbackFunction)();
+	int _callbackCounter;
+	int _callbackPeriod;
+	CallbackFunction _callbackFnPtr;
 
 	typedef int (ASound9:: *CommandPtr)();
 	static const CommandPtr _commandList[52];
+
+	void tickCallback() override;
 
 	int command9();
 	int command10();
@@ -447,11 +437,19 @@ private:
 	int command49();
 	int command50();
 	int command51();
-	int command57();
-	int command59();
-	int command60();
+
+	// Deferred loader bodies, scheduled via _callbackFnPtr by the commands above
+	void loadCommand38();
+	void loadCommand39();
+	void loadCommand40();
+	void loadCommand41();
+	void loadCommand42();
+	void loadCommand44_46();
+	void loadCommand45();
+	void loadCommand47();
+	void loadCommand50();
 public:
-	ASound9(Audio::Mixer *mixer, OPL::OPL *opl);
+	ASound9(Audio::Mixer *mixer);
 
 	int command(int commandId, int param) override;
 };

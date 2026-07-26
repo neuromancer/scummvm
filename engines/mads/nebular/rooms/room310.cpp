@@ -26,7 +26,6 @@
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section3.h"
 #include "mads/nebular/rooms/forcefield.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
@@ -40,29 +39,29 @@ static Scratch local;
 
 
 static void room_310_init() {
-	_globals._spriteIndexes[1] = _scene->_sprites.addSprites("*SC003x0");
-	_globals._spriteIndexes[0] = _scene->_sprites.addSprites("*SC003x1");
-	_globals._spriteIndexes[2] = _scene->_sprites.addSprites("*SC003x2");
+	g_sprite_ids[1] = kernel_load_series("*SC003x0", 0);
+	g_sprite_ids[0] = kernel_load_series("*SC003x1", 0);
+	g_sprite_ids[2] = kernel_load_series("*SC003x2", 0);
 
 	init_forcefield(&local._forcefield, true);
 
-	_globals._spriteIndexes[3] = _scene->_sprites.addSprites(Resources::formatName(307, 'X', 0, EXT_SS, ""));
-	_globals._sequenceIndexes[3] = _scene->_sequences.startCycle(_globals._spriteIndexes[3], false, 1);
-	_scene->_sequences.setPosition(_globals._sequenceIndexes[3], Common::Point(127, 78));
-	_scene->_sequences.setDepth(_globals._sequenceIndexes[3], 15);
+	g_sprite_ids[3] = kernel_load_series(kernel_full_name(307, 'X', 0, "", KERNEL_SS), 0);
+	g_sequence_ids[3] = kernel_seq_stamp(g_sprite_ids[3], false, 1);
+	kernel_seq_loc(g_sequence_ids[3], 127, 78);
+	kernel_seq_depth(g_sequence_ids[3], 15);
 
-	_game._player._visible = false;
-	_game._player._stepEnabled = false;
-	_scene->loadAnimation(formAnimName('a', -1), 70);
+	player.walker_visible = false;
+	player.commands_allowed = false;
+	kernel_run_animation(kernel_name('a', -1), 70);
 
 	section_3_music();
 }
 
 static void room_310_daemon() {
-	handle_forcefield(&local._forcefield, &_globals._spriteIndexes[0]);
+	handle_forcefield(&local._forcefield, &g_sprite_ids[0]);
 
-	if (_game._trigger == 70)
-		_scene->_nextSceneId = 309;
+	if (kernel.trigger == 70)
+		new_room = 309;
 }
 
 void room_310_synchronize(Common::Serializer &s) {

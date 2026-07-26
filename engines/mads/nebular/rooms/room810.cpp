@@ -25,7 +25,6 @@
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section8.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
@@ -39,24 +38,24 @@ static Scratch local;
 
 
 static void room_810_init() {
-	_scene->_userInterface.setup(kInputLimitedSentences);
-	_game._player._visible = false;
-	_game._player._stepEnabled = false;
-	_scene->loadAnimation(Resources::formatName(810, 'a', -1, EXT_AA, ""));
+	kernel_set_interface_mode(INTER_LIMITED_SENTENCES);
+	player.walker_visible = false;
+	player.commands_allowed = false;
+	kernel_run_animation(kernel_full_name(810, 'a', -1, "", KERNEL_AA), 0);
 	local._moveAllowed = true;
 
 	section_8_music();
 }
 
 static void room_810_daemon() {
-	if (_scene->_animation[0] && (_scene->_animation[0]->getCurrentFrame() == 200)
+	if ((kernel_anim[0].anim != nullptr) && (kernel_anim[0].frame == 200)
 		&& local._moveAllowed) {
-		_scene->_sequences.addTimer(100, 70);
+		kernel_timing_trigger(100, 70);
 		local._moveAllowed = false;
 	}
 
-	if (_game._trigger == 70)
-		_scene->_nextSceneId = 804;
+	if (kernel.trigger == 70)
+		new_room = 804;
 }
 
 void room_810_synchronize(Common::Serializer &s) {

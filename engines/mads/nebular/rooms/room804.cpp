@@ -19,13 +19,13 @@
  *
  */
 
+#include "mads/core/config.h"
 #include "mads/core/game.h"
 #include "mads/nebular/global.h"
 #include "mads/nebular/nebular.h"
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section8.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
@@ -58,136 +58,137 @@ static void room_804_init() {
 	local._alreadyPop = false;
 
 
-	if (_globals[kCopyProtectFailed]) {
+	if (global[kCopyProtectFailed]) {
 		// Copy protection failed
-		_globals[kInSpace] = true;
-		_globals[kWindowFixed] = 0;
+		global[kInSpace] = true;
+		global[kWindowFixed] = 0;
 	}
 
-	_globals._spriteIndexes[4] = _scene->_sprites.addSprites(formAnimName('x', 0));
-	_globals._spriteIndexes[5] = _scene->_sprites.addSprites(formAnimName('x', 1));
-	_globals._spriteIndexes[6] = _scene->_sprites.addSprites(formAnimName('x', 2));
-	_globals._spriteIndexes[1] = _scene->_sprites.addSprites(formAnimName('x', 3));
-	_globals._spriteIndexes[7] = _scene->_sprites.addSprites(formAnimName('x', 4));
-	_globals._spriteIndexes[8] = _scene->_sprites.addSprites(formAnimName('f', 1));
+	g_sprite_ids[4] = kernel_load_series(kernel_name('x', 0), 0);
+	g_sprite_ids[5] = kernel_load_series(kernel_name('x', 1), 0);
+	g_sprite_ids[6] = kernel_load_series(kernel_name('x', 2), 0);
+	g_sprite_ids[1] = kernel_load_series(kernel_name('x', 3), 0);
+	g_sprite_ids[7] = kernel_load_series(kernel_name('x', 4), 0);
+	g_sprite_ids[8] = kernel_load_series(kernel_name('f', 1), 0);
 
-	_game.loadQuoteSet(791, 0);
+	kernel.quotes = quote_load(791, 0);
 
-	if (_globals[kInSpace]) {
-		if (_globals[kWindowFixed]) {
-			_globals._sequenceIndexes[5] = _scene->_sequences.startCycle(_globals._spriteIndexes[5], 0, 1);
-			_scene->_sequences.addTimer(60, 100);
+	if (global[kInSpace]) {
+		if (global[kWindowFixed]) {
+			// You're okay
+			g_sequence_ids[5] = kernel_seq_stamp(g_sprite_ids[5], 0, 1);
+			kernel_timing_trigger(60, 100);
 		} else {
-			_globals._sequenceIndexes[6] = _scene->_sequences.startCycle(_globals._spriteIndexes[6], false, 1);
-			_globals._sequenceIndexes[7] = _scene->_sequences.startPingPongCycle(_globals._spriteIndexes[7], false, 4, 0, 0, 0);
-			_scene->_sequences.addTimer(160, 70);
-			_game._player._stepEnabled = false;
+			// You're screwed
+			g_sequence_ids[6] = kernel_seq_stamp(g_sprite_ids[6], false, 1);
+			g_sequence_ids[7] = kernel_seq_pingpong(g_sprite_ids[7], false, 4, 0, 0, 0);
+			kernel_timing_trigger(160, 70);
+			player.commands_allowed = false;
 		}
 	} else {
-		if (_globals[kBeamIsUp]) {
-			_globals._sequenceIndexes[8] = _scene->_sequences.startCycle(_globals._spriteIndexes[8], false, 1);
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[8], 7);
+		// Still on the ground
+		if (global[kBeamIsUp]) {
+			g_sequence_ids[8] = kernel_seq_stamp(g_sprite_ids[8], false, 1);
+			kernel_seq_depth(g_sequence_ids[8], 7);
 		}
 
-		if (_globals[kWindowFixed])
-			_globals._sequenceIndexes[4] = _scene->_sequences.startCycle(_globals._spriteIndexes[4], false, 1);
+		if (global[kWindowFixed])
+			g_sequence_ids[4] = kernel_seq_stamp(g_sprite_ids[4], false, 1);
 
-		_globals._sequenceIndexes[1] = _scene->_sequences.startCycle(_globals._spriteIndexes[1], false, 1);
-		_scene->_sequences.setPosition(_globals._sequenceIndexes[1], Common::Point(133, 139));
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[1], 8);
+		g_sequence_ids[1] = kernel_seq_stamp(g_sprite_ids[1], false, 1);
+		kernel_seq_loc(g_sequence_ids[1], 133, 139);
+		kernel_seq_depth(g_sequence_ids[1], 8);
 	}
 
-	_scene->loadAnimation(Resources::formatName(804, 'r', 1, EXT_AA, ""));
+	kernel_run_animation(kernel_full_name(804, 'r', 1, "", KERNEL_AA), 0);
 
 	section_8_music();
 
-	if (_globals[kInSpace] && !_globals[kWindowFixed]) {
-		_scene->_userInterface.setup(kInputLimitedSentences);
-		_vm->_sound->command(19);
+	if (global[kInSpace] && !global[kWindowFixed]) {
+		kernel_set_interface_mode(INTER_LIMITED_SENTENCES);
+		g_engine->_soundManager->command(19, 0);
 	}
 }
 
 static void room_804_daemon() {
 	if (!local._messWithThrottle) {
 
-		if ((local._throttleGone) && (local._movingThrottle) && (_scene->_animation[0]->getCurrentFrame() == 39)) {
-			_globals._sequenceIndexes[1] = _scene->_sequences.startCycle
-			(_globals._spriteIndexes[1], false, 1);
-			_scene->_sequences.setPosition(_globals._sequenceIndexes[1], Common::Point(133, 139));
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[1], 8);
+		if ((local._throttleGone) && (local._movingThrottle) && (kernel_anim[0].frame == 39)) {
+			g_sequence_ids[1] = kernel_seq_stamp(g_sprite_ids[1], false, 1);
+			kernel_seq_loc(g_sequence_ids[1], 133, 139);
+			kernel_seq_depth(g_sequence_ids[1], 8);
 			local._throttleGone = false;
 		}
 
-		if ((local._movingThrottle) && (_scene->_animation[0]->getCurrentFrame() == 42)) {
+		if ((local._movingThrottle) && (kernel_anim[0].frame == 42)) {
 			local._resetFrame = 0;
 			local._movingThrottle = false;
 		}
 
-		if (_game._trigger == 70) {
+		if (kernel.trigger == 70) {
 			local._resetFrame = 42;
 		}
 
-		if (_scene->_animation[0]->getCurrentFrame() == 65)
-			_scene->_sequences.remove(_globals._sequenceIndexes[7]);
+		if (kernel_anim[0].frame == 65)
+			kernel_seq_delete(g_sequence_ids[7]);
 
-		switch (_game._storyMode) {
-		case STORYMODE_NAUGHTY:
+		switch (config_file.naughtiness) {
+		case NAUGHTY:
 		default:
-			if (_scene->_animation[0]->getCurrentFrame() == 81) {
+			if (kernel_anim[0].frame == 81) {
 				local._resetFrame = 80;
-				_globals[kInSpace] = false;
-				_globals[kBeamIsUp] = true;
+				global[kInSpace] = false;
+				global[kBeamIsUp] = true;
 
-				//assert(!_globals[kCopyProtectFailed]);
-				_game._winStatus = 4;
-				return;
+				win_status = WIN_A_HEAD_POW;
+				game.going = false;
 			}
 			break;
 
-		case STORYMODE_NICE:
-			if (_scene->_animation[0]->getCurrentFrame() == 68) {
+		case NICE:
+			if (kernel_anim[0].frame == 68) {
 				local._resetFrame = 66;
-				_globals[kInSpace] = false;
-				_globals[kBeamIsUp] = true;
+				global[kInSpace] = false;
+				global[kBeamIsUp] = true;
 
-				assert(!_globals[kCopyProtectFailed]);
-				_game._winStatus = 4;
-				return;
+				win_status = WIN_A_HEAD_POW;
+				game.going = false;
 			}
+			break;
 		}
 
-		if (_scene->_animation[0]->getCurrentFrame() == 34) {
+		if (kernel_anim[0].frame == 34) {
 			local._resetFrame = 36;
-			_scene->_sequences.remove(_globals._sequenceIndexes[1]);
+			kernel_seq_delete(g_sequence_ids[1]);
 		}
 
-		if (_scene->_animation[0]->getCurrentFrame() == 37) {
+		if (kernel_anim[0].frame == 37) {
 			local._resetFrame = 36;
 			if (!local._dontPullThrottleAgain) {
 				local._dontPullThrottleAgain = true;
-				_scene->_sequences.addTimer(60, 80);
+				kernel_timing_trigger(60, 80);
 			}
 		}
 
-		if (_game._trigger == 80) {
-			_scene->_nextSceneId = 803;
+		if (kernel.trigger == 80) {
+			new_room = 803;
 		}
 
-		if ((_scene->_animation[0]->getCurrentFrame() == 7) && (!_globals[kWindowFixed])) {
-			_globals._sequenceIndexes[4] = _scene->_sequences.startCycle(_globals._spriteIndexes[4], false, 1);
-			_scene->_sequences.addTimer(20, 110);
-			_globals[kWindowFixed] = true;
+		if ((kernel_anim[0].frame == 7) && (!global[kWindowFixed])) {
+			g_sequence_ids[4] = kernel_seq_stamp(g_sprite_ids[4], false, 1);
+			kernel_timing_trigger(20, 110);
+			global[kWindowFixed] = true;
 		}
 
-		if (_scene->_animation[0]->getCurrentFrame() == 10) {
+		if (kernel_anim[0].frame == 10) {
 			local._resetFrame = 0;
-			_game._player._stepEnabled = true;
-			_game._objects.setRoom(OBJ_POLYCEMENT, NOWHERE);
+			player.commands_allowed = true;
+			inter_move_object(OBJ_POLYCEMENT, NOWHERE);
 		}
 
 		// FIXME: Original doesn't have resetFrame check. Check why this has been needed
-		if (local._resetFrame == -1 && _scene->_animation[0]->getCurrentFrame() == 1) {
-			int randomVal = _vm->getRandomNumber(29) + 1;
+		if (local._resetFrame == -1 && kernel_anim[0].frame == 1) {
+			int randomVal = g_engine->getRandomNumber(29) + 1;
 			switch (randomVal) {
 			case 1:
 				local._resetFrame = 25;
@@ -204,7 +205,7 @@ static void room_804_daemon() {
 			}
 		}
 
-		switch (_scene->_animation[0]->getCurrentFrame()) {
+		switch (kernel_anim[0].frame) {
 		case 26:
 		case 28:
 		case 31:
@@ -214,18 +215,18 @@ static void room_804_daemon() {
 			break;
 		}
 	} else {
-		if ((_scene->_animation[0]->getCurrentFrame() == 36) && (!local._throttleGone)) {
-			_scene->_sequences.remove(_globals._sequenceIndexes[1]);
+		if ((kernel_anim[0].frame == 36) && (!local._throttleGone)) {
+			kernel_seq_delete(g_sequence_ids[1]);
 			local._throttleGone = true;
 		}
 
-		if (_scene->_animation[0]->getCurrentFrame() == 39) {
+		if (kernel_anim[0].frame == 39) {
 			local._movingThrottle = false;
 			switch (local._throttleCounter) {
 			case 1:
 				break;
 			case 3:
-				_scene->_sequences.addTimer(130, 120);
+				kernel_timing_trigger(130, 120);
 				break;
 			default:
 				break;
@@ -240,17 +241,17 @@ static void room_804_daemon() {
 			} else {
 				local._messWithThrottle = false;
 				local._throttleCounter = 0;
-				_game._player._stepEnabled = true;
+				player.commands_allowed = true;
 			}
 		}
 	}
 
-	if (_game._trigger == 120) {
-		_vm->_dialogs->show(80422);
+	if (kernel.trigger == 120) {
+		text_show(80422);
 	}
 
-	if (_game._trigger == 110) {
-		_vm->_dialogs->show(80426);
+	if (kernel.trigger == 110) {
+		text_show(80426);
 	}
 
 	if (local._pullThrottleReally) {
@@ -259,23 +260,23 @@ static void room_804_daemon() {
 	}
 
 	if (local._resetFrame >= 0) {
-		if (local._resetFrame != _scene->_animation[0]->getCurrentFrame()) {
-			_scene->_animation[0]->setCurrentFrame(local._resetFrame);
+		if (local._resetFrame != kernel_anim[0].frame) {
+			kernel_reset_animation(0, local._resetFrame);
 			local._resetFrame = -1;
 		}
 	}
 
-	if (_game._trigger == 90) {
-		_scene->_nextSceneId = 803;
+	if (kernel.trigger == 90) {
+		new_room = 803;
 	}
 
-	if ((_scene->_animation[0]->getCurrentFrame() == 72) && !local._alreadyPop) {
-		_vm->_sound->command(21);
+	if ((kernel_anim[0].frame == 72) && !local._alreadyPop) {
+		g_engine->_soundManager->command(21, 0);
 		local._alreadyPop = true;
 	}
 
-	if ((_scene->_animation[0]->getCurrentFrame() == 80) && !local._alreadyOrgan) {
-		_vm->_sound->command(22);
+	if ((kernel_anim[0].frame == 80) && !local._alreadyOrgan) {
+		g_engine->_soundManager->command(22, 0);
 		local._alreadyOrgan = true;
 	}
 }
@@ -283,91 +284,90 @@ static void room_804_daemon() {
 static void room_804_parser() {
 	if (player_said_2(look, service_panel) ||
 		player_said_2(open, service_panel)) {
-		_scene->_nextSceneId = 805;
-	} else if ((player_said_2(activate, remote)) && _globals[kTopButtonPushed]) {
-		if (!_globals[kInSpace]) {
+		new_room = 805;
+	} else if ((player_said_2(activate, remote)) && global[kTopButtonPushed]) {
+		if (!global[kInSpace]) {
 			// Top button pressed on panel in hanger control
-			if (!_globals[kBeamIsUp]) {
-				_globals[kFromCockpit] = true;
-				_globals[kUpBecauseOfRemote] = true;
-				_scene->_nextSceneId = 803;
+			if (!global[kBeamIsUp]) {
+				global[kFromCockpit] = true;
+				global[kUpBecauseOfRemote] = true;
+				new_room = 803;
 			} else {
 				// Player turning off remote
-				_globals[kBeamIsUp] = false;
-				_globals[kUpBecauseOfRemote] = false;
-				_scene->_sequences.remove(_globals._sequenceIndexes[8]);
-				_vm->_sound->command(15);
+				global[kBeamIsUp] = false;
+				global[kUpBecauseOfRemote] = false;
+				kernel_seq_delete(g_sequence_ids[8]);
+				g_engine->_soundManager->command(15, 0);
 			}
 		}
 	} else if (player_said_2(pull, throttle)) {
-		_game._player._stepEnabled = false;
-		if (_globals[kBeamIsUp]) {
-			if (!_game._objects.isInInventory(OBJ_VASE) && _globals[kWindowFixed]) {
-				_vm->_dialogs->show(80423);
-				_game._player._stepEnabled = true;
+		player.commands_allowed = false;
+		if (global[kBeamIsUp]) {
+			if (!player_has(OBJ_VASE) && global[kWindowFixed]) {
+				text_show(80423);
+				player.commands_allowed = true;
 			} else {
-				_action._inProgress = false;
+				player.command_ready = false;
 
-				_vm->_dialogs->show(80424);
+				text_show(80424);
 				local._pullThrottleReally = true;
-				_scene->_kernelMessages.add(Common::Point(78, 75), 0x1110, 0, 0,
-					120, _game.getQuote(791));
+				kernel_message_add(quote_string(kernel.quotes, 791), 78, 75, 0x1110, 120, 0, 0);
 			}
 		} else {
 			local._messWithThrottle = true;
 		}
 	} else if (player_said_3(apply, polycement, crack) ||
 		player_said_3(put, polycement, crack)) {
-		if (!_globals[kWindowFixed]) {
+		if (!global[kWindowFixed]) {
 			local._resetFrame = 2;
-			_game._player._stepEnabled = false;
+			player.commands_allowed = false;
 		}
 	} else if (player_said_2(exit, ship)) {
-		_globals[kExitShip] = true;
-		_globals[kFromCockpit] = true;
-		if (_globals[kBeamIsUp]) {
-			_vm->_dialogs->show(80425);
-			_scene->_sequences.remove(_globals._sequenceIndexes[8]);
-			_vm->_sound->command(15);
-			_globals[kBeamIsUp] = false;
+		global[kExitShip] = true;
+		global[kFromCockpit] = true;
+		if (global[kBeamIsUp]) {
+			text_show(80425);
+			kernel_seq_delete(g_sequence_ids[8]);
+			g_engine->_soundManager->command(15, 0);
+			global[kBeamIsUp] = false;
 		}
-		_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-		_scene->_sequences.addTimer(2, 90);
-	} else  if (_action._lookFlag) {
-		_vm->_dialogs->show(80410);
+		kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+		kernel_timing_trigger(2, 90);
+	} else  if (player.look_around) {
+		text_show(80410);
 	} else if ((player_said_2(look, window)) ||
 		(player_said_2(look_out, window))) {
-		if (_globals[kBeamIsUp]) {
-			_vm->_dialogs->show(80412);
+		if (global[kBeamIsUp]) {
+			text_show(80412);
 		} else {
-			_vm->_dialogs->show(80411);
+			text_show(80411);
 		}
 	} else if (player_said_2(look, crack)) {
-		if (_globals[kWindowFixed]) {
-			_vm->_dialogs->show(80414);
+		if (global[kWindowFixed]) {
+			text_show(80414);
 		} else {
-			_vm->_dialogs->show(80413);
+			text_show(80413);
 		}
 	} else if (player_said_2(look, controls)) {
-		_vm->_dialogs->show(80415);
+		text_show(80415);
 	} else if (player_said_2(look, status_panel)) {
-		if (_globals[kBeamIsUp]) {
-			_vm->_dialogs->show(80417);
+		if (global[kBeamIsUp]) {
+			text_show(80417);
 		} else {
-			_vm->_dialogs->show(80416);
+			text_show(80416);
 		}
 	} else if (player_said_2(look, tp)) {
-		_vm->_dialogs->show(80418);
+		text_show(80418);
 	} else if (player_said_2(take, tp)) {
-		_vm->_dialogs->show(80419);
+		text_show(80419);
 	} else if (player_said_2(look, instrumentation)) {
-		_vm->_dialogs->show(80420);
+		text_show(80420);
 	} else  if (player_said_2(look, seat)) {
-		_vm->_dialogs->show(80421);
+		text_show(80421);
 	} else
 		return;
 
-	_action._inProgress = false;
+	player.command_ready = false;
 }
 
 void room_804_synchronize(Common::Serializer &s) {

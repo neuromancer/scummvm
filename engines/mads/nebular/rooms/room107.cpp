@@ -25,7 +25,6 @@
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section1.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
@@ -40,46 +39,52 @@ static Scratch local;
 
 static void room_107_init() {
 	for (int i = 0; i < 3; i++)
-		_globals._spriteIndexes[i + 1] = _scene->_sprites.addSprites(formAnimName('G', i));
+		g_sprite_ids[i + 1] = kernel_load_series(kernel_name('G', i), 0);
 
-	_globals._spriteIndexes[4] = _scene->_sprites.addSprites(Resources::formatName(105, 'f', 4, EXT_SS, ""));
+	g_sprite_ids[4] = kernel_load_series(kernel_full_name(105, 'f', 4, "", KERNEL_SS), 0);
 
-	_globals._sequenceIndexes[1] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[1], false, 14, 0, 0, 7);
-	_globals._sequenceIndexes[2] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[2], false, 17, 0, 0, 13);
-	_globals._sequenceIndexes[3] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[3], false, 19, 0, 0, 9);
+	g_sequence_ids[1] = kernel_seq_forward(g_sprite_ids[1], false, 14, 7, 0, 0);
+	g_sequence_ids[2] = kernel_seq_forward(g_sprite_ids[2], false, 17, 13, 0, 0);
+	g_sequence_ids[3] = kernel_seq_forward(g_sprite_ids[3], false, 19, 9, 0, 0);
 
 	for (int i = 1; i < 4; i++)
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[i], 0);
+		kernel_seq_depth(g_sequence_ids[i], 0);
 
-	if (_globals[kFishIn107]) {
-		_globals._sequenceIndexes[4] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[4], false, 6, 0, 0, 0);
-		_scene->_sequences.setPosition(_globals._sequenceIndexes[4], Common::Point(68, 151));
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[4], 1);
-		int idx = _scene->_dynamicHotspots.add(words_dead_fish, words_swim_to, _globals._sequenceIndexes[4], Common::Rect(0, 0, 0, 0));
-		_scene->_dynamicHotspots.setPosition(idx, Common::Point(78, 135), FACING_SOUTHWEST);
+	if (global[kFishIn107]) {
+		g_sequence_ids[4] = kernel_seq_forward(g_sprite_ids[4], false, 6, 0, 0, 0);
+		kernel_seq_loc(g_sequence_ids[4], 68, 151);
+		kernel_seq_depth(g_sequence_ids[4], 1);
+		int idx = kernel_add_dynamic(words_dead_fish, words_swim_to, 0, g_sequence_ids[4], 0, 0, 0, 0);
+		kernel_dynamic_walk(idx, 78, 135, FACING_SOUTHWEST);
 	}
 
-	if (_scene->_priorSceneId == 105)
-		_game._player._playerPos = Common::Point(132, 47);
-	else if (_scene->_priorSceneId == 106)
-		_game._player._playerPos = Common::Point(20, 91);
-	else if (_scene->_priorSceneId != RETURNING_FROM_DIALOG)
-		_game._player._playerPos = Common::Point(223, 151);
-
-	if (((_scene->_priorSceneId == 105) || (_scene->_priorSceneId == 106)) && (_vm->getRandomNumber(1, 3) == 1)) {
-		_globals._spriteIndexes[0] = _scene->_sprites.addSprites(Resources::formatName(105, 'R', 1, EXT_SS, ""));
-		_globals._sequenceIndexes[0] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[0], true, 4, 0, 0, 0);
-		_scene->_sequences.setPosition(_globals._sequenceIndexes[0], Common::Point(270, 150));
-		_scene->_sequences.setMotion(_globals._sequenceIndexes[0], SEQUENCE_TRIGGER_SPRITE, -200, 0);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[0], 2);
-		_scene->_dynamicHotspots.add(words_manta_ray, words_swim_to, _globals._sequenceIndexes[0], Common::Rect(0, 0, 0, 0));
+	if (previous_room == 105) {
+		player.x = 132;
+		player.y = 47;
+	}
+	else if (previous_room == 106) {
+		player.x = 20;
+		player.y = 91;
+	}
+	else if (previous_room != KERNEL_RESTORING_GAME) {
+		player.x = 223;
+		player.y = 151;
 	}
 
-	_game.loadQuoteSet(0x4A, 0x4B, 0x4C, 0x35, 0x34, 0);
+	if (((previous_room == 105) || (previous_room == 106)) && (g_engine->getRandomNumber(1, 3) == 1)) {
+		g_sprite_ids[0] = kernel_load_series(kernel_full_name(105, 'R', 1, "", KERNEL_SS), 0);
+		g_sequence_ids[0] = kernel_seq_forward(g_sprite_ids[0], true, 4, 0, 0, 0);
+		kernel_seq_loc(g_sequence_ids[0], 270, 150);
+		kernel_seq_motion(g_sequence_ids[0], KERNEL_TRIGGER_SPRITE, -200, 0);
+		kernel_seq_depth(g_sequence_ids[0], 2);
+		kernel_add_dynamic(words_manta_ray, words_swim_to, 0, g_sequence_ids[0], 0, 0, 0, 0);
+	}
+
+	kernel.quotes = quote_load(0x4A, 0x4B, 0x4C, 0x35, 0x34, 0);
 	local._shootingFl = false;
 
-	if (_vm->getRandomNumber(1, 3) == 1) {
-		_scene->loadAnimation(Resources::formatName(107, 'B', -1, EXT_AA, ""), 0);
+	if (g_engine->getRandomNumber(1, 3) == 1) {
+		kernel_run_animation(kernel_full_name(107, 'B', -1, "", KERNEL_AA), 0);
 		local._shootingFl = true;
 	}
 
@@ -87,58 +92,58 @@ static void room_107_init() {
 }
 
 static void room_107_daemon() {
-	if (local._shootingFl && (_scene->_animation[0]->getCurrentFrame() >= 19)) {
-		_scene->_kernelMessages.add(Common::Point(0, 0), 0x1110, 34, 0, 120, _game.getQuote(52));
+	if (local._shootingFl && (kernel_anim[0].frame >= 19)) {
+		kernel_message_add(quote_string(kernel.quotes, 52), 0, 0, 0x1110, 120, 0, 34);
 		local._shootingFl = false;
 	}
 }
 
 static void room_107_pre_parser() {
 	if (player_said_2(swim_towards, open_area_to_west))
-		_game._player._walkOffScreenSceneId = 106;
+		player.walk_off_edge_to_room = 106;
 
 	if (player_said_2(swim_towards, open_area_to_south))
-		_game._player._walkOffScreenSceneId = 108;
+		player.walk_off_edge_to_room = 108;
 }
 
 static void room_107_parser() {
-	if (_action._lookFlag)
-		_vm->_dialogs->show(10708);
-	else if (player_said_2(take, dead_fish) && _globals[kFishIn107]) {
-		if (_game._objects.isInInventory(OBJ_DEAD_FISH)) {
-			int randVal = _vm->getRandomNumber(74, 76);
-			_scene->_kernelMessages.reset();
-			_scene->_kernelMessages.add(Common::Point(0, 0), 0x1110, 34, 0, 120, _game.getQuote(randVal));
+	if (player.look_around)
+		text_show(10708);
+	else if (player_said_2(take, dead_fish) && global[kFishIn107]) {
+		if (player_has(OBJ_DEAD_FISH)) {
+			int randVal = g_engine->getRandomNumber(74, 76);
+			kernel_message_purge();
+			kernel_message_add(quote_string(kernel.quotes, randVal), 0, 0, 0x1110, 120, 0, 34);
 		} else {
-			_scene->_sequences.remove(_globals._sequenceIndexes[4]);
-			_game._objects.addToInventory(OBJ_DEAD_FISH);
-			_globals[kFishIn107] = false;
-			_vm->_dialogs->showItem(OBJ_DEAD_FISH, 802);
+			kernel_seq_delete(g_sequence_ids[4]);
+			inter_give_to_player(OBJ_DEAD_FISH);
+			global[kFishIn107] = false;
+			object_examine(OBJ_DEAD_FISH, 802, 0);
 		}
 	} else if (player_said_2(swim_towards, northern_sea_cliff))
-		_scene->_nextSceneId = 105;
+		new_room = 105;
 	else if (player_said_2(look, northern_sea_cliff))
-		_vm->_dialogs->show(10701);
-	else if (player_said_2(look, dead_fish) && (_action._mainObjectSource == CAT_HOTSPOT))
-		_vm->_dialogs->show(10702);
+		text_show(10701);
+	else if (player_said_2(look, dead_fish) && (player.main_object_source == STROKE_INTERFACE))
+		text_show(10702);
 	else if (player_said_2(look, bush_like_formation))
-		_vm->_dialogs->show(10703);
+		text_show(10703);
 	else if (player_said_2(look, rock))
-		_vm->_dialogs->show(10704);
+		text_show(10704);
 	else if (player_said_2(look, seaweed))
-		_vm->_dialogs->show(10705);
+		text_show(10705);
 	else if (player_said_2(look, open_area_to_south))
-		_vm->_dialogs->show(10706);
+		text_show(10706);
 	else if (player_said_2(look, cliff_face))
-		_vm->_dialogs->show(10707);
+		text_show(10707);
 	else if (player_said_2(look, manta_ray))
-		_vm->_dialogs->show(10709);
+		text_show(10709);
 	else if (player_said_2(take, manta_ray))
-		_vm->_dialogs->show(10710);
+		text_show(10710);
 	else
 		return;
 
-	_action._inProgress = false;
+	player.command_ready = false;
 }
 
 void room_107_synchronize(Common::Serializer &s) {

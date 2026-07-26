@@ -25,7 +25,6 @@
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section3.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
@@ -39,31 +38,31 @@ static Scratch local;
 
 
 static void room_302_init() {
-	_game._player._stepEnabled = false;
-	_game._player._visible = false;
+	player.commands_allowed = false;
+	player.walker_visible = false;
 
-	_scene->loadAnimation(formAnimName('a', -1), 71);
+	kernel_run_animation(kernel_name('a', -1), 71);
 	section_3_music();
 }
 
 static void room_302_daemon() {
-	if (_game._trigger == 71)
-		_scene->_nextSceneId = 303;
+	if (kernel.trigger == 71)
+		new_room = 303;
 
-	if ((_scene->_animation[0] != nullptr) && (_scene->_animation[0]->getCurrentFrame() != local._oldFrame)) {
-		local._oldFrame = _scene->_animation[0]->getCurrentFrame();
+	if ((kernel_anim[0].anim != nullptr) && (kernel_anim[0].frame != local._oldFrame)) {
+		local._oldFrame = kernel_anim[0].frame;
 		if (local._oldFrame == 147) {
-			_game._objects.setRoom(OBJ_POISON_DARTS, 1);
-			_game._objects.setRoom(OBJ_BLOWGUN, 1);
-			_game._objects.setRoom(OBJ_REBREATHER, 1);
-			_game._objects.setRoom(OBJ_STUFFED_FISH, 1);
-			_game._objects.setRoom(OBJ_DEAD_FISH, 1);
-			_game._objects.setRoom(OBJ_BURGER, 1);
+			inter_move_object(OBJ_POISON_DARTS, 1);
+			inter_move_object(OBJ_BLOWGUN, 1);
+			inter_move_object(OBJ_REBREATHER, 1);
+			inter_move_object(OBJ_STUFFED_FISH, 1);
+			inter_move_object(OBJ_DEAD_FISH, 1);
+			inter_move_object(OBJ_BURGER, 1);
 
-			int count = (int)_game._objects.size();
+			int count = (int)num_objects;
 			for (int idx = 0; idx < count; idx++) {
-				if (_game._objects.isInInventory(idx))
-					_game._objects.setRoom(idx, 50);
+				if (player_has(idx))
+					inter_move_object(idx, 50);
 			}
 		}
 	}

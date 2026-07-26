@@ -25,38 +25,39 @@
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section7.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
 namespace Rooms {
 
 static void room_702_init() {
-	_globals._spriteIndexes[12] = _scene->_sprites.addSprites("*RXMBD_8");
+	g_sprite_ids[12] = kernel_load_series("*RXMBD_8", 0);
 
-	if (_scene->_priorSceneId == 701) {
-		_game._player._playerPos = Common::Point(13, 145);
-		_game._player._facing = FACING_EAST;
-	} else if (_scene->_priorSceneId != RETURNING_FROM_DIALOG && _scene->_priorSceneId != 620) {
-		_game._player._playerPos = Common::Point(289, 138);
-		_game._player.walk(Common::Point(262, 148), FACING_WEST);
-		_game._player._facing = FACING_WEST;
-		_game._player._visible = true;
+	if (previous_room == 701) {
+		player.x = 13;
+		player.y = 145;
+		player.facing = FACING_EAST;
+	} else if (previous_room != KERNEL_RESTORING_GAME && previous_room != 620) {
+		player.x = 289;
+		player.y = 138;
+		player_walk(262, 148, FACING_WEST);
+		player.facing = FACING_WEST;
+		player.walker_visible = true;
 	}
 
-	if (_game._globals[kTeleporterCommand]) {
-		switch (_game._globals[kTeleporterCommand]) {
+	if (global[kTeleporterCommand]) {
+		switch (global[kTeleporterCommand]) {
 		case TELEPORTER_BEAM_OUT:
 		case TELEPORTER_WRONG:
 		case TELEPORTER_STEP_OUT:
-			_game._player._visible = true;
-			_game._player._stepEnabled = true;
+			player.walker_visible = true;
+			player.commands_allowed = true;
 			break;
 		default:
 			break;
 		}
 
-		_game._globals[kTeleporterCommand] = TELEPORTER_NONE;
+		global[kTeleporterCommand] = TELEPORTER_NONE;
 	}
 
 	section_7_music();
@@ -64,66 +65,66 @@ static void room_702_init() {
 
 static void room_702_pre_parser() {
 	if (player_said_2(walkto, west_end_of_platform))
-		_game._player._walkOffScreenSceneId = 701;
+		player.walk_off_edge_to_room = 701;
 }
 
 static void room_702_parser() {
 	if (player_said_2(walk_along, platform))
 		; // Only set the action as finished
 	else if (player_said_2(step_into, teleporter)) {
-		_game._player._stepEnabled = false;
-		_game._player._visible = false;
-		_scene->_nextSceneId = 711;
-	} else if (player_said_2(take, bones) && (_action._mainObjectSource == CAT_HOTSPOT) && (!_game._objects.isInInventory(OBJ_BONES) || _game._trigger)) {
-		switch (_game._trigger) {
+		player.commands_allowed = false;
+		player.walker_visible = false;
+		new_room = 711;
+	} else if (player_said_2(take, bones) && (player.main_object_source == STROKE_INTERFACE) && (!player_has(OBJ_BONES) || kernel.trigger)) {
+		switch (kernel.trigger) {
 		case 0:
-			_game._player._stepEnabled = false;
-			_game._player._visible = false;
-			_globals._sequenceIndexes[12] = _scene->_sequences.startPingPongCycle(_globals._spriteIndexes[12], false, 5, 2, 0, 0);
-			_scene->_sequences.setMsgLayout(_globals._sequenceIndexes[12]);
-			_scene->_sequences.addSubEntry(_globals._sequenceIndexes[12], SEQUENCE_TRIGGER_SPRITE, 4, 1);
-			_scene->_sequences.addSubEntry(_globals._sequenceIndexes[12], SEQUENCE_TRIGGER_EXPIRE, 0, 2);
+			player.commands_allowed = false;
+			player.walker_visible = false;
+			g_sequence_ids[12] = kernel_seq_pingpong(g_sprite_ids[12], false, 5, 0, 0, 2);
+			kernel_seq_player(g_sequence_ids[12], false);
+			kernel_seq_trigger(g_sequence_ids[12], KERNEL_TRIGGER_SPRITE, 4, 1);
+			kernel_seq_trigger(g_sequence_ids[12], KERNEL_TRIGGER_EXPIRE, 0, 2);
 			break;
 		case 1:
-			_vm->_sound->command(0xF);
-			if (_game._objects.isInInventory(OBJ_BONE))
-				_game._objects.setRoom(OBJ_BONE, 1);
-			_game._objects.addToInventory(OBJ_BONES);
-			_vm->_dialogs->show(OBJ_BONES, 70218);
+			g_engine->_soundManager->command(0xF, 0);
+			if (player_has(OBJ_BONE))
+				inter_move_object(OBJ_BONE, 1);
+			inter_give_to_player(OBJ_BONES);
+			object_examine(OBJ_BONES, 70218, 0);
 			break;
 		case 2:
-			_scene->_sequences.updateTimeout(-1, _globals._sequenceIndexes[12]);
-			_game._player._visible = true;
-			_game._player._stepEnabled = true;
+			kernel_seq_timeout(g_sequence_ids[12], -1);
+			player.walker_visible = true;
+			player.commands_allowed = true;
 			break;
 		default:
 			break;
 		}
-	} else if (_action._lookFlag)
-		_vm->_dialogs->show(70210);
+	} else if (player.look_around)
+		text_show(70210);
 	else if (player_said_2(look, platform))
-		_vm->_dialogs->show(70211);
+		text_show(70211);
 	else if (player_said_2(look, cement_block))
-		_vm->_dialogs->show(70212);
+		text_show(70212);
 	else if (player_said_2(look, rock))
-		_vm->_dialogs->show(70213);
+		text_show(70213);
 	else if (player_said_2(take, rock))
-		_vm->_dialogs->show(70214);
+		text_show(70214);
 	else if (player_said_2(look, west_end_of_platform))
-		_vm->_dialogs->show(70215);
+		text_show(70215);
 	else if (player_said_2(look, teleporter))
-		_vm->_dialogs->show(70216);
-	else if (player_said_2(look, bones) && (_action._mainObjectSource == CAT_HOTSPOT))
-		_vm->_dialogs->show(70217);
-	else if (player_said_2(take, bones) && (_action._mainObjectSource == CAT_HOTSPOT)) {
-		if (_game._objects.isInInventory(OBJ_BONES))
-			_vm->_dialogs->show(70219);
+		text_show(70216);
+	else if (player_said_2(look, bones) && (player.main_object_source == STROKE_INTERFACE))
+		text_show(70217);
+	else if (player_said_2(take, bones) && (player.main_object_source == STROKE_INTERFACE)) {
+		if (player_has(OBJ_BONES))
+			text_show(70219);
 	} else if (player_said_2(look, submerged_city))
-		_vm->_dialogs->show(70220);
+		text_show(70220);
 	else
 		return;
 
-	_action._inProgress = false;
+	player.command_ready = false;
 }
 
 void room_702_synchronize(Common::Serializer &s) {

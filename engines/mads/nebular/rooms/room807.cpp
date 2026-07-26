@@ -26,17 +26,16 @@
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section8.h"
 #include "mads/nebular/rooms/teleporter.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
 namespace Rooms {
 
 static void room_807_init() {
-	if (_globals[kSexOfRex] == REX_FEMALE)
-		_globals._spriteIndexes[4] = _scene->_sprites.addSprites("*ROXHAND");
+	if (global[kSexOfRex] == REX_FEMALE)
+		g_sprite_ids[4] = kernel_load_series("*ROXHAND", 0);
 	else
-		_globals._spriteIndexes[4] = _scene->_sprites.addSprites("*REXHAND");
+		g_sprite_ids[4] = kernel_load_series("*REXHAND", 0);
 
 	teleporter_init();
 	section_8_music();
@@ -48,31 +47,31 @@ static void room_807_daemon() {
 
 static void room_807_parser() {
 	if (teleporter_parser()) {
-		_action._inProgress = false;
+		player.command_ready = false;
 		return;
 	}
 
 	if (player_said_2(look, viewport))
-		_vm->_dialogs->show(80710);
+		text_show(80710);
 	else if (player_said_2(peer_through, viewport))
-		_vm->_dialogs->show(80710);
+		text_show(80710);
 	else if (player_said_2(look, keypad) && player_said_2(inspect, keypad))
-		_vm->_dialogs->show(80711);
+		text_show(80711);
 	else if (player_said_2(look, display))
-		_vm->_dialogs->show(80712);
+		text_show(80712);
 	else if (player_said_2(look, 1_key) || player_said_2(look, 2_key)
 		|| player_said_2(look, 3_key) || player_said_2(look, 4_key)
 		|| player_said_2(look, 5_key) || player_said_2(look, 6_key)
 		|| player_said_2(look, 7_key) || player_said_2(look, 8_key)
 		|| player_said_2(look, 9_key) || player_said_2(look, 0_key)
 		|| player_said_2(look, smile_key) || player_said_2(look, frown_key))
-		_vm->_dialogs->show(80713);
-	else if (player_said_2(look, device) && _action._lookFlag)
-		_vm->_dialogs->show(80714);
+		text_show(80713);
+	else if (player_said_2(look, device) && player.look_around)
+		text_show(80714);
 	else
 		return;
 
-	_action._inProgress = false;
+	player.command_ready = false;
 }
 
 void room_807_synchronize(Common::Serializer &s) {

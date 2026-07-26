@@ -19,6 +19,7 @@
  *
  */
 
+#include "mads/core/config.h"
 #include "mads/core/game.h"
 #include "mads/nebular/global.h"
 #include "mads/nebular/nebular.h"
@@ -26,25 +27,24 @@
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section7.h"
 #include "mads/nebular/rooms/teleporter.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
 namespace Rooms {
 
 static void room_711_init() {
-	if (_globals[kSexOfRex] == REX_FEMALE)
-		_globals._spriteIndexes[4] = _scene->_sprites.addSprites("*ROXHAND");
+	if (global[kSexOfRex] == REX_FEMALE)
+		g_sprite_ids[4] = kernel_load_series("*ROXHAND", 0);
 	else
-		_globals._spriteIndexes[4] = _scene->_sprites.addSprites("*REXHAND");
+		g_sprite_ids[4] = kernel_load_series("*REXHAND", 0);
 
 	teleporter_init();
 
 	// The original was using Scene7xx_section_7_music()
-	if (!_vm->_musicFlag)
-		_vm->_sound->command(2);
+	if (!config_file.music_flag)
+		g_engine->_soundManager->command(2, 0);
 	else
-		_vm->_sound->command(25);
+		g_engine->_soundManager->command(25, 0);
 }
 
 static void room_711_daemon() {
@@ -53,7 +53,7 @@ static void room_711_daemon() {
 
 static void room_711_parser() {
 	if (teleporter_parser())
-		_action._inProgress = false;
+		player.command_ready = false;
 }
 
 void room_711_synchronize(Common::Serializer &s) {

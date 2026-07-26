@@ -19,13 +19,13 @@
  *
  */
 
+#include "mads/core/config.h"
 #include "mads/core/game.h"
 #include "mads/nebular/global.h"
 #include "mads/nebular/nebular.h"
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section3.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
@@ -39,84 +39,88 @@ static Scratch local;
 
 
 static void room_359_init() {
-	_globals._spriteIndexes[1] = _scene->_sprites.addSprites(formAnimName('b', -1));
-	_globals._spriteIndexes[3] = _scene->_sprites.addSprites(Resources::formatName(307, 'X', 0, EXT_SS, ""));
+	g_sprite_ids[1] = kernel_load_series(kernel_name('b', -1), 0);
+	g_sprite_ids[3] = kernel_load_series(kernel_full_name(307, 'X', 0, "", KERNEL_SS), 0);
 
-	if (_globals[kSexOfRex] == REX_MALE)
-		_globals._spriteIndexes[2] = _scene->_sprites.addSprites("*RXMBD_2");
+	if (global[kSexOfRex] == REX_MALE)
+		g_sprite_ids[2] = kernel_load_series("*RXMBD_2", 0);
 	else
-		_globals._spriteIndexes[4] = _scene->_sprites.addSprites("*ROXBD_2");
+		g_sprite_ids[4] = kernel_load_series("*ROXBD_2", 0);
 
-	_globals._sequenceIndexes[3] = _scene->_sequences.startCycle(_globals._spriteIndexes[3], false, 1);
-	_scene->_sequences.setPosition(_globals._sequenceIndexes[3], Common::Point(127, 78));
-	_scene->_sequences.setDepth(_globals._sequenceIndexes[3], 15);
+	g_sequence_ids[3] = kernel_seq_stamp(g_sprite_ids[3], false, 1);
+	kernel_seq_loc(g_sequence_ids[3], 127, 78);
+	kernel_seq_depth(g_sequence_ids[3], 15);
 
-	if (_game._objects.isInRoom(OBJ_SECURITY_CARD)) {
-		_globals._sequenceIndexes[1] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[1], false, 9, 0, 0, 0);
-		local._cardHotspotId = _scene->_dynamicHotspots.add(words_security_card, words_walkto, _globals._sequenceIndexes[1], Common::Rect(0, 0, 0, 0));
-		_scene->_dynamicHotspots.setPosition(local._cardHotspotId, Common::Point(107, 107), FACING_SOUTH);
+	if (object_is_here(OBJ_SECURITY_CARD)) {
+		g_sequence_ids[1] = kernel_seq_forward(g_sprite_ids[1], false, 9, 0, 0, 0);
+		local._cardHotspotId = kernel_add_dynamic(words_security_card, words_walkto, 0, g_sequence_ids[1], 0, 0, 0, 0);
+		kernel_dynamic_walk(local._cardHotspotId, 107, 107, FACING_SOUTH);
 	}
 
-	if (_scene->_priorSceneId == 358)
-		_game._player._playerPos = Common::Point(301, 141);
-	else if (_scene->_priorSceneId != RETURNING_FROM_DIALOG)
-		_game._player._playerPos = Common::Point(15, 148);
+	if (previous_room == 358) {
+		player.x = 301;
+		player.y = 141;
+	}
+	else if (previous_room != KERNEL_RESTORING_GAME) {
+		player.x = 15;
+		player.y = 148;
+	}
 
 	section_3_music();
 }
 
 static void room_359_pre_parser() {
 	if (player_said_2(walk_down, corridor_to_east))
-		_game._player._walkOffScreenSceneId = 358;
+		player.walk_off_edge_to_room = 358;
 
 	if (player_said_2(walk_down, corridor_to_west))
-		_game._player._walkOffScreenSceneId = 360;
+		player.walk_off_edge_to_room = 360;
 }
 
 static void room_359_parser() {
-	if (_action._lookFlag) {
-		if ((_game._difficulty != DIFFICULTY_HARD) && (_game._objects[OBJ_SECURITY_CARD]._roomNumber == 359))
-			_vm->_dialogs->show(35914);
+	if (player.look_around) {
+		if ((game.difficulty != DIFFICULTY_HARD) && (object[OBJ_SECURITY_CARD].location == 359))
+			text_show(35914);
 		else
-			_vm->_dialogs->show(35915);
+			text_show(35915);
 	} else if (player_said_2(take, security_card)) {
-		if (_game._trigger || !_game._objects.isInInventory(OBJ_SECURITY_CARD)) {
-			switch (_game._trigger) {
+		if (kernel.trigger || !player_has(OBJ_SECURITY_CARD)) {
+			switch (kernel.trigger) {
 			case 0:
-				_game._player._stepEnabled = false;
-				_game._player._visible = false;
-				_vm->_dialogs->show(35920);
-				if (_globals[kSexOfRex] == REX_MALE) {
-					_globals._sequenceIndexes[2] = _scene->_sequences.startPingPongCycle(_globals._spriteIndexes[2], false, 4, 2, 0, 0);
-					_scene->_sequences.setMsgLayout(_globals._sequenceIndexes[2]);
-					_scene->_sequences.addSubEntry(_globals._sequenceIndexes[2], SEQUENCE_TRIGGER_SPRITE, 6, 1);
-					_scene->_sequences.addSubEntry(_globals._sequenceIndexes[2], SEQUENCE_TRIGGER_EXPIRE, 0, 2);
+				player.commands_allowed = false;
+				player.walker_visible = false;
+				text_show(35920);
+				if (global[kSexOfRex] == REX_MALE) {
+					g_sequence_ids[2] = kernel_seq_pingpong(g_sprite_ids[2], false, 4, 0, 0, 2);
+					kernel_seq_player(g_sequence_ids[2], false);
+					kernel_seq_trigger(g_sequence_ids[2], KERNEL_TRIGGER_SPRITE, 6, 1);
+					kernel_seq_trigger(g_sequence_ids[2], KERNEL_TRIGGER_EXPIRE, 0, 2);
 				} else {
-					_globals._sequenceIndexes[4] = _scene->_sequences.startPingPongCycle(_globals._spriteIndexes[4], true, 7, 2, 0, 0);
-					_scene->_sequences.setMsgLayout(_globals._sequenceIndexes[4]);
-					_scene->_sequences.setPosition(_globals._sequenceIndexes[4], Common::Point(106, 110));
-					_scene->_sequences.addSubEntry(_globals._sequenceIndexes[4], SEQUENCE_TRIGGER_SPRITE, 6, 1);
-					_scene->_sequences.addSubEntry(_globals._sequenceIndexes[4], SEQUENCE_TRIGGER_EXPIRE, 0, 2);
+					g_sequence_ids[4] = kernel_seq_pingpong(g_sprite_ids[4], true, 7, 0, 0, 2);
+					kernel_seq_player(g_sequence_ids[4], false);
+					kernel_seq_loc(g_sequence_ids[4], 106, 110);
+					kernel_seq_trigger(g_sequence_ids[4], KERNEL_TRIGGER_SPRITE, 6, 1);
+					kernel_seq_trigger(g_sequence_ids[4], KERNEL_TRIGGER_EXPIRE, 0, 2);
 				}
 				break;
 
 			case 1:
-				_scene->_sequences.remove(_globals._sequenceIndexes[1]);
-				_scene->_dynamicHotspots.remove(local._cardHotspotId);
-				_vm->_sound->command(57);
-				_game._objects.addToInventory(OBJ_SECURITY_CARD);
-				_vm->_dialogs->showItem(OBJ_SECURITY_CARD, 0x330);
-				_scene->changeVariant(1);
+				kernel_seq_delete(g_sequence_ids[1]);
+				kernel_delete_dynamic(local._cardHotspotId);
+				g_engine->_soundManager->command(57, 0);
+				inter_give_to_player(OBJ_SECURITY_CARD);
+				object_examine(OBJ_SECURITY_CARD, 0x330, 0);
+				kernel_load_variant(1);
 				break;
 
 			case 2:
-				if (_globals[kSexOfRex] == REX_MALE)
-					_scene->_sequences.updateTimeout(-1, _globals._sequenceIndexes[2]);
+				if (global[kSexOfRex] == REX_MALE)
+					kernel_seq_timeout(g_sequence_ids[2], -1);
 				else
-					_scene->_sequences.updateTimeout(-1, _globals._sequenceIndexes[4]);
+					kernel_seq_timeout(g_sequence_ids[4], -1);
 
-				_game._player._visible = true;
-				_game._player._stepEnabled = true;
+				player.walker_visible = true;
+				player.commands_allowed = true;
 				break;
 
 			default:
@@ -124,47 +128,47 @@ static void room_359_parser() {
 			}
 		}
 	} else if (player_said_2(look, bloody_cell_wall))
-		_vm->_dialogs->show(35910);
+		text_show(35910);
 	else if (player_said_2(look, bed))
-		_vm->_dialogs->show(35911);
+		text_show(35911);
 	else if (player_said_2(look, sink))
-		_vm->_dialogs->show(35912);
+		text_show(35912);
 	else if (player_said_2(look, toilet))
-		_vm->_dialogs->show(35913);
+		text_show(35913);
 	else if (player_said_2(look, corridor_to_east))
-		_vm->_dialogs->show(35916);
+		text_show(35916);
 	else if (player_said_2(look, corridor_to_west))
-		_vm->_dialogs->show(35917);
+		text_show(35917);
 	else if (player_said_2(look, limb))
-		_vm->_dialogs->show(35918);
+		text_show(35918);
 	else if (player_said_2(take, limb))
-		_vm->_dialogs->show(35919);
-	else if (player_said_2(look, security_card) && (_action._mainObjectSource == CAT_HOTSPOT))
-		_vm->_dialogs->show(35921);
+		text_show(35919);
+	else if (player_said_2(look, security_card) && (player.main_object_source == STROKE_INTERFACE))
+		text_show(35921);
 	else if (player_said_2(look, blood_stain)) {
-		if ((_game._difficulty != DIFFICULTY_HARD) && (_game._objects[OBJ_SECURITY_CARD]._roomNumber == 359))
-			_vm->_dialogs->show(35922);
+		if ((game.difficulty != DIFFICULTY_HARD) && (object[OBJ_SECURITY_CARD].location == 359))
+			text_show(35922);
 		else
-			_vm->_dialogs->show(35923);
+			text_show(35923);
 	} else if (player_said_2(look, wall_board))
-		_vm->_dialogs->show(35924);
+		text_show(35924);
 	else if (player_said_2(take, wall_board))
-		_vm->_dialogs->show(35925);
+		text_show(35925);
 	else if (player_said_2(look, rip_in_floor))
-		_vm->_dialogs->show(35926);
+		text_show(35926);
 	else if (player_said_2(look, corridor))
-		_vm->_dialogs->show(35927);
+		text_show(35927);
 	else if (player_said_2(look, floor)) {
-		if ((_game._difficulty != DIFFICULTY_HARD) && (_game._objects[OBJ_SECURITY_CARD]._roomNumber == 359))
-			_vm->_dialogs->show(35928);
+		if ((game.difficulty != DIFFICULTY_HARD) && (object[OBJ_SECURITY_CARD].location == 359))
+			text_show(35928);
 		else
-			_vm->_dialogs->show(35929);
+			text_show(35929);
 	} else if (player_said_2(open, air_vent) || player_said_2(look, air_vent))
-		_vm->_dialogs->show(36016);
+		text_show(36016);
 	else
 		return;
 
-	_action._inProgress = false;
+	player.command_ready = false;
 }
 
 void room_359_synchronize(Common::Serializer &s) {
@@ -178,7 +182,7 @@ void room_359_preload() {
 
 	section_3_walker();
 	section_3_interface();
-	_scene->addActiveVocab(words_walkto);
+	vocab_make_active(words_walkto);
 }
 
 } // namespace Rooms

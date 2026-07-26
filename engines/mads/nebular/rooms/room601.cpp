@@ -25,61 +25,62 @@
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section6.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
 namespace Rooms {
 
 static void room_601_init() {
-	_globals._spriteIndexes[1] = _scene->_sprites.addSprites(formAnimName('x', 0));
-	_globals._spriteIndexes[2] = _scene->_sprites.addSprites(formAnimName('c', 0));
-	_globals._spriteIndexes[3] = _scene->_sprites.addSprites("*RXCD_4");
+	g_sprite_ids[1] = kernel_load_series(kernel_name('x', 0), 0);
+	g_sprite_ids[2] = kernel_load_series(kernel_name('c', 0), 0);
+	g_sprite_ids[3] = kernel_load_series("*RXCD_4", 0);
 
-	if (_globals[kLaserHoleIsThere]) {
-		_globals._sequenceIndexes[1] = _scene->_sequences.startCycle(_globals._spriteIndexes[1], false, -2);
-		_scene->_dynamicHotspots.add(words_laser_beam, words_look_at, _globals._sequenceIndexes[1], Common::Rect(0, 0, 0, 0));
+	if (global[kLaserHoleIsThere]) {
+		g_sequence_ids[1] = kernel_seq_stamp(g_sprite_ids[1], false, -2);
+		kernel_add_dynamic(words_laser_beam, words_look_at, 0, g_sequence_ids[1], 0, 0, 0, 0);
 	}
 
-	_globals._sequenceIndexes[2] = _scene->_sequences.startCycle(_globals._spriteIndexes[2], false, -1);
-	_scene->_sequences.setDepth(_globals._sequenceIndexes[2], 3);
+	g_sequence_ids[2] = kernel_seq_stamp(g_sprite_ids[2], false, -1);
+	kernel_seq_depth(g_sequence_ids[2], 3);
 
-	if (_scene->_priorSceneId == 504) {
-		_game._player._playerPos = Common::Point(73, 148);
-		_game._player._facing = FACING_WEST;
-		_game._player._visible = false;
-		_game._player._stepEnabled = false;
-		_scene->_sequences.remove(_globals._sequenceIndexes[2]);
-		_globals._sequenceIndexes[2] = _scene->_sequences.startCycle(_globals._spriteIndexes[2], false, -2);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[2], 3);
-		_scene->loadAnimation(formAnimName('R', 1), 70);
-	} else if (_scene->_priorSceneId != RETURNING_FROM_DIALOG) {
-		_game._player._playerPos = Common::Point(229, 129);
-		_game._player._facing = FACING_SOUTHWEST;
+	if (previous_room == 504) {
+		player.x = 73;
+		player.y = 148;
+		player.facing = FACING_WEST;
+		player.walker_visible = false;
+		player.commands_allowed = false;
+		kernel_seq_delete(g_sequence_ids[2]);
+		g_sequence_ids[2] = kernel_seq_stamp(g_sprite_ids[2], false, -2);
+		kernel_seq_depth(g_sequence_ids[2], 3);
+		kernel_run_animation(kernel_name('R', 1), 70);
+	} else if (previous_room != KERNEL_RESTORING_GAME) {
+		player.x = 229;
+		player.y = 129;
+		player.facing = FACING_SOUTHWEST;
 	}
 
 	section_6_music();
 }
 
 static void room_601_daemon() {
-	switch (_game._trigger) {
+	switch (kernel.trigger) {
 	case 70:
-		_game._player._visible = true;
-		_game._player._priorTimer = _scene->_animation[0]->getNextFrameTimer() - _game._player._ticksAmount;
-		_scene->_sequences.addTimer(30, 71);
+		player.walker_visible = true;
+		player.clock = kernel_anim[0].next_clock - player.frame_delay;
+		kernel_timing_trigger(30, 71);
 		break;
 
 	case 71:
-		_scene->_sequences.remove(_globals._sequenceIndexes[2]);
-		_globals._sequenceIndexes[2] = _scene->_sequences.addReverseSpriteCycle(_globals._spriteIndexes[2], false, 6, 1, 0, 0);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[2], 3);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[2], SEQUENCE_TRIGGER_EXPIRE, 0, 72);
+		kernel_seq_delete(g_sequence_ids[2]);
+		g_sequence_ids[2] = kernel_seq_backward(g_sprite_ids[2], false, 6, 0, 0, 1);
+		kernel_seq_depth(g_sequence_ids[2], 3);
+		kernel_seq_trigger(g_sequence_ids[2], KERNEL_TRIGGER_EXPIRE, 0, 72);
 		break;
 
 	case 72:
-		_globals._sequenceIndexes[2] = _scene->_sequences.startCycle(_globals._spriteIndexes[2], false, -1);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[2], 3);
-		_game._player._stepEnabled = true;
+		g_sequence_ids[2] = kernel_seq_stamp(g_sprite_ids[2], false, -1);
+		kernel_seq_depth(g_sequence_ids[2], 3);
+		player.commands_allowed = true;
 		break;
 
 	default:
@@ -89,73 +90,73 @@ static void room_601_daemon() {
 
 static void room_601_parser() {
 	if (player_said_2(walk_through, entrance))
-		_scene->_nextSceneId = 602;
+		new_room = 602;
 	else if (player_said_2(get_inside, car)) {
-		switch (_game._trigger) {
+		switch (kernel.trigger) {
 		case 0:
-			_game._player._stepEnabled = false;
-			_scene->_sequences.remove(_globals._sequenceIndexes[2]);
-			_globals._sequenceIndexes[2] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[2], false, 6, 1, 0, 0);
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[2], 3);
-			_scene->_sequences.addSubEntry(_globals._sequenceIndexes[2], SEQUENCE_TRIGGER_EXPIRE, 0, 1);
+			player.commands_allowed = false;
+			kernel_seq_delete(g_sequence_ids[2]);
+			g_sequence_ids[2] = kernel_seq_forward(g_sprite_ids[2], false, 6, 0, 0, 1);
+			kernel_seq_depth(g_sequence_ids[2], 3);
+			kernel_seq_trigger(g_sequence_ids[2], KERNEL_TRIGGER_EXPIRE, 0, 1);
 			break;
 
 		case 1:
 		{
-			int syncIdx = _globals._sequenceIndexes[2];
-			_globals._sequenceIndexes[2] = _scene->_sequences.startCycle(_globals._spriteIndexes[2], false, -2);
-			_scene->_sequences.updateTimeout(_globals._sequenceIndexes[2], syncIdx);
-			_scene->_sequences.addTimer(6, 2);
+			int syncIdx = g_sequence_ids[2];
+			g_sequence_ids[2] = kernel_seq_stamp(g_sprite_ids[2], false, -2);
+			kernel_seq_timeout(syncIdx, g_sequence_ids[2]);
+			kernel_timing_trigger(6, 2);
 		}
 		break;
 
 		case 2:
-			_game._player._visible = false;
-			_globals._sequenceIndexes[3] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[3], false, 10, 1, 0, 0);
-			_scene->_sequences.setMsgLayout(_globals._sequenceIndexes[3]);
-			_scene->_sequences.addSubEntry(_globals._sequenceIndexes[3], SEQUENCE_TRIGGER_EXPIRE, 0, 3);
+			player.walker_visible = false;
+			g_sequence_ids[3] = kernel_seq_forward(g_sprite_ids[3], false, 10, 0, 0, 1);
+			kernel_seq_player(g_sequence_ids[3], false);
+			kernel_seq_trigger(g_sequence_ids[3], KERNEL_TRIGGER_EXPIRE, 0, 3);
 			break;
 
 		case 3:
 		{
-			int syncIdx = _globals._sequenceIndexes[3];
-			_globals._sequenceIndexes[3] = _scene->_sequences.startCycle(_globals._spriteIndexes[3], false, -2);
-			_scene->_sequences.setMsgLayout(_globals._sequenceIndexes[3]);
-			_scene->_sequences.updateTimeout(_globals._sequenceIndexes[3], syncIdx);
-			_scene->_nextSceneId = 504;
+			int syncIdx = g_sequence_ids[3];
+			g_sequence_ids[3] = kernel_seq_stamp(g_sprite_ids[3], false, -2);
+			kernel_seq_player(g_sequence_ids[3], false);
+			kernel_seq_timeout(syncIdx, g_sequence_ids[3]);
+			new_room = 504;
 		}
 		break;
 
 		default:
 			break;
 		}
-	} else if (_action._lookFlag || player_said_2(look, street)) {
-		if (!_globals[kLaserHoleIsThere])
-			_vm->_dialogs->show(60110);
+	} else if (player.look_around || player_said_2(look, street)) {
+		if (!global[kLaserHoleIsThere])
+			text_show(60110);
 		else
-			_vm->_dialogs->show(60111);
+			text_show(60111);
 	} else if (player_said_2(look, car))
-		_vm->_dialogs->show(60112);
+		text_show(60112);
 	else if (player_said_2(look, papers))
-		_vm->_dialogs->show(60113);
+		text_show(60113);
 	else if (player_said_2(look, building))
-		_vm->_dialogs->show(60114);
+		text_show(60114);
 	else if (player_said_2(walk_down, street))
-		_vm->_dialogs->show(60115);
+		text_show(60115);
 	else if (player_said_2(look, balcony))
-		_vm->_dialogs->show(60116);
+		text_show(60116);
 	else if (player_said_2(look, entrance))
-		_vm->_dialogs->show(60117);
+		text_show(60117);
 	else if (player_said_2(look, wall))
-		_vm->_dialogs->show(60118);
+		text_show(60118);
 	else if (player_said_2(look, city))
-		_vm->_dialogs->show(60119);
+		text_show(60119);
 	else if (player_said_2(look, fountain))
-		_vm->_dialogs->show(60120);
+		text_show(60120);
 	else
 		return;
 
-	_action._inProgress = false;
+	player.command_ready = false;
 }
 
 void room_601_synchronize(Common::Serializer &s) {
@@ -169,8 +170,8 @@ void room_601_preload() {
 
 	section_6_walker();
 	section_6_interface();
-	_scene->addActiveVocab(words_laser_beam);
-	_scene->addActiveVocab(words_look_at);
+	vocab_make_active(words_laser_beam);
+	vocab_make_active(words_look_at);
 }
 
 } // namespace Rooms

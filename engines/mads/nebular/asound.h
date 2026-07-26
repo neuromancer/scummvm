@@ -22,6 +22,7 @@
 #ifndef MADS_NEBULAR_ASOUND_H
 #define MADS_NEBULAR_ASOUND_H
 
+#include "audio/fmopl.h"
 #include "mads/core/sound_manager.h"
 
 namespace MADS {
@@ -34,48 +35,46 @@ class ASound;
  */
 class AdlibChannel {
 public:
-	ASound *_owner;
+	ASound *_owner = nullptr;
 
-	int _activeCount;
-	int _field1;
-	int _field2;
-	int _field3;
-	int _field4;
-	int _sampleIndex;
-	int _volume;
-	int _field7;
-	int _field8;
-	int _field9;
-	int _fieldA;
-	uint8 _fieldB;
-	int _fieldC;
-	int _fieldD;
-	int _fieldE;
-	byte *_ptr1;
-	byte *_pSrc;
-	byte *_ptr3;
-	byte *_ptr4;
-	byte *_ptrEnd;
-	int _field17;
-	int _field19;
-	byte *_soundData;
-	int _field1D;
-	int _volumeOffset;
-	int _field1F;
+	int _activeCount = 0;
+	int _pitchBend = 0;         // signed pitch-bend offset added to frequency by updateFNumber()
+	int _volumeFadeStep = 0;    // signed per-period volume delta applied to _volumeOffset
+	int _attenFadeStep = 0;     // signed per-period delta applied to _patchAttenuation
+	int _note = 0;              // note byte read from the sound-data stream
+	int _sampleIndex = 0;
+	int _volume = 0;
+	int _noteOffset = 0;        // subtracted from _activeCount to derive _keyOnDelay
+	int _keyOnDelay = 0;        // countdown before the key-on bit is cleared (gate time)
+	int _volumeFadeCounter = 0; // counts down to 0 before applying _volumeFadeStep
+	int _volumeFadeReload = 0;  // reload value for _volumeFadeCounter
+	uint8 _attenFadeCounter = 0;// counts down to 0 before applying _attenFadeStep
+	int _attenFadeReload = 0;   // reload value for _attenFadeCounter
+	int _patchAttenuation = 0;  // per-note attenuation offset added on top of the patch TL
+	int _pendingStop = 0;       // non-zero while the channel is fading out to silence
+	byte *_ptr1 = nullptr;
+	byte *_pSrc = nullptr;
+	byte *_innerLoopPtr = nullptr;	// inner-loop restart address (opcode 0)
+	byte *_outerLoopPtr = nullptr;	// outer-loop restart address (opcode 1)
+	int _innerLoopCount = 0;    // remaining inner-loop iterations (opcode 0)
+	int _outerLoopCount = 0;    // remaining outer-loop iterations (opcode 1)
+	byte *_soundData = nullptr;
+	int _transpose = 0;         // fine-tune offset added into the frequency table lookup
+	int _volumeOffset = 0;
+	int _octaveTranspose = 0;   // added to _note before the octave/semitone split
 
-	// TODO: Only used by asound.003. Figure out usage
-	byte _field20;
+	// Extra static per-channel volume trim, confirmed via disassembly
+	// comparison to be a third additive term in updateActiveChannel()'s
+	// volume sum (volume + volumeOffset + channelAttenuation, clamped to
+	// [0, 63]). Only asound.003/asound.004's copy of the shared runtime
+	// reads this = 0; it is otherwise always 0, so summing it in unconditionally
+	// is harmless for every other driver.
+	byte _channelAttenuation = 0;
 
-	// Phantom-specific fields
-	int _field26;        // pitch delta (set in case -14, zeroed in case -3)
-	int _field28;        // zeroed in case -3
-	int _field2A;        // set in case -18
-	int _field2B;        // volume-cap flag (suppresses upward volume changes)
-	int _field2C;        // frequency counter (used with _field7 in cases -9/-10)
 public:
 	static bool _channelsEnabled;
 public:
-	AdlibChannel();
+	AdlibChannel() {}
 
 	void reset();
 	void enable(int flag);
@@ -86,10 +85,10 @@ public:
 
 class AdlibChannelData {
 public:
-	int _field0;
+	int _hasNoiseMode; // non-zero if this sample drives the 2-voice noise generator
 	int _freqMask;
 	int _freqBase;
-	int _field6;
+	int _freqStep;      // per-tick frequency-sweep increment
 };
 
 class AdlibSample {
@@ -108,10 +107,10 @@ public:
 	bool _ampMod;
 	int _vib;
 	int _alg;
-	int _fieldE;
+	int _noiseMode;    // copied into AdlibChannelData::_hasNoiseMode by loadSample()
 	int _freqMask;
 	int _freqBase;
-	int _field14;
+	int _freqStep;     // copied into AdlibChannelData::_freqStep by loadSample()
 
 	AdlibSample() {
 	}
@@ -134,19 +133,8 @@ struct RegisterValue {
  * Base class for the sound player resource files
  */
 class ASound : public SoundDriver {
-protected:
-	struct CachedDataEntry {
-		byte *_dataStart = nullptr;
-		byte *_dataEnd = nullptr;
-		CachedDataEntry(byte *dataStart, size_t size) : _dataStart(dataStart),
-			_dataEnd(dataStart + size - 1) {
-		}
-	};
-
 private:
-	Common::Array<CachedDataEntry> _dataCache;
-
-private:
+	OPL::OPL *_opl = OPL::Config::create();
 	uint16 _randomSeed;
 	int _masterVolume;
 
@@ -202,10 +190,21 @@ protected:
 	virtual void channelCommand(byte *&pSrc, bool &updateFlag) = 0;
 
 	/**
-	 * Returns data for the specified offset. It also caches the data size for that
-	 * offset, for any future references that need it.
+	 * Hook called once per update() frame, immediately after the disabled
+	 * check and before the frame counter/channel polling. Only ASound9's
+	 * driver data makes use of a recurring deferred-callback timer (the
+	 * word_1949E/word_194A0/_soundPtr trio in the original disassembly);
+	 * every other driver leaves this as a no-op.
 	 */
-	byte *loadData(int offset, int size);
+	virtual void tickCallback() {
+	}
+
+	/**
+	 * Returns data for the specified offset
+	 */
+	byte *loadData(int offset) {
+		return &_soundData[offset];
+	}
 
 	int getDataOffset(byte *ptr) const {
 		return ptr - &_soundData[0];
@@ -247,11 +246,18 @@ protected:
 	void resultCheck();
 
 	/**
-	 * Play the specified sound
+	 * Play the specified sound, using any free channel from 5 to 8.
 	 * @param offset	Offset of sound data within sound player data segment
-	 * @param size		Size of sound data block
 	 */
-	void playSound(int offset, int size);
+	void playSound(int offset);
+
+	/**
+	 * Play the specified sound using any channel from 0 to 8.
+	 * @param offset	Offset of sound data within sound player data segment
+	 */
+	void playSoundAny(int offset) {
+		playSoundData(loadData(offset), 0);
+	}
 
 	/**
 	 * Play the specified raw sound data
@@ -303,53 +309,49 @@ public:
 	Common::Queue<RegisterValue> _queue;
 	int _frameCounter;
 	bool _isDisabled;
-	int _v1;
-	int _v2;
+	int _noiseTicks1;       // remaining duration for noise voice 1 (byte_11F86)
+	int _noiseTicks2;       // remaining duration for noise voice 2 (byte_11F87)
 	int _activeChannelNumber;
 	int _freqMask1;
 	int _freqMask2;
 	int _freqBase1;
 	int _freqBase2;
-	int _channelNum1, _channelNum2;
-	int _v7;
-	int _v8;
-	int _v9;
-	int _v10;
+	int _noiseChannel1, _noiseChannel2;
+	int _noiseFreqStep1;    // per-tick frequency-sweep step for noise voice 1 (word_11F8A)
+	int _noiseFreqStep2;    // per-tick frequency-sweep step for noise voice 2 (word_11F8C)
+	int _savedNoiseTicks1;  // _noiseTicks1 saved across command6/7 (byte_194B0)
+	int _savedNoiseTicks2;  // _noiseTicks2 saved across command6/7 (byte_194B1)
 	int _pollResult;
 	int _resultFlag;
 	byte _nullData[2];
 	int _ports[256];
 	bool _stateFlag;
 	int _activeChannelReg;
-	int _v11;
+	int _outputReg;         // scratch OPL operator register offset used within loadSample()
 	bool _amDep, _vibDep, _splitPoint;
+
 public:
-	/**
-	 * Constructor
-	 * @param mixer			Mixer
-	 * @param opl			OPL
-	 * @param filename		Specifies the adlib sound player file to use
-	 * @param dataOffset	Offset in the file of the data segment
-	 * @param dataSize		Size of the data segment
-	 */
-	ASound(Audio::Mixer *mixer, OPL::OPL *opl, const Common::Path &filename,
-		int dataOffset, int dataSize);
-
-	/**
-	 * Destructor
-	 */
-	~ASound() override {
-	}
-
 	/**
 	 * Validates the Adlib sound files
 	 */
 	static void validate();
 
+public:
 	/**
-	 * Return the cached data block record for previously loaded sound data
+	 * Constructor
+	 * @param mixer			Mixer
+	 * @param filename		Specifies the adlib sound player file to use
+	 * @param dataOffset	Offset in the file of the data segment
+	 * @param dataSize		Size of the data segment
 	 */
-	CachedDataEntry &getCachedData(byte *pData);
+	ASound(Audio::Mixer *mixer, const Common::Path &filename, int dataOffset, int dataSize);
+
+	/**
+	 * Destructor
+	 */
+	~ASound() override {
+		delete _opl;
+	}
 
 	/**
 	 * Stop all currently playing sounds
@@ -377,6 +379,15 @@ public:
 	 * Set the volume
 	 */
 	void setVolume(int volume) override;
+};
+
+// TODO: Merge RexASound into ASound
+class RexASound : public ASound {
+protected:
+	void channelCommand(byte *&pSrc, bool &updateFlag) override;
+
+public:
+	RexASound(Audio::Mixer *mixer,  const Common::Path &filename, int dataOffset, int dataSize);
 };
 
 } // namespace RexNebular

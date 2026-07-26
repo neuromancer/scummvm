@@ -238,6 +238,11 @@ bool ScummMetaEngine::hasFeature(MetaEngineFeature f) const {
 }
 
 bool ScummEngine::hasFeature(EngineFeature f) const {
+#ifdef ENABLE_REBEL2_PSX
+	if (_game.id == GID_REBEL2 && _game.platform == Common::kPlatformPSX &&
+			(f == kSupportsLoadingDuringRuntime || f == kSupportsSavingDuringRuntime))
+		return false;
+#endif
 	return
 		(f == kSupportsReturnToLauncher) ||
 		(f == kSupportsLoadingDuringRuntime) ||
@@ -1250,6 +1255,7 @@ Common::KeymapArray ScummMetaEngine::initKeymaps(const char *target) const {
 	}
 
 	if (gameId == "rebel2") {
+		const bool isRebel2PSX = parsePlatform(ConfMan.get("platform", target)) == kPlatformPSX;
 		Keymap *rebel2Keymap = new Keymap(Keymap::kKeymapTypeGame, "scumm-rebel2", _("Rebel Assault II controls"));
 
 		act = new Action("RA2UP", _("Aim up / menu up"));
@@ -1305,10 +1311,16 @@ Common::KeymapArray ScummMetaEngine::initKeymaps(const char *target) const {
 		act->addDefaultInputMapping("JOY_A");
 		rebel2Keymap->addAction(act);
 
-		act = new Action("RA2COVER", _("Cover"));
+		act = new Action("RA2COVER", isRebel2PSX ? _("Change view") : _("Cover"));
 		act->setCustomEngineActionEvent(kScummActionInsaneSwitch);
-		act->addDefaultInputMapping("JOY_X");
-		act->addDefaultInputMapping("JOY_Y");
+		if (isRebel2PSX) {
+			act->addDefaultInputMapping("TAB");
+			act->addDefaultInputMapping("JOY_Y");
+			act->addDefaultInputMapping("JOY_BACK");
+		} else {
+			act->addDefaultInputMapping("JOY_X");
+			act->addDefaultInputMapping("JOY_Y");
+		}
 		rebel2Keymap->addAction(act);
 
 		act = new Action("RA2SKIP", _("Skip / back"));

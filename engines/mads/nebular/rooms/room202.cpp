@@ -25,7 +25,6 @@
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section2.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
@@ -51,113 +50,118 @@ static Scratch local;
 
 
 static void room_202_init() {
-	_game._player._beenVisible = true;
-	_globals._spriteIndexes[1] = _scene->_sprites.addSprites(formAnimName('b', 0));
-	_globals._spriteIndexes[2] = _scene->_sprites.addSprites(formAnimName('b', 1));
-	_globals._spriteIndexes[6] = _scene->_sprites.addSprites(formAnimName('b', 2));
-	_globals._spriteIndexes[3] = _scene->_sprites.addSprites(formAnimName('x', 0));
-	_globals._spriteIndexes[5] = _scene->_sprites.addSprites(formAnimName('l', -1));
-	if (_globals[kSexOfRex] != SEX_MALE) {
-		_globals._spriteIndexes[7] = _scene->_sprites.addSprites("*ROXBD_2");
+	player.walker_been_visible = true;
+	g_sprite_ids[1] = kernel_load_series(kernel_name('b', 0), 0);
+	g_sprite_ids[2] = kernel_load_series(kernel_name('b', 1), 0);
+	g_sprite_ids[6] = kernel_load_series(kernel_name('b', 2), 0);
+	g_sprite_ids[3] = kernel_load_series(kernel_name('x', 0), 0);
+	g_sprite_ids[5] = kernel_load_series(kernel_name('l', -1), 0);
+	if (global[kSexOfRex] != SEX_MALE) {
+		g_sprite_ids[7] = kernel_load_series("*ROXBD_2", 0);
 	} else {
-		_globals._spriteIndexes[7] = _scene->_sprites.addSprites("*RXMBD_2");
+		g_sprite_ids[7] = kernel_load_series("*RXMBD_2", 0);
 	}
-	_globals._spriteIndexes[8] = _scene->_sprites.addSprites(formAnimName('a', 0));
-	_globals._spriteIndexes[9] = _scene->_sprites.addSprites(formAnimName('a', 1));
-	_globals._spriteIndexes[11] = _scene->_sprites.addSprites(formAnimName('a', 2));
+	g_sprite_ids[8] = kernel_load_series(kernel_name('a', 0), 0);
+	g_sprite_ids[9] = kernel_load_series(kernel_name('a', 1), 0);
+	g_sprite_ids[11] = kernel_load_series(kernel_name('a', 2), 0);
 
-	_globals._sequenceIndexes[3] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[3], false, 6, 0, 0, 0);
-	_globals._sequenceIndexes[2] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[2], false, 6, 0, 0, 0);
-	_scene->_sequences.setPosition(_globals._sequenceIndexes[2], Common::Point(149, 113));
-	_scene->_sequences.setDepth(_globals._sequenceIndexes[2], 10);
-	int idx = _scene->_dynamicHotspots.add(words_skull, words_walkto, _globals._sequenceIndexes[2], Common::Rect(0, 0, 0, 0));
-	_scene->_dynamicHotspots.setPosition(idx, Common::Point(153, 97), FACING_SOUTH);
+	g_sequence_ids[3] = kernel_seq_forward(g_sprite_ids[3], false, 6, 0, 0, 0);
+	g_sequence_ids[2] = kernel_seq_forward(g_sprite_ids[2], false, 6, 0, 0, 0);
+	kernel_seq_loc(g_sequence_ids[2], 149, 113);
+	kernel_seq_depth(g_sequence_ids[2], 10);
+	int idx = kernel_add_dynamic(words_skull, words_walkto, 0, g_sequence_ids[2], 0, 0, 0, 0);
+	kernel_dynamic_walk(idx, 153, 97, FACING_SOUTH);
 
-	if (!(_globals[kBone202Status] & 1)) {
-		_globals._sequenceIndexes[1] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[1], false, 6, 0, 0, 0);
-		_scene->_sequences.setPosition(_globals._sequenceIndexes[1], Common::Point(130, 108));
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[1], 10);
-		idx = _scene->_dynamicHotspots.add(words_bone, words_walkto, _globals._sequenceIndexes[1], Common::Rect(0, 0, 0, 0));
-		_scene->_dynamicHotspots.setPosition(idx, Common::Point(132, 97), FACING_SOUTH);
-	}
-
-	if (!(_globals[kBone202Status] & 2)) {
-		_globals._sequenceIndexes[6] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[6], false, 6, 0, 0, 0);
-		_scene->_sequences.setPosition(_globals._sequenceIndexes[6], Common::Point(166, 110));
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[6], 10);
-		idx = _scene->_dynamicHotspots.add(words_bone, words_walkto, _globals._sequenceIndexes[6], Common::Rect(0, 0, 0, 0));
-		_scene->_dynamicHotspots.setPosition(idx, Common::Point(165, 99), FACING_SOUTH);
+	if (!(global[kBone202Status] & 1)) {
+		g_sequence_ids[1] = kernel_seq_forward(g_sprite_ids[1], false, 6, 0, 0, 0);
+		kernel_seq_loc(g_sequence_ids[1], 130, 108);
+		kernel_seq_depth(g_sequence_ids[1], 10);
+		idx = kernel_add_dynamic(words_bone, words_walkto, 0, g_sequence_ids[1], 0, 0, 0, 0);
+		kernel_dynamic_walk(idx, 132, 97, FACING_SOUTH);
 	}
 
-	if (_globals[kBone202Status])
-		_scene->changeVariant(_globals[kBone202Status]);
-
-	if (_scene->_priorSceneId == 201) {
-		_game._player._playerPos = Common::Point(190, 91);
-		_game._player._facing = FACING_SOUTH;
-	} else if (_scene->_priorSceneId != RETURNING_FROM_DIALOG) {
-		_game._player._playerPos = Common::Point(178, 152);
-		_game._player._facing = FACING_NORTH;
+	if (!(global[kBone202Status] & 2)) {
+		g_sequence_ids[6] = kernel_seq_forward(g_sprite_ids[6], false, 6, 0, 0, 0);
+		kernel_seq_loc(g_sequence_ids[6], 166, 110);
+		kernel_seq_depth(g_sequence_ids[6], 10);
+		idx = kernel_add_dynamic(words_bone, words_walkto, 0, g_sequence_ids[6], 0, 0, 0, 0);
+		kernel_dynamic_walk(idx, 165, 99, FACING_SOUTH);
 	}
 
-	if (_globals[kLadderBroken]) {
-		_globals._sequenceIndexes[5] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[5], false, 6, 0, 0, 0);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[5], 6);
-		_scene->_hotspots.activate(words_ladder, false);
-		idx = _scene->_dynamicHotspots.add(words_broken_ladder, words_walkto, _globals._sequenceIndexes[5], Common::Rect(0, 0, 0, 0));
-		_scene->_dynamicHotspots.setPosition(idx, Common::Point(246, 124), FACING_NORTH);
+	if (global[kBone202Status])
+		kernel_load_variant(global[kBone202Status]);
+
+	if (previous_room == 201) {
+		player.x = 190;
+		player.y = 91;
+		player.facing = FACING_SOUTH;
+	} else if (previous_room != KERNEL_RESTORING_GAME) {
+		player.x = 178;
+		player.y = 152;
+		player.facing = FACING_NORTH;
 	}
 
-	_game.loadQuoteSet(0x5C, 0x5D, 0x5E, 0x5F, 0x60, 0x62, 0x63, 0x64, 0x65, 0x66, 0x61, 0);
+	if (global[kLadderBroken]) {
+		g_sequence_ids[5] = kernel_seq_forward(g_sprite_ids[5], false, 6, 0, 0, 0);
+		kernel_seq_depth(g_sequence_ids[5], 6);
+		kernel_flip_hotspot(words_ladder, false);
+		idx = kernel_add_dynamic(words_broken_ladder, words_walkto, 0, g_sequence_ids[5], 0, 0, 0, 0);
+		kernel_dynamic_walk(idx, 246, 124, FACING_NORTH);
+	}
+
+	kernel.quotes = quote_load(0x5C, 0x5D, 0x5E, 0x5F, 0x60, 0x62, 0x63, 0x64, 0x65, 0x66, 0x61, 0);
 	local._activeMsgFl = false;
 
-	if (_scene->_priorSceneId == RETURNING_FROM_DIALOG) {
+	if (previous_room == KERNEL_RESTORING_GAME) {
 		if (local._waitingMeteoFl) {
-			_globals._sequenceIndexes[9] = _scene->_sequences.startCycle(_globals._spriteIndexes[9], false, 1);
-			_game._player._visible = false;
+			g_sequence_ids[9] = kernel_seq_stamp(g_sprite_ids[9], false, 1);
+			player.walker_visible = false;
 		}
 	} else {
 		local._waitingMeteoFl = false;
 		local._ladderTopFl = false;
 	}
 
-	local._meteoClock1 = local._meteoClock2 = _scene->_frameStartTime;
+	local._meteoClock1 = local._meteoClock2 = kernel.clock;
 
-	if (_scene->_roomChanged)
-		_game._objects.addToInventory(OBJ_BINOCULARS);
+	if (kernel.teleported_in)
+		inter_give_to_player(OBJ_BINOCULARS);
 
-	if (_globals[kMeteorologistWatch] != METEOROLOGIST_NORMAL) {
-		_game._player._visible = false;
-		_game._player._stepEnabled = false;
-		local._ladderTopFl = (_globals[kMeteorologistWatch] == METEOROLOGIST_TOWER);
+	if (global[kMeteorologistWatch] != METEOROLOGIST_NORMAL) {
+		player.walker_visible = false;
+		player.commands_allowed = false;
+		local._ladderTopFl = (global[kMeteorologistWatch] == METEOROLOGIST_TOWER);
 
 		if (local._ladderTopFl) {
-			_globals._sequenceIndexes[10] = _scene->_sequences.startCycle(_globals._spriteIndexes[9], true, 8);
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[10], 1);
+			g_sequence_ids[10] = kernel_seq_stamp(g_sprite_ids[9], true, 8);
+			kernel_seq_depth(g_sequence_ids[10], 1);
 
-			_scene->_sequences.setPosition(_globals._sequenceIndexes[10], Common::Point(247, 82));
-			_game._player._playerPos = Common::Point(246, 124);
-			_game._player._facing = FACING_NORTH;
-			_globals[kTeleporterUnderstood] = true;
+			kernel_seq_loc(g_sequence_ids[10], 247, 82);
+			player.x = 246;
+			player.y = 124;
+			player.facing = FACING_NORTH;
+			global[kTeleporterUnderstood] = true;
 		} else {
-			_globals._sequenceIndexes[10] = _scene->_sequences.startCycle(_globals._spriteIndexes[9], false, 6);
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[10], 1);
+			g_sequence_ids[10] = kernel_seq_stamp(g_sprite_ids[9], false, 6);
+			kernel_seq_depth(g_sequence_ids[10], 1);
 
-			_scene->_sequences.setPosition(_globals._sequenceIndexes[10], Common::Point(172, 123));
-			_game._player._playerPos = Common::Point(171, 122);
-			_game._player._facing = FACING_NORTH;
+			kernel_seq_loc(g_sequence_ids[10], 172, 123);
+			player.x = 171;
+			player.y = 122;
+			player.facing = FACING_NORTH;
 		}
 
-		_scene->loadAnimation(formAnimName('M', -1), 71);
-		_scene->_animation[0]->setCurrentFrame(200);
+		kernel_run_animation(kernel_name('M', -1), 71);
+		kernel_reset_animation(0, 200);
 	} else {
 		if (local._ladderTopFl) {
-			_game._player._visible = false;
-			_scene->_sequences.startCycle(_globals._sequenceIndexes[9], true, 1);
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[9], 1);
-			_scene->_sequences.setPosition(_globals._sequenceIndexes[9], Common::Point(247, 82));
-			_game._player._playerPos = Common::Point(246, 124);
-			_game._player._facing = FACING_NORTH;
+			player.walker_visible = false;
+			kernel_seq_stamp(g_sequence_ids[9], true, 1);
+			kernel_seq_depth(g_sequence_ids[9], 1);
+			kernel_seq_loc(g_sequence_ids[9], 247, 82);
+			player.x = 246;
+			player.y = 124;
+			player.facing = FACING_NORTH;
 		}
 	}
 
@@ -167,10 +171,10 @@ static void room_202_init() {
 }
 
 static void setRandomKernelMessage() {
-	int vocabId = _vm->getRandomNumber(92, 96);
-	_scene->_kernelMessages.reset();
-	_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-	_scene->_kernelMessages.add(Common::Point(0, 0), 0x1110, 34, 70, 120, _game.getQuote(vocabId));
+	int vocabId = g_engine->getRandomNumber(92, 96);
+	kernel_message_purge();
+	kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+	kernel_message_add(quote_string(kernel.quotes, vocabId), 0, 0, 0x1110, 120, 70, 34);
 	local._activeMsgFl = true;
 }
 
@@ -224,23 +228,23 @@ static int subStep4(int randVal) {
 }
 
 static void room_202_daemon() {
-	if (!local._activeMsgFl && (_game._player._playerPos == Common::Point(77, 105)) && (_game._player._facing == FACING_NORTH) && (_vm->getRandomNumber(999) == 0)) {
-		_scene->_kernelMessages.reset();
+	if (!local._activeMsgFl && (Common::Point(player.x, player.y) == Common::Point(77, 105)) && (player.facing == FACING_NORTH) && (g_engine->getRandomNumber(999) == 0)) {
+		kernel_message_purge();
 		local._activeMsgFl = false;
-		if (_vm->getRandomNumber(4) == 0)
+		if (g_engine->getRandomNumber(4) == 0)
 			setRandomKernelMessage();
 	}
 
-	if (_game._trigger == 70)
+	if (kernel.trigger == 70)
 		local._activeMsgFl = false;
 
-	if (_game._trigger == 71) {
-		_vm->_sound->command(3);
-		_vm->_sound->command(9);
+	if (kernel.trigger == 71) {
+		g_engine->_soundManager->command(3, 0);
+		g_engine->_soundManager->command(9, 0);
 
-		local._meteoClock1 = _scene->_frameStartTime + 15 * 60;
+		local._meteoClock1 = kernel.clock + 15 * 60;
 
-		if (_globals[kMeteorologistWatch] != METEOROLOGIST_NORMAL) {
+		if (global[kMeteorologistWatch] != METEOROLOGIST_NORMAL) {
 			Common::Point msgPos;
 			int msgFlag;
 			if (!local._ladderTopFl) {
@@ -250,103 +254,103 @@ static void room_202_daemon() {
 				msgPos = Common::Point(248, 15);
 				msgFlag = 0;
 			}
-			int msgIndex = _scene->_kernelMessages.add(msgPos, 0x1110, msgFlag | 32, 0, 120, _game.getQuote(102));
-			_scene->_kernelMessages.setQuoted(msgIndex, 4, true);
+			int msgIndex = kernel_message_add(quote_string(kernel.quotes, 102), msgPos.x, msgPos.y, 0x1110, 120, 0, msgFlag | 32);
+			kernel_message_teletype(msgIndex, 4, true);
 
-			if (_globals[kMeteorologistWatch] == METEOROLOGIST_GROUND) {
-				_action._activeAction._verbId = words_look;
-				_action._activeAction._objectNameId = words_binoculars;
-				_action._activeAction._indirectObjectId = words_strange_device;
-				_game._triggerSetupMode = SEQUENCE_TRIGGER_PARSER;
-				_scene->_sequences.addTimer(2 * 60, 2);
+			if (global[kMeteorologistWatch] == METEOROLOGIST_GROUND) {
+				player2.words[0] = words_look;
+				player2.words[1] = words_binoculars;
+				player2.words[2] = words_strange_device;
+				kernel.trigger_setup_mode = KERNEL_TRIGGER_PARSER;
+				kernel_timing_trigger(2 * 60, 2);
 				local._meteorologistSpecial = true;
-			} else if (_globals[kMeteorologistWatch] == METEOROLOGIST_TOWER) {
-				_scene->_sequences.addTimer(2 * 60, 90);
+			} else if (global[kMeteorologistWatch] == METEOROLOGIST_TOWER) {
+				kernel_timing_trigger(2 * 60, 90);
 			}
 		}
 
-		_globals[kMeteorologistWatch] = METEOROLOGIST_NORMAL;
+		global[kMeteorologistWatch] = METEOROLOGIST_NORMAL;
 	}
 
-	switch (_game._trigger) {
+	switch (kernel.trigger) {
 	case 90:
-		_vm->_sound->command(41);
-		_scene->_sequences.remove(_globals._sequenceIndexes[10]);
-		_globals._sequenceIndexes[9] = _scene->_sequences.addReverseSpriteCycle(_globals._spriteIndexes[9], true, 6, 1, 0, 0);
-		_scene->_sequences.setPosition(_globals._sequenceIndexes[9], Common::Point(247, 82));
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[9], 1);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[9], SEQUENCE_TRIGGER_EXPIRE, 0, 91);
+		g_engine->_soundManager->command(41, 0);
+		kernel_seq_delete(g_sequence_ids[10]);
+		g_sequence_ids[9] = kernel_seq_backward(g_sprite_ids[9], true, 6, 0, 0, 1);
+		kernel_seq_loc(g_sequence_ids[9], 247, 82);
+		kernel_seq_depth(g_sequence_ids[9], 1);
+		kernel_seq_trigger(g_sequence_ids[9], KERNEL_TRIGGER_EXPIRE, 0, 91);
 		break;
 	case 91:
-		_globals._sequenceIndexes[9] = _scene->_sequences.startCycle(_globals._spriteIndexes[9], true, 1);
-		_scene->_sequences.setPosition(_globals._sequenceIndexes[9], Common::Point(247, 82));
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[9], 1);
-		_scene->_sequences.addTimer(60, 92);
+		g_sequence_ids[9] = kernel_seq_stamp(g_sprite_ids[9], true, 1);
+		kernel_seq_loc(g_sequence_ids[9], 247, 82);
+		kernel_seq_depth(g_sequence_ids[9], 1);
+		kernel_timing_trigger(60, 92);
 		break;
 	case 92:
 	{
-		_scene->_sequences.remove(_globals._sequenceIndexes[9]);
-		_globals._sequenceIndexes[11] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[11], false, 6, 1, 0, 0);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[11], 1);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[11], SEQUENCE_TRIGGER_EXPIRE, 0, 93);
-		_scene->_kernelMessages.reset();
-		int msgIndex = _scene->_kernelMessages.add(Common::Point(0, -65), 0x1110, 32, 0, 60, _game.getQuote(98));
-		_scene->_kernelMessages.setSeqIndex(msgIndex, _globals._sequenceIndexes[11]);
+		kernel_seq_delete(g_sequence_ids[9]);
+		g_sequence_ids[11] = kernel_seq_forward(g_sprite_ids[11], false, 6, 0, 0, 1);
+		kernel_seq_depth(g_sequence_ids[11], 1);
+		kernel_seq_trigger(g_sequence_ids[11], KERNEL_TRIGGER_EXPIRE, 0, 93);
+		kernel_message_purge();
+		int msgIndex = kernel_message_add(quote_string(kernel.quotes, 98), 0, -65, 0x1110, 60, 0, 32);
+		kernel_message_attach(msgIndex, g_sequence_ids[11]);
 	}
 	break;
 	case 93:
 	{
-		_globals[kLadderBroken] = false;
-		_globals._sequenceIndexes[5] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[5], false, 6, 0, 0, 0);
-		_scene->_hotspots.activate(words_ladder, false);
-		int idx = _scene->_dynamicHotspots.add(words_broken_ladder, words_walkto, _globals._sequenceIndexes[5], Common::Rect(0, 0, 0, 0));
-		_scene->_dynamicHotspots.setPosition(idx, Common::Point(246, 124), FACING_NORTH);
-		_scene->_sequences.updateTimeout(_globals._sequenceIndexes[11], _globals._sequenceIndexes[5]);
-		_scene->_sequences.updateTimeout(-1, _globals._sequenceIndexes[11]);
-		_game._player._stepEnabled = true;
-		_game._player._visible = true;
+		global[kLadderBroken] = false;
+		g_sequence_ids[5] = kernel_seq_forward(g_sprite_ids[5], false, 6, 0, 0, 0);
+		kernel_flip_hotspot(words_ladder, false);
+		int idx = kernel_add_dynamic(words_broken_ladder, words_walkto, 0, g_sequence_ids[5], 0, 0, 0, 0);
+		kernel_dynamic_walk(idx, 246, 124, FACING_NORTH);
+		kernel_seq_timeout(g_sequence_ids[5], g_sequence_ids[11]);
+		kernel_seq_timeout(g_sequence_ids[11], -1);
+		player.commands_allowed = true;
+		player.walker_visible = true;
 		local._ladderTopFl = false;
-		_scene->_kernelMessages.reset();
-		_scene->_kernelMessages.add(Common::Point(0, 0), 0x1110, 34, 0, 120, _game.getQuote(99));
+		kernel_message_purge();
+		kernel_message_add(quote_string(kernel.quotes, 99), 0, 0, 0x1110, 120, 0, 34);
 	}
 	break;
 	default:
 		break;
 	}
 
-	if (!_scene->_animation[0] && (_globals[kMeteorologistStatus] != METEOROLOGIST_GONE) && (local._meteoClock2 <= _scene->_frameStartTime) && (local._meteoClock1 <= _scene->_frameStartTime)) {
-		int randVal = _vm->getRandomNumber(1, 500);
+	if ((kernel_anim[0].anim == nullptr) && (global[kMeteorologistStatus] != METEOROLOGIST_GONE) && (local._meteoClock2 <= kernel.clock) && (local._meteoClock1 <= kernel.clock)) {
+		int randVal = g_engine->getRandomNumber(1, 500);
 		int threshold = 1;
 		if (local._ladderTopFl)
 			threshold += 25;
-		if (!_globals[kMeteorologistEverSeen])
+		if (!global[kMeteorologistEverSeen])
 			threshold += 25;
 		if (threshold >= randVal) {
-			_vm->_sound->command(17);
-			_scene->loadAnimation(formAnimName('M', -1), 71);
+			g_engine->_soundManager->command(17, 0);
+			kernel_run_animation(kernel_name('M', -1), 71);
 			local._toStationFl = true;
 			local._toTeleportFl = false;
-			_globals[kMeteorologistEverSeen] = true;
+			global[kMeteorologistEverSeen] = true;
 			local._lastRoute = 0;
 			local._stationCounter = 0;
-			local._meteoClock2 = _scene->_frameStartTime + 2;
+			local._meteoClock2 = kernel.clock + 2;
 		}
 	}
 
-	if (!_scene->_animation[0])
+	if ((kernel_anim[0].anim == nullptr))
 		return;
 
 	if (local._waitingMeteoFl) {
-		if (_scene->_animation[0]->getCurrentFrame() >= 200) {
-			if ((_globals[kMeteorologistWatch] == METEOROLOGIST_TOWER) || _globals[kLadderBroken]) {
-				_scene->_nextSceneId = 213;
+		if (kernel_anim[0].frame >= 200) {
+			if ((global[kMeteorologistWatch] == METEOROLOGIST_TOWER) || global[kLadderBroken]) {
+				new_room = 213;
 			} else {
-				_vm->_dialogs->show(20201);
-				_scene->_reloadSceneFlag = true;
+				text_show(20201);
+				kernel.force_restart = true;
 			}
 		}
 
-		if ((_scene->_animation[0]->getCurrentFrame() == 160) && (local._meteoFrame != _scene->_animation[0]->getCurrentFrame())) {
+		if ((kernel_anim[0].frame == 160) && (local._meteoFrame != kernel_anim[0].frame)) {
 			Common::Point msgPos;
 			int msgFlag;
 			if (!local._ladderTopFl) {
@@ -356,24 +360,24 @@ static void room_202_daemon() {
 				msgPos = Common::Point(248, 15);
 				msgFlag = 0;
 			}
-			int msgIndex = _scene->_kernelMessages.add(msgPos, 0x1110, msgFlag | 32, 0, 120, _game.getQuote(101));
-			_scene->_kernelMessages.setQuoted(msgIndex, 4, true);
+			int msgIndex = kernel_message_add(quote_string(kernel.quotes, 101), msgPos.x, msgPos.y, 0x1110, 120, 0, msgFlag | 32);
+			kernel_message_teletype(msgIndex, 4, true);
 		}
 	}
 
-	if (local._meteoClock2 + 120 * 60 <= _scene->_frameStartTime) {
+	if (local._meteoClock2 + 120 * 60 <= kernel.clock) {
 		local._toTeleportFl = true;
 	}
 
-	if (_scene->_animation[0]->getCurrentFrame() == local._meteoFrame) {
+	if (kernel_anim[0].frame == local._meteoFrame) {
 		return;
 	}
 
-	local._meteoFrame = _scene->_animation[0]->getCurrentFrame();
-	int randVal = _vm->getRandomNumber(1, 1000);
+	local._meteoFrame = kernel_anim[0].frame;
+	int randVal = g_engine->getRandomNumber(1, 1000);
 	int frameStep = -1;
 
-	switch (_scene->_animation[0]->getCurrentFrame()) {
+	switch (kernel_anim[0].frame) {
 	case 42:
 	case 77:
 	case 96:
@@ -413,281 +417,280 @@ static void room_202_daemon() {
 		break;
 	}
 
-	if (frameStep >= 0 && frameStep != _scene->_animation[0]->getCurrentFrame() + 1) {
-		_scene->_animation[0]->setCurrentFrame(frameStep);
+	if (frameStep >= 0 && frameStep != kernel_anim[0].frame + 1) {
+		kernel_reset_animation(0, frameStep);
 		local._meteoFrame = frameStep;
 	}
 }
 
 static void room_202_pre_parser() {
-	auto &gplayer = _vm->_game->_player;
 
-	if (gplayer._needToWalk)
-		_scene->_kernelMessages.reset();
+	if (player.need_to_walk)
+		kernel_message_purge();
 
-	if (local._ladderTopFl && (player_said_2(climb_down, ladder) || gplayer._needToWalk)) {
-		if (_game._trigger == 0) {
-			_vm->_sound->command(29);
-			gplayer._readyToWalk = false;
-			gplayer._stepEnabled = false;
-			_scene->_sequences.remove(_globals._sequenceIndexes[9]);
-			_globals._sequenceIndexes[8] = _scene->_sequences.addReverseSpriteCycle(_globals._spriteIndexes[8], false, 6, 1, 0, 0);
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[8], 1);
-			_scene->_sequences.addSubEntry(_globals._sequenceIndexes[8], SEQUENCE_TRIGGER_EXPIRE, 0, 1);
-		} else if (_game._trigger == 1) {
-			_scene->_sequences.updateTimeout(-1, _globals._sequenceIndexes[8]);
-			_scene->_dynamicHotspots.remove(local._ladderHotspotId);
-			gplayer._visible = true;
-			gplayer._readyToWalk = true;
-			gplayer._stepEnabled = true;
+	if (local._ladderTopFl && (player_said_2(climb_down, ladder) || player.need_to_walk)) {
+		if (kernel.trigger == 0) {
+			g_engine->_soundManager->command(29, 0);
+			player.ready_to_walk = false;
+			player.commands_allowed = false;
+			kernel_seq_delete(g_sequence_ids[9]);
+			g_sequence_ids[8] = kernel_seq_backward(g_sprite_ids[8], false, 6, 0, 0, 1);
+			kernel_seq_depth(g_sequence_ids[8], 1);
+			kernel_seq_trigger(g_sequence_ids[8], KERNEL_TRIGGER_EXPIRE, 0, 1);
+		} else if (kernel.trigger == 1) {
+			kernel_seq_timeout(g_sequence_ids[8], -1);
+			kernel_delete_dynamic(local._ladderHotspotId);
+			player.walker_visible = true;
+			player.ready_to_walk = true;
+			player.commands_allowed = true;
 			local._ladderTopFl = false;
 		}
 	}
 
-	if (player_said_2(look, binoculars) && (_action._activeAction._indirectObjectId > 0)) {
-		if (!gplayer._readyToWalk || local._ladderTopFl)
-			gplayer._needToWalk = false;
+	if (player_said_2(look, binoculars) && (player2.words[2] > 0)) {
+		if (!player.ready_to_walk || local._ladderTopFl)
+			player.need_to_walk = false;
 		else
-			gplayer._needToWalk = true;
+			player.need_to_walk = true;
 
 		if (!local._ladderTopFl)
-			gplayer.walk(Common::Point(171, 122), FACING_NORTH);
+			player_walk(171, 122, FACING_NORTH);
 	}
 }
 
 static void room_202_parser() {
-	if (_action._lookFlag) {
-		_vm->_dialogs->show(20219);
+	if (player.look_around) {
+		text_show(20219);
 		return;
 	}
 
 	if (player_said_2(climb_down, ladder)) {
-		_action._inProgress = false;
+		player.command_ready = false;
 		return;
 	} else if (player_said_2(walk_towards, field_to_south)) {
-		_scene->_nextSceneId = 203;
+		new_room = 203;
 	} else if (player_said_2(walk_towards, field_to_north)) {
-		if (_globals[kMeteorologistStatus] != METEOROLOGIST_GONE) {
-			if (_scene->_animation[0])
-				_globals[kMeteorologistStatus] = METEOROLOGIST_PRESENT;
+		if (global[kMeteorologistStatus] != METEOROLOGIST_GONE) {
+			if ((kernel_anim[0].anim != nullptr))
+				global[kMeteorologistStatus] = METEOROLOGIST_PRESENT;
 			else
-				_globals[kMeteorologistStatus] = METEOROLOGIST_ABSENT;
+				global[kMeteorologistStatus] = METEOROLOGIST_ABSENT;
 		}
-		_scene->_nextSceneId = 201;
-	} else if (player_said_2(take, bone) && (_action._savedFields._mainObjectSource == 4)) {
-		switch (_game._trigger) {
+		new_room = 201;
+	} else if (player_said_2(take, bone) && (player.main_object_source == 4)) {
+		switch (kernel.trigger) {
 		case 0:
-			if (_game._objects.isInInventory(OBJ_BONES)) {
-				_vm->_dialogs->show(20221);
+			if (player_has(OBJ_BONES)) {
+				text_show(20221);
 			} else {
-				_game._player._stepEnabled = false;
-				_game._player._visible = false;
-				_globals._sequenceIndexes[7] = _scene->_sequences.startPingPongCycle(_globals._spriteIndexes[7], false, 3, 2, 0, 0);
-				_scene->_sequences.setMsgLayout(_globals._sequenceIndexes[7]);
-				_scene->_sequences.addSubEntry(_globals._sequenceIndexes[7], SEQUENCE_TRIGGER_SPRITE, 6, 1);
-				_scene->_sequences.addSubEntry(_globals._sequenceIndexes[7], SEQUENCE_TRIGGER_EXPIRE, 0, 2);
+				player.commands_allowed = false;
+				player.walker_visible = false;
+				g_sequence_ids[7] = kernel_seq_pingpong(g_sprite_ids[7], false, 3, 0, 0, 2);
+				kernel_seq_player(g_sequence_ids[7], false);
+				kernel_seq_trigger(g_sequence_ids[7], KERNEL_TRIGGER_SPRITE, 6, 1);
+				kernel_seq_trigger(g_sequence_ids[7], KERNEL_TRIGGER_EXPIRE, 0, 2);
 			}
 			break;
 		case 1:
-			if (_game._player._playerPos == Common::Point(132, 97)) {
-				_scene->_sequences.remove(_globals._sequenceIndexes[1]);
-				_globals[kBone202Status] |= BONE_202_LEFT_GONE;
+			if (Common::Point(player.x, player.y) == Common::Point(132, 97)) {
+				kernel_seq_delete(g_sequence_ids[1]);
+				global[kBone202Status] |= BONE_202_LEFT_GONE;
 			} else {
-				_scene->_sequences.remove(_globals._sequenceIndexes[6]);
-				_globals[kBone202Status] |= BONE_202_RIGHT_GONE;
+				kernel_seq_delete(g_sequence_ids[6]);
+				global[kBone202Status] |= BONE_202_RIGHT_GONE;
 			}
 			break;
 		case 2:
-			if (_game._objects.isInInventory(OBJ_BONE)) {
-				_game._objects.removeFromInventory(OBJ_BONE, NOWHERE);
-				_game._objects.addToInventory(OBJ_BONES);
-				_vm->_dialogs->showItem(OBJ_BONES, 20218);
+			if (player_has(OBJ_BONE)) {
+				inter_take_from_player(OBJ_BONE, NOWHERE);
+				inter_give_to_player(OBJ_BONES);
+				object_examine(OBJ_BONES, 20218, 0);
 			} else {
-				_game._objects.addToInventory(OBJ_BONE);
-				_vm->_dialogs->showItem(OBJ_BONE, 20218);
+				inter_give_to_player(OBJ_BONE);
+				object_examine(OBJ_BONE, 20218, 0);
 			}
-			_scene->changeVariant(_globals[kBone202Status]);
-			_game._player._stepEnabled = true;
-			_game._player._visible = true;
+			kernel_load_variant(global[kBone202Status]);
+			player.commands_allowed = true;
+			player.walker_visible = true;
 			break;
 		default:
 			break;
 		}
 
-		_action._inProgress = false;
-	} else if (player_said_2(climb_up, ladder) && !_globals[kLadderBroken]) {
-		switch (_game._trigger) {
+		player.command_ready = false;
+	} else if (player_said_2(climb_up, ladder) && !global[kLadderBroken]) {
+		switch (kernel.trigger) {
 		case 0:
-			_vm->_sound->command(29);
-			local._meteoClock1 = _scene->_frameStartTime;
-			_game._player._visible = false;
-			_game._player._stepEnabled = false;
+			g_engine->_soundManager->command(29, 0);
+			local._meteoClock1 = kernel.clock;
+			player.walker_visible = false;
+			player.commands_allowed = false;
 
-			local._ladderHotspotId = _scene->_dynamicHotspots.add(words_ladder, words_climb_down, -1, Common::Rect(241, 68, 241 + 12, 68 + 54));
-			_scene->_dynamicHotspots.setPosition(local._ladderHotspotId, Common::Point(246, 124), FACING_NORTH);
-			_globals._sequenceIndexes[8] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[8], false, 6, 1, 0, 0);
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[8], 1);
-			_scene->_sequences.addSubEntry(_globals._sequenceIndexes[8], SEQUENCE_TRIGGER_EXPIRE, 0, 1);
+			local._ladderHotspotId = kernel_add_dynamic(words_ladder, words_climb_down, 0, -1, 241, 68, 12, 54);
+			kernel_dynamic_walk(local._ladderHotspotId, 246, 124, FACING_NORTH);
+			g_sequence_ids[8] = kernel_seq_forward(g_sprite_ids[8], false, 6, 0, 0, 1);
+			kernel_seq_depth(g_sequence_ids[8], 1);
+			kernel_seq_trigger(g_sequence_ids[8], KERNEL_TRIGGER_EXPIRE, 0, 1);
 			break;
 		case 1:
 		{
-			_globals._sequenceIndexes[9] = _scene->_sequences.startCycle(_globals._spriteIndexes[9], true, 1);
-			_scene->_sequences.setPosition(_globals._sequenceIndexes[9], Common::Point(247, 82));
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[9], 1);
-			_scene->_sequences.updateTimeout(_globals._sequenceIndexes[8], _globals._sequenceIndexes[9]);
+			g_sequence_ids[9] = kernel_seq_stamp(g_sprite_ids[9], true, 1);
+			kernel_seq_loc(g_sequence_ids[9], 247, 82);
+			kernel_seq_depth(g_sequence_ids[9], 1);
+			kernel_seq_timeout(g_sequence_ids[9], g_sequence_ids[8]);
 			local._ladderTopFl = true;
-			_game._player._stepEnabled = true;
-			int msgIndex = _scene->_kernelMessages.add(Common::Point(248, 15), 0x1110, 32, 0, 60, _game.getQuote(97));
-			_scene->_kernelMessages.setQuoted(msgIndex, 4, true);
+			player.commands_allowed = true;
+			int msgIndex = kernel_message_add(quote_string(kernel.quotes, 97), 248, 15, 0x1110, 60, 0, 32);
+			kernel_message_teletype(msgIndex, 4, true);
 		}
 		break;
 		default:
-			_action._inProgress = false;
+			player.command_ready = false;
 			return;
 		}
-	} else if ((player_said_3(look, binoculars, field_to_north) || (player_said_3(look, binoculars, strange_device))) && (_globals[kSexOfRex] == SEX_MALE)) {
+	} else if ((player_said_3(look, binoculars, field_to_north) || (player_said_3(look, binoculars, strange_device))) && (global[kSexOfRex] == SEX_MALE)) {
 		if (!local._ladderTopFl) {
-			switch (_game._trigger) {
+			switch (kernel.trigger) {
 			case 0:
 				local._toTeleportFl = true;
-				_game._player._stepEnabled = false;
-				_game._player._visible = false;
-				_globals._sequenceIndexes[10] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[9], false, 6, 1, 0, 0);
-				_scene->_sequences.setAnimRange(_globals._sequenceIndexes[10], 1, 6);
-				_scene->_sequences.setPosition(_globals._sequenceIndexes[10], Common::Point(172, 123));
-				_scene->_sequences.setDepth(_globals._sequenceIndexes[10], 1);
-				_scene->_sequences.updateTimeout(-1, _globals._sequenceIndexes[10]);
-				_scene->_sequences.addSubEntry(_globals._sequenceIndexes[10], SEQUENCE_TRIGGER_EXPIRE, 0, 1);
+				player.commands_allowed = false;
+				player.walker_visible = false;
+				g_sequence_ids[10] = kernel_seq_forward(g_sprite_ids[9], false, 6, 0, 0, 1);
+				kernel_seq_range(g_sequence_ids[10], 1, 6);
+				kernel_seq_loc(g_sequence_ids[10], 172, 123);
+				kernel_seq_depth(g_sequence_ids[10], 1);
+				kernel_seq_timeout(g_sequence_ids[10], -1);
+				kernel_seq_trigger(g_sequence_ids[10], KERNEL_TRIGGER_EXPIRE, 0, 1);
 				break;
 			case 1:
-				_globals._sequenceIndexes[10] = _scene->_sequences.startCycle(_globals._spriteIndexes[9], false, 6);
-				_scene->_sequences.setDepth(_globals._sequenceIndexes[10], 1);
-				_scene->_sequences.setPosition(_globals._sequenceIndexes[10], Common::Point(172, 123));
-				if (_scene->_animation[0]) {
+				g_sequence_ids[10] = kernel_seq_stamp(g_sprite_ids[9], false, 6);
+				kernel_seq_depth(g_sequence_ids[10], 1);
+				kernel_seq_loc(g_sequence_ids[10], 172, 123);
+				if ((kernel_anim[0].anim != nullptr)) {
 					local._waitingMeteoFl = true;
-					_globals[kMeteorologistWatch] = METEOROLOGIST_GROUND;
+					global[kMeteorologistWatch] = METEOROLOGIST_GROUND;
 				} else {
-					_scene->_sequences.addTimer(120, 2);
+					kernel_timing_trigger(120, 2);
 				}
 				break;
 			case 2:
-				if (!_scene->_animation[0] && !local._meteorologistSpecial) {
-					_vm->_dialogs->show(20222);
+				if ((kernel_anim[0].anim == nullptr) && !local._meteorologistSpecial) {
+					text_show(20222);
 				}
-				_scene->_sequences.remove(_globals._sequenceIndexes[10]);
-				_globals._sequenceIndexes[10] = _scene->_sequences.addReverseSpriteCycle(_globals._spriteIndexes[9], false, 6, 1, 0, 0);
-				_scene->_sequences.setDepth(_globals._sequenceIndexes[10], 1);
-				_scene->_sequences.setAnimRange(_globals._sequenceIndexes[10], 1, 6);
-				_scene->_sequences.setPosition(_globals._sequenceIndexes[10], Common::Point(172, 123));
-				_scene->_sequences.addSubEntry(_globals._sequenceIndexes[10], SEQUENCE_TRIGGER_EXPIRE, 0, 3);
+				kernel_seq_delete(g_sequence_ids[10]);
+				g_sequence_ids[10] = kernel_seq_backward(g_sprite_ids[9], false, 6, 0, 0, 1);
+				kernel_seq_depth(g_sequence_ids[10], 1);
+				kernel_seq_range(g_sequence_ids[10], 1, 6);
+				kernel_seq_loc(g_sequence_ids[10], 172, 123);
+				kernel_seq_trigger(g_sequence_ids[10], KERNEL_TRIGGER_EXPIRE, 0, 3);
 				break;
 			case 3:
-				_scene->_sequences.updateTimeout(-1, _globals._sequenceIndexes[10]);
-				_game._player._stepEnabled = true;
-				_game._player._visible = true;
+				kernel_seq_timeout(g_sequence_ids[10], -1);
+				player.commands_allowed = true;
+				player.walker_visible = true;
 				break;
 			default:
-				_action._inProgress = false;
+				player.command_ready = false;
 				return;
 			}
 		} else {
-			switch (_game._trigger) {
+			switch (kernel.trigger) {
 			case 0:
 				local._toTeleportFl = true;
-				_game._player._stepEnabled = false;
-				_scene->_sequences.remove(_globals._sequenceIndexes[9]);
-				_globals._sequenceIndexes[9] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[9], true, 6, 1, 0, 0);
-				_scene->_sequences.setPosition(_globals._sequenceIndexes[9], Common::Point(247, 82));
-				_scene->_sequences.setDepth(_globals._sequenceIndexes[9], 1);
-				_scene->_sequences.addSubEntry(_globals._sequenceIndexes[9], SEQUENCE_TRIGGER_EXPIRE, 0, 1);
+				player.commands_allowed = false;
+				kernel_seq_delete(g_sequence_ids[9]);
+				g_sequence_ids[9] = kernel_seq_forward(g_sprite_ids[9], true, 6, 0, 0, 1);
+				kernel_seq_loc(g_sequence_ids[9], 247, 82);
+				kernel_seq_depth(g_sequence_ids[9], 1);
+				kernel_seq_trigger(g_sequence_ids[9], KERNEL_TRIGGER_EXPIRE, 0, 1);
 				break;
 			case 1:
-				_globals._sequenceIndexes[10] = _scene->_sequences.startCycle(_globals._spriteIndexes[9], true, -2);
-				_scene->_sequences.setPosition(_globals._sequenceIndexes[10], Common::Point(247, 82));
-				_scene->_sequences.setDepth(_globals._sequenceIndexes[10], 1);
-				if (_scene->_animation[0]) {
-					if (_scene->_animation[0]->getCurrentFrame() > 200) {
-						_scene->_sequences.addTimer(120, 2);
+				g_sequence_ids[10] = kernel_seq_stamp(g_sprite_ids[9], true, -2);
+				kernel_seq_loc(g_sequence_ids[10], 247, 82);
+				kernel_seq_depth(g_sequence_ids[10], 1);
+				if ((kernel_anim[0].anim != nullptr)) {
+					if (kernel_anim[0].frame > 200) {
+						kernel_timing_trigger(120, 2);
 					} else {
 						local._waitingMeteoFl = true;
-						_globals[kMeteorologistWatch] = METEOROLOGIST_GONE;
-						if ((_scene->_animation[0]->getCurrentFrame() >= 44) && (_scene->_animation[0]->getCurrentFrame() <= 75)) {
-							_scene->_kernelMessages.reset();
-							int msgIndex = _scene->_kernelMessages.add(Common::Point(248, 15), 0x1110, 32, 0, 60, _game.getQuote(100));
-							_scene->_kernelMessages.setQuoted(msgIndex, 4, false);
+						global[kMeteorologistWatch] = METEOROLOGIST_GONE;
+						if ((kernel_anim[0].frame >= 44) && (kernel_anim[0].frame <= 75)) {
+							kernel_message_purge();
+							int msgIndex = kernel_message_add(quote_string(kernel.quotes, 100), 248, 15, 0x1110, 60, 0, 32);
+							kernel_message_teletype(msgIndex, 4, false);
 						} else {
-							_action._inProgress = false;
+							player.command_ready = false;
 							return;
 						}
 					}
 				} else {
-					_scene->_sequences.addTimer(120, 2);
+					kernel_timing_trigger(120, 2);
 				}
 				break;
 			case 2:
-				if (!_scene->_animation[0])
-					_vm->_dialogs->show(20222);
+				if ((kernel_anim[0].anim == nullptr))
+					text_show(20222);
 				local._meteorologistSpecial = false;
-				_scene->_sequences.remove(_globals._sequenceIndexes[10]);
-				_globals._sequenceIndexes[9] = _scene->_sequences.addReverseSpriteCycle(_globals._spriteIndexes[9], false, 6, 1, 0, 0);
-				_scene->_sequences.setPosition(_globals._sequenceIndexes[9], Common::Point(247, 82));
-				_scene->_sequences.setDepth(_globals._sequenceIndexes[9], 1);
-				_scene->_sequences.addSubEntry(_globals._sequenceIndexes[9], SEQUENCE_TRIGGER_EXPIRE, 0, 3);
+				kernel_seq_delete(g_sequence_ids[10]);
+				g_sequence_ids[9] = kernel_seq_backward(g_sprite_ids[9], false, 6, 0, 0, 1);
+				kernel_seq_loc(g_sequence_ids[9], 247, 82);
+				kernel_seq_depth(g_sequence_ids[9], 1);
+				kernel_seq_trigger(g_sequence_ids[9], KERNEL_TRIGGER_EXPIRE, 0, 3);
 				break;
 			case 3:
-				_globals._sequenceIndexes[9] = _scene->_sequences.startCycle(_globals._spriteIndexes[9], true, 1);
-				_scene->_sequences.setPosition(_globals._sequenceIndexes[9], Common::Point(247, 82));
-				_scene->_sequences.setDepth(_globals._sequenceIndexes[9], 1);
-				_game._player._stepEnabled = true;
+				g_sequence_ids[9] = kernel_seq_stamp(g_sprite_ids[9], true, 1);
+				kernel_seq_loc(g_sequence_ids[9], 247, 82);
+				kernel_seq_depth(g_sequence_ids[9], 1);
+				player.commands_allowed = true;
 				break;
 			default:
-				_action._inProgress = false;
+				player.command_ready = false;
 				return;
 			}
 		}
 	} else if (player_said_2(walk_inside, hut)) {
 		setRandomKernelMessage();
 	} else if (player_said_2(look, rocks)) {
-		_vm->_dialogs->show(20202);
+		text_show(20202);
 	} else if (player_said_2(look, fire_pit)) {
-		_vm->_dialogs->show(20203);
+		text_show(20203);
 	} else if (player_said_2(look, grass)) {
-		_vm->_dialogs->show(20204);
+		text_show(20204);
 	} else if (player_said_2(look, field_to_north)) {
-		if ((_globals[kMeteorologistStatus] == METEOROLOGIST_ABSENT) || (_globals[kMeteorologistStatus] == METEOROLOGIST_GONE))
-			_vm->_dialogs->show(20205);
-		else if (_globals[kMeteorologistStatus] == METEOROLOGIST_PRESENT)
-			_vm->_dialogs->show(20220);
+		if ((global[kMeteorologistStatus] == METEOROLOGIST_ABSENT) || (global[kMeteorologistStatus] == METEOROLOGIST_GONE))
+			text_show(20205);
+		else if (global[kMeteorologistStatus] == METEOROLOGIST_PRESENT)
+			text_show(20220);
 	} else if (player_said_2(look, watch_tower)) {
-		_vm->_dialogs->show(20206);
+		text_show(20206);
 	} else if (player_said_2(look, tall_grass)) {
-		_vm->_dialogs->show(20207);
+		text_show(20207);
 	} else if (player_said_2(look, trees)) {
-		_vm->_dialogs->show(20208);
+		text_show(20208);
 	} else if (player_said_2(look, tree)) {
-		_vm->_dialogs->show(20209);
+		text_show(20209);
 	} else if (player_said_2(look, sky)) {
-		_vm->_dialogs->show(20210);
+		text_show(20210);
 	} else if (player_said_2(look, hut)) {
-		if ((_game._player._playerPos == Common::Point(77, 105)) && (_game._player._facing == FACING_NORTH))
-			_vm->_dialogs->show(20212);
+		if ((Common::Point(player.x, player.y) == Common::Point(77, 105)) && (player.facing == FACING_NORTH))
+			text_show(20212);
 		else
-			_vm->_dialogs->show(20211);
+			text_show(20211);
 	} else if (player_said_2(look, strange_device)) {
-		_vm->_dialogs->show(20213);
+		text_show(20213);
 	} else if (player_said_2(look, ocean_in_distance)) {
-		_vm->_dialogs->show(20214);
+		text_show(20214);
 	} else if (player_said_2(look, skull)) {
-		_vm->_dialogs->show(20215);
+		text_show(20215);
 	} else if (player_said_2(take, skull)) {
-		_vm->_dialogs->show(20216);
-	} else if (player_said_2(look, bones) && _action._commandSource == 4) {
-		_vm->_dialogs->show(20217);
+		text_show(20216);
+	} else if (player_said_2(look, bones) && player.command_source == 4) {
+		text_show(20217);
 	} else {
 		return;
 	}
 
-	_action._inProgress = false;
+	player.command_ready = false;
 }
 
 void room_202_synchronize(Common::Serializer &s) {
@@ -718,12 +721,12 @@ void room_202_preload() {
 	section_2_walker();
 	section_2_interface();
 
-	_scene->addActiveVocab(words_ladder);
-	_scene->addActiveVocab(words_climb_down);
-	_scene->addActiveVocab(words_walkto);
-	_scene->addActiveVocab(words_bone);
-	_scene->addActiveVocab(words_skull);
-	_scene->addActiveVocab(words_broken_ladder);
+	vocab_make_active(words_ladder);
+	vocab_make_active(words_climb_down);
+	vocab_make_active(words_walkto);
+	vocab_make_active(words_bone);
+	vocab_make_active(words_skull);
+	vocab_make_active(words_broken_ladder);
 }
 
 } // namespace Rooms

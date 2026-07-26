@@ -19,7 +19,9 @@
  *
  */
 
+#include "mads/core/config.h"
 #include "mads/core/game.h"
+#include "mads/core/magic.h"
 #include "mads/core/mcga.h"
 #include "mads/core/pal.h"
 #include "mads/nebular/global.h"
@@ -28,7 +30,6 @@
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section3.h"
 #include "mads/nebular/rooms/dialog.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
@@ -55,18 +56,18 @@ static Scratch local;
 
 
 static void handleRexDialogues(int quote) {
-	_scene->_kernelMessages.reset();
+	kernel_message_purge();
 
-	const char *curQuote = _game.getQuote(quote);
-	if (_vm->_font->getWidth(curQuote, _scene->_textSpacing) > 200) {
+	char *curQuote = quote_string(kernel.quotes, quote);
+	if (font_string_width(kernel_message_font, curQuote, kernel_message_spacing) > 200) {
 		static char subQuote1[34], subQuote2[34];
-		_game.splitQuote(curQuote, subQuote1, subQuote2);
+		quote_split_string(curQuote, subQuote1, subQuote2);
 		Common::strcpy_s(local._subQuote2, subQuote2);
 
-		_scene->_kernelMessages.add(Common::Point(160, 106), 0x1110, 32, 0, 120, subQuote1);
-		_scene->_kernelMessages.add(Common::Point(160, 120), 0x1110, 32, 1, 120, local._subQuote2);
+		kernel_message_add(subQuote1, 160, 106, 0x1110, 120, 0, 32);
+		kernel_message_add(local._subQuote2, 160, 120, 0x1110, 120, 1, 32);
 	} else
-		_scene->_kernelMessages.add(Common::Point(160, 120), 0x1110, 32, 1, 120, curQuote);
+		kernel_message_add(curQuote, 160, 120, 0x1110, 120, 1, 32);
 }
 
 static void handleSlacheDialogs(int quoteId, int counter, uint32 timer) {
@@ -74,51 +75,51 @@ static void handleSlacheDialogs(int quoteId, int counter, uint32 timer) {
 	int posY = 5 + (local._slachePosY * 14);
 
 	for (int count = 0; count < counter; count++, curQuote++) {
-		_scene->_kernelMessages.add(Common::Point(8, posY), 0xFDFC, 0, 0, timer, _game.getQuote(curQuote));
+		kernel_message_add(quote_string(kernel.quotes, curQuote), 8, posY, 0xFDFC, timer, 0, 0);
 		posY += 14;
 	}
 }
 
 static void room_319_init() {
-	_globals._spriteIndexes[5] = _scene->_sprites.addSprites(formAnimName('e', 0));
-	_globals._spriteIndexes[0] = _scene->_sprites.addSprites(formAnimName('a', 0));
-	_globals._spriteIndexes[1] = _scene->_sprites.addSprites(formAnimName('a', 1));
-	_globals._spriteIndexes[2] = _scene->_sprites.addSprites(formAnimName('a', 2));
-	_globals._spriteIndexes[3] = _scene->_sprites.addSprites(formAnimName('a', 3));
-	_globals._spriteIndexes[4] = _scene->_sprites.addSprites(formAnimName('k', -1));
+	g_sprite_ids[5] = kernel_load_series(kernel_name('e', 0), 0);
+	g_sprite_ids[0] = kernel_load_series(kernel_name('a', 0), 0);
+	g_sprite_ids[1] = kernel_load_series(kernel_name('a', 1), 0);
+	g_sprite_ids[2] = kernel_load_series(kernel_name('a', 2), 0);
+	g_sprite_ids[3] = kernel_load_series(kernel_name('a', 3), 0);
+	g_sprite_ids[4] = kernel_load_series(kernel_name('k', -1), 0);
 
-	if (!_game._objects.isInInventory(OBJ_SCALPEL)) {
-		_globals._sequenceIndexes[4] = _scene->_sequences.startCycle(_globals._spriteIndexes[4], false, 1);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[4], 1);
+	if (!player_has(OBJ_SCALPEL)) {
+		g_sequence_ids[4] = kernel_seq_stamp(g_sprite_ids[4], false, 1);
+		kernel_seq_depth(g_sequence_ids[4], 1);
 	}
 
-	_globals._sequenceIndexes[5] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[5], false, 18, 0, 0, 300);
-	_globals._sequenceIndexes[2] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[2], false, 67, 0, 0, 377);
-	_globals._sequenceIndexes[3] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[3], false, 173, 0, 0, 233);
-	_scene->_sequences.setDepth(_globals._sequenceIndexes[2], 14);
-	_scene->_sequences.setDepth(_globals._sequenceIndexes[3], 14);
+	g_sequence_ids[5] = kernel_seq_forward(g_sprite_ids[5], false, 18, 300, 0, 0);
+	g_sequence_ids[2] = kernel_seq_forward(g_sprite_ids[2], false, 67, 377, 0, 0);
+	g_sequence_ids[3] = kernel_seq_forward(g_sprite_ids[3], false, 173, 233, 0, 0);
+	kernel_seq_depth(g_sequence_ids[2], 14);
+	kernel_seq_depth(g_sequence_ids[3], 14);
 
-	_globals._sequenceIndexes[0] = _scene->_sequences.startCycle(_globals._spriteIndexes[0], false, 1);
-	_globals._sequenceIndexes[1] = _scene->_sequences.startCycle(_globals._spriteIndexes[1], false, 1);
+	g_sequence_ids[0] = kernel_seq_stamp(g_sprite_ids[0], false, 1);
+	g_sequence_ids[1] = kernel_seq_stamp(g_sprite_ids[1], false, 1);
 
 	local._dialog1.setup(0x43, 0x165, 0x166, 0x167, 0x168, 0x169, 0x16A, 0);
 	local._dialog2.setup(0x44, 0x171, 0x172, 0x173, 0x174, 0x175, 0x176, 0);
 	local._dialog3.setup(0x45, 0x17D, 0x17E, 0x17F, 0x180, 0x181, 0x182, 0x183, 0);
 
-	if (_scene->_priorSceneId != RETURNING_FROM_DIALOG) {
+	if (previous_room != KERNEL_RESTORING_GAME) {
 		local._dialog1.set(0x165, 0x166, 0x167, 0x168, 0);
 		local._dialog2.set(0x171, 0x172, 0x173, 0x174, 0);
 		local._dialog3.set(0x17D, 0x17E, 0x17F, 0x180, 0);
 	}
 
-	_game.loadQuoteSet(0x15F, 0x160, 0x161, 0x162, 0x163, 0x164, 0x16B, 0x16C, 0x16D,
+	kernel.quotes = quote_load(0x15F, 0x160, 0x161, 0x162, 0x163, 0x164, 0x16B, 0x16C, 0x16D,
 		0x16E, 0x16F, 0x170, 0x177, 0x178, 0x179, 0x17A, 0x17B, 0x17C, 0x165, 0x166,
 		0x167, 0x168, 0x169, 0x16A, 0x171, 0x172, 0x173, 0x174, 0x175, 0x176, 0x17D,
 		0x17E, 0x17F, 0x180, 0x181, 0x182, 0x183, 0x184, 0x185, 0x186, 0x187, 0x188,
 		0x189, 0x18A, 0x18B, 0);
 
-	_vm->_palette->setEntry(252, 63, 30, 2);
-	_vm->_palette->setEntry(253, 45, 15, 1);
+	pal_change_color(252, 63, 30, 2);
+	pal_change_color(253, 45, 15, 1);
 
 	local._slachePosY = 0;
 	local._slacheInitFl = false;
@@ -126,9 +127,9 @@ static void room_319_init() {
 	local._slacheReady = false;
 	local._animFrame = 0;
 
-	_scene->loadAnimation(formAnimName('b', 0));
+	kernel_run_animation(kernel_name('b', 0), 0);
 
-	if (_scene->_priorSceneId != RETURNING_FROM_DIALOG) {
+	if (previous_room != KERNEL_RESTORING_GAME) {
 		local._animMode = 1;
 		local._nextAction1 = 2;
 		local._nextAction2 = 2;
@@ -136,7 +137,7 @@ static void room_319_init() {
 		local._slacheTopic = 1;
 		local._slacheInitFl = true;
 
-		if (_globals[kRexHasMetSlache]) {
+		if (global[kRexHasMetSlache]) {
 			handleSlacheDialogs(words_walk_outside, 2, INDEFINITE_TIMEOUT);
 			local._slachePosY = 3;
 		} else {
@@ -170,11 +171,11 @@ static void room_319_init() {
 }
 
 static void room_319_daemon() {
-	if (_scene->_animation[0] == nullptr)
+	if (kernel_anim[0].anim == nullptr)
 		return;
 
-	if (local._animFrame != _scene->_animation[0]->getCurrentFrame()) {
-		local._animFrame = _scene->_animation[0]->getCurrentFrame();
+	if (local._animFrame != kernel_anim[0].frame) {
+		local._animFrame = kernel_anim[0].frame;
 		int nextFrame = -1;
 		if (local._animMode == 1) {
 			switch (local._animFrame) {
@@ -205,7 +206,7 @@ static void room_319_daemon() {
 					nextFrame = 85;
 					local._slacheTalkingFl = true;
 				} else if (local._animFrame == 85) {
-					if (!_game._player._stepEnabled)
+					if (!player.commands_allowed)
 						local._slacheTalkingFl = true;
 					nextFrame = 40;
 				}
@@ -218,7 +219,7 @@ static void room_319_daemon() {
 			case 129:
 				if (local._nextAction1 == 3) {
 					nextFrame = 115;
-					if (!_game._player._stepEnabled)
+					if (!player.commands_allowed)
 						local._slacheTalkingFl = true;
 				}
 				break;
@@ -235,23 +236,23 @@ static void room_319_daemon() {
 				switch (local._nextAction1) {
 				case 4:
 					local._animFrame = 0;
-					_scene->freeAnimation();
+					kernel_abort_animation(0);
 					local._animMode = 2;
-					_scene->loadAnimation(formAnimName('b', 3), 70);
+					kernel_run_animation(kernel_name('b', 3), 70);
 					break;
 
 				case 5:
 					local._animFrame = 0;
-					_scene->freeAnimation();
+					kernel_abort_animation(0);
 					local._animMode = 3;
-					_scene->loadAnimation(formAnimName('b', 4), 71);
+					kernel_run_animation(kernel_name('b', 4), 71);
 					break;
 
 				case 6:
 					local._animFrame = 0;
-					_scene->freeAnimation();
+					kernel_abort_animation(0);
 					local._animMode = 4;
-					_scene->loadAnimation(formAnimName('b', 5), 72);
+					kernel_run_animation(kernel_name('b', 5), 72);
 					break;
 
 				default:
@@ -259,103 +260,103 @@ static void room_319_daemon() {
 				}
 
 				if (!local._animFrame) {
-					_scene->_sequences.remove(_globals._sequenceIndexes[0]);
-					_scene->_sequences.remove(_globals._sequenceIndexes[1]);
+					kernel_seq_delete(g_sequence_ids[0]);
+					kernel_seq_delete(g_sequence_ids[1]);
 
 					for (int i = 0; i <= 1; i++) {
-						_globals._sequenceIndexes[i] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[i], false, 8, 1, 0, 0);
-						_scene->_sequences.setAnimRange(_globals._sequenceIndexes[i], 1, 7);
+						g_sequence_ids[i] = kernel_seq_forward(g_sprite_ids[i], false, 8, 0, 0, 1);
+						kernel_seq_range(g_sequence_ids[i], 1, 7);
 					}
-					_scene->_sequences.addSubEntry(_globals._sequenceIndexes[0], SEQUENCE_TRIGGER_EXPIRE, 0, 73);
+					kernel_seq_trigger(g_sequence_ids[0], KERNEL_TRIGGER_EXPIRE, 0, 73);
 				}
 			}
 		}
 
 		if (local._animMode == 2) {
 			if (local._animFrame == 13)
-				_vm->_screen->_shakeCountdown = 40;
+				mcga_shakes = 40;
 
 			if (local._animFrame == 16)
-				_vm->_screen->_shakeCountdown = 1;
+				mcga_shakes = 1;
 		}
 
 		if (local._animMode == 3) {
 			if (local._animFrame == 11)
-				_vm->_screen->_shakeCountdown = 60;
+				mcga_shakes = 60;
 
 			if (local._animFrame == 18)
-				_vm->_screen->_shakeCountdown = 1;
+				mcga_shakes = 1;
 		}
 
 		if ((local._animMode == 4) && (local._animFrame == 16))
-			_vm->_screen->_shakeCountdown = 80;
+			mcga_shakes = 80;
 
-		if ((nextFrame >= 0) && (nextFrame != _scene->_animation[0]->getCurrentFrame())) {
-			_scene->_animation[0]->setCurrentFrame(nextFrame);
+		if ((nextFrame >= 0) && (nextFrame != kernel_anim[0].frame)) {
+			kernel_reset_animation(0, nextFrame);
 			local._animFrame = nextFrame;
 		}
 	}
 
-	switch (_game._trigger) {
+	switch (kernel.trigger) {
 	case 70:
 	case 71:
 	{
 		local._animMode = 1;
 		local._nextAction1 = local._nextAction2;
 		local._animFrame = 0;
-		_scene->freeAnimation();
-		_scene->loadAnimation(formAnimName('b', 0));
+		kernel_abort_animation(0);
+		kernel_run_animation(kernel_name('b', 0), 0);
 		if (local._nextAction1 == 3)
-			_scene->_animation[0]->setCurrentFrame(85);
+			kernel_reset_animation(0, 85);
 		else if (local._nextAction1 == 1)
-			_scene->_animation[0]->setCurrentFrame(40);
+			kernel_reset_animation(0, 40);
 
-		local._animFrame = _scene->_animation[0]->getCurrentFrame();
+		local._animFrame = kernel_anim[0].frame;
 		local._slacheTalkingFl = true;
-		_vm->_screen->_shakeCountdown = 1;
+		mcga_shakes = 1;
 
 		for (int i = 0; i <= 1; i++) {
-			int oldIdx = _globals._sequenceIndexes[i];
-			_scene->_sequences.remove(_globals._sequenceIndexes[i]);
-			_globals._sequenceIndexes[i] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[i], false, 8, 1, 0, 0);
-			_scene->_sequences.setAnimRange(_globals._sequenceIndexes[i], 8, 13);
-			_scene->_sequences.updateTimeout(_globals._sequenceIndexes[i], oldIdx);
+			int oldIdx = g_sequence_ids[i];
+			kernel_seq_delete(g_sequence_ids[i]);
+			g_sequence_ids[i] = kernel_seq_forward(g_sprite_ids[i], false, 8, 0, 0, 1);
+			kernel_seq_range(g_sequence_ids[i], 8, 13);
+			kernel_seq_timeout(oldIdx, g_sequence_ids[i]);
 		}
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[0], SEQUENCE_TRIGGER_EXPIRE, 0, 74);
+		kernel_seq_trigger(g_sequence_ids[0], KERNEL_TRIGGER_EXPIRE, 0, 74);
 
 		// WORKAROUND: This fixes the game sometimes going into an endless waiting
 		// loop even after the doctor has finished hitting Rex. Note sure if it's due
 		// to a bug in room script or in the engine, but this at least fixes it
-		int seqIndex = _scene->_sequences.findByTrigger(2);
-		_scene->_sequences[seqIndex]._doneFlag = false;
+		int seqIndex = kernel_seq_find_by_trigger(2);
+		sequence_list[seqIndex].expired = false;
 		break;
 	}
 
 	case 72:
-		_vm->_palette->setColorFlags(0xFF, 0, 0);
-		_vm->_palette->setColorValues(0, 0, 0);
-		_vm->_palette->fadeOut(master_palette, nullptr, 18, 228,
+		magic_set_color_flags(0xFF, 0, 0);
+		magic_set_color_values(0, 0, 0);
+		magic_fade_to_grey(master_palette, nullptr, 18, 228,
 			248, 0, 1, 16);
-		_vm->_screen->_shakeCountdown = 1;
-		_scene->_reloadSceneFlag = true;
+		mcga_shakes = 1;
+		kernel.force_restart = true;
 		break;
 
 	case 73:
 		for (int i = 0; i <= 1; i++) {
-			int oldIdx = _globals._sequenceIndexes[i];
-			_scene->_sequences.remove(_globals._sequenceIndexes[i]);
-			_globals._sequenceIndexes[i] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[i], false, 8, 0, 0, 0);
-			_scene->_sequences.setAnimRange(_globals._sequenceIndexes[i], 6, 7);
-			_scene->_sequences.updateTimeout(_globals._sequenceIndexes[i], oldIdx);
+			int oldIdx = g_sequence_ids[i];
+			kernel_seq_delete(g_sequence_ids[i]);
+			g_sequence_ids[i] = kernel_seq_forward(g_sprite_ids[i], false, 8, 0, 0, 0);
+			kernel_seq_range(g_sequence_ids[i], 6, 7);
+			kernel_seq_timeout(oldIdx, g_sequence_ids[i]);
 		}
 		break;
 
 	case 74:
 		for (int i = 0; i <= 1; i++) {
-			int oldIdx = _globals._sequenceIndexes[i];
-			_scene->_sequences.remove(_globals._sequenceIndexes[i]);
-			_globals._sequenceIndexes[i] = _scene->_sequences.startCycle(_globals._spriteIndexes[i], false, 1);
-			_scene->_sequences.updateTimeout(_globals._sequenceIndexes[i], oldIdx);
+			int oldIdx = g_sequence_ids[i];
+			kernel_seq_delete(g_sequence_ids[i]);
+			g_sequence_ids[i] = kernel_seq_stamp(g_sprite_ids[i], false, 1);
+			kernel_seq_timeout(oldIdx, g_sequence_ids[i]);
 		}
 		break;
 
@@ -365,12 +366,12 @@ static void room_319_daemon() {
 }
 
 static void room_319_parser() {
-	if (_game._trigger == 0) {
-		_game._player._stepEnabled = false;
-		handleRexDialogues(_action._activeAction._verbId);
+	if (kernel.trigger == 0) {
+		player.commands_allowed = false;
+		handleRexDialogues(player2.words[0]);
 	} else {
-		if ((_action._activeAction._verbId == 0x165) || (_action._activeAction._verbId == 0x166)) {
-			if (_game._trigger == 1) {
+		if ((player2.words[0] == 0x165) || (player2.words[0] == 0x166)) {
+			if (kernel.trigger == 1) {
 				local._nextAction1 = 3;
 				local._slacheTalkingFl = false;
 				local._slacheMode = 1;
@@ -378,16 +379,16 @@ static void room_319_parser() {
 			}
 
 			if (!local._slacheTalkingFl) {
-				_scene->_sequences.addTimer(4, 2);
+				kernel_timing_trigger(4, 2);
 			} else {
 				handleSlacheDialogs(0x16B, 2, INDEFINITE_TIMEOUT);
 				local._dialog2.start();
-				_game._player._stepEnabled = true;
+				player.commands_allowed = true;
 			}
 		}
 
-		if ((_action._activeAction._verbId == 0x171) || (_action._activeAction._verbId == 0x172)) {
-			if (_game._trigger == 1) {
+		if ((player2.words[0] == 0x171) || (player2.words[0] == 0x172)) {
+			if (kernel.trigger == 1) {
 				local._nextAction1 = 2;
 				local._slacheTalkingFl = false;
 				local._slacheMode = 1;
@@ -395,16 +396,16 @@ static void room_319_parser() {
 			}
 
 			if (!local._slacheTalkingFl) {
-				_scene->_sequences.addTimer(4, 2);
+				kernel_timing_trigger(4, 2);
 			} else {
 				handleSlacheDialogs(0x177, 2, INDEFINITE_TIMEOUT);
 				local._dialog3.start();
-				_game._player._stepEnabled = true;
+				player.commands_allowed = true;
 			}
 		}
 
-		if ((_action._activeAction._verbId == 0x17D) || (_action._activeAction._verbId == 0x17E)) {
-			if (_game._trigger == 1) {
+		if ((player2.words[0] == 0x17D) || (player2.words[0] == 0x17E)) {
+			if (kernel.trigger == 1) {
 				local._nextAction1 = 3;
 				local._slacheTalkingFl = false;
 				local._slacheReady = false;
@@ -413,52 +414,52 @@ static void room_319_parser() {
 			}
 
 			if (!local._slacheTalkingFl) {
-				_scene->_sequences.addTimer(4, 2);
+				kernel_timing_trigger(4, 2);
 			} else {
-				if (_game._trigger == 2)
+				if (kernel.trigger == 2)
 					handleSlacheDialogs(0x184, 2, 180);
 
 				if (!local._slacheReady) {
-					_scene->_sequences.addTimer(120, 3);
+					kernel_timing_trigger(120, 3);
 				} else {
-					_globals[kRexHasMetSlache] = true;
-					_scene->_nextSceneId = 318;
+					global[kRexHasMetSlache] = true;
+					new_room = 318;
 				}
 			}
 		}
 
-		if ((_action._activeAction._verbId == 0x168) || (_action._activeAction._verbId == 0x174) ||
-			(_action._activeAction._verbId == 0x180) || (_action._activeAction._verbId == 0x169) ||
-			(_action._activeAction._verbId == 0x175) || (_action._activeAction._verbId == 0x181) ||
-			(_action._activeAction._verbId == 0x16A) || (_action._activeAction._verbId == 0x176) ||
-			(_action._activeAction._verbId == 0x182) || (_action._activeAction._verbId == 0x183) ||
-			(_action._activeAction._verbId == 0x167) || (_action._activeAction._verbId == 0x173) ||
-			(_action._activeAction._verbId == 0x17F)) {
+		if ((player2.words[0] == 0x168) || (player2.words[0] == 0x174) ||
+			(player2.words[0] == 0x180) || (player2.words[0] == 0x169) ||
+			(player2.words[0] == 0x175) || (player2.words[0] == 0x181) ||
+			(player2.words[0] == 0x16A) || (player2.words[0] == 0x176) ||
+			(player2.words[0] == 0x182) || (player2.words[0] == 0x183) ||
+			(player2.words[0] == 0x167) || (player2.words[0] == 0x173) ||
+			(player2.words[0] == 0x17F)) {
 
-			bool addDialogLine = !((_action._activeAction._verbId == 0x167) || (_action._activeAction._verbId == 0x173) ||
-				(_action._activeAction._verbId == 0x17F) || (_action._activeAction._verbId == 0x16A) ||
-				(_action._activeAction._verbId == 0x176) || (_action._activeAction._verbId == 0x182) ||
-				(_action._activeAction._verbId == 0x183));
+			bool addDialogLine = !((player2.words[0] == 0x167) || (player2.words[0] == 0x173) ||
+				(player2.words[0] == 0x17F) || (player2.words[0] == 0x16A) ||
+				(player2.words[0] == 0x176) || (player2.words[0] == 0x182) ||
+				(player2.words[0] == 0x183));
 
-			int addVerbId = _action._activeAction._verbId + 1;
-			if ((addVerbId == 0x182) && (_game._storyMode != STORYMODE_NAUGHTY))
+			int addVerbId = player2.words[0] + 1;
+			if ((addVerbId == 0x182) && (config_file.naughtiness != NAUGHTY))
 				addVerbId = 0x183;
 
 			if (local._slacheMode == 1) {
-				if (_game._trigger == 1) {
+				if (kernel.trigger == 1) {
 					local._nextAction2 = local._nextAction1;
 					local._nextAction1 = 4;
 				}
 
 				if (local._nextAction1 != local._nextAction2) {
-					_scene->_sequences.addTimer(4, 2);
+					kernel_timing_trigger(4, 2);
 				} else {
 					Dialog *curDialog;
 					int nextDocQuote;
-					if ((_action._activeAction._verbId == 0x168) || (_action._activeAction._verbId == 0x167)) {
+					if ((player2.words[0] == 0x168) || (player2.words[0] == 0x167)) {
 						curDialog = &local._dialog1;
 						nextDocQuote = 0x161;
-					} else if ((_action._activeAction._verbId == 0x174) || (_action._activeAction._verbId == 0x1753)) {
+					} else if ((player2.words[0] == 0x174) || (player2.words[0] == 0x1753)) {
 						nextDocQuote = 0x16D;
 						curDialog = &local._dialog2;
 					} else {
@@ -468,29 +469,29 @@ static void room_319_parser() {
 
 					handleSlacheDialogs(nextDocQuote, 2, INDEFINITE_TIMEOUT);
 					if (addDialogLine) {
-						curDialog->write(_action._activeAction._verbId, false);
+						curDialog->write(player2.words[0], false);
 						curDialog->write(addVerbId, true);
 					}
 
 					curDialog->start();
-					_game._player._stepEnabled = true;
+					player.commands_allowed = true;
 					local._slacheMode = 2;
 				}
 			} else if (local._slacheMode == 2) {
-				if (_game._trigger == 1) {
+				if (kernel.trigger == 1) {
 					local._nextAction2 = local._nextAction1;
 					local._nextAction1 = 5;
 				}
 
 				if (local._nextAction1 != local._nextAction2) {
-					_scene->_sequences.addTimer(4, 2);
+					kernel_timing_trigger(4, 2);
 				} else {
 					Dialog *curDialog;
 					int nextDocQuote;
-					if ((_action._activeAction._verbId == 0x168) || (_action._activeAction._verbId == 0x169) || (_action._activeAction._verbId == 0x167)) {
+					if ((player2.words[0] == 0x168) || (player2.words[0] == 0x169) || (player2.words[0] == 0x167)) {
 						curDialog = &local._dialog1;
 						nextDocQuote = 0x163;
-					} else if ((_action._activeAction._verbId == 0x174) || (_action._activeAction._verbId == 0x175) || (_action._activeAction._verbId == 0x173)) {
+					} else if ((player2.words[0] == 0x174) || (player2.words[0] == 0x175) || (player2.words[0] == 0x173)) {
 						nextDocQuote = 0x16F;
 						curDialog = &local._dialog2;
 					} else {
@@ -500,12 +501,12 @@ static void room_319_parser() {
 
 					handleSlacheDialogs(nextDocQuote, 2, INDEFINITE_TIMEOUT);
 					if (addDialogLine) {
-						curDialog->write(_action._activeAction._verbId, false);
+						curDialog->write(player2.words[0], false);
 						curDialog->write(addVerbId, true);
 					}
 
 					curDialog->start();
-					_game._player._stepEnabled = true;
+					player.commands_allowed = true;
 					local._slacheMode = 3;
 				}
 			} else {
@@ -515,7 +516,7 @@ static void room_319_parser() {
 		}
 	}
 
-	_action._inProgress = false;
+	player.command_ready = false;
 }
 
 void room_319_synchronize(Common::Serializer &s) {

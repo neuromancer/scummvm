@@ -25,30 +25,29 @@
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section3.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
 namespace Rooms {
 
 static void room_387_init() {
-	_scene->_userInterface.setup(kInputLimitedSentences);
-	_game._player._visible = false;
+	kernel_set_interface_mode(INTER_LIMITED_SENTENCES);
+	player.walker_visible = false;
 
 	section_3_music();
 }
 
 static void room_387_parser() {
 	if (player_said_2(return_to, air_shaft))
-		_scene->_nextSceneId = 313;
+		new_room = 313;
 	else if (player_said_2(look_through, grate))
-		_vm->_dialogs->show(38710);
+		text_show(38710);
 	else if (player_said_2(open, grate))
-		_vm->_dialogs->show(38711);
+		text_show(38711);
 	else
 		return;
 
-	_action._inProgress = false;
+	player.command_ready = false;
 }
 
 void room_387_synchronize(Common::Serializer &s) {

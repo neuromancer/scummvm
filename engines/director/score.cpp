@@ -72,6 +72,7 @@ Score::Score(Movie *movie, bool haveInteractivity) {
 	_labels = nullptr;
 
 	_currentFrameRate = 20;
+	_currentDigitalVideoTimeScale = 60;
 	_nextFrame = 0;
 	_currentLabel = 0;
 	_nextFrameTime = 0;
@@ -503,6 +504,9 @@ void Score::updateCurrentFrame() {
 		// Load the current sprite information into the _currentFrame data store.
 		// This copies in the frame data and updates _curFrameNumber.
 		loadFrame(nextFrameNumberToLoad, true);
+
+		for (uint ch = 0; ch < _channels.size(); ch++)
+			_channels[ch]->_sprite->releaseAutoPuppet(_currentFrame->_sprites[ch]->_copyBackMask);
 
 		// Finally, update the channels and buffer any dirty rectangles.
 		// This will ignore any channel data that is overridden with the puppet flag.

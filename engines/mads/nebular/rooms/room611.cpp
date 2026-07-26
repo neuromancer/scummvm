@@ -19,14 +19,15 @@
  *
  */
 
+#include "mads/core/config.h"
 #include "mads/core/game.h"
+#include "mads/core/pal.h"
 #include "mads/nebular/global.h"
 #include "mads/nebular/nebular.h"
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section6.h"
 #include "mads/nebular/rooms/dialog.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
@@ -64,32 +65,32 @@ static Scratch local;
 
 static void handleRatMoves() {
 	local._ratPresentFl = false;
-	_scene->_sequences.remove(_globals._sequenceIndexes[1]);
-	_globals._sequenceIndexes[1] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[1], false, 12, 1, 0, 0);
-	_scene->_sequences.setAnimRange(_globals._sequenceIndexes[1], 11, -2);
-	local._ratTimer = _game._player._priorTimer;
-	_scene->_dynamicHotspots.remove(local._ratHotspotId);
+	kernel_seq_delete(g_sequence_ids[1]);
+	g_sequence_ids[1] = kernel_seq_forward(g_sprite_ids[1], false, 12, 0, 0, 1);
+	kernel_seq_range(g_sequence_ids[1], 11, -2);
+	local._ratTimer = player.clock;
+	kernel_delete_dynamic(local._ratHotspotId);
 }
 
 static void handleTrading() {
-	if (_game._objects.isInInventory(OBJ_DURAFAIL_CELLS))
-		_game._objects.setRoom(OBJ_DURAFAIL_CELLS, 1);
+	if (player_has(OBJ_DURAFAIL_CELLS))
+		inter_move_object(OBJ_DURAFAIL_CELLS, 1);
 
-	if (_game._objects.isInInventory(OBJ_PHONE_CELLS))
-		_game._objects.setRoom(OBJ_PHONE_CELLS, 1);
+	if (player_has(OBJ_PHONE_CELLS))
+		inter_move_object(OBJ_PHONE_CELLS, 1);
 
-	_game._objects.addToInventory(OBJ_FAKE_ID);
+	inter_give_to_player(OBJ_FAKE_ID);
 }
 
 static void setDialogNode(int node) {
 	if (node > 0)
 		local._hermitDialogNode = node;
 
-	_game._player._stepEnabled = true;
+	player.commands_allowed = true;
 
 	switch (node) {
 	case 0:
-		_scene->_userInterface.setup(kInputBuildingSentences);
+		kernel_set_interface_mode(INTER_BUILDING_SENTENCES);
 		local._duringDialogFl = false;
 		local._hermitDialogNode = 0;
 		break;
@@ -112,16 +113,16 @@ static void setDialogNode(int node) {
 }
 
 static bool check2ChargedBatteries() {
-	if ((_game._objects.isInInventory(OBJ_DURAFAIL_CELLS) && !_game._objects.isInInventory(OBJ_PHONE_CELLS))
-		|| (!_game._objects.isInInventory(OBJ_DURAFAIL_CELLS) && _game._objects.isInInventory(OBJ_PHONE_CELLS)))
+	if ((player_has(OBJ_DURAFAIL_CELLS) && !player_has(OBJ_PHONE_CELLS))
+		|| (!player_has(OBJ_DURAFAIL_CELLS) && player_has(OBJ_PHONE_CELLS)))
 		return true;
 
 	return false;
 }
 
 static bool check4ChargedBatteries() {
-	if (_game._objects.isInInventory(OBJ_DURAFAIL_CELLS) && _game._objects.isInInventory(OBJ_PHONE_CELLS)
-		&& _globals[kDurafailRecharged])
+	if (player_has(OBJ_DURAFAIL_CELLS) && player_has(OBJ_PHONE_CELLS)
+		&& global[kDurafailRecharged])
 		return true;
 
 	return false;
@@ -132,483 +133,483 @@ static void handleTalking(int delay) {
 		local._alreadyTalkingFl = true;
 
 	local._hermitTalkingFl = true;
-	_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-	_scene->_sequences.addTimer(delay, 100);
+	kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+	kernel_timing_trigger(delay, 100);
 }
 
 static void displayHermitQuestions(int question) {
-	_scene->_kernelMessages.reset();
+	kernel_message_purge();
 	local._hermitDisplayedQuestion = question;
 
 	switch (question) {
 	case 1:
 	{
-		const char *curQuote = _game.getQuote(0x281);
-		int width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		char *curQuote = quote_string(kernel.quotes, 0x281);
+		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x282);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x282);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 14), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 14, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 	}
 	break;
 
 	case 2:
 	{
-		const char *curQuote = _game.getQuote(0x283);
-		int width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		char *curQuote = quote_string(kernel.quotes, 0x283);
+		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x284);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x284);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 14), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 14, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 	}
 	break;
 
 	case 3:
 	{
-		const char *curQuote = _game.getQuote(0x285);
-		int width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		char *curQuote = quote_string(kernel.quotes, 0x285);
+		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 14), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 14, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 	}
 	break;
 
 	case 4:
 	{
-		const char *curQuote = _game.getQuote(0x286);
-		int width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		char *curQuote = quote_string(kernel.quotes, 0x286);
+		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 14), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 14, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 	}
 	break;
 
 	case 5:
 	{
-		const char *curQuote = _game.getQuote(0x297);
-		int width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		char *curQuote = quote_string(kernel.quotes, 0x297);
+		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y - 14), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y - 14, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x298);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x298);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x299);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x299);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 14), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 14, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 	}
 	break;
 
 	case 6:
 	{
-		const char *curQuote = _game.getQuote(0x29A);
-		int width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		char *curQuote = quote_string(kernel.quotes, 0x29A);
+		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x29B);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x29B);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 14), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 14, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 	}
 	break;
 
 	case 7:
 	{
-		const char *curQuote = _game.getQuote(0x2A0);
-		int width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		char *curQuote = quote_string(kernel.quotes, 0x2A0);
+		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 45), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 45, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x2A1);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2A1);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 59), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 59, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 	}
 	break;
 
 	case 8:
 	{
-		const char *curQuote = _game.getQuote(0x2A2);
-		int width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		char *curQuote = quote_string(kernel.quotes, 0x2A2);
+		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 31), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 31, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x2A3);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2A3);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 45), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 45, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x2A4);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2A4);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 59), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 59, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 	}
 	break;
 
 	case 9:
 	{
-		const char *curQuote = _game.getQuote(0x2A5);
-		int width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		char *curQuote = quote_string(kernel.quotes, 0x2A5);
+		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 45), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 45, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x2A6);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2A6);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 59), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 59, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 	}
 	break;
 
 	case 10:
 	{
-		const char *curQuote = _game.getQuote(0x2A8);
-		int width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		char *curQuote = quote_string(kernel.quotes, 0x2A8);
+		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 31), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 31, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x2A9);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2A9);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 45), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 45, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x2AA);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2AA);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 59), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 59, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 	}
 	break;
 
 	case 11:
 	{
-		const char *curQuote = _game.getQuote(0x2AB);
-		int width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		char *curQuote = quote_string(kernel.quotes, 0x2AB);
+		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 17), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 17, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x2AC);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2AC);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 31), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 31, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x2AD);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2AD);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 45), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 45, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x2AE);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2AE);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 59), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 59, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 	}
 	break;
 
 	case 12:
 	{
-		const char *curQuote = _game.getQuote(0x2AF);
-		int width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		char *curQuote = quote_string(kernel.quotes, 0x2AF);
+		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 17), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 17, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x2B0);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2B0);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 31), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 31, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x2B1);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2B1);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 45), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 45, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x2B2);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2B2);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 59), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 59, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 	}
 	break;
 
 	case 13:
 	{
-		const char *curQuote = _game.getQuote(0x2B3);
-		int width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		char *curQuote = quote_string(kernel.quotes, 0x2B3);
+		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 3), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 3, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x2B4);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2B4);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 17), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 17, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x2B5);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2B5);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 31), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 31, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x2B6);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2B6);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 45), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 45, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		_scene->_kernelMessages.add(Common::Point(11, local._defaultDialogPos_y + 59), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, _game.getQuote(0x2B7));
-		_scene->_kernelMessages.add(Common::Point(11, local._defaultDialogPos_y + 73), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, _game.getQuote(0x2B8));
-		_scene->_kernelMessages.add(Common::Point(11, local._defaultDialogPos_y + 87), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, _game.getQuote(0x2B9));
+		kernel_message_add(quote_string(kernel.quotes, 0x2B7), 11, local._defaultDialogPos_y + 59, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
+		kernel_message_add(quote_string(kernel.quotes, 0x2B8), 11, local._defaultDialogPos_y + 73, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
+		kernel_message_add(quote_string(kernel.quotes, 0x2B9), 11, local._defaultDialogPos_y + 87, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 	}
 	break;
 
 	case 14:
 	{
-		const char *curQuote = _game.getQuote(0x2BA);
-		int width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		char *curQuote = quote_string(kernel.quotes, 0x2BA);
+		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 17), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 17, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x2BB);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2BB);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 31), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 31, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x2BC);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2BC);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 45), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 45, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x2BD);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2BD);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 59), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 59, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 	}
 	break;
 
 	case 15:
 	{
-		const char *curQuote = _game.getQuote(0x2BE);
-		int width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		char *curQuote = quote_string(kernel.quotes, 0x2BE);
+		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 17), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 17, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x2BF);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2BF);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 31), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 31, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x2C0);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2C0);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 45), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 45, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x2C1);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2C1);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 59), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 59, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 	}
 	break;
 
 	case 16:
 	{
-		const char *curQuote = _game.getQuote(0x2C2);
-		int width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		char *curQuote = quote_string(kernel.quotes, 0x2C2);
+		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 3), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 3, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x2C3);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2C3);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 17), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 17, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x2C4);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2C4);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 31), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 31, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x2C5);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2C5);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 45), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 45, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x2C6);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2C6);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 59), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 59, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 	}
 	break;
 
 	case 17:
 	{
-		const char *curQuote = _game.getQuote(0x2C7);
-		int width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		char *curQuote = quote_string(kernel.quotes, 0x2C7);
+		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 17), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 17, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x2C8);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2C8);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 31), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 31, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x2C9);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2C9);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 45), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 45, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x2CA);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2CA);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 59), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 59, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 	}
 	break;
 
 	case 18:
 	{
-		const char *curQuote = _game.getQuote(0x2CB);
-		int width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		char *curQuote = quote_string(kernel.quotes, 0x2CB);
+		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 31), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 31, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x2CC);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2CC);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 45), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 45, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x2CD);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2CD);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 59), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 59, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 	}
 	break;
 
 	case 19:
 	{
-		const char *curQuote = _game.getQuote(0x2CE);
-		int width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		char *curQuote = quote_string(kernel.quotes, 0x2CE);
+		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 31), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 31, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x2CF);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2CF);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 45), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 45, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x2D0);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2D0);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 59), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 59, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 	}
 	break;
 
 	case 20:
 	{
-		const char *curQuote = _game.getQuote(0x2E1);
-		int width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		char *curQuote = quote_string(kernel.quotes, 0x2E1);
+		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 3), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 3, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x2E2);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2E2);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 17), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 17, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x2E3);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2E3);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 31), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 31, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x2E4);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2E4);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 45), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 45, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
-		curQuote = _game.getQuote(0x2E5);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2E5);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 59), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 59, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 	}
 	break;
 
 	case 21:
 	{
-		const char *curQuote = _game.getQuote(0x2D3);
-		int width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		char *curQuote = quote_string(kernel.quotes, 0x2D3);
+		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 3), 0xFDFC, 0, 0, 800, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 3, 0xFDFC, 800, 0, 0);
 
-		curQuote = _game.getQuote(0x2D4);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2D4);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 17), 0xFDFC, 0, 0, 800, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 17, 0xFDFC, 800, 0, 0);
 
-		curQuote = _game.getQuote(0x2D5);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2D5);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 31), 0xFDFC, 0, 0, 800, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 31, 0xFDFC, 800, 0, 0);
 
-		curQuote = _game.getQuote(0x2D6);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2D6);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 45), 0xFDFC, 0, 0, 800, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 45, 0xFDFC, 800, 0, 0);
 
-		curQuote = _game.getQuote(0x2D7);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2D7);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 59), 0xFDFC, 0, 0, 800, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 59, 0xFDFC, 800, 0, 0);
 	}
 	break;
 
 	case 22:
 	{
-		const char *curQuote = _game.getQuote(0x2D8);
-		int width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		char *curQuote = quote_string(kernel.quotes, 0x2D8);
+		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 17), 0xFDFC, 0, 0, 700, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 17, 0xFDFC, 700, 0, 0);
 
-		curQuote = _game.getQuote(0x2D9);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2D9);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 31), 0xFDFC, 0, 0, 700, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 31, 0xFDFC, 700, 0, 0);
 
-		curQuote = _game.getQuote(0x2DA);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2DA);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 45), 0xFDFC, 0, 0, 700, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 45, 0xFDFC, 700, 0, 0);
 
-		curQuote = _game.getQuote(0x2DB);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2DB);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 59), 0xFDFC, 0, 0, 700, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 59, 0xFDFC, 700, 0, 0);
 	}
 	break;
 
 	case 23:
 	{
-		const char *curQuote = _game.getQuote(0x2DC);
-		int width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		char *curQuote = quote_string(kernel.quotes, 0x2DC);
+		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 3), 0xFDFC, 0, 0, 700, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 3, 0xFDFC, 700, 0, 0);
 
-		curQuote = _game.getQuote(0x2DD);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2DD);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 17), 0xFDFC, 0, 0, 700, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 17, 0xFDFC, 700, 0, 0);
 
-		curQuote = _game.getQuote(0x2DE);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2DE);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 31), 0xFDFC, 0, 0, 700, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 31, 0xFDFC, 700, 0, 0);
 
-		curQuote = _game.getQuote(0x2DF);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2DF);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 45), 0xFDFC, 0, 0, 700, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 45, 0xFDFC, 700, 0, 0);
 
-		curQuote = _game.getQuote(0x2E0);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2E0);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 59), 0xFDFC, 0, 0, 700, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 59, 0xFDFC, 700, 0, 0);
 	}
 	break;
 
@@ -618,7 +619,7 @@ static void displayHermitQuestions(int question) {
 }
 
 static void handleSubDialog1() {
-	switch (_action._activeAction._verbId) {
+	switch (player2.words[0]) {
 	case 0x287:
 		local._stickFingerFl = true;
 		local._nextFrame = 34;
@@ -711,17 +712,17 @@ static void handleSubDialog1() {
 		handleTalking(500);
 		displayHermitQuestions(18);
 		local._dialog1.write(0x291, false);
-		if ((!_game._objects.isInInventory(OBJ_DURAFAIL_CELLS)) && (!_game._objects.isInInventory(OBJ_PHONE_CELLS))) {
+		if ((!player_has(OBJ_DURAFAIL_CELLS)) && (!player_has(OBJ_PHONE_CELLS))) {
 			local._dialog1.write(0x292, true);
 			local._dialog1.write(0x293, true);
 		}
 
-		if ((_game._objects.isInInventory(OBJ_DURAFAIL_CELLS)) || (_game._objects.isInInventory(OBJ_PHONE_CELLS)))
+		if ((player_has(OBJ_DURAFAIL_CELLS)) || (player_has(OBJ_PHONE_CELLS)))
 			local._dialog1.write(0x294, true);
 
 		// WORKAROUND: Fix bug in the original where the option to give Hermit batteries
 		// would be given before the player even has any batteries
-		_globals[kHermitWantsBatteries] = true;
+		global[kHermitWantsBatteries] = true;
 
 		setDialogNode(1);
 		break;
@@ -754,17 +755,17 @@ static void handleSubDialog1() {
 	case 0x293:
 	{
 		handleTalking(200);
-		_scene->_kernelMessages.reset();
+		kernel_message_purge();
 
-		const char *curQuote = _game.getQuote(0x2D1);
-		int width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		char *curQuote = quote_string(kernel.quotes, 0x2D1);
+		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y), 0xFDFC, 0, 0, 120, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y, 0xFDFC, 120, 0, 0);
 
-		curQuote = _game.getQuote(0x2D2);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x2D2);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 14), 0xFDFC, 0, 0, 120, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 14, 0xFDFC, 120, 0, 0);
 
 		local._dialog1.write(0x293, false);
 		setDialogNode(0);
@@ -775,13 +776,13 @@ static void handleSubDialog1() {
 	{
 		bool hermitPleasedFl = false;
 
-		switch (_game._difficulty) {
+		switch (game.difficulty) {
 		case DIFFICULTY_EASY:
-			hermitPleasedFl = _game._objects.isInInventory(OBJ_DURAFAIL_CELLS) || _game._objects.isInInventory(OBJ_PHONE_CELLS);
+			hermitPleasedFl = player_has(OBJ_DURAFAIL_CELLS) || player_has(OBJ_PHONE_CELLS);
 			break;
 
 		case DIFFICULTY_MEDIUM:
-			hermitPleasedFl = _game._objects.isInInventory(OBJ_DURAFAIL_CELLS) && _game._objects.isInInventory(OBJ_PHONE_CELLS);
+			hermitPleasedFl = player_has(OBJ_DURAFAIL_CELLS) && player_has(OBJ_PHONE_CELLS);
 			break;
 
 		default: // HARD
@@ -795,7 +796,7 @@ static void handleSubDialog1() {
 				setDialogNode(0);
 			else
 				local._giveBatteriesFl = false;
-		} else if (((_game._difficulty == DIFFICULTY_MEDIUM) || (_game._difficulty == DIFFICULTY_HARD)) && check2ChargedBatteries()) {
+		} else if (((game.difficulty == DIFFICULTY_MEDIUM) || (game.difficulty == DIFFICULTY_HARD)) && check2ChargedBatteries()) {
 			local._hermitDisplayedQuestion = 22;
 			if (!local._giveBatteriesFl)
 				setDialogNode(0);
@@ -814,12 +815,12 @@ static void handleSubDialog1() {
 
 	case 0x296:
 	{
-		_scene->_kernelMessages.reset();
+		kernel_message_purge();
 
-		const char *curQuote = _game.getQuote(0x2E6);
-		int width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		char *curQuote = quote_string(kernel.quotes, 0x2E6);
+		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 14), 0xFDFC, 0, 0, 120, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 14, 0xFDFC, 120, 0, 0);
 
 		setDialogNode(0);
 		handleTalking(200);
@@ -832,7 +833,7 @@ static void handleSubDialog1() {
 }
 
 static void handleSubDialog2() {
-	switch (_action._activeAction._verbId) {
+	switch (player2.words[0]) {
 	case 0x29C:
 		displayHermitQuestions(7);
 		setDialogNode(1);
@@ -853,11 +854,11 @@ static void handleSubDialog2() {
 
 	case 0x29F:
 	{
-		_scene->_kernelMessages.reset();
-		const char *curQuote = _game.getQuote(0x2A7);
-		int width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		kernel_message_purge();
+		char *curQuote = quote_string(kernel.quotes, 0x2A7);
+		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 14), 0xFDFC, 0, 0, 120, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 14, 0xFDFC, 120, 0, 0);
 		setDialogNode(0);
 		local._dialog2.write(0x29F, false);
 	}
@@ -869,31 +870,31 @@ static void handleSubDialog2() {
 }
 
 static void handleDialog() {
-	if (_game._trigger == 0) {
-		_scene->_kernelMessages.reset();
-		_game._player._stepEnabled = false;
+	if (kernel.trigger == 0) {
+		kernel_message_purge();
+		player.commands_allowed = false;
 
-		const char *curQuote = _game.getQuote(_action._activeAction._verbId);
-		int width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		char *curQuote = quote_string(kernel.quotes, player2.words[0]);
+		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 
 		if (width > 200) {
 			static char subQuote1[34], subQuote2[34];
-			_game.splitQuote(curQuote, subQuote1, subQuote2);
-			_scene->_kernelMessages.add(Common::Point(0, -14), 0x1110, 34, 0, 150, subQuote1);
+			quote_split_string(curQuote, subQuote1, subQuote2);
+			kernel_message_add(subQuote1, 0, -14, 0x1110, 150, 0, 34);
 
-			if (_action._activeAction._verbId == 0x29D)
-				_scene->_kernelMessages.add(Common::Point(-18, 0), 0x1110, 34, 1, 150, subQuote2);
-			else if (_action._activeAction._verbId == 0x28A)
-				_scene->_kernelMessages.add(Common::Point(-10, 0), 0x1110, 34, 1, 150, subQuote2);
+			if (player2.words[0] == 0x29D)
+				kernel_message_add(subQuote2, -18, 0, 0x1110, 150, 1, 34);
+			else if (player2.words[0] == 0x28A)
+				kernel_message_add(subQuote2, -10, 0, 0x1110, 150, 1, 34);
 			else
-				_scene->_kernelMessages.add(Common::Point(0, 0), 0x1110, 34, 1, 150, subQuote2);
+				kernel_message_add(subQuote2, 0, 0, 0x1110, 150, 1, 34);
 
-			_scene->_sequences.addTimer(170, 50);
+			kernel_timing_trigger(170, 50);
 		} else {
-			_scene->_kernelMessages.add(Common::Point(0, 0), 0x1110, 34, 1, 120, curQuote);
-			_scene->_sequences.addTimer(140, 50);
+			kernel_message_add(curQuote, 0, 0, 0x1110, 120, 1, 34);
+			kernel_timing_trigger(140, 50);
 		}
-	} else if (_game._trigger == 50) {
+	} else if (kernel.trigger == 50) {
 		if (local._hermitDialogNode == 1)
 			handleSubDialog1();
 		else if (local._hermitDialogNode == 2)
@@ -902,11 +903,11 @@ static void handleDialog() {
 }
 
 static void room_611_init() {
-	_globals._spriteIndexes[1] = _scene->_sprites.addSprites(formAnimName('x', 0));
-	_globals._spriteIndexes[2] = _scene->_sprites.addSprites(formAnimName('x', 1));
-	_globals._spriteIndexes[3] = _scene->_sprites.addSprites("*RXMRC_9");
+	g_sprite_ids[1] = kernel_load_series(kernel_name('x', 0), 0);
+	g_sprite_ids[2] = kernel_load_series(kernel_name('x', 1), 0);
+	g_sprite_ids[3] = kernel_load_series("*RXMRC_9", 0);
 
-	_game.loadQuoteSet(0x279, 0x27A, 0x27B, 0x27C, 0x27D, 0x27E, 0x27F, 0x280, 0x281, 0x282, 0x283, 0x284,
+	kernel.quotes = quote_load(0x279, 0x27A, 0x27B, 0x27C, 0x27D, 0x27E, 0x27F, 0x280, 0x281, 0x282, 0x283, 0x284,
 		0x285, 0x286, 0x287, 0x288, 0x289, 0x28A, 0x28B, 0x28C, 0x28D, 0x28E, 0x28F, 0x290, 0x291, 0x292,
 		0x293, 0x294, 0x295, 0x296, 0x297, 0x298, 0x299, 0x29A, 0x29B, 0x29C, 0x29D, 0x29E, 0x29F, 0x2A0,
 		0x2A1, 0x2A2, 0x2A3, 0x2A4, 0x2A5, 0x2A6, 0x2A7, 0x2A8, 0x2A9, 0x2AA, 0x2AB, 0x2AC, 0x2AD, 0x2AE,
@@ -921,13 +922,13 @@ static void room_611_init() {
 
 	local._dialog2.setup(kConvHermit2, 0x29C, 0x29D, 0x29E, 0x29F, 0);
 
-	if (!_game._visitedScenes._sceneRevisited) {
+	if (!player.been_here_before) {
 		local._dialog1.set(kConvHermit1, 0x287, 0x288, 0x296, 0);
 		local._dialog2.set(kConvHermit2, 0x29F, 0);
 	}
 
-	_vm->_palette->setEntry(252, 51, 51, 47);
-	_vm->_palette->setEntry(253, 37, 37, 37);
+	pal_change_color(252, 51, 51, 47);
+	pal_change_color(253, 37, 37, 37);
 
 	local._ratPresentFl = false;
 	local._seenRatFl = true;
@@ -941,14 +942,15 @@ static void room_611_init() {
 	local._alreadyTalkingFl = false;
 	local._startTradingFl = false;
 
-	if (_scene->_priorSceneId != RETURNING_FROM_DIALOG) {
-		_game._player._playerPos = Common::Point(22, 132);
-		_game._player._facing = FACING_EAST;
+	if (previous_room != KERNEL_RESTORING_GAME) {
+		player.x = 22;
+		player.y = 132;
+		player.facing = FACING_EAST;
 		local._duringDialogFl = false;
 	}
 
-	if (!_globals[kHasTalkedToHermit]) {
-		_scene->loadAnimation(Resources::formatName(611, 'h', -1, EXT_AA, ""), 0);
+	if (!global[kHasTalkedToHermit]) {
+		kernel_run_animation(kernel_full_name(611, 'h', -1, "", KERNEL_AA), 0);
 		local._nextFrame = 47;
 		local._hermitMode = 1;
 		local._hermitTalkingFl = false;
@@ -957,22 +959,23 @@ static void room_611_init() {
 		local._stickFingerFl = false;
 	} else {
 		local._hermitMode = 0;
-		_scene->_hotspots.activate(words_hermit, false);
+		kernel_flip_hotspot(words_hermit, false);
 	}
 
 	// WORKAROUND: Fix original adding 'give batteries' option even if you don't have them
-	if (_globals[kHermitWantsBatteries]) {
-		if ((_game._objects.isInInventory(OBJ_DURAFAIL_CELLS)) || (_game._objects.isInInventory(OBJ_PHONE_CELLS)))
+	if (global[kHermitWantsBatteries]) {
+		if ((player_has(OBJ_DURAFAIL_CELLS)) || (player_has(OBJ_PHONE_CELLS)))
 			local._dialog1.write(0x294, true);
 	}
 
 	if (local._duringDialogFl) {
-		_game._player._playerPos = Common::Point(237, 129);
-		_game._player._facing = FACING_NORTHEAST;
+		player.x = 237;
+		player.y = 129;
+		player.facing = FACING_NORTHEAST;
 
 		switch (local._hermitDialogNode) {
 		case 0:
-			_scene->_userInterface.setup(kInputBuildingSentences);
+			kernel_set_interface_mode(INTER_BUILDING_SENTENCES);
 			local._hermitDialogNode = 1;
 			break;
 
@@ -994,165 +997,166 @@ static void room_611_init() {
 }
 
 static void room_611_daemon() {
-	if (local._seenRatFl && (_vm->getRandomNumber(1, 100) == 10)) {
+	if (local._seenRatFl && (g_engine->getRandomNumber(1, 100) == 10)) {
 		local._seenRatFl = false;
-		_scene->_sequences.addTimer(1, 80);
+		kernel_timing_trigger(1, 80);
 	}
 
-	if (_game._trigger == 80) {
-		_globals._sequenceIndexes[1] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[1], false, 12, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[1], 1, 8);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[1], 1);
+	if (kernel.trigger == 80) {
+		g_sequence_ids[1] = kernel_seq_forward(g_sprite_ids[1], false, 12, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[1], 1, 8);
+		kernel_seq_depth(g_sequence_ids[1], 1);
 		local._ratPresentFl = true;
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[1], SEQUENCE_TRIGGER_EXPIRE, 0, 81);
-	} else if (_game._trigger == 81) {
-		int syncId = _globals._sequenceIndexes[1];
-		_globals._sequenceIndexes[1] = _scene->_sequences.startPingPongCycle(_globals._spriteIndexes[1], false, 20, 0, 0, 0);
-		int idx = _scene->_dynamicHotspots.add(words_rat, words_walkto, _globals._sequenceIndexes[1], Common::Rect(0, 0, 0, 0));
-		local._ratHotspotId = _scene->_dynamicHotspots.setPosition(idx, Common::Point(272, 154), FACING_SOUTHEAST);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[1], 9, 10);
-		_scene->_sequences.updateTimeout(_globals._sequenceIndexes[1], syncId);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[1], 1);
-		local._ratTimer = _game._player._priorTimer;
+		kernel_seq_trigger(g_sequence_ids[1], KERNEL_TRIGGER_EXPIRE, 0, 81);
+	} else if (kernel.trigger == 81) {
+		int syncId = g_sequence_ids[1];
+		g_sequence_ids[1] = kernel_seq_pingpong(g_sprite_ids[1], false, 20, 0, 0, 0);
+		int idx = kernel_add_dynamic(words_rat, words_walkto, 0, g_sequence_ids[1], 0, 0, 0, 0);
+		kernel_dynamic_walk(idx, 272, 154, FACING_SOUTHEAST);
+		local._ratHotspotId = idx;
+		kernel_seq_range(g_sequence_ids[1], 9, 10);
+		kernel_seq_timeout(syncId, g_sequence_ids[1]);
+		kernel_seq_depth(g_sequence_ids[1], 1);
+		local._ratTimer = player.clock;
 	}
 
-	if (local._ratPresentFl && ((_game._player._priorTimer - local._ratTimer) > 1200))
+	if (local._ratPresentFl && ((player.clock - local._ratTimer) > 1200))
 		handleRatMoves();
 
 	if (!local._eyesRunningFl) {
-		local._randVal = _vm->getRandomNumber(1, 30);
+		local._randVal = g_engine->getRandomNumber(1, 30);
 		local._eyesRunningFl = true;
-		_scene->_sequences.addTimer(1, 70);
+		kernel_timing_trigger(1, 70);
 	}
 
-	if (_game._trigger == 70) {
+	if (kernel.trigger == 70) {
 		switch (local._randVal) {
 		case 2:
-			_globals._sequenceIndexes[2] = _scene->_sequences.startCycle(_globals._spriteIndexes[2], false, 1);
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[2], 1);
+			g_sequence_ids[2] = kernel_seq_stamp(g_sprite_ids[2], false, 1);
+			kernel_seq_depth(g_sequence_ids[2], 1);
 			local._shouldRemoveEyes = true;
-			_scene->_sequences.addTimer(60, 71);
+			kernel_timing_trigger(60, 71);
 			break;
 
 		case 6:
-			_globals._sequenceIndexes[2] = _scene->_sequences.startPingPongCycle(_globals._spriteIndexes[2], false, 12, 3, 0, 0);
-			_scene->_sequences.setAnimRange(_globals._sequenceIndexes[2], 2, 4);
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[2], 1);
-			_scene->_sequences.addSubEntry(_globals._sequenceIndexes[2], SEQUENCE_TRIGGER_EXPIRE, 0, 71);
+			g_sequence_ids[2] = kernel_seq_pingpong(g_sprite_ids[2], false, 12, 0, 0, 3);
+			kernel_seq_range(g_sequence_ids[2], 2, 4);
+			kernel_seq_depth(g_sequence_ids[2], 1);
+			kernel_seq_trigger(g_sequence_ids[2], KERNEL_TRIGGER_EXPIRE, 0, 71);
 			break;
 
 		case 7:
-			_globals._sequenceIndexes[2] = _scene->_sequences.startCycle(_globals._spriteIndexes[2], false, 5);
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[2], 1);
+			g_sequence_ids[2] = kernel_seq_stamp(g_sprite_ids[2], false, 5);
+			kernel_seq_depth(g_sequence_ids[2], 1);
 			local._shouldRemoveEyes = true;
-			_scene->_sequences.addTimer(60, 71);
+			kernel_timing_trigger(60, 71);
 			break;
 
 		case 9:
-			_globals._sequenceIndexes[2] = _scene->_sequences.startCycle(_globals._spriteIndexes[2], false, 6);
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[2], 1);
+			g_sequence_ids[2] = kernel_seq_stamp(g_sprite_ids[2], false, 6);
+			kernel_seq_depth(g_sequence_ids[2], 1);
 			local._shouldRemoveEyes = true;
-			_scene->_sequences.addTimer(60, 71);
+			kernel_timing_trigger(60, 71);
 			break;
 
 		case 13:
-			_globals._sequenceIndexes[2] = _scene->_sequences.startCycle(_globals._spriteIndexes[2], false, 7);
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[2], 1);
+			g_sequence_ids[2] = kernel_seq_stamp(g_sprite_ids[2], false, 7);
+			kernel_seq_depth(g_sequence_ids[2], 1);
 			local._shouldRemoveEyes = true;
-			_scene->_sequences.addTimer(60, 71);
+			kernel_timing_trigger(60, 71);
 			break;
 
 		case 14:
-			_globals._sequenceIndexes[2] = _scene->_sequences.startCycle(_globals._spriteIndexes[2], false, 8);
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[2], 1);
+			g_sequence_ids[2] = kernel_seq_stamp(g_sprite_ids[2], false, 8);
+			kernel_seq_depth(g_sequence_ids[2], 1);
 			local._shouldRemoveEyes = true;
-			_scene->_sequences.addTimer(60, 71);
+			kernel_timing_trigger(60, 71);
 			break;
 
 		case 15:
-			_globals._sequenceIndexes[2] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[2], false, 24, 1, 0, 0);
-			_scene->_sequences.setAnimRange(_globals._sequenceIndexes[2], 5, 8);
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[2], 1);
-			_scene->_sequences.addSubEntry(_globals._sequenceIndexes[2], SEQUENCE_TRIGGER_EXPIRE, 0, 71);
+			g_sequence_ids[2] = kernel_seq_forward(g_sprite_ids[2], false, 24, 0, 0, 1);
+			kernel_seq_range(g_sequence_ids[2], 5, 8);
+			kernel_seq_depth(g_sequence_ids[2], 1);
+			kernel_seq_trigger(g_sequence_ids[2], KERNEL_TRIGGER_EXPIRE, 0, 71);
 			break;
 
 		case 17:
-			_globals._sequenceIndexes[2] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[2], false, 20, 1, 0, 0);
-			_scene->_sequences.setAnimRange(_globals._sequenceIndexes[2], 9, 11);
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[2], 1);
-			_scene->_sequences.addSubEntry(_globals._sequenceIndexes[2], SEQUENCE_TRIGGER_EXPIRE, 0, 71);
+			g_sequence_ids[2] = kernel_seq_forward(g_sprite_ids[2], false, 20, 0, 0, 1);
+			kernel_seq_range(g_sequence_ids[2], 9, 11);
+			kernel_seq_depth(g_sequence_ids[2], 1);
+			kernel_seq_trigger(g_sequence_ids[2], KERNEL_TRIGGER_EXPIRE, 0, 71);
 			break;
 
 		case 21:
-			_globals._sequenceIndexes[2] = _scene->_sequences.startCycle(_globals._spriteIndexes[2], false, 9);
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[2], 1);
+			g_sequence_ids[2] = kernel_seq_stamp(g_sprite_ids[2], false, 9);
+			kernel_seq_depth(g_sequence_ids[2], 1);
 			local._shouldRemoveEyes = true;
-			_scene->_sequences.addTimer(60, 71);
+			kernel_timing_trigger(60, 71);
 			break;
 
 		case 25:
-			_globals._sequenceIndexes[2] = _scene->_sequences.startCycle(_globals._spriteIndexes[2], false, 10);
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[2], 1);
+			g_sequence_ids[2] = kernel_seq_stamp(g_sprite_ids[2], false, 10);
+			kernel_seq_depth(g_sequence_ids[2], 1);
 			local._shouldRemoveEyes = true;
-			_scene->_sequences.addTimer(60, 71);
+			kernel_timing_trigger(60, 71);
 			break;
 
 		case 27:
-			_globals._sequenceIndexes[2] = _scene->_sequences.startCycle(_globals._spriteIndexes[2], false, 11);
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[2], 1);
+			g_sequence_ids[2] = kernel_seq_stamp(g_sprite_ids[2], false, 11);
+			kernel_seq_depth(g_sequence_ids[2], 1);
 			local._shouldRemoveEyes = true;
-			_scene->_sequences.addTimer(60, 71);
+			kernel_timing_trigger(60, 71);
 			break;
 
 		case 29:
-			_globals._sequenceIndexes[2] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[2], false, 20, 1, 0, 0);
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[2], 1);
-			_scene->_sequences.addSubEntry(_globals._sequenceIndexes[2], SEQUENCE_TRIGGER_EXPIRE, 0, 71);
+			g_sequence_ids[2] = kernel_seq_forward(g_sprite_ids[2], false, 20, 0, 0, 1);
+			kernel_seq_depth(g_sequence_ids[2], 1);
+			kernel_seq_trigger(g_sequence_ids[2], KERNEL_TRIGGER_EXPIRE, 0, 71);
 			break;
 
 		default:
-			_scene->_sequences.addTimer(1, 71);
+			kernel_timing_trigger(1, 71);
 			break;
 		}
 	}
 
-	if (_game._trigger == 71) {
+	if (kernel.trigger == 71) {
 		if (local._shouldRemoveEyes) {
-			_scene->_sequences.remove(_globals._sequenceIndexes[2]);
+			kernel_seq_delete(g_sequence_ids[2]);
 			local._shouldRemoveEyes = false;
 		}
 		local._eyesRunningFl = false;
 		local._randVal = 0;
 	}
 
-	if (_game._trigger == 100) {
+	if (kernel.trigger == 100) {
 		if (local._alreadyTalkingFl)
 			local._alreadyTalkingFl = false;
 		else
 			local._hermitMovingFl = true;
 	}
 
-	if (local._stickFingerFl && (_scene->_animation[0]->getCurrentFrame() == 47)) {
+	if (local._stickFingerFl && (kernel_anim[0].frame == 47)) {
 		local._stickFingerFl = false;
 		local._hermitMovingFl = true;
 		local._hermitMode = 1;
 	}
 
-	if (_scene->_animation[0] != nullptr && (_scene->_animation[0]->getCurrentFrame() == 240) && local._check1Fl) {
+	if (kernel_anim[0].anim != nullptr && (kernel_anim[0].frame == 240) && local._check1Fl) {
 		local._check1Fl = false;
-		_scene->_kernelMessages.add(Common::Point(33, 88), 0xFDFC, 0, 0, 90, _game.getQuote(0x27E));
-		_scene->_sequences.addTimer(120, 120);
+		kernel_message_add(quote_string(kernel.quotes, 0x27E), 33, 88, 0xFDFC, 90, 0, 0);
+		kernel_timing_trigger(120, 120);
 	}
 
-	if (_game._trigger == 120) {
-		int msgIdx = _scene->_kernelMessages.add(Common::Point(28, 102), 0xFDFC, 0, 0, 90, _game.getQuote(0x27F));
-		_scene->_kernelMessages.setQuoted(msgIdx, 4, true);
-		_scene->_sequences.addTimer(100, 121);
+	if (kernel.trigger == 120) {
+		int msgIdx = kernel_message_add(quote_string(kernel.quotes, 0x27F), 28, 102, 0xFDFC, 90, 0, 0);
+		kernel_message_teletype(msgIdx, 4, true);
+		kernel_timing_trigger(100, 121);
 	}
 
-	if (_game._trigger == 121) {
-		int msgIdx = _scene->_kernelMessages.add(Common::Point(23, 116), 0xFDFC, 0, 0, 90, _game.getQuote(0x280));
-		_scene->_kernelMessages.setQuoted(msgIdx, 4, true);
+	if (kernel.trigger == 121) {
+		int msgIdx = kernel_message_add(quote_string(kernel.quotes, 0x280), 23, 116, 0xFDFC, 90, 0, 0);
+		kernel_message_teletype(msgIdx, 4, true);
 	}
 
 	if (local._hermitMode == 1) {
@@ -1160,13 +1164,13 @@ static void room_611_daemon() {
 			local._hermitMode = 6;
 			local._hermitMovingFl = false;
 			local._hermitTalkingFl = false;
-			_scene->_sequences.addTimer(1, 110);
+			kernel_timing_trigger(1, 110);
 		} else if (local._hermitTalkingFl) {
 			local._hermitMode = 2;
 			local._nextFrame = 18;
 			local._hermitMovingFl = false;
 		} else {
-			switch (_vm->getRandomNumber(1, 5)) {
+			switch (g_engine->getRandomNumber(1, 5)) {
 			case 1:
 				local._nextFrame = 46;
 				break;
@@ -1198,13 +1202,13 @@ static void room_611_daemon() {
 			local._hermitMode = 6;
 			local._hermitMovingFl = false;
 			local._hermitTalkingFl = false;
-			_scene->_sequences.addTimer(1, 110);
+			kernel_timing_trigger(1, 110);
 		} else if (local._hermitMovingFl) {
 			local._hermitMode = 1;
 			local._nextFrame = 47;
 			local._hermitTalkingFl = false;
 		} else {
-			switch (_vm->getRandomNumber(1, 4)) {
+			switch (g_engine->getRandomNumber(1, 4)) {
 			case 1:
 				local._nextFrame = 18;
 				break;
@@ -1227,42 +1231,42 @@ static void room_611_daemon() {
 		}
 	}
 
-	if (_scene->_animation[0] != nullptr && _scene->_animation[0]->getCurrentFrame() == 254)
-		_game._player._stepEnabled = true;
+	if (kernel_anim[0].anim != nullptr && kernel_anim[0].frame == 254)
+		player.commands_allowed = true;
 
-	if (_game._trigger == 110) {
-		_game._player._stepEnabled = false;
-		_game._player._visible = false;
-		_globals._sequenceIndexes[3] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[3], false, 7, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[3], 1, 2);
-		_scene->_sequences.setMsgLayout(_globals._sequenceIndexes[3]);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[3], SEQUENCE_TRIGGER_EXPIRE, 0, 111);
+	if (kernel.trigger == 110) {
+		player.commands_allowed = false;
+		player.walker_visible = false;
+		g_sequence_ids[3] = kernel_seq_forward(g_sprite_ids[3], false, 7, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[3], 1, 2);
+		kernel_seq_player(g_sequence_ids[3], false);
+		kernel_seq_trigger(g_sequence_ids[3], KERNEL_TRIGGER_EXPIRE, 0, 111);
 	}
 
-	if (_game._trigger == 111) {
-		int syncIdx = _globals._sequenceIndexes[3];
-		_globals._sequenceIndexes[3] = _scene->_sequences.startCycle(_globals._spriteIndexes[3], false, 2);
-		_scene->_sequences.setMsgLayout(_globals._sequenceIndexes[3]);
-		_scene->_sequences.updateTimeout(_globals._sequenceIndexes[3], syncIdx);
+	if (kernel.trigger == 111) {
+		int syncIdx = g_sequence_ids[3];
+		g_sequence_ids[3] = kernel_seq_stamp(g_sprite_ids[3], false, 2);
+		kernel_seq_player(g_sequence_ids[3], false);
+		kernel_seq_timeout(syncIdx, g_sequence_ids[3]);
 		local._nextFrame = 1;
 	}
 
-	if (_game._trigger == 112) {
-		_game._player._priorTimer = _scene->_frameStartTime - _game._player._ticksAmount;
-		_game._player._visible = true;
+	if (kernel.trigger == 112) {
+		player.clock = kernel.clock - player.frame_delay;
+		player.walker_visible = true;
 	}
 
 	if (local._hermitMode == 6) {
-		if ((_scene->_animation[0]->getCurrentFrame() == 9) && local._check1Fl) {
-			_scene->_sequences.remove(_globals._sequenceIndexes[3]);
-			_globals._sequenceIndexes[3] = _scene->_sequences.startPingPongCycle(_globals._spriteIndexes[3], false, 7, 1, 0, 0);
-			_scene->_sequences.setAnimRange(_globals._sequenceIndexes[3], 1, 2);
-			_scene->_sequences.setMsgLayout(_globals._sequenceIndexes[3]);
-			_scene->_sequences.addSubEntry(_globals._sequenceIndexes[3], SEQUENCE_TRIGGER_EXPIRE, 0, 112);
+		if ((kernel_anim[0].frame == 9) && local._check1Fl) {
+			kernel_seq_delete(g_sequence_ids[3]);
+			g_sequence_ids[3] = kernel_seq_pingpong(g_sprite_ids[3], false, 7, 0, 0, 1);
+			kernel_seq_range(g_sequence_ids[3], 1, 2);
+			kernel_seq_player(g_sequence_ids[3], false);
+			kernel_seq_trigger(g_sequence_ids[3], KERNEL_TRIGGER_EXPIRE, 0, 112);
 			local._check1Fl = false;
 		}
 
-		if ((_scene->_animation[0]->getCurrentFrame() == 17) && !local._check1Fl) {
+		if ((kernel_anim[0].frame == 17) && !local._check1Fl) {
 			local._nextFrame = 26;
 			local._hermitMode = 4;
 			local._check1Fl = true;
@@ -1270,56 +1274,56 @@ static void room_611_daemon() {
 	}
 
 	if (local._hermitMode == 4) {
-		if ((_scene->_animation[0]->getCurrentFrame() == 33) && local._check1Fl) {
+		if ((kernel_anim[0].frame == 33) && local._check1Fl) {
 			displayHermitQuestions(local._hermitDisplayedQuestion);
 			local._nextFrame = 1;
 			local._check1Fl = false;
 		}
 
-		if ((_scene->_animation[0]->getCurrentFrame() == 9) && !local._check1Fl) {
+		if ((kernel_anim[0].frame == 9) && !local._check1Fl) {
 			local._nextFrame = 8;
-			_scene->_sequences.addTimer(1, 113);
+			kernel_timing_trigger(1, 113);
 			local._check1Fl = true;
 		}
 	}
 
-	if (_game._trigger == 113) {
-		_game._player._visible = false;
-		_globals._sequenceIndexes[3] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[3], false, 7, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[3], 1, 2);
-		_scene->_sequences.setMsgLayout(_globals._sequenceIndexes[3]);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[3], SEQUENCE_TRIGGER_EXPIRE, 0, 114);
+	if (kernel.trigger == 113) {
+		player.walker_visible = false;
+		g_sequence_ids[3] = kernel_seq_forward(g_sprite_ids[3], false, 7, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[3], 1, 2);
+		kernel_seq_player(g_sequence_ids[3], false);
+		kernel_seq_trigger(g_sequence_ids[3], KERNEL_TRIGGER_EXPIRE, 0, 114);
 	}
 
-	if (_game._trigger == 114) {
+	if (kernel.trigger == 114) {
 		local._resetBatterieText = true;
-		int syncIdx = _globals._sequenceIndexes[3];
+		int syncIdx = g_sequence_ids[3];
 		local._nextFrame = 10;
-		_globals._sequenceIndexes[3] = _scene->_sequences.startPingPongCycle(_globals._spriteIndexes[3], false, 7, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[3], 1, 2);
-		_scene->_sequences.updateTimeout(_globals._sequenceIndexes[3], syncIdx);
-		_scene->_sequences.setMsgLayout(_globals._sequenceIndexes[3]);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[3], SEQUENCE_TRIGGER_EXPIRE, 0, 115);
+		g_sequence_ids[3] = kernel_seq_pingpong(g_sprite_ids[3], false, 7, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[3], 1, 2);
+		kernel_seq_timeout(syncIdx, g_sequence_ids[3]);
+		kernel_seq_player(g_sequence_ids[3], false);
+		kernel_seq_trigger(g_sequence_ids[3], KERNEL_TRIGGER_EXPIRE, 0, 115);
 	}
 
-	if ((local._nextFrame >= 0) && (local._nextFrame != _scene->_animation[0]->getCurrentFrame())) {
-		_scene->_animation[0]->setCurrentFrame(local._nextFrame);
+	if ((local._nextFrame >= 0) && (local._nextFrame != kernel_anim[0].frame)) {
+		kernel_reset_animation(0, local._nextFrame);
 		local._nextFrame = -1;
 	}
 
-	if (_game._trigger == 115) {
-		_game._player._priorTimer = _scene->_frameStartTime - _game._player._ticksAmount;
-		_game._player._visible = true;
+	if (kernel.trigger == 115) {
+		player.clock = kernel.clock - player.frame_delay;
+		player.walker_visible = true;
 		if (local._hermitDisplayedQuestion == 21) {
-			_game._player._stepEnabled = false;
+			player.commands_allowed = false;
 			handleTrading();
 			local._hermitMode = 0;
 			local._startTradingFl = false;
 			local._nextFrame = 52;
-			_globals[kHasTalkedToHermit] = true;
-			_scene->_hotspots.activate(words_hermit, false);
+			global[kHasTalkedToHermit] = true;
+			kernel_flip_hotspot(words_hermit, false);
 		} else {
-			_game._player._stepEnabled = true;
+			player.commands_allowed = true;
 			local._hermitMode = 1;
 			local._nextFrame = 47;
 			local._hermitTalkingFl = false;
@@ -1331,41 +1335,41 @@ static void room_611_daemon() {
 
 static void room_611_pre_parser() {
 	if (player_said_2(walk_down, alley))
-		_game._player._walkOffScreenSceneId = 609;
+		player.walk_off_edge_to_room = 609;
 
 	if (local._resetBatterieText)
-		_scene->_kernelMessages.reset();
+		kernel_message_purge();
 }
 
 static void room_611_parser() {
-	if (_game._screenObjects._inputMode == kInputConversation)
+	if (inter_input_mode == INTER_CONVERSATION)
 		handleDialog();
 	else if ((player_said_3(give, phone_cells, hermit)) || (player_said_3(give, durafail_cells, hermit))) {
-		_action._activeAction._verbId = 0x294;
+		player2.words[0] = 0x294;
 		local._giveBatteriesFl = true;
 		handleSubDialog1();
 	} else if (player_said_2(give, hermit)) {
-		_scene->_kernelMessages.reset();
+		kernel_message_purge();
 
-		const char *curQuote = _game.getQuote(0x323);
-		int width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		char *curQuote = quote_string(kernel.quotes, 0x323);
+		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y), 0xFDFC, 0, 0, 120, curQuote);
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y, 0xFDFC, 120, 0, 0);
 
-		curQuote = _game.getQuote(0x324);
-		width = _vm->_font->getWidth(curQuote, _scene->_textSpacing);
+		curQuote = quote_string(kernel.quotes, 0x324);
+		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
-		_scene->_kernelMessages.add(Common::Point(quotePosX, local._defaultDialogPos_y + 14), 0xFDFC, 0, 0, 120, curQuote);
-	} else if (_game._trigger == 90) {
+		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 14, 0xFDFC, 120, 0, 0);
+	} else if (kernel.trigger == 90) {
 		if (local._dialog2.read(0x29C) && local._dialog2.read(0x29D) && local._dialog2.read(0x29E)) {
 			handleTalking(180);
-			if (_vm->getRandomNumber(1, 2) == 1)
+			if (g_engine->getRandomNumber(1, 2) == 1)
 				displayHermitQuestions(1);
 			else
 				displayHermitQuestions(2);
 		} else {
 			handleTalking(180);
-			if (_vm->getRandomNumber(1, 2) == 1)
+			if (g_engine->getRandomNumber(1, 2) == 1)
 				displayHermitQuestions(3);
 			else
 				displayHermitQuestions(4);
@@ -1384,12 +1388,12 @@ static void room_611_parser() {
 		}
 	} else if (player_said_2(talkto, hermit)) {
 		if (!local._dialog1.read(0x287)) {
-			_scene->_kernelMessages.reset();
-			_scene->_kernelMessages.add(Common::Point(0, 0), 0x1110, 34, 0, 120, _game.getQuote(0x27A));
-			_scene->_sequences.addTimer(120, 90);
+			kernel_message_purge();
+			kernel_message_add(quote_string(kernel.quotes, 0x27A), 0, 0, 0x1110, 120, 0, 34);
+			kernel_timing_trigger(120, 90);
 		} else {
 			int nextQuote = 0;
-			switch (_vm->getRandomNumber(1, 3)) {
+			switch (g_engine->getRandomNumber(1, 3)) {
 			case 1:
 				nextQuote = 0x27B;
 				break;
@@ -1405,59 +1409,59 @@ static void room_611_parser() {
 			default:
 				break;
 			}
-			_scene->_kernelMessages.reset();
-			_scene->_kernelMessages.add(Common::Point(0, 0), 0x1110, 34, 0, 120, _game.getQuote(nextQuote));
-			_scene->_sequences.addTimer(120, 90);
+			kernel_message_purge();
+			kernel_message_add(quote_string(kernel.quotes, nextQuote), 0, 0, 0x1110, 120, 0, 34);
+			kernel_timing_trigger(120, 90);
 		}
 	} else if ((player_said_1(walkto) || player_said_1(look)) && player_said_1(rat)) {
-		switch (_game._trigger) {
+		switch (kernel.trigger) {
 		case 0:
-			_scene->_kernelMessages.reset();
-			_scene->_kernelMessages.add(Common::Point(0, 0), 0x1110, 34, 0, 120, _game.getQuote(0x279));
-			_scene->_sequences.addTimer(60, 1);
+			kernel_message_purge();
+			kernel_message_add(quote_string(kernel.quotes, 0x279), 0, 0, 0x1110, 120, 0, 34);
+			kernel_timing_trigger(60, 1);
 			break;
 
 		case 1:
 			handleRatMoves();
-			_game._player._stepEnabled = true;
+			player.commands_allowed = true;
 			break;
 
 		default:
 			break;
 		}
-	} else if (_action._lookFlag) {
-		if (_globals[kHasTalkedToHermit])
-			_vm->_dialogs->show(61111);
+	} else if (player.look_around) {
+		if (global[kHasTalkedToHermit])
+			text_show(61111);
 		else
-			_vm->_dialogs->show(61110);
+			text_show(61110);
 	} else if (player_said_2(look, hermit))
-		_vm->_dialogs->show(61112);
+		text_show(61112);
 	else if (player_said_2(look, trash))
-		_vm->_dialogs->show(61113);
+		text_show(61113);
 	else if (player_said_2(take, trash))
-		_vm->_dialogs->show(61114);
+		text_show(61114);
 	else if (player_said_2(look, cardboard_box))
-		_vm->_dialogs->show(61115);
+		text_show(61115);
 	else if (player_said_2(take, cardboard_box))
-		_vm->_dialogs->show(61116);
+		text_show(61116);
 	else if (player_said_2(open, cardboard_box))
-		_vm->_dialogs->show(61117);
+		text_show(61117);
 	else if (player_said_2(look, refrigerator))
-		_vm->_dialogs->show(61118);
+		text_show(61118);
 	else if (player_said_2(open, refrigerator))
-		_vm->_dialogs->show(61119);
+		text_show(61119);
 	else if (player_said_2(take, refrigerator))
-		_vm->_dialogs->show(61120);
+		text_show(61120);
 	else if (player_said_2(look, building))
-		_vm->_dialogs->show(61121);
+		text_show(61121);
 	else if (player_said_2(look, graffiti))
-		_vm->_dialogs->show(61122);
+		text_show(61122);
 	else if (player_said_2(look, metal_pipe))
-		_vm->_dialogs->show(61123);
+		text_show(61123);
 	else
 		return;
 
-	_action._inProgress = false;
+	player.command_ready = false;
 }
 
 void room_611_synchronize(Common::Serializer &s) {
@@ -1495,8 +1499,8 @@ void room_611_preload() {
 
 	section_6_walker();
 	section_6_interface();
-	_scene->addActiveVocab(words_rat);
-	_scene->addActiveVocab(words_walkto);
+	vocab_make_active(words_rat);
+	vocab_make_active(words_walkto);
 }
 
 } // namespace Rooms

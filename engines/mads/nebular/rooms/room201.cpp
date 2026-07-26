@@ -20,12 +20,12 @@
  */
 
 #include "mads/core/game.h"
+#include "mads/core/pal.h"
 #include "mads/nebular/global.h"
 #include "mads/nebular/nebular.h"
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"	
 #include "mads/nebular/rooms/section2.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
@@ -39,48 +39,50 @@ static Scratch local;
 
 
 static void room_201_init() {
-	_globals._spriteIndexes[1] = _scene->_sprites.addSprites(formAnimName('x', 0));
-	_globals._spriteIndexes[2] = _scene->_sprites.addSprites(formAnimName('x', 1));
-	_globals._spriteIndexes[3] = _scene->_sprites.addSprites(formAnimName('m', -1));
-	_globals._spriteIndexes[4] = _scene->_sprites.addSprites(formAnimName('b', -1));
-	_globals._spriteIndexes[5] = _scene->_sprites.addSprites("*SC002Z1");
-	_globals._sequenceIndexes[1] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[1], false, 6, 0, 1, 0);
-	_globals._sequenceIndexes[2] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[2], false, 15, 0, 0, 50);
-	_globals._sequenceIndexes[3] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[3], false, 4, 0, 0, 0);
-	_globals._sequenceIndexes[4] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[4], false, 6, 0, 0, 0);
-	_scene->_sequences.setDepth(_globals._sequenceIndexes[4], 8);
-	_scene->_sequences.setPosition(_globals._sequenceIndexes[4], Common::Point(185, 46));
+	g_sprite_ids[1] = kernel_load_series(kernel_name('x', 0), 0);
+	g_sprite_ids[2] = kernel_load_series(kernel_name('x', 1), 0);
+	g_sprite_ids[3] = kernel_load_series(kernel_name('m', -1), 0);
+	g_sprite_ids[4] = kernel_load_series(kernel_name('b', -1), 0);
+	g_sprite_ids[5] = kernel_load_series("*SC002Z1", 0);
+	g_sequence_ids[1] = kernel_seq_forward(g_sprite_ids[1], false, 6, 0, 1, 0);
+	g_sequence_ids[2] = kernel_seq_forward(g_sprite_ids[2], false, 15, 50, 0, 0);
+	g_sequence_ids[3] = kernel_seq_forward(g_sprite_ids[3], false, 4, 0, 0, 0);
+	g_sequence_ids[4] = kernel_seq_forward(g_sprite_ids[4], false, 6, 0, 0, 0);
+	kernel_seq_depth(g_sequence_ids[4], 8);
+	kernel_seq_loc(g_sequence_ids[4], 185, 46);
 
-	int idx = _scene->_dynamicHotspots.add(words_birds, words_look_at, _globals._sequenceIndexes[4], Common::Rect(0, 0, 0, 0));
-	_scene->_dynamicHotspots.setPosition(idx, Common::Point(186, 81), FACING_NORTH);
+	int idx = kernel_add_dynamic(words_birds, words_look_at, 0, g_sequence_ids[4], 0, 0, 0, 0);
+	kernel_dynamic_walk(idx, 186, 81, FACING_NORTH);
 
-	if ((_scene->_priorSceneId == 202) || (_scene->_priorSceneId == RETURNING_FROM_LOADING)) {
-		_game._player._playerPos = Common::Point(165, 152);
+	if ((previous_room == 202) || (previous_room == KERNEL_STARTING_GAME)) {
+		player.x = 165;
+		player.y = 152;
 	} else {
-		_game._player._playerPos = Common::Point(223, 149);
-		_game._player._facing = FACING_SOUTH;
+		player.x = 223;
+		player.y = 149;
+		player.facing = FACING_SOUTH;
 	}
 
-	if (_globals[kTeleporterCommand]) {
-		_game._player._visible = false;
-		_game._player._stepEnabled = false;
-		int sepChar = (_globals[kSexOfRex] == SEX_MALE) ? 't' : 'u';
+	if (global[kTeleporterCommand]) {
+		player.walker_visible = false;
+		player.commands_allowed = false;
+		int sepChar = (global[kSexOfRex] == SEX_MALE) ? 't' : 'u';
 		// Guess values. What is the default value used by the compiler?
 		int suffixNum = -1;
 		int endTrigger = -1;
-		switch (_globals[kTeleporterCommand]) {
+		switch (global[kTeleporterCommand]) {
 		case 1:
 			suffixNum = 3;
 			endTrigger = 76;
-			_globals[kTeleporterUnderstood] = true;
+			global[kTeleporterUnderstood] = true;
 			break;
 		case 2:
 			suffixNum = 1;
 			endTrigger = 77;
 			break;
 		case 3:
-			_game._player._visible = true;
-			_game._player._stepEnabled = true;
+			player.walker_visible = true;
+			player.commands_allowed = true;
 			suffixNum = -1;
 			break;
 		case 4:
@@ -90,152 +92,152 @@ static void room_201_init() {
 		default:
 			break;
 		}
-		_globals[kTeleporterCommand] = 0;
+		global[kTeleporterCommand] = 0;
 		if (suffixNum >= 0)
-			_scene->loadAnimation(formAnimName(sepChar, suffixNum), endTrigger);
+			kernel_run_animation(kernel_name(sepChar, suffixNum), endTrigger);
 	}
 
-	if ((_scene->_priorSceneId == 202) && (_globals[kMeteorologistStatus] == METEOROLOGIST_PRESENT) && !_scene->_roomChanged) {
-		_globals._spriteIndexes[6] = _scene->_sprites.addSprites(formAnimName('a', 0));
-		_globals._spriteIndexes[7] = _scene->_sprites.addSprites(formAnimName('a', 1));
-		_game.loadQuoteSet(90, 91, 0);
-		_game._player._stepEnabled = false;
-		_globals._sequenceIndexes[6] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[6], false, 7, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[6], -1, 12);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[6], SEQUENCE_TRIGGER_SPRITE, 12, 70);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[6], 1);
+	if ((previous_room == 202) && (global[kMeteorologistStatus] == METEOROLOGIST_PRESENT) && !kernel.teleported_in) {
+		g_sprite_ids[6] = kernel_load_series(kernel_name('a', 0), 0);
+		g_sprite_ids[7] = kernel_load_series(kernel_name('a', 1), 0);
+		kernel.quotes = quote_load(90, 91, 0);
+		player.commands_allowed = false;
+		g_sequence_ids[6] = kernel_seq_forward(g_sprite_ids[6], false, 7, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[6], -1, 12);
+		kernel_seq_trigger(g_sequence_ids[6], KERNEL_TRIGGER_SPRITE, 12, 70);
+		kernel_seq_depth(g_sequence_ids[6], 1);
 		local._pterodactylFlag = false;
-		_game._player.walk(Common::Point(157, 143), FACING_NORTH);
-		_vm->_palette->setEntry(252, 45, 63, 45);
-		_vm->_palette->setEntry(253, 20, 45, 20);
-		_scene->_kernelMessages.add(Common::Point(0, 0), 0x1110, 2, 0, 120, _game.getQuote(90));
+		player_walk(157, 143, FACING_NORTH);
+		pal_change_color(252, 45, 63, 45);
+		pal_change_color(253, 20, 45, 20);
+		kernel_message_add(quote_string(kernel.quotes, 90), 0, 0, 0x1110, 120, 0, 2);
 	} else
 		local._pterodactylFlag = true;
 
-	if (_globals[kTeleporterUnderstood])
-		_scene->_hotspots.activate(words_strange_device, false);
+	if (global[kTeleporterUnderstood])
+		kernel_flip_hotspot(words_strange_device, false);
 
 	section_2_music();
 }
 
 static void room_201_daemon() {
-	if (local._pterodactylFlag && (_vm->getRandomNumber(5000) == 9)) {
-		_globals._sequenceIndexes[5] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[5], false, 5, 1, 6, 0);
-		int idx = _scene->_dynamicHotspots.add(words_swooping_creature, words_walkto, _globals._sequenceIndexes[5], Common::Rect(0, 0, 0, 0));
-		_scene->_dynamicHotspots.setPosition(idx, Common::Point(270, 80), FACING_EAST);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[5], 8);
-		_vm->_sound->command(14);
+	if (local._pterodactylFlag && (g_engine->getRandomNumber(5000) == 9)) {
+		g_sequence_ids[5] = kernel_seq_forward(g_sprite_ids[5], false, 5, 0, 6, 1);
+		int idx = kernel_add_dynamic(words_swooping_creature, words_walkto, 0, g_sequence_ids[5], 0, 0, 0, 0);
+		kernel_dynamic_walk(idx, 270, 80, FACING_EAST);
+		kernel_seq_depth(g_sequence_ids[5], 8);
+		g_engine->_soundManager->command(14, 0);
 		local._pterodactylFlag = false;
 	}
 
-	if (_game._trigger == 70) {
-		_globals._sequenceIndexes[6] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[6], false, 9, 1, 0, 0);
-		_game._player._visible = false;
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[6], 12, 16);
-		_globals._sequenceIndexes[7] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[7], false, 9, 1, 0, 0);
-		_vm->_sound->command(42);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[6], 1);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[7], 1);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[7], SEQUENCE_TRIGGER_SPRITE, 3, 81);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[7], SEQUENCE_TRIGGER_EXPIRE, 0, 71);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[6], SEQUENCE_TRIGGER_EXPIRE, 0, 73);
+	if (kernel.trigger == 70) {
+		g_sequence_ids[6] = kernel_seq_forward(g_sprite_ids[6], false, 9, 0, 0, 1);
+		player.walker_visible = false;
+		kernel_seq_range(g_sequence_ids[6], 12, 16);
+		g_sequence_ids[7] = kernel_seq_forward(g_sprite_ids[7], false, 9, 0, 0, 1);
+		g_engine->_soundManager->command(42, 0);
+		kernel_seq_depth(g_sequence_ids[6], 1);
+		kernel_seq_depth(g_sequence_ids[7], 1);
+		kernel_seq_trigger(g_sequence_ids[7], KERNEL_TRIGGER_SPRITE, 3, 81);
+		kernel_seq_trigger(g_sequence_ids[7], KERNEL_TRIGGER_EXPIRE, 0, 71);
+		kernel_seq_trigger(g_sequence_ids[6], KERNEL_TRIGGER_EXPIRE, 0, 73);
 	}
 
-	if (_game._trigger == 81) {
-		_scene->_kernelMessages.reset();
+	if (kernel.trigger == 81) {
+		kernel_message_purge();
 	}
 
-	if (_game._trigger == 71) {
-		_globals._sequenceIndexes[7] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[7], false, 9, 0, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[7], -2, -2);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[7], 1);
+	if (kernel.trigger == 71) {
+		g_sequence_ids[7] = kernel_seq_forward(g_sprite_ids[7], false, 9, 0, 0, 0);
+		kernel_seq_range(g_sequence_ids[7], -2, -2);
+		kernel_seq_depth(g_sequence_ids[7], 1);
 	}
 
-	if (_game._trigger == 73) {
-		_globals._sequenceIndexes[6] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[6], false, 9, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[6], 17, -2);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[6], SEQUENCE_TRIGGER_EXPIRE, 0, 74);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[6], 1);
+	if (kernel.trigger == 73) {
+		g_sequence_ids[6] = kernel_seq_forward(g_sprite_ids[6], false, 9, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[6], 17, -2);
+		kernel_seq_trigger(g_sequence_ids[6], KERNEL_TRIGGER_EXPIRE, 0, 74);
+		kernel_seq_depth(g_sequence_ids[6], 1);
 	}
 
-	if (_game._trigger == 74) {
-		_vm->_sound->command(40);
+	if (kernel.trigger == 74) {
+		g_engine->_soundManager->command(40, 0);
 
-		_scene->_kernelMessages.add(Common::Point(125, 56), 0xFDFC, 32, 82, 180, _game.getQuote(91));
-		_globals._sequenceIndexes[6] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[6], false, 9, 0, 0, 0);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[6], 1);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[6], -2, -2);
-		_scene->_sequences.addTimer(180, 75);
+		kernel_message_add(quote_string(kernel.quotes, 91), 125, 56, 0xFDFC, 180, 82, 32);
+		g_sequence_ids[6] = kernel_seq_forward(g_sprite_ids[6], false, 9, 0, 0, 0);
+		kernel_seq_depth(g_sequence_ids[6], 1);
+		kernel_seq_range(g_sequence_ids[6], -2, -2);
+		kernel_timing_trigger(180, 75);
 	}
 
-	if (_game._trigger == 75) {
-		_globals[kMeteorologistEverSeen] = 0;
-		_scene->_nextSceneId = 202;
+	if (kernel.trigger == 75) {
+		global[kMeteorologistEverSeen] = 0;
+		new_room = 202;
 	}
 
-	if (_game._trigger == 76) {
-		_game._player._stepEnabled = true;
-		_game._player._visible = true;
-		_game._player._priorTimer = _scene->_frameStartTime - _game._player._ticksAmount;
+	if (kernel.trigger == 76) {
+		player.commands_allowed = true;
+		player.walker_visible = true;
+		player.clock = kernel.clock - player.frame_delay;
 	}
 
-	if (_game._trigger == 77) {
-		_globals[kTeleporterCommand] = 1;
-		_scene->_nextSceneId = _globals[kTeleporterDestination];
-		_scene->_reloadSceneFlag = true;
+	if (kernel.trigger == 77) {
+		global[kTeleporterCommand] = 1;
+		new_room = global[kTeleporterDestination];
+		kernel.force_restart = true;
 	}
 
-	if (_game._trigger == 78) {
-		_vm->_sound->command(40);
-		_vm->_dialogs->show(20114);
-		_scene->_reloadSceneFlag = true;
+	if (kernel.trigger == 78) {
+		g_engine->_soundManager->command(40, 0);
+		text_show(20114);
+		kernel.force_restart = true;
 	}
 }
 
 static void room_201_parser() {
-	if (_action._lookFlag == false) {
+	if (player.look_around == false) {
 		if (player_said_2(walk_towards, field_to_south))
-			_scene->_nextSceneId = 202;
+			new_room = 202;
 		else if (player_said_2(climb_up, steps) || (player_said_2(walk_inside, teleporter)) || (player_said_2(walk_inside, strange_device))) {
-			if (_game._trigger == 0) {
-				_game._player._stepEnabled = false;
-				_game._player._visible = false;
-				int sepChar = (_globals[kSexOfRex] == SEX_MALE) ? 't' : 'u';
-				_scene->loadAnimation(formAnimName(sepChar, 0), 1);
-			} else if (_game._trigger == 1) {
-				_scene->_nextSceneId = 213;
+			if (kernel.trigger == 0) {
+				player.commands_allowed = false;
+				player.walker_visible = false;
+				int sepChar = (global[kSexOfRex] == SEX_MALE) ? 't' : 'u';
+				kernel_run_animation(kernel_name(sepChar, 0), 1);
+			} else if (kernel.trigger == 1) {
+				new_room = 213;
 			}
 		} else if (player_said_2(look, grassy_field)) {
-			_vm->_dialogs->show(20101);
+			text_show(20101);
 		} else if (player_said_2(look, rocks)) {
-			_vm->_dialogs->show(20102);
+			text_show(20102);
 		} else if (player_said_2(look, thorny_bush)) {
-			_vm->_dialogs->show(20103);
+			text_show(20103);
 		} else if (player_said_2(look, sky)) {
-			_vm->_dialogs->show(20104);
+			text_show(20104);
 		} else if (player_said_2(look, water)) {
-			_vm->_dialogs->show(20105);
+			text_show(20105);
 		} else if (player_said_2(look, island_in_distance)) {
-			_vm->_dialogs->show(20106);
+			text_show(20106);
 		} else if (player_said_2(look, weather_station)) {
-			_vm->_dialogs->show(20107);
+			text_show(20107);
 		} else if (player_said_2(look, path)) {
-			_vm->_dialogs->show(20108);
+			text_show(20108);
 		} else if (player_said_2(look, field_to_south)) {
-			_vm->_dialogs->show(20110);
+			text_show(20110);
 		} else if (player_said_2(look, strange_device)) {
-			if (_globals[kMeteorologistEverSeen])
-				_vm->_dialogs->show(20112);
+			if (global[kMeteorologistEverSeen])
+				text_show(20112);
 			else
-				_vm->_dialogs->show(20109);
+				text_show(20109);
 		} else if (player_said_2(look, teleporter)) {
-			_vm->_dialogs->show(20113);
+			text_show(20113);
 		} else
 			return;
 	} else {
-		_vm->_dialogs->show(20111);
+		text_show(20111);
 	}
-	_action._inProgress = false;
+	player.command_ready = false;
 }
 
 void room_201_synchronize(Common::Serializer &s) {
@@ -250,9 +252,9 @@ void room_201_preload() {
 	section_2_walker();
 	section_2_interface();
 
-	_scene->addActiveVocab(words_swooping_creature);
-	_scene->addActiveVocab(words_birds);
-	_scene->addActiveVocab(words_walkto);
+	vocab_make_active(words_swooping_creature);
+	vocab_make_active(words_birds);
+	vocab_make_active(words_walkto);
 }
 
 } // namespace Rooms

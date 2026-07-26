@@ -19,44 +19,44 @@
  *
  */
 
+#include "mads/core/config.h"
 #include "mads/core/game.h"
 #include "mads/nebular/global.h"
 #include "mads/nebular/nebular.h"
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section3.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
 namespace Rooms {
 
 static void room_399_init() {
-	_scene->_userInterface.setup(kInputLimitedSentences);
-	_game._player._visible = false;
+	kernel_set_interface_mode(INTER_LIMITED_SENTENCES);
+	player.walker_visible = false;
 	section_3_music();
 }
 
 static void room_399_parser() {
 	if (player_said_2(return_to, air_shaft))
-		_scene->_nextSceneId = 313;
+		new_room = 313;
 	else if (player_said_2(look_through, grate)) {
-		if (_globals[kAfterHavoc]) {
-			if ((_game._difficulty != DIFFICULTY_HARD) && (_game._objects[OBJ_SECURITY_CARD]._roomNumber == 359))
-				_vm->_dialogs->show(38911);
+		if (global[kAfterHavoc]) {
+			if ((game.difficulty != DIFFICULTY_HARD) && (object[OBJ_SECURITY_CARD].location == 359))
+				text_show(38911);
 			else
-				_vm->_dialogs->show(38912);
+				text_show(38912);
 		} else
-			_vm->_dialogs->show(38910);
+			text_show(38910);
 	} else if (player_said_2(open, grate)) {
-		if (_globals[kAfterHavoc])
-			_vm->_dialogs->show(38914);
+		if (global[kAfterHavoc])
+			text_show(38914);
 		else
-			_vm->_dialogs->show(38913);
+			text_show(38913);
 	} else
 		return;
 
-	_action._inProgress = false;
+	player.command_ready = false;
 }
 
 void room_399_synchronize(Common::Serializer &s) {

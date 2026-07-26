@@ -21,9 +21,10 @@
 
 #include "math/utils.h"
 #include "mads/core/config.h"
+#include "mads/core/pal.h"
 #include "mads/nebular/nebular.h"
 #include "mads/nebular/rooms/section1.h"
-#include "mads/nebular/rooms/thunks.h"
+#include "mads/nebular/global.h"
 
 namespace MADS {
 namespace RexNebular {
@@ -43,36 +44,36 @@ extern void room_111_preload();
 extern void room_112_preload();
 
 void section_1_walker() {
-	_vm->_sound->command(5);
-	Common::String oldName = _game._player._spritesPrefix;
-	if (_scene->_nextSceneId <= 103 || _scene->_nextSceneId == 111) {
-		if (_globals[kSexOfRex] == SEX_FEMALE)
+	g_engine->_soundManager->command(5, 0);
+	Common::String oldName = (&player.series_name[0]);
+	if (new_room <= 103 || new_room == 111) {
+		if (global[kSexOfRex] == SEX_FEMALE)
 			Common::strcpy_s(player.series_name, "ROX");
 		else {
 			Common::strcpy_s(player.series_name, "RXM");
-			_globals[kSexOfRex] = SEX_MALE;
+			global[kSexOfRex] = SEX_MALE;
 		}
-	} else if (_scene->_nextSceneId <= 110) {
+	} else if (new_room <= 110) {
 		Common::strcpy_s(player.series_name, "RXSW");
-		_globals[kSexOfRex] = SEX_UNKNOWN;
-	} else if (_scene->_nextSceneId == 112)
+		global[kSexOfRex] = SEX_UNKNOWN;
+	} else if (new_room == 112)
 		Common::strcpy_s(player.series_name, "");
 
-	if (oldName != _game._player._spritesPrefix)
-		_game._player._spritesChanged = true;
+	if (oldName != (&player.series_name[0]))
+		player.walker_must_reload = true;
 
-	if (_scene->_nextSceneId == 105 || (_scene->_nextSceneId == 109 && _globals[kHoovicAlive])) {
-		_game._player._spritesChanged = true;
-		_game._player._loadsFirst = false;
+	if (new_room == 105 || (new_room == 109 && global[kHoovicAlive])) {
+		player.walker_must_reload = true;
+		player.walker_loads_first = false;
 	}
 
 	player.scaling_velocity = 0;
-	_vm->_palette->setEntry(16, 10, 63, 63);
-	_vm->_palette->setEntry(17, 10, 45, 45);
+	pal_change_color(16, 10, 63, 63);
+	pal_change_color(17, 10, 45, 45);
 }
 
 void section_1_interface() {
-	int idx = (_scene->_nextSceneId > 103 && _scene->_nextSceneId < 112) ? 1 : 0;
+	int idx = (new_room > 103 && new_room < 112) ? 1 : 0;
 	Common::strcpy_s(kernel.interface, kernel_interface_name(idx));
 }
 
@@ -133,32 +134,32 @@ void section_1_constructor() {
 
 void section_1_music() {
 	if (config_file.music_flag) {
-		switch (_scene->_nextSceneId) {
+		switch (new_room) {
 		case 101:
-			_vm->_sound->command(11);
+			g_engine->_soundManager->command(11, 0);
 			break;
 		case 102:
-			_vm->_sound->command(12);
+			g_engine->_soundManager->command(12, 0);
 			break;
 		case 103:
-			_vm->_sound->command(3);
-			_vm->_sound->command(25);
+			g_engine->_soundManager->command(3, 0);
+			g_engine->_soundManager->command(25, 0);
 			break;
 		case 109:
-			_vm->_sound->command(13);
+			g_engine->_soundManager->command(13, 0);
 			break;
 		case 110:
-			_vm->_sound->command(10);
+			g_engine->_soundManager->command(10, 0);
 			break;
 		case 111:
-			_vm->_sound->command(3);
+			g_engine->_soundManager->command(3, 0);
 			break;
 		case 112:
-			_vm->_sound->command(15);
+			g_engine->_soundManager->command(15, 0);
 			break;
 		default:
-			if (_scene->_priorSceneId < 104 || _scene->_priorSceneId > 108)
-				_vm->_sound->command(10);
+			if (previous_room < 104 || previous_room > 108)
+				g_engine->_soundManager->command(10, 0);
 			break;
 		}
 	}

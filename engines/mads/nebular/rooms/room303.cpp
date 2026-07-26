@@ -25,30 +25,29 @@
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section3.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
 namespace Rooms {
 
 static void room_303_init() {
-	_globals._spriteIndexes[1] = _scene->_sprites.addSprites(formAnimName('b', 0));
-	_globals._spriteIndexes[2] = _scene->_sprites.addSprites(formAnimName('b', 1));
+	g_sprite_ids[1] = kernel_load_series(kernel_name('b', 0), 0);
+	g_sprite_ids[2] = kernel_load_series(kernel_name('b', 1), 0);
 
-	_globals._sequenceIndexes[1] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[1], false, 10, 0, 50, 120);
-	_scene->_sequences.setDepth(_globals._sequenceIndexes[1], 1);
-	_globals._sequenceIndexes[2] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[2], false, 10, 0, 0, 0);
+	g_sequence_ids[1] = kernel_seq_forward(g_sprite_ids[1], false, 10, 120, 50, 0);
+	kernel_seq_depth(g_sequence_ids[1], 1);
+	g_sequence_ids[2] = kernel_seq_forward(g_sprite_ids[2], false, 10, 0, 0, 0);
 
-	_game._player._visible = false;
-	_game._player._stepEnabled = false;
-	_scene->loadAnimation(formAnimName('a', -1), 60);
+	player.walker_visible = false;
+	player.commands_allowed = false;
+	kernel_run_animation(kernel_name('a', -1), 60);
 
 	section_3_music();
 }
 
 static void room_303_daemon() {
-	if (_game._trigger == 60)
-		_scene->_nextSceneId = 304;
+	if (kernel.trigger == 60)
+		new_room = 304;
 }
 
 void room_303_synchronize(Common::Serializer &s) {

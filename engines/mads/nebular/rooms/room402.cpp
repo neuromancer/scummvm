@@ -20,13 +20,13 @@
  */
 
 #include "mads/core/game.h"
+#include "mads/core/pal.h"
 #include "mads/nebular/global.h"
 #include "mads/nebular/nebular.h"
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section4.h"
 #include "mads/nebular/rooms/dialog.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
@@ -82,11 +82,11 @@ static void setDialogNode(int node) {
 	if (node > 0)
 		local._bartenderDialogNode = node;
 
-	_game._player._stepEnabled = true;
+	player.commands_allowed = true;
 
 	switch (node) {
 	case 0:
-		_scene->_userInterface.setup(kInputBuildingSentences);
+		kernel_set_interface_mode(INTER_BUILDING_SENTENCES);
 		local._conversationFl = false;
 		local._bartenderDialogNode = 0;
 		break;
@@ -117,12 +117,12 @@ static void setDialogNode(int node) {
 }
 
 static void handleConversation1() {
-	switch (_action._activeAction._verbId) {
+	switch (player2.words[0]) {
 	case 0x214:
 	{
 		int quoteId = 0;
 		int quotePosX = 0;
-		switch (_vm->getRandomNumber(1, 3)) {
+		switch (g_engine->getRandomNumber(1, 3)) {
 		case 1:
 			quoteId = 0x1E4;
 			local._bartenderCurrentQuestion = 4;
@@ -144,31 +144,31 @@ static void handleConversation1() {
 		default:
 			break;
 		}
-		_scene->_kernelMessages.reset();
-		_scene->_kernelMessages.add(Common::Point(quotePosX, 41), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, _game.getQuote(quoteId));
-		_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-		_scene->_sequences.addTimer(1, 100);
+		kernel_message_purge();
+		kernel_message_add(quote_string(kernel.quotes, quoteId), quotePosX, 41, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
+		kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+		kernel_timing_trigger(1, 100);
 		local._talkTimer = 120;
 		setDialogNode(2);
 	}
 	break;
 
 	case 0x215:
-		_scene->_kernelMessages.reset();
-		_scene->_kernelMessages.add(Common::Point(260, 41), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, _game.getQuote(0x1EC));
-		_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-		_scene->_sequences.addTimer(1, 100);
+		kernel_message_purge();
+		kernel_message_add(quote_string(kernel.quotes, 0x1EC), 260, 41, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
+		kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+		kernel_timing_trigger(1, 100);
 		local._talkTimer = 120;
 		local._bartenderCurrentQuestion = 1;
 		setDialogNode(3);
 		break;
 
 	case 0x237:
-		_scene->_kernelMessages.reset();
-		_scene->_kernelMessages.add(Common::Point(208, 41), 0xFDFC, 0, 0, 100, _game.getQuote(0x1FD));
+		kernel_message_purge();
+		kernel_message_add(quote_string(kernel.quotes, 0x1FD), 208, 41, 0xFDFC, 100, 0, 0);
 		setDialogNode(0);
-		_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-		_scene->_sequences.addTimer(1, 100);
+		kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+		kernel_timing_trigger(1, 100);
 		local._talkTimer = 1120;
 		break;
 
@@ -178,7 +178,7 @@ static void handleConversation1() {
 }
 
 static void handleConversation2() {
-	switch (_action._activeAction._verbId) {
+	switch (player2.words[0]) {
 	case 0x216:
 		local._dialog2.write(0x216, false);
 		local._dialog2.write(0x21D, true);
@@ -244,34 +244,34 @@ static void handleConversation2() {
 
 	}
 
-	if (_action._activeAction._verbId != 0x21C) {
-		switch (_vm->getRandomNumber(1, 3)) {
+	if (player2.words[0] != 0x21C) {
+		switch (g_engine->getRandomNumber(1, 3)) {
 		case 1:
-			_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-			_scene->_sequences.addTimer(1, 100);
+			kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+			kernel_timing_trigger(1, 100);
 			local._talkTimer = 180;
-			_scene->_kernelMessages.reset();
-			_scene->_kernelMessages.add(Common::Point(198, 27), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, _game.getQuote(0x1E7));
-			_scene->_kernelMessages.add(Common::Point(201, 41), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, _game.getQuote(0x1E8));
+			kernel_message_purge();
+			kernel_message_add(quote_string(kernel.quotes, 0x1E7), 198, 27, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
+			kernel_message_add(quote_string(kernel.quotes, 0x1E8), 201, 41, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 			local._bartenderCurrentQuestion = 7;
 			break;
 
 		case 2:
-			_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-			_scene->_sequences.addTimer(1, 100);
+			kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+			kernel_timing_trigger(1, 100);
 			local._talkTimer = 180;
-			_scene->_kernelMessages.reset();
-			_scene->_kernelMessages.add(Common::Point(220, 27), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, _game.getQuote(0x1E9));
-			_scene->_kernelMessages.add(Common::Point(190, 41), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, _game.getQuote(0x1EA));
+			kernel_message_purge();
+			kernel_message_add(quote_string(kernel.quotes, 0x1E9), 220, 27, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
+			kernel_message_add(quote_string(kernel.quotes, 0x1EA), 190, 41, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 			local._bartenderCurrentQuestion = 8;
 			break;
 
 		case 3:
-			_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-			_scene->_sequences.addTimer(1, 100);
+			kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+			kernel_timing_trigger(1, 100);
 			local._talkTimer = 150;
-			_scene->_kernelMessages.reset();
-			_scene->_kernelMessages.add(Common::Point(196, 41), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, _game.getQuote(0x1EB));
+			kernel_message_purge();
+			kernel_message_add(quote_string(kernel.quotes, 0x1EB), 196, 41, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 			local._bartenderCurrentQuestion = 9;
 			break;
 
@@ -280,34 +280,34 @@ static void handleConversation2() {
 		}
 		local._dialog2.start();
 	} else {
-		_scene->_kernelMessages.reset();
-		_scene->_kernelMessages.add(Common::Point(208, 41), 0xFDFC, 0, 0, 100, _game.getQuote(0x1FD));
-		_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-		_scene->_sequences.addTimer(1, 100);
+		kernel_message_purge();
+		kernel_message_add(quote_string(kernel.quotes, 0x1FD), 208, 41, 0xFDFC, 100, 0, 0);
+		kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+		kernel_timing_trigger(1, 100);
 		local._talkTimer = 1120;
 	}
 }
 
 static void handleConversation3() {
-	switch (_action._activeAction._verbId) {
+	switch (player2.words[0]) {
 	case 0x233:
 	case 0x234:
 	case 0x235:
 	case 0x236:
-		_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-		_scene->_sequences.addTimer(1, 86);
-		_scene->_kernelMessages.reset();
-		_scene->_kernelMessages.add(Common::Point(188, 27), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, _game.getQuote(0x1ED));
-		_scene->_kernelMessages.add(Common::Point(199, 41), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, _game.getQuote(0x1EE));
+		kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+		kernel_timing_trigger(1, 86);
+		kernel_message_purge();
+		kernel_message_add(quote_string(kernel.quotes, 0x1ED), 188, 27, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
+		kernel_message_add(quote_string(kernel.quotes, 0x1EE), 199, 41, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 		setDialogNode(4);
 		local._bartenderCurrentQuestion = 2;
 		break;
 
 	case 0x237:
-		_scene->_kernelMessages.reset();
-		_scene->_kernelMessages.add(Common::Point(208, 41), 0xFDFC, 0, 0, 100, _game.getQuote(0x1FD));
-		_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-		_scene->_sequences.addTimer(1, 100);
+		kernel_message_purge();
+		kernel_message_add(quote_string(kernel.quotes, 0x1FD), 208, 41, 0xFDFC, 100, 0, 0);
+		kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+		kernel_timing_trigger(1, 100);
 		local._talkTimer = 1120;
 		setDialogNode(0);
 		break;
@@ -318,76 +318,76 @@ static void handleConversation3() {
 }
 
 static void handleConversation4() {
-	switch (_action._activeAction._verbId) {
+	switch (player2.words[0]) {
 	case 0x238:
-		_scene->_kernelMessages.reset();
+		kernel_message_purge();
 		setDialogNode(0);
-		_game._player._stepEnabled = false;
-		_scene->_kernelMessages.add(Common::Point(196, 13), 0xFDFC, 0, 0, 180, _game.getQuote(0x1F0));
-		_scene->_kernelMessages.add(Common::Point(184, 27), 0xFDFC, 0, 0, 180, _game.getQuote(0x1F1));
-		_scene->_kernelMessages.add(Common::Point(200, 41), 0xFDFC, 0, 0, 180, _game.getQuote(0x1F2));
-		_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-		_scene->_sequences.addTimer(1, 100);
+		player.commands_allowed = false;
+		kernel_message_add(quote_string(kernel.quotes, 0x1F0), 196, 13, 0xFDFC, 180, 0, 0);
+		kernel_message_add(quote_string(kernel.quotes, 0x1F1), 184, 27, 0xFDFC, 180, 0, 0);
+		kernel_message_add(quote_string(kernel.quotes, 0x1F2), 200, 41, 0xFDFC, 180, 0, 0);
+		kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+		kernel_timing_trigger(1, 100);
 		local._talkTimer = 1100;
 		local._dialog4.write(0x238, false);
 		local._bartenderMode = 22;
-		_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-		_scene->_sequences.addTimer(100, 95);
+		kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+		kernel_timing_trigger(100, 95);
 		local._refuseAlienLiquor = true;
 		break;
 
 	case 0x239:
-		_game._player._stepEnabled = false;
+		player.commands_allowed = false;
 		local._roxMode = 21;
-		_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-		_scene->_sequences.addTimer(1, 92);
-		_scene->_userInterface.setup(kInputBuildingSentences);
+		kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+		kernel_timing_trigger(1, 92);
+		kernel_set_interface_mode(INTER_BUILDING_SENTENCES);
 		local._conversationFl = false;
 		break;
 
 	case 0x23A:
 		setDialogNode(0);
-		_game._player._stepEnabled = false;
-		_scene->_kernelMessages.add(Common::Point(193, 27), 0xFDFC, 0, 0, 150, _game.getQuote(0x1F4));
-		_scene->_kernelMessages.add(Common::Point(230, 41), 0xFDFC, 0, 0, 150, _game.getQuote(0x1F5));
+		player.commands_allowed = false;
+		kernel_message_add(quote_string(kernel.quotes, 0x1F4), 193, 27, 0xFDFC, 150, 0, 0);
+		kernel_message_add(quote_string(kernel.quotes, 0x1F5), 230, 41, 0xFDFC, 150, 0, 0);
 		local._dialog4.write(0x23A, false);
-		_globals[kHasSaidTimer] = true;
-		_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-		_scene->_sequences.addTimer(1, 100);
+		global[kHasSaidTimer] = true;
+		kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+		kernel_timing_trigger(1, 100);
 		local._talkTimer = 1100;
 		local._bartenderMode = 22;
-		_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-		_scene->_sequences.addTimer(100, 95);
+		kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+		kernel_timing_trigger(100, 95);
 		local._refuseAlienLiquor = true;
 		break;
 
 	case 0x23D:
 		setDialogNode(0);
-		_game._player._stepEnabled = false;
-		_scene->_kernelMessages.add(Common::Point(153, 27), 0xFDFC, 0, 0, 150, _game.getQuote(0x1F6));
-		_scene->_kernelMessages.add(Common::Point(230, 41), 0xFDFC, 0, 0, 150, _game.getQuote(0x1F7));
+		player.commands_allowed = false;
+		kernel_message_add(quote_string(kernel.quotes, 0x1F6), 153, 27, 0xFDFC, 150, 0, 0);
+		kernel_message_add(quote_string(kernel.quotes, 0x1F7), 230, 41, 0xFDFC, 150, 0, 0);
 		local._dialog4.write(0x23D, false);
-		_globals[kHasSaidBinocs] = true;
-		_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-		_scene->_sequences.addTimer(1, 100);
+		global[kHasSaidBinocs] = true;
+		kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+		kernel_timing_trigger(1, 100);
 		local._talkTimer = 1100;
 		local._bartenderMode = 22;
-		_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-		_scene->_sequences.addTimer(100, 95);
+		kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+		kernel_timing_trigger(100, 95);
 		local._refuseAlienLiquor = true;
 		break;
 
 	case 0x23E:
-		_scene->_kernelMessages.reset();
+		kernel_message_purge();
 		setDialogNode(0);
-		_game._player._stepEnabled = false;
-		_scene->_kernelMessages.add(Common::Point(205, 41), 0xFDFC, 0, 0, 100, _game.getQuote(0x1F8));
+		player.commands_allowed = false;
+		kernel_message_add(quote_string(kernel.quotes, 0x1F8), 205, 41, 0xFDFC, 100, 0, 0);
 		local._bartenderMode = 22;
-		_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-		_scene->_sequences.addTimer(1, 100);
+		kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+		kernel_timing_trigger(1, 100);
 		local._talkTimer = 1050;
-		_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-		_scene->_sequences.addTimer(50, 95);
+		kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+		kernel_timing_trigger(50, 95);
 		local._refuseAlienLiquor = true;
 		break;
 
@@ -397,22 +397,22 @@ static void handleConversation4() {
 }
 
 static void handleDialogs() {
-	if (_game._trigger == 0) {
-		_scene->_kernelMessages.reset();
-		_game._player._stepEnabled = false;
-		const char *curQuote = _game.getQuote(_action._activeAction._verbId);
-		if (_vm->_font->getWidth(curQuote, _scene->_textSpacing) > 200) {
+	if (kernel.trigger == 0) {
+		kernel_message_purge();
+		player.commands_allowed = false;
+		char *curQuote = quote_string(kernel.quotes, player2.words[0]);
+		if (font_string_width(kernel_message_font, curQuote, kernel_message_spacing) > 200) {
 			static char subQuote1[34], subQuote2[34];
-			_game.splitQuote(curQuote, subQuote1, subQuote2);
-			_scene->_kernelMessages.add(Common::Point(230, 42), 0x1110, 32, 0, 140, subQuote1);
-			_scene->_kernelMessages.add(Common::Point(230, 56), 0x1110, 32, 0, 140, subQuote2);
-			_scene->_sequences.addTimer(160, 120);
+			quote_split_string(curQuote, subQuote1, subQuote2);
+			kernel_message_add(subQuote1, 230, 42, 0x1110, 140, 0, 32);
+			kernel_message_add(subQuote2, 230, 56, 0x1110, 140, 0, 32);
+			kernel_timing_trigger(160, 120);
 		} else {
-			_scene->_kernelMessages.add(Common::Point(230, 56), 0x1110, 32, 1, 140, curQuote);
-			_scene->_sequences.addTimer(160, 120);
+			kernel_message_add(curQuote, 230, 56, 0x1110, 140, 1, 32);
+			kernel_timing_trigger(160, 120);
 		}
-	} else if (_game._trigger == 120) {
-		_game._player._stepEnabled = true;
+	} else if (kernel.trigger == 120) {
+		player.commands_allowed = true;
 		switch (local._bartenderDialogNode) {
 		case 1:
 			handleConversation1();
@@ -437,81 +437,83 @@ static void handleDialogs() {
 }
 
 static void room_402_init() {
-	_globals._spriteIndexes[0] = _scene->_sprites.addSprites(formAnimName('n', -1));
-	_globals._spriteIndexes[1] = _scene->_sprites.addSprites(formAnimName('x', 2));
-	_globals._spriteIndexes[3] = _scene->_sprites.addSprites(formAnimName('x', 0));
-	_globals._spriteIndexes[2] = _scene->_sprites.addSprites(formAnimName('x', 1));
-	_globals._spriteIndexes[4] = _scene->_sprites.addSprites(formAnimName('g', 0));
-	_globals._spriteIndexes[5] = _scene->_sprites.addSprites(formAnimName('g', 1));
-	_globals._spriteIndexes[6] = _scene->_sprites.addSprites(formAnimName('a', 0));
-	_globals._spriteIndexes[7] = _scene->_sprites.addSprites(formAnimName('a', 1));
-	_globals._spriteIndexes[15] = _scene->_sprites.addSprites(formAnimName('x', 5));
-	_globals._spriteIndexes[8] = _scene->_sprites.addSprites(formAnimName('x', 4));
-	_globals._spriteIndexes[9] = _scene->_sprites.addSprites(formAnimName('b', 0));
-	_globals._spriteIndexes[10] = _scene->_sprites.addSprites(formAnimName('b', 1));
-	_globals._spriteIndexes[11] = _scene->_sprites.addSprites(formAnimName('b', 2));
-	_globals._spriteIndexes[12] = _scene->_sprites.addSprites(formAnimName('b', 3));
-	_globals._spriteIndexes[13] = _scene->_sprites.addSprites(formAnimName('c', 0));
-	_globals._spriteIndexes[14] = _scene->_sprites.addSprites(formAnimName('l', 0));
-	_globals._spriteIndexes[16] = _scene->_sprites.addSprites(formAnimName('h', 0));
-	_globals._spriteIndexes[17] = _scene->_sprites.addSprites(formAnimName('z', 0));
-	_globals._spriteIndexes[18] = _scene->_sprites.addSprites(formAnimName('z', 1));
-	_globals._spriteIndexes[19] = _scene->_sprites.addSprites(formAnimName('z', 2));
-	_globals._spriteIndexes[20] = _scene->_sprites.addSprites(formAnimName('x', 6));
-	_globals._spriteIndexes[21] = _scene->_sprites.addSprites("*ROXRC_9");
-	_globals._spriteIndexes[22] = _scene->_sprites.addSprites("*ROXCL_8");
+	g_sprite_ids[0] = kernel_load_series(kernel_name('n', -1), 0);
+	g_sprite_ids[1] = kernel_load_series(kernel_name('x', 2), 0);
+	g_sprite_ids[3] = kernel_load_series(kernel_name('x', 0), 0);
+	g_sprite_ids[2] = kernel_load_series(kernel_name('x', 1), 0);
+	g_sprite_ids[4] = kernel_load_series(kernel_name('g', 0), 0);
+	g_sprite_ids[5] = kernel_load_series(kernel_name('g', 1), 0);
+	g_sprite_ids[6] = kernel_load_series(kernel_name('a', 0), 0);
+	g_sprite_ids[7] = kernel_load_series(kernel_name('a', 1), 0);
+	g_sprite_ids[15] = kernel_load_series(kernel_name('x', 5), 0);
+	g_sprite_ids[8] = kernel_load_series(kernel_name('x', 4), 0);
+	g_sprite_ids[9] = kernel_load_series(kernel_name('b', 0), 0);
+	g_sprite_ids[10] = kernel_load_series(kernel_name('b', 1), 0);
+	g_sprite_ids[11] = kernel_load_series(kernel_name('b', 2), 0);
+	g_sprite_ids[12] = kernel_load_series(kernel_name('b', 3), 0);
+	g_sprite_ids[13] = kernel_load_series(kernel_name('c', 0), 0);
+	g_sprite_ids[14] = kernel_load_series(kernel_name('l', 0), 0);
+	g_sprite_ids[16] = kernel_load_series(kernel_name('h', 0), 0);
+	g_sprite_ids[17] = kernel_load_series(kernel_name('z', 0), 0);
+	g_sprite_ids[18] = kernel_load_series(kernel_name('z', 1), 0);
+	g_sprite_ids[19] = kernel_load_series(kernel_name('z', 2), 0);
+	g_sprite_ids[20] = kernel_load_series(kernel_name('x', 6), 0);
+	g_sprite_ids[21] = kernel_load_series("*ROXRC_9", 0);
+	g_sprite_ids[22] = kernel_load_series("*ROXCL_8", 0);
 
-	if (_scene->_priorSceneId == 401) {
-		_game._player._playerPos = Common::Point(160, 150);
-		_game._player._facing = FACING_NORTH;
+	if (previous_room == 401) {
+		player.x = 160;
+		player.y = 150;
+		player.facing = FACING_NORTH;
 		local._roxOnStool = false;
 		local._bartenderDialogNode = 1;
 		local._conversationFl = false;
-	} else if (_scene->_priorSceneId != RETURNING_FROM_DIALOG) {
-		_game._player._playerPos = Common::Point(160, 150);
-		_game._player._facing = FACING_NORTH;
-		_game._objects.addToInventory(OBJ_CREDIT_CHIP);
-		_game._objects.addToInventory(OBJ_BINOCULARS);
-		_game._objects.addToInventory(OBJ_TIMER_MODULE);
+	} else if (previous_room != KERNEL_RESTORING_GAME) {
+		player.x = 160;
+		player.y = 150;
+		player.facing = FACING_NORTH;
+		inter_give_to_player(OBJ_CREDIT_CHIP);
+		inter_give_to_player(OBJ_BINOCULARS);
+		inter_give_to_player(OBJ_TIMER_MODULE);
 		local._roxOnStool = false;
 		local._bartenderDialogNode = 1;
 		local._conversationFl = false;
 	}
 
-	_game.loadQuoteSet(0x1D7, 0x1D8, 0x1D9, 0x1DA, 0x1DB, 0x1DC, 0x1DD, 0x1DE, 0x1DF, 0x1E2, 0x1E3, 0x1E6, 0x1E5, 0x1E7,
+	kernel.quotes = quote_load(0x1D7, 0x1D8, 0x1D9, 0x1DA, 0x1DB, 0x1DC, 0x1DD, 0x1DE, 0x1DF, 0x1E2, 0x1E3, 0x1E6, 0x1E5, 0x1E7,
 		0x1E8, 0x1E9, 0x1EA, 0x1EF, 0x1F0, 0x1F1, 0x1F2, 0x1F3, 0x1F4, 0x1F5, 0x1F6, 0x1F7, 0x1F8, 0x1F9, 0x1FA, 0x1FB,
 		0x1FC, 0x1EB, 0x1EC, 0x1ED, 0x1EE, 0x1E4, 0x1FD, 0x1E0, 0x1E1, 0x1FE, 0x1FF, 0x200, 0x201, 0x202, 0x203, 0x204,
 		0x205, 0x206, 0x207, 0x208, 0x209, 0x20A, 0x20B, 0x20C, 0x20F, 0x20D, 0x20E, 0x210, 0x211, 0x212, 0x213, 0x214,
 		0x215, 0x237, 0x216, 0x219, 0x21A, 0x21B, 0x21C, 0x21D, 0x220, 0x223, 0x224, 0x227, 0x22A, 0x22D, 0x230, 0x233,
 		0x234, 0x235, 0x236, 0x238, 0x239, 0x23A, 0x23D, 0x23E, 0x23F, 0);
 
-	_vm->_palette->setEntry(250, 47, 41, 40);
-	_vm->_palette->setEntry(251, 50, 63, 55);
-	_vm->_palette->setEntry(252, 38, 34, 25);
-	_vm->_palette->setEntry(253, 45, 41, 35);
+	pal_change_color(250, 47, 41, 40);
+	pal_change_color(251, 50, 63, 55);
+	pal_change_color(252, 38, 34, 25);
+	pal_change_color(253, 45, 41, 35);
 
 	local._dialog1.setup(0x60, 0x214, 0x215, 0x237, 0);
 	local._dialog2.setup(0x61, 0x216, 0x219, 0x21A, 0x21B, 0x21D, 0x220, 0x223, 0x224, 0x227, 0x22A, 0x22D, 0x230, 0x21C, 0);
 	local._dialog3.setup(0x62, 0x233, 0x234, 0x235, 0x236, 0x237, -1);
 	local._dialog4.setup(0x63, 0x238, 0x239, 0x23A, 0x23D, 0x23E, 0);
 
-	if (!_game._visitedScenes._sceneRevisited) {
+	if (!player.been_here_before) {
 		local._dialog2.set(0x61, 0x216, 0x219, 0x21A, 0x21B, 0x21C, 0);
 		local._dialog4.set(0x63, 0x238, 0x23E, 0);
 		local._dialog1.set(0x60, 0x214, 0x215, 0x237, 0);
 	}
 
-	if (_game._objects.isInInventory(OBJ_CREDIT_CHIP))
+	if (player_has(OBJ_CREDIT_CHIP))
 		local._dialog4.write(0x239, true);
 	else
 		local._dialog4.write(0x239, false);
 
-	if (_game._objects.isInInventory(OBJ_BINOCULARS) && !_globals[kHasSaidBinocs])
+	if (player_has(OBJ_BINOCULARS) && !global[kHasSaidBinocs])
 		local._dialog4.write(0x23D, true);
 	else
 		local._dialog4.write(0x23D, false);
 
-	if (_game._objects.isInInventory(OBJ_TIMER_MODULE) && !_globals[kHasSaidTimer])
+	if (player_has(OBJ_TIMER_MODULE) && !global[kHasSaidTimer])
 		local._dialog4.write(0x23A, true);
 	else
 		local._dialog4.write(0x23A, false);
@@ -522,7 +524,7 @@ static void room_402_init() {
 	if (local._conversationFl) {
 		switch (local._bartenderDialogNode) {
 		case 0:
-			_scene->_userInterface.setup(kInputBuildingSentences);
+			kernel_set_interface_mode(INTER_BUILDING_SENTENCES);
 			local._bartenderDialogNode = 1;
 			break;
 
@@ -548,47 +550,47 @@ static void room_402_init() {
 
 		switch (local._bartenderCurrentQuestion) {
 		case 1:
-			_scene->_kernelMessages.add(Common::Point(260, 41), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, _game.getQuote(0x1EC));
+			kernel_message_add(quote_string(kernel.quotes, 0x1EC), 260, 41, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 			break;
 
 		case 2:
-			_scene->_kernelMessages.add(Common::Point(188, 27), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, _game.getQuote(0x1ED));
-			_scene->_kernelMessages.add(Common::Point(199, 41), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, _game.getQuote(0x1EE));
+			kernel_message_add(quote_string(kernel.quotes, 0x1ED), 188, 27, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
+			kernel_message_add(quote_string(kernel.quotes, 0x1EE), 199, 41, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 			break;
 
 		case 3:
-			_scene->_kernelMessages.add(Common::Point(177, 41), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, _game.getQuote(0x1EF));
+			kernel_message_add(quote_string(kernel.quotes, 0x1EF), 177, 41, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 			break;
 
 		case 4:
-			_scene->_kernelMessages.add(Common::Point(205, 41), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, _game.getQuote(0x1E4));
+			kernel_message_add(quote_string(kernel.quotes, 0x1E4), 205, 41, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 			break;
 
 		case 5:
-			_scene->_kernelMessages.add(Common::Point(203, 41), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, _game.getQuote(0x1E5));
+			kernel_message_add(quote_string(kernel.quotes, 0x1E5), 203, 41, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 			break;
 
 		case 6:
-			_scene->_kernelMessages.add(Common::Point(260, 41), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, _game.getQuote(0x1E6));
+			kernel_message_add(quote_string(kernel.quotes, 0x1E6), 260, 41, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 			break;
 
 		case 7:
-			_scene->_kernelMessages.add(Common::Point(198, 27), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, _game.getQuote(0x1E7));
-			_scene->_kernelMessages.add(Common::Point(201, 41), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, _game.getQuote(0x1E8));
+			kernel_message_add(quote_string(kernel.quotes, 0x1E7), 198, 27, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
+			kernel_message_add(quote_string(kernel.quotes, 0x1E8), 201, 41, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 			break;
 
 		case 8:
-			_scene->_kernelMessages.add(Common::Point(220, 27), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, _game.getQuote(0x1E9));
-			_scene->_kernelMessages.add(Common::Point(190, 41), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, _game.getQuote(0x1EA));
+			kernel_message_add(quote_string(kernel.quotes, 0x1E9), 220, 27, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
+			kernel_message_add(quote_string(kernel.quotes, 0x1EA), 190, 41, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 			break;
 
 		case 9:
-			_scene->_kernelMessages.add(Common::Point(196, 41), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, _game.getQuote(0x1EB));
+			kernel_message_add(quote_string(kernel.quotes, 0x1EB), 196, 41, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 			break;
 
 		case 10:
-			_scene->_kernelMessages.add(Common::Point(198, 27), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, _game.getQuote(0x1E2));
-			_scene->_kernelMessages.add(Common::Point(199, 41), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, _game.getQuote(0x1E3));
+			kernel_message_add(quote_string(kernel.quotes, 0x1E2), 198, 27, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
+			kernel_message_add(quote_string(kernel.quotes, 0x1E3), 199, 41, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 			break;
 
 		default:
@@ -624,189 +626,189 @@ static void room_402_init() {
 	local._rexMode = 0;
 	local._refuseAlienLiquor = false;
 
-	_scene->loadAnimation(Resources::formatName(402, 'd', 1, EXT_AA, ""));
-	_scene->_animation[0]->_repeatFlag = true;
+	kernel_run_animation(kernel_full_name(402, 'd', 1, "", KERNEL_AA), 0);
+	kernel_anim[0].repeat = true;
 
-	_globals._sequenceIndexes[5] = _scene->_sequences.startCycle(_globals._spriteIndexes[5], false, 1);
-	_scene->_sequences.setDepth(_globals._sequenceIndexes[5], 1);
+	g_sequence_ids[5] = kernel_seq_stamp(g_sprite_ids[5], false, 1);
+	kernel_seq_depth(g_sequence_ids[5], 1);
 
-	_globals._sequenceIndexes[13] = _scene->_sequences.startCycle(_globals._spriteIndexes[13], false, 2);
-	_scene->_sequences.setDepth(_globals._sequenceIndexes[13], 8);
+	g_sequence_ids[13] = kernel_seq_stamp(g_sprite_ids[13], false, 2);
+	kernel_seq_depth(g_sequence_ids[13], 8);
 
-	if (!_game._objects.isInInventory(OBJ_REPAIR_LIST)) {
-		_globals._sequenceIndexes[14] = _scene->_sequences.startCycle(_globals._spriteIndexes[14], false, 1);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[14], 7);
-		_scene->_sequences.setPosition(_globals._sequenceIndexes[14], Common::Point(210, 80));
-		int idx = _scene->_dynamicHotspots.add(words_repair_list, words_look_at, _globals._sequenceIndexes[14], Common::Rect(0, 0, 0, 0));
-		_scene->_dynamicHotspots.setPosition(idx, Common::Point(0, 0), FACING_NONE);
+	if (!player_has(OBJ_REPAIR_LIST)) {
+		g_sequence_ids[14] = kernel_seq_stamp(g_sprite_ids[14], false, 1);
+		kernel_seq_depth(g_sequence_ids[14], 7);
+		kernel_seq_loc(g_sequence_ids[14], 210, 80);
+		int idx = kernel_add_dynamic(words_repair_list, words_look_at, 0, g_sequence_ids[14], 0, 0, 0, 0);
+		kernel_dynamic_walk(idx, 0, 0, FACING_NONE);
 	}
 
 	{
-		_globals._sequenceIndexes[9] = _scene->_sequences.startCycle(_globals._spriteIndexes[9], false, 1);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[9], 8);
-		int idx = _scene->_dynamicHotspots.add(words_bartender, words_walkto, _globals._sequenceIndexes[9], Common::Rect(0, 0, 0, 0));
-		_scene->_dynamicHotspots.setPosition(idx, Common::Point(228, 83), FACING_SOUTH);
+		g_sequence_ids[9] = kernel_seq_stamp(g_sprite_ids[9], false, 1);
+		kernel_seq_depth(g_sequence_ids[9], 8);
+		int idx = kernel_add_dynamic(words_bartender, words_walkto, 0, g_sequence_ids[9], 0, 0, 0, 0);
+		kernel_dynamic_walk(idx, 228, 83, FACING_SOUTH);
 	}
 
-	if (!_game._objects.isInRoom(OBJ_ALIEN_LIQUOR) && !_game._objects.isInInventory(OBJ_CREDIT_CHIP)) {
-		_globals._sequenceIndexes[15] = _scene->_sequences.startCycle(_globals._spriteIndexes[15], false, 1);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[15], 8);
-		_scene->_sequences.setPosition(_globals._sequenceIndexes[15], Common::Point(250, 80));
-		int idx = _scene->_dynamicHotspots.add(words_credit_chip, words_take, _globals._sequenceIndexes[15], Common::Rect(0, 0, 0, 0));
-		_scene->_dynamicHotspots.setPosition(idx, Common::Point(0, 0), FACING_NONE);
+	if (!object_is_here(OBJ_ALIEN_LIQUOR) && !player_has(OBJ_CREDIT_CHIP)) {
+		g_sequence_ids[15] = kernel_seq_stamp(g_sprite_ids[15], false, 1);
+		kernel_seq_depth(g_sequence_ids[15], 8);
+		kernel_seq_loc(g_sequence_ids[15], 250, 80);
+		int idx = kernel_add_dynamic(words_credit_chip, words_take, 0, g_sequence_ids[15], 0, 0, 0, 0);
+		kernel_dynamic_walk(idx, 0, 0, FACING_NONE);
 	}
 
-	_globals._sequenceIndexes[20] = _scene->_sequences.startCycle(_globals._spriteIndexes[20], false, 1);
-	_scene->_sequences.setDepth(_globals._sequenceIndexes[20], 7);
-	_scene->_sequences.setPosition(_globals._sequenceIndexes[20], Common::Point(234, 72));
+	g_sequence_ids[20] = kernel_seq_stamp(g_sprite_ids[20], false, 1);
+	kernel_seq_depth(g_sequence_ids[20], 7);
+	kernel_seq_loc(g_sequence_ids[20], 234, 72);
 
-	if (_globals[kBottleDisplayed]) {
-		_globals._sequenceIndexes[8] = _scene->_sequences.startCycle(_globals._spriteIndexes[8], false, 4);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[8], 7);
+	if (global[kBottleDisplayed]) {
+		g_sequence_ids[8] = kernel_seq_stamp(g_sprite_ids[8], false, 4);
+		kernel_seq_depth(g_sequence_ids[8], 7);
 	}
 
 	if (local._roxOnStool) {
-		_globals._sequenceIndexes[6] = _scene->_sequences.startCycle(_globals._spriteIndexes[6], false, 11);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[6], 5);
-		_game._player._visible = false;
+		g_sequence_ids[6] = kernel_seq_stamp(g_sprite_ids[6], false, 11);
+		kernel_seq_depth(g_sequence_ids[6], 5);
+		player.walker_visible = false;
 	}
 
 	section_4_music();
 }
 
 static void room_402_daemon() {
-	if (_game._trigger == 104) {
-		_game._player._priorTimer = _scene->_frameStartTime + _game._player._ticksAmount;
-		_game._player._visible = true;
-		_scene->_sequences.remove(_globals._sequenceIndexes[15]);
-		_game._objects.addToInventory(OBJ_CREDIT_CHIP);
-		_vm->_dialogs->showItem(OBJ_CREDIT_CHIP, 40242);
-		_game._player._stepEnabled = true;
+	if (kernel.trigger == 104) {
+		player.clock = kernel.clock + player.frame_delay;
+		player.walker_visible = true;
+		kernel_seq_delete(g_sequence_ids[15]);
+		inter_give_to_player(OBJ_CREDIT_CHIP);
+		object_examine(OBJ_CREDIT_CHIP, 40242, 0);
+		player.commands_allowed = true;
 	}
 
-	if ((_vm->getRandomNumber(1, 1500) == 1) && (!local._activeTeleporter) && (_game._player._playerPos.x < 150)) {
-		_vm->_sound->command(30);
-		_globals._sequenceIndexes[4] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[4], false, 13, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[4], 1, 11);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[4], 14);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[4], SEQUENCE_TRIGGER_EXPIRE, 0, 48);
+	if ((g_engine->getRandomNumber(1, 1500) == 1) && (!local._activeTeleporter) && (player.x < 150)) {
+		g_engine->_soundManager->command(30, 0);
+		g_sequence_ids[4] = kernel_seq_forward(g_sprite_ids[4], false, 13, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[4], 1, 11);
+		kernel_seq_depth(g_sequence_ids[4], 14);
+		kernel_seq_trigger(g_sequence_ids[4], KERNEL_TRIGGER_EXPIRE, 0, 48);
 		local._activeTeleporter = true;
-		_globals[kSomeoneHasExploded] = true;
+		global[kSomeoneHasExploded] = true;
 	}
 
-	if (_game._trigger == 48)
+	if (kernel.trigger == 48)
 		local._activeTeleporter = false;
 
-	if (_game._trigger == 100) {
+	if (kernel.trigger == 100) {
 		local._bartenderReady = false;
 		if (local._bartenderHandsHips) {
-			_scene->_sequences.remove(_globals._sequenceIndexes[10]);
+			kernel_seq_delete(g_sequence_ids[10]);
 			local._bartenderHandsHips = false;
 		} else if (local._bartenderLooksLeft) {
-			_scene->_sequences.remove(_globals._sequenceIndexes[11]);
+			kernel_seq_delete(g_sequence_ids[11]);
 			local._bartenderLooksLeft = false;
 		} else if (local._bartenderSteady) {
-			_scene->_sequences.remove(_globals._sequenceIndexes[9]);
+			kernel_seq_delete(g_sequence_ids[9]);
 			local._bartenderSteady = false;
 		}
 
 		if (!local._bartenderTalking) {
-			_globals._sequenceIndexes[10] = _scene->_sequences.startPingPongCycle(_globals._spriteIndexes[10], false, 7, 0, 0, 0);
-			_scene->_sequences.setAnimRange(_globals._sequenceIndexes[10], 3, 4);
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[10], 8);
-			int idx = _scene->_dynamicHotspots.add(words_bartender, words_walkto, _globals._sequenceIndexes[10], Common::Rect(0, 0, 0, 0));
-			_scene->_dynamicHotspots.setPosition(idx, Common::Point(228, 83), FACING_SOUTH);
+			g_sequence_ids[10] = kernel_seq_pingpong(g_sprite_ids[10], false, 7, 0, 0, 0);
+			kernel_seq_range(g_sequence_ids[10], 3, 4);
+			kernel_seq_depth(g_sequence_ids[10], 8);
+			int idx = kernel_add_dynamic(words_bartender, words_walkto, 0, g_sequence_ids[10], 0, 0, 0, 0);
+			kernel_dynamic_walk(idx, 228, 83, FACING_SOUTH);
 			local._bartenderTalking = true;
 			if (local._talkTimer > 1000)
-				_scene->_sequences.addTimer(local._talkTimer - 1000, 101);
+				kernel_timing_trigger(local._talkTimer - 1000, 101);
 			else
-				_scene->_sequences.addTimer(local._talkTimer, 101);
+				kernel_timing_trigger(local._talkTimer, 101);
 		}
 	}
 
-	if ((_game._trigger == 101) && local._bartenderTalking) {
-		_scene->_sequences.remove(_globals._sequenceIndexes[10]);
-		_globals._sequenceIndexes[9] = _scene->_sequences.startCycle(_globals._spriteIndexes[9], false, 1);
-		int idx = _scene->_dynamicHotspots.add(words_bartender, words_walkto, _globals._sequenceIndexes[9], Common::Rect(0, 0, 0, 0));
-		_scene->_dynamicHotspots.setPosition(idx, Common::Point(228, 83), FACING_SOUTH);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[9], 8);
+	if ((kernel.trigger == 101) && local._bartenderTalking) {
+		kernel_seq_delete(g_sequence_ids[10]);
+		g_sequence_ids[9] = kernel_seq_stamp(g_sprite_ids[9], false, 1);
+		int idx = kernel_add_dynamic(words_bartender, words_walkto, 0, g_sequence_ids[9], 0, 0, 0, 0);
+		kernel_dynamic_walk(idx, 228, 83, FACING_SOUTH);
+		kernel_seq_depth(g_sequence_ids[9], 8);
 		local._bartenderSteady = true;
 		local._bartenderTalking = false;
 		if (local._talkTimer < 1000)
 			local._bartenderReady = true;
 	}
 
-	if (_game._trigger == 28)
-		_game._player._stepEnabled = true;
+	if (kernel.trigger == 28)
+		player.commands_allowed = true;
 
-	switch (_game._trigger) {
+	switch (kernel.trigger) {
 	case 92:
-		_game._player._stepEnabled = false;
-		_scene->_sequences.remove(_globals._sequenceIndexes[6]);
-		_globals._sequenceIndexes[7] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[7], false, 10, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[7], 1, 2);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[7], 5);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[7], SEQUENCE_TRIGGER_EXPIRE, 0, 93);
+		player.commands_allowed = false;
+		kernel_seq_delete(g_sequence_ids[6]);
+		g_sequence_ids[7] = kernel_seq_forward(g_sprite_ids[7], false, 10, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[7], 1, 2);
+		kernel_seq_depth(g_sequence_ids[7], 5);
+		kernel_seq_trigger(g_sequence_ids[7], KERNEL_TRIGGER_EXPIRE, 0, 93);
 		break;
 
 	case 93:
 	{
-		int seqIdx = _globals._sequenceIndexes[7];
+		int seqIdx = g_sequence_ids[7];
 		switch (local._roxMode) {
 		case 20:
-			_vm->_sound->command(57);
-			_scene->_sequences.remove(_globals._sequenceIndexes[15]);
-			_game._objects.addToInventory(OBJ_CREDIT_CHIP);
-			_vm->_dialogs->showItem(OBJ_CREDIT_CHIP, 40242);
+			g_engine->_soundManager->command(57, 0);
+			kernel_seq_delete(g_sequence_ids[15]);
+			inter_give_to_player(OBJ_CREDIT_CHIP);
+			object_examine(OBJ_CREDIT_CHIP, 40242, 0);
 			break;
 
 		case 22:
-			_vm->_sound->command(57);
-			_scene->_sequences.remove(_globals._sequenceIndexes[8]);
-			_game._objects.addToInventory(OBJ_ALIEN_LIQUOR);
-			_globals[kBottleDisplayed] = false;
-			_vm->_dialogs->showItem(OBJ_ALIEN_LIQUOR, 40241);
+			g_engine->_soundManager->command(57, 0);
+			kernel_seq_delete(g_sequence_ids[8]);
+			inter_give_to_player(OBJ_ALIEN_LIQUOR);
+			global[kBottleDisplayed] = false;
+			object_examine(OBJ_ALIEN_LIQUOR, 40241, 0);
 			break;
 
 		case 21:
-			_globals._sequenceIndexes[15] = _scene->_sequences.startCycle(_globals._spriteIndexes[15], false, 1);
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[15], 8);
-			_scene->_sequences.setPosition(_globals._sequenceIndexes[15], Common::Point(250, 80));
+			g_sequence_ids[15] = kernel_seq_stamp(g_sprite_ids[15], false, 1);
+			kernel_seq_depth(g_sequence_ids[15], 8);
+			kernel_seq_loc(g_sequence_ids[15], 250, 80);
 			break;
 
 		default:
 			break;
 		}
-		_globals._sequenceIndexes[7] = _scene->_sequences.addReverseSpriteCycle(_globals._spriteIndexes[7], false, 10, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[7], 1, 3);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[7], 5);
-		_scene->_sequences.updateTimeout(_globals._sequenceIndexes[7], seqIdx);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[7], SEQUENCE_TRIGGER_EXPIRE, 0, 94);
+		g_sequence_ids[7] = kernel_seq_backward(g_sprite_ids[7], false, 10, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[7], 1, 3);
+		kernel_seq_depth(g_sequence_ids[7], 5);
+		kernel_seq_timeout(seqIdx, g_sequence_ids[7]);
+		kernel_seq_trigger(g_sequence_ids[7], KERNEL_TRIGGER_EXPIRE, 0, 94);
 
 		if (local._roxMode == 21) {
-			if (_game._objects.isInInventory(OBJ_CREDIT_CHIP))
-				_game._objects.setRoom(OBJ_CREDIT_CHIP, NOWHERE);
+			if (player_has(OBJ_CREDIT_CHIP))
+				inter_move_object(OBJ_CREDIT_CHIP, NOWHERE);
 
 			local._bartenderMode = 20;
-			_scene->_sequences.addTimer(60, 95);
+			kernel_timing_trigger(60, 95);
 		}
 	}
 	break;
 
 	case 94:
 	{
-		int seqIdx = _globals._sequenceIndexes[7];
-		_globals._sequenceIndexes[6] = _scene->_sequences.startCycle(_globals._spriteIndexes[6], false, 11);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[6], 5);
-		_scene->_sequences.updateTimeout(_globals._sequenceIndexes[6], seqIdx);
+		int seqIdx = g_sequence_ids[7];
+		g_sequence_ids[6] = kernel_seq_stamp(g_sprite_ids[6], false, 11);
+		kernel_seq_depth(g_sequence_ids[6], 5);
+		kernel_seq_timeout(seqIdx, g_sequence_ids[6]);
 		if (local._roxMode == 22) {
-			_scene->_kernelMessages.reset();
-			_scene->_kernelMessages.add(Common::Point(230, 56), 0x1110, 32, 0, 120, _game.getQuote(0x23F));
+			kernel_message_purge();
+			kernel_message_add(quote_string(kernel.quotes, 0x23F), 230, 56, 0x1110, 120, 0, 32);
 			local._bartenderMode = 21;
-			_globals[kHasPurchased] = true;
-			_scene->_sequences.addTimer(140, 95);
+			global[kHasPurchased] = true;
+			kernel_timing_trigger(140, 95);
 		} else if (local._roxMode == 20)
-			_game._player._stepEnabled = true;
+			player.commands_allowed = true;
 
 	}
 	break;
@@ -815,102 +817,102 @@ static void room_402_daemon() {
 		break;
 	}
 
-	switch (_game._trigger) {
+	switch (kernel.trigger) {
 	case 95:
 		local._bartenderReady = false;
-		_game._player._stepEnabled = false;
+		player.commands_allowed = false;
 		if (local._bartenderHandsHips || local._bartenderTalking) {
-			_scene->_sequences.remove(_globals._sequenceIndexes[10]);
+			kernel_seq_delete(g_sequence_ids[10]);
 			local._bartenderHandsHips = false;
 			local._bartenderTalking = false;
 		}
 
 		if (local._bartenderLooksLeft) {
-			_scene->_sequences.remove(_globals._sequenceIndexes[11]);
+			kernel_seq_delete(g_sequence_ids[11]);
 			local._bartenderLooksLeft = false;
 		}
 
 		if (local._bartenderSteady) {
-			_scene->_sequences.remove(_globals._sequenceIndexes[9]);
+			kernel_seq_delete(g_sequence_ids[9]);
 			local._bartenderSteady = false;
 		}
-		_globals._sequenceIndexes[12] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[12], false, 10, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[12], 1, 4);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[12], 8);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[12], SEQUENCE_TRIGGER_EXPIRE, 0, 96);
+		g_sequence_ids[12] = kernel_seq_forward(g_sprite_ids[12], false, 10, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[12], 1, 4);
+		kernel_seq_depth(g_sequence_ids[12], 8);
+		kernel_seq_trigger(g_sequence_ids[12], KERNEL_TRIGGER_EXPIRE, 0, 96);
 		break;
 
 	case 96:
 	{
-		int seqIdx = _globals._sequenceIndexes[12];
-		_globals._sequenceIndexes[12] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[12], false, 10, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[12], 6, 7);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[12], 8);
-		_scene->_sequences.updateTimeout(_globals._sequenceIndexes[12], seqIdx);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[12], SEQUENCE_TRIGGER_EXPIRE, 0, 97);
+		int seqIdx = g_sequence_ids[12];
+		g_sequence_ids[12] = kernel_seq_forward(g_sprite_ids[12], false, 10, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[12], 6, 7);
+		kernel_seq_depth(g_sequence_ids[12], 8);
+		kernel_seq_timeout(seqIdx, g_sequence_ids[12]);
+		kernel_seq_trigger(g_sequence_ids[12], KERNEL_TRIGGER_EXPIRE, 0, 97);
 	}
 	break;
 
 	case 97:
 	{
-		int seqIdx = _globals._sequenceIndexes[12];
+		int seqIdx = g_sequence_ids[12];
 		switch (local._bartenderMode) {
 		case 20:
-			_scene->_sequences.remove(_globals._sequenceIndexes[15]);
+			kernel_seq_delete(g_sequence_ids[15]);
 			break;
 
 		case 21:
 		{
-			_globals._sequenceIndexes[15] = _scene->_sequences.startCycle(_globals._spriteIndexes[15], false, 1);
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[15], 8);
-			_scene->_sequences.setPosition(_globals._sequenceIndexes[15], Common::Point(250, 80));
-			int idx = _scene->_dynamicHotspots.add(words_credit_chip, words_take, _globals._sequenceIndexes[15], Common::Rect(0, 0, 0, 0));
-			_scene->_dynamicHotspots.setPosition(idx, Common::Point(0, 0), FACING_NONE);
+			g_sequence_ids[15] = kernel_seq_stamp(g_sprite_ids[15], false, 1);
+			kernel_seq_depth(g_sequence_ids[15], 8);
+			kernel_seq_loc(g_sequence_ids[15], 250, 80);
+			int idx = kernel_add_dynamic(words_credit_chip, words_take, 0, g_sequence_ids[15], 0, 0, 0, 0);
+			kernel_dynamic_walk(idx, 0, 0, FACING_NONE);
 		}
 		break;
 
 		case 22:
-			_scene->_sequences.remove(_globals._sequenceIndexes[8]);
-			_globals[kBottleDisplayed] = false;
+			kernel_seq_delete(g_sequence_ids[8]);
+			global[kBottleDisplayed] = false;
 			break;
 
 		default:
 			break;
 		}
 
-		_globals._sequenceIndexes[12] = _scene->_sequences.startCycle(_globals._spriteIndexes[12], false, 6);
-		_scene->_sequences.updateTimeout(_globals._sequenceIndexes[12], seqIdx);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[12], 8);
-		_scene->_sequences.addTimer(10, 98);
+		g_sequence_ids[12] = kernel_seq_stamp(g_sprite_ids[12], false, 6);
+		kernel_seq_timeout(seqIdx, g_sequence_ids[12]);
+		kernel_seq_depth(g_sequence_ids[12], 8);
+		kernel_timing_trigger(10, 98);
 	}
 	break;
 
 	case 98:
-		_scene->_sequences.remove(_globals._sequenceIndexes[12]);
-		_globals._sequenceIndexes[12] = _scene->_sequences.addReverseSpriteCycle(_globals._spriteIndexes[12], false, 10, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[12], 1, 4);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[12], 8);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[12], SEQUENCE_TRIGGER_EXPIRE, 0, 99);
+		kernel_seq_delete(g_sequence_ids[12]);
+		g_sequence_ids[12] = kernel_seq_backward(g_sprite_ids[12], false, 10, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[12], 1, 4);
+		kernel_seq_depth(g_sequence_ids[12], 8);
+		kernel_seq_trigger(g_sequence_ids[12], KERNEL_TRIGGER_EXPIRE, 0, 99);
 		break;
 
 	case 99:
 	{
-		int seqIdx = _globals._sequenceIndexes[12];
-		_globals._sequenceIndexes[9] = _scene->_sequences.startCycle(_globals._spriteIndexes[9], false, 1);
+		int seqIdx = g_sequence_ids[12];
+		g_sequence_ids[9] = kernel_seq_stamp(g_sprite_ids[9], false, 1);
 		local._bartenderSteady = true;
-		int idx = _scene->_dynamicHotspots.add(words_bartender, words_walkto, _globals._sequenceIndexes[9], Common::Rect(0, 0, 0, 0));
-		_scene->_dynamicHotspots.setPosition(idx, Common::Point(228, 83), FACING_SOUTH);
-		_scene->_sequences.updateTimeout(_globals._sequenceIndexes[9], seqIdx);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[9], 8);
+		int idx = kernel_add_dynamic(words_bartender, words_walkto, 0, g_sequence_ids[9], 0, 0, 0, 0);
+		kernel_dynamic_walk(idx, 228, 83, FACING_SOUTH);
+		kernel_seq_timeout(seqIdx, g_sequence_ids[9]);
+		kernel_seq_depth(g_sequence_ids[9], 8);
 		if (local._bartenderMode == 20) {
-			_scene->_kernelMessages.reset();
-			_scene->_kernelMessages.add(Common::Point(210, 41), 0xFDFC, 0, 0, 100, _game.getQuote(0x1F3));
-			_scene->_sequences.addTimer(5, 100);
+			kernel_message_purge();
+			kernel_message_add(quote_string(kernel.quotes, 0x1F3), 210, 41, 0xFDFC, 100, 0, 0);
+			kernel_timing_trigger(5, 100);
 			local._talkTimer = 180;
 			local._roxMode = 22;
-			_scene->_sequences.addTimer(65, 92);
+			kernel_timing_trigger(65, 92);
 		} else if ((local._bartenderMode == 21) || (local._bartenderMode == 22)) {
-			_game._player._stepEnabled = true;
+			player.commands_allowed = true;
 			local._bartenderReady = true;
 		}
 
@@ -921,71 +923,71 @@ static void room_402_daemon() {
 		break;
 	}
 
-	switch (_game._trigger) {
+	switch (kernel.trigger) {
 	case 86:
 		local._bartenderReady = false;
-		_game._player._stepEnabled = false;
+		player.commands_allowed = false;
 		if ((local._bartenderHandsHips) || (local._bartenderTalking)) {
-			_scene->_sequences.remove(_globals._sequenceIndexes[10]);
+			kernel_seq_delete(g_sequence_ids[10]);
 			local._bartenderHandsHips = false;
 			local._bartenderTalking = false;
 		} else if (local._bartenderLooksLeft) {
-			_scene->_sequences.remove(_globals._sequenceIndexes[11]);
+			kernel_seq_delete(g_sequence_ids[11]);
 			local._bartenderLooksLeft = false;
 		} else if (local._bartenderSteady) {
-			_scene->_sequences.remove(_globals._sequenceIndexes[9]);
+			kernel_seq_delete(g_sequence_ids[9]);
 			local._bartenderSteady = false;
 		}
-		_globals._sequenceIndexes[9] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[9], false, 10, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[9], 1, 9);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[9], 8);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[9], SEQUENCE_TRIGGER_EXPIRE, 0, 87);
+		g_sequence_ids[9] = kernel_seq_forward(g_sprite_ids[9], false, 10, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[9], 1, 9);
+		kernel_seq_depth(g_sequence_ids[9], 8);
+		kernel_seq_trigger(g_sequence_ids[9], KERNEL_TRIGGER_EXPIRE, 0, 87);
 		break;
 
 	case 87:
 	{
-		int seqIdx = _globals._sequenceIndexes[9];
-		_globals._sequenceIndexes[9] = _scene->_sequences.startCycle(_globals._spriteIndexes[9], false, 9);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[9], 8);
-		_scene->_sequences.updateTimeout(_globals._sequenceIndexes[9], seqIdx);
-		_scene->_sequences.addTimer(10, 89);
+		int seqIdx = g_sequence_ids[9];
+		g_sequence_ids[9] = kernel_seq_stamp(g_sprite_ids[9], false, 9);
+		kernel_seq_depth(g_sequence_ids[9], 8);
+		kernel_seq_timeout(seqIdx, g_sequence_ids[9]);
+		kernel_timing_trigger(10, 89);
 
-		_globals._sequenceIndexes[8] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[8], false, 10, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[8], 1, 4);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[8], 7);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[8], SEQUENCE_TRIGGER_EXPIRE, 0, 88);
+		g_sequence_ids[8] = kernel_seq_forward(g_sprite_ids[8], false, 10, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[8], 1, 4);
+		kernel_seq_depth(g_sequence_ids[8], 7);
+		kernel_seq_trigger(g_sequence_ids[8], KERNEL_TRIGGER_EXPIRE, 0, 88);
 	}
 	break;
 
 	case 88:
-		_globals._sequenceIndexes[8] = _scene->_sequences.startCycle(_globals._spriteIndexes[8], false, 4);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[8], 7);
-		_globals[kBottleDisplayed] = true;
+		g_sequence_ids[8] = kernel_seq_stamp(g_sprite_ids[8], false, 4);
+		kernel_seq_depth(g_sequence_ids[8], 7);
+		global[kBottleDisplayed] = true;
 		break;
 
 	case 89:
-		_scene->_sequences.remove(_globals._sequenceIndexes[9]);
-		_globals._sequenceIndexes[9] = _scene->_sequences.startCycle(_globals._spriteIndexes[9], false, 6);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[9], 8);
-		_scene->_sequences.addTimer(10, 90);
+		kernel_seq_delete(g_sequence_ids[9]);
+		g_sequence_ids[9] = kernel_seq_stamp(g_sprite_ids[9], false, 6);
+		kernel_seq_depth(g_sequence_ids[9], 8);
+		kernel_timing_trigger(10, 90);
 		break;
 
 	case 90:
-		_scene->_sequences.remove(_globals._sequenceIndexes[9]);
-		_globals._sequenceIndexes[9] = _scene->_sequences.startCycle(_globals._spriteIndexes[9], false, 5);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[9], 8);
-		_scene->_sequences.addTimer(10, 91);
+		kernel_seq_delete(g_sequence_ids[9]);
+		g_sequence_ids[9] = kernel_seq_stamp(g_sprite_ids[9], false, 5);
+		kernel_seq_depth(g_sequence_ids[9], 8);
+		kernel_timing_trigger(10, 91);
 		break;
 
 	case 91:
 	{
-		_scene->_sequences.remove(_globals._sequenceIndexes[9]);
-		_globals._sequenceIndexes[9] = _scene->_sequences.startCycle(_globals._spriteIndexes[9], false, 1);
-		int idx = _scene->_dynamicHotspots.add(words_bartender, words_walkto, _globals._sequenceIndexes[9], Common::Rect(0, 0, 0, 0));
-		_scene->_dynamicHotspots.setPosition(idx, Common::Point(228, 83), FACING_SOUTH);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[9], 8);
+		kernel_seq_delete(g_sequence_ids[9]);
+		g_sequence_ids[9] = kernel_seq_stamp(g_sprite_ids[9], false, 1);
+		int idx = kernel_add_dynamic(words_bartender, words_walkto, 0, g_sequence_ids[9], 0, 0, 0, 0);
+		kernel_dynamic_walk(idx, 228, 83, FACING_SOUTH);
+		kernel_seq_depth(g_sequence_ids[9], 8);
 		local._bartenderSteady = true;
-		_game._player._stepEnabled = true;
+		player.commands_allowed = true;
 		local._bartenderReady = true;
 	}
 	break;
@@ -1000,46 +1002,46 @@ static void room_402_daemon() {
 		if (local._beatCounter >= 20) {
 			local._ginnyLooking = true;
 			local._beatCounter = 0;
-			_scene->_sequences.addTimer(60, 54);
+			kernel_timing_trigger(60, 54);
 		} else {
-			_scene->_sequences.addTimer(30, 75);
+			kernel_timing_trigger(30, 75);
 		}
 	}
 
-	switch (_game._trigger) {
+	switch (kernel.trigger) {
 	case 75:
-		_scene->_sequences.remove(_globals._sequenceIndexes[5]);
+		kernel_seq_delete(g_sequence_ids[5]);
 		local._bigBeatFl = !local._bigBeatFl;
 
 		if (local._bigBeatFl) {
-			_globals._sequenceIndexes[5] = _scene->_sequences.startCycle(_globals._spriteIndexes[5], false, 5);
-			_scene->_sequences.addTimer(8, 130);
+			g_sequence_ids[5] = kernel_seq_stamp(g_sprite_ids[5], false, 5);
+			kernel_timing_trigger(8, 130);
 		} else {
-			_globals._sequenceIndexes[5] = _scene->_sequences.startCycle(_globals._spriteIndexes[5], false, 5);
-			_scene->_sequences.addTimer(8, 53);
+			g_sequence_ids[5] = kernel_seq_stamp(g_sprite_ids[5], false, 5);
+			kernel_timing_trigger(8, 53);
 		}
 
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[5], 1);
+		kernel_seq_depth(g_sequence_ids[5], 1);
 		break;
 
 	case 130:
-		_scene->_sequences.remove(_globals._sequenceIndexes[5]);
-		_globals._sequenceIndexes[5] = _scene->_sequences.startCycle(_globals._spriteIndexes[5], false, 6);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[5], 1);
-		_scene->_sequences.addTimer(8, 131);
+		kernel_seq_delete(g_sequence_ids[5]);
+		g_sequence_ids[5] = kernel_seq_stamp(g_sprite_ids[5], false, 6);
+		kernel_seq_depth(g_sequence_ids[5], 1);
+		kernel_timing_trigger(8, 131);
 		break;
 
 	case 131:
-		_scene->_sequences.remove(_globals._sequenceIndexes[5]);
-		_globals._sequenceIndexes[5] = _scene->_sequences.startCycle(_globals._spriteIndexes[5], false, 5);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[5], 1);
-		_scene->_sequences.addTimer(8, 53);
+		kernel_seq_delete(g_sequence_ids[5]);
+		g_sequence_ids[5] = kernel_seq_stamp(g_sprite_ids[5], false, 5);
+		kernel_seq_depth(g_sequence_ids[5], 1);
+		kernel_timing_trigger(8, 53);
 		break;
 
 	case 53:
-		_scene->_sequences.remove(_globals._sequenceIndexes[5]);
-		_globals._sequenceIndexes[5] = _scene->_sequences.startCycle(_globals._spriteIndexes[5], false, 1);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[5], 1);
+		kernel_seq_delete(g_sequence_ids[5]);
+		g_sequence_ids[5] = kernel_seq_stamp(g_sprite_ids[5], false, 1);
+		kernel_seq_depth(g_sequence_ids[5], 1);
 		local._waitingGinnyMove = false;
 		break;
 
@@ -1047,7 +1049,7 @@ static void room_402_daemon() {
 		break;
 	}
 
-	if ((_game._trigger == 54) && local._ginnyLooking) {
+	if ((kernel.trigger == 54) && local._ginnyLooking) {
 		++local._beatCounter;
 		if (local._beatCounter >= 10) {
 			local._ginnyLooking = false;
@@ -1055,53 +1057,53 @@ static void room_402_daemon() {
 			local._beatCounter = 0;
 			local._bigBeatFl = true;
 		} else {
-			_scene->_sequences.remove(_globals._sequenceIndexes[5]);
-			_globals._sequenceIndexes[5] = _scene->_sequences.startCycle(_globals._spriteIndexes[5], false, _vm->getRandomNumber(1, 4));
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[5], 1);
-			_scene->_sequences.addTimer(60, 54);
+			kernel_seq_delete(g_sequence_ids[5]);
+			g_sequence_ids[5] = kernel_seq_stamp(g_sprite_ids[5], false, g_engine->getRandomNumber(1, 4));
+			kernel_seq_depth(g_sequence_ids[5], 1);
+			kernel_timing_trigger(60, 54);
 		}
 	}
 
 	if (local._bartenderReady) {
-		if (_vm->getRandomNumber(1, 250) == 1) {
+		if (g_engine->getRandomNumber(1, 250) == 1) {
 			if (local._bartenderLooksLeft) {
-				_scene->_sequences.remove(_globals._sequenceIndexes[11]);
+				kernel_seq_delete(g_sequence_ids[11]);
 				local._bartenderLooksLeft = false;
 			} else if (local._bartenderHandsHips) {
-				_scene->_sequences.remove(_globals._sequenceIndexes[10]);
+				kernel_seq_delete(g_sequence_ids[10]);
 				local._bartenderHandsHips = false;
 			} else if (local._bartenderSteady) {
-				_scene->_sequences.remove(_globals._sequenceIndexes[9]);
+				kernel_seq_delete(g_sequence_ids[9]);
 				local._bartenderSteady = false;
 			}
 
-			switch (_vm->getRandomNumber(1, 3)) {
+			switch (g_engine->getRandomNumber(1, 3)) {
 			case 1:
 			{
-				_globals._sequenceIndexes[10] = _scene->_sequences.startCycle(_globals._spriteIndexes[10], false, 4);
-				_scene->_sequences.setDepth(_globals._sequenceIndexes[10], 8);
-				int idx = _scene->_dynamicHotspots.add(words_bartender, words_walkto, _globals._sequenceIndexes[10], Common::Rect(0, 0, 0, 0));
-				_scene->_dynamicHotspots.setPosition(idx, Common::Point(228, 83), FACING_SOUTH);
+				g_sequence_ids[10] = kernel_seq_stamp(g_sprite_ids[10], false, 4);
+				kernel_seq_depth(g_sequence_ids[10], 8);
+				int idx = kernel_add_dynamic(words_bartender, words_walkto, 0, g_sequence_ids[10], 0, 0, 0, 0);
+				kernel_dynamic_walk(idx, 228, 83, FACING_SOUTH);
 				local._bartenderHandsHips = true;
 			}
 			break;
 
 			case 2:
 			{
-				_globals._sequenceIndexes[11] = _scene->_sequences.startCycle(_globals._spriteIndexes[11], false, 2);
-				_scene->_sequences.setDepth(_globals._sequenceIndexes[11], 8);
-				int idx = _scene->_dynamicHotspots.add(words_bartender, words_walkto, _globals._sequenceIndexes[11], Common::Rect(0, 0, 0, 0));
-				_scene->_dynamicHotspots.setPosition(idx, Common::Point(228, 83), FACING_SOUTH);
+				g_sequence_ids[11] = kernel_seq_stamp(g_sprite_ids[11], false, 2);
+				kernel_seq_depth(g_sequence_ids[11], 8);
+				int idx = kernel_add_dynamic(words_bartender, words_walkto, 0, g_sequence_ids[11], 0, 0, 0, 0);
+				kernel_dynamic_walk(idx, 228, 83, FACING_SOUTH);
 				local._bartenderLooksLeft = true;
 			}
 			break;
 
 			case 3:
 			{
-				_globals._sequenceIndexes[9] = _scene->_sequences.startCycle(_globals._spriteIndexes[9], false, 1);
-				_scene->_sequences.setDepth(_globals._sequenceIndexes[9], 8);
-				int idx = _scene->_dynamicHotspots.add(words_bartender, words_walkto, _globals._sequenceIndexes[9], Common::Rect(0, 0, 0, 0));
-				_scene->_dynamicHotspots.setPosition(idx, Common::Point(228, 83), FACING_SOUTH);
+				g_sequence_ids[9] = kernel_seq_stamp(g_sprite_ids[9], false, 1);
+				kernel_seq_depth(g_sequence_ids[9], 8);
+				int idx = kernel_add_dynamic(words_bartender, words_walkto, 0, g_sequence_ids[9], 0, 0, 0, 0);
+				kernel_dynamic_walk(idx, 228, 83, FACING_SOUTH);
 				local._bartenderSteady = true;
 			}
 			break;
@@ -1112,57 +1114,57 @@ static void room_402_daemon() {
 		}
 	}
 
-	if (_game._trigger == 76) {
-		int seqIdx = _globals._sequenceIndexes[6];
-		_globals._sequenceIndexes[6] = _scene->_sequences.startCycle(_globals._spriteIndexes[6], false, 11);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[6], 5);
-		_scene->_sequences.updateTimeout(_globals._sequenceIndexes[6], seqIdx);
-		if (!_globals[kBeenThruHelgaScene]) {
-			_game._player._stepEnabled = false;
+	if (kernel.trigger == 76) {
+		int seqIdx = g_sequence_ids[6];
+		g_sequence_ids[6] = kernel_seq_stamp(g_sprite_ids[6], false, 11);
+		kernel_seq_depth(g_sequence_ids[6], 5);
+		kernel_seq_timeout(seqIdx, g_sequence_ids[6]);
+		if (!global[kBeenThruHelgaScene]) {
+			player.commands_allowed = false;
 			local._cutSceneNeeded = true;
 		} else {
-			_game._player._stepEnabled = true;
+			player.commands_allowed = true;
 		}
 		local._roxOnStool = true;
 	}
 
-	switch (_game._trigger) {
+	switch (kernel.trigger) {
 	case 77:
-		_game._player._stepEnabled = false;
-		_scene->_sequences.remove(_globals._sequenceIndexes[6]);
-		_globals._sequenceIndexes[7] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[7], false, 10, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[7], 10, 12);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[7], 5);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[7], SEQUENCE_TRIGGER_EXPIRE, 0, 78);
+		player.commands_allowed = false;
+		kernel_seq_delete(g_sequence_ids[6]);
+		g_sequence_ids[7] = kernel_seq_forward(g_sprite_ids[7], false, 10, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[7], 10, 12);
+		kernel_seq_depth(g_sequence_ids[7], 5);
+		kernel_seq_trigger(g_sequence_ids[7], KERNEL_TRIGGER_EXPIRE, 0, 78);
 		break;
 
 	case 78:
 	{
-		_vm->_sound->command(57);
-		int seqIdx = _globals._sequenceIndexes[7];
-		_game._objects.addToInventory(OBJ_REPAIR_LIST);
-		_scene->_sequences.remove(_globals._sequenceIndexes[14]);
-		_globals._sequenceIndexes[7] = _scene->_sequences.addReverseSpriteCycle(_globals._spriteIndexes[7], false, 10, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[7], 10, 12);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[7], 5);
-		_scene->_sequences.updateTimeout(_globals._sequenceIndexes[7], seqIdx);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[7], SEQUENCE_TRIGGER_EXPIRE, 0, 79);
+		g_engine->_soundManager->command(57, 0);
+		int seqIdx = g_sequence_ids[7];
+		inter_give_to_player(OBJ_REPAIR_LIST);
+		kernel_seq_delete(g_sequence_ids[14]);
+		g_sequence_ids[7] = kernel_seq_backward(g_sprite_ids[7], false, 10, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[7], 10, 12);
+		kernel_seq_depth(g_sequence_ids[7], 5);
+		kernel_seq_timeout(seqIdx, g_sequence_ids[7]);
+		kernel_seq_trigger(g_sequence_ids[7], KERNEL_TRIGGER_EXPIRE, 0, 79);
 	}
 	break;
 
 	case 79:
 	{
-		int seqIdx = _globals._sequenceIndexes[7];
-		_globals._sequenceIndexes[6] = _scene->_sequences.startCycle(_globals._spriteIndexes[6], false, 11);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[6], 5);
-		_scene->_sequences.updateTimeout(_globals._sequenceIndexes[6], seqIdx);
-		_scene->_sequences.addTimer(20, 180);
+		int seqIdx = g_sequence_ids[7];
+		g_sequence_ids[6] = kernel_seq_stamp(g_sprite_ids[6], false, 11);
+		kernel_seq_depth(g_sequence_ids[6], 5);
+		kernel_seq_timeout(seqIdx, g_sequence_ids[6]);
+		kernel_timing_trigger(20, 180);
 	}
 	break;
 
 	case 180:
-		_vm->_dialogs->showItem(OBJ_REPAIR_LIST, 40240);
-		_game._player._stepEnabled = true;
+		object_examine(OBJ_REPAIR_LIST, 40240, 0);
+		player.commands_allowed = true;
 		break;
 
 	default:
@@ -1171,35 +1173,35 @@ static void room_402_daemon() {
 
 	if (local._cutSceneNeeded && local._cutSceneReady) {
 		local._cutSceneNeeded = false;
-		_scene->_sequences.addTimer(20, 55);
+		kernel_timing_trigger(20, 55);
 		local._helgaReady = false;
 		local._bartenderReady = false;
 	}
 
-	if (_vm->getRandomNumber(1, 25) == 1) {
+	if (g_engine->getRandomNumber(1, 25) == 1) {
 		if (local._lightOn) {
-			_scene->_sequences.remove(_globals._sequenceIndexes[0]);
+			kernel_seq_delete(g_sequence_ids[0]);
 			local._lightOn = false;
 		} else {
-			_globals._sequenceIndexes[0] = _scene->_sequences.startCycle(_globals._spriteIndexes[0], false, 1);
+			g_sequence_ids[0] = kernel_seq_stamp(g_sprite_ids[0], false, 1);
 			local._lightOn = true;
 		}
 	}
 
-	if (!local._blowingSmoke && (_vm->getRandomNumber(1, 300) == 1)) {
-		_globals._sequenceIndexes[1] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[1], false, 8, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[1], 1, 14);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[1], 14);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[1], SEQUENCE_TRIGGER_EXPIRE, 0, 30);
+	if (!local._blowingSmoke && (g_engine->getRandomNumber(1, 300) == 1)) {
+		g_sequence_ids[1] = kernel_seq_forward(g_sprite_ids[1], false, 8, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[1], 1, 14);
+		kernel_seq_depth(g_sequence_ids[1], 14);
+		kernel_seq_trigger(g_sequence_ids[1], KERNEL_TRIGGER_EXPIRE, 0, 30);
 		local._blowingSmoke = true;
 	}
 
-	switch (_game._trigger) {
+	switch (kernel.trigger) {
 	case 30:
-		_globals._sequenceIndexes[1] = _scene->_sequences.addReverseSpriteCycle(_globals._spriteIndexes[1], false, 8, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[1], 1, 5);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[1], 14);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[1], SEQUENCE_TRIGGER_EXPIRE, 0, 31);
+		g_sequence_ids[1] = kernel_seq_backward(g_sprite_ids[1], false, 8, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[1], 1, 5);
+		kernel_seq_depth(g_sequence_ids[1], 14);
+		kernel_seq_trigger(g_sequence_ids[1], KERNEL_TRIGGER_EXPIRE, 0, 31);
 		break;
 
 	case 31:
@@ -1211,18 +1213,18 @@ static void room_402_daemon() {
 	}
 
 	if (!local._leftWomanMoving) {
-		if (_vm->getRandomNumber(1, 1000) == 1) {
-			switch (_vm->getRandomNumber(1, 2)) {
+		if (g_engine->getRandomNumber(1, 1000) == 1) {
+			switch (g_engine->getRandomNumber(1, 2)) {
 			case 1:
-				_globals._sequenceIndexes[2] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[2], false, 12, 1, 0, 0);
-				_scene->_sequences.setAnimRange(_globals._sequenceIndexes[2], 1, 8);
-				_scene->_sequences.addSubEntry(_globals._sequenceIndexes[2], SEQUENCE_TRIGGER_EXPIRE, 0, 33);
+				g_sequence_ids[2] = kernel_seq_forward(g_sprite_ids[2], false, 12, 0, 0, 1);
+				kernel_seq_range(g_sequence_ids[2], 1, 8);
+				kernel_seq_trigger(g_sequence_ids[2], KERNEL_TRIGGER_EXPIRE, 0, 33);
 				local._leftWomanMoving = true;
 				break;
 
 			case 2:
-				_globals._sequenceIndexes[2] = _scene->_sequences.startCycle(_globals._spriteIndexes[2], false, 1);
-				_scene->_sequences.addTimer(12, 35);
+				g_sequence_ids[2] = kernel_seq_stamp(g_sprite_ids[2], false, 1);
+				kernel_timing_trigger(12, 35);
 				local._leftWomanMoving = true;
 				break;
 
@@ -1232,37 +1234,37 @@ static void room_402_daemon() {
 		}
 	}
 
-	switch (_game._trigger) {
+	switch (kernel.trigger) {
 	case 33:
 	{
-		int seqIdx = _globals._sequenceIndexes[2];
-		_globals._sequenceIndexes[2] = _scene->_sequences.startCycle(_globals._spriteIndexes[2], false, 9);
-		_scene->_sequences.updateTimeout(_globals._sequenceIndexes[2], seqIdx);
-		_scene->_sequences.addTimer(_vm->getRandomNumber(60, 250), 34);
+		int seqIdx = g_sequence_ids[2];
+		g_sequence_ids[2] = kernel_seq_stamp(g_sprite_ids[2], false, 9);
+		kernel_seq_timeout(seqIdx, g_sequence_ids[2]);
+		kernel_timing_trigger(g_engine->getRandomNumber(60, 250), 34);
 	}
 	break;
 
 	case 34:
-		_scene->_sequences.remove(_globals._sequenceIndexes[2]);
-		_globals._sequenceIndexes[2] = _scene->_sequences.addReverseSpriteCycle(_globals._spriteIndexes[2], false, 12, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[2], 1, 8);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[2], SEQUENCE_TRIGGER_EXPIRE, 0, 38);
+		kernel_seq_delete(g_sequence_ids[2]);
+		g_sequence_ids[2] = kernel_seq_backward(g_sprite_ids[2], false, 12, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[2], 1, 8);
+		kernel_seq_trigger(g_sequence_ids[2], KERNEL_TRIGGER_EXPIRE, 0, 38);
 		break;
 
 	case 35:
-		_scene->_sequences.remove(_globals._sequenceIndexes[2]);
-		_globals._sequenceIndexes[2] = _scene->_sequences.startCycle(_globals._spriteIndexes[2], false, 2);
-		_scene->_sequences.addTimer(_vm->getRandomNumber(60, 300), 36);
+		kernel_seq_delete(g_sequence_ids[2]);
+		g_sequence_ids[2] = kernel_seq_stamp(g_sprite_ids[2], false, 2);
+		kernel_timing_trigger(g_engine->getRandomNumber(60, 300), 36);
 		break;
 
 	case 36:
-		_scene->_sequences.remove(_globals._sequenceIndexes[2]);
-		_globals._sequenceIndexes[2] = _scene->_sequences.startCycle(_globals._spriteIndexes[2], false, 1);
-		_scene->_sequences.addTimer(12, 37);
+		kernel_seq_delete(g_sequence_ids[2]);
+		g_sequence_ids[2] = kernel_seq_stamp(g_sprite_ids[2], false, 1);
+		kernel_timing_trigger(12, 37);
 		break;
 
 	case 37:
-		_scene->_sequences.remove(_globals._sequenceIndexes[2]);
+		kernel_seq_delete(g_sequence_ids[2]);
 		local._leftWomanMoving = false;
 		break;
 
@@ -1275,33 +1277,33 @@ static void room_402_daemon() {
 	}
 
 	if (!local._rightWomanMoving) {
-		if (_vm->getRandomNumber(1, 300) == 1) {
-			switch (_vm->getRandomNumber(1, 4)) {
+		if (g_engine->getRandomNumber(1, 300) == 1) {
+			switch (g_engine->getRandomNumber(1, 4)) {
 			case 1:
-				_globals._sequenceIndexes[3] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[3], false, 12, 1, 0, 0);
-				_scene->_sequences.setAnimRange(_globals._sequenceIndexes[3], 1, 4);
-				_scene->_sequences.addSubEntry(_globals._sequenceIndexes[3], SEQUENCE_TRIGGER_EXPIRE, 0, 32);
+				g_sequence_ids[3] = kernel_seq_forward(g_sprite_ids[3], false, 12, 0, 0, 1);
+				kernel_seq_range(g_sequence_ids[3], 1, 4);
+				kernel_seq_trigger(g_sequence_ids[3], KERNEL_TRIGGER_EXPIRE, 0, 32);
 				local._rightWomanMoving = true;
 				break;
 
 			case 2:
-				_globals._sequenceIndexes[3] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[3], false, 12, 2, 0, 0);
-				_scene->_sequences.setAnimRange(_globals._sequenceIndexes[3], 4, 5);
-				_scene->_sequences.addSubEntry(_globals._sequenceIndexes[3], SEQUENCE_TRIGGER_EXPIRE, 0, 32);
+				g_sequence_ids[3] = kernel_seq_forward(g_sprite_ids[3], false, 12, 0, 0, 2);
+				kernel_seq_range(g_sequence_ids[3], 4, 5);
+				kernel_seq_trigger(g_sequence_ids[3], KERNEL_TRIGGER_EXPIRE, 0, 32);
 				local._rightWomanMoving = true;
 				break;
 
 			case 3:
-				_globals._sequenceIndexes[3] = _scene->_sequences.startPingPongCycle(_globals._spriteIndexes[3], false, 12, 2, 0, 0);
-				_scene->_sequences.setAnimRange(_globals._sequenceIndexes[3], 4, 5);
-				_scene->_sequences.addSubEntry(_globals._sequenceIndexes[3], SEQUENCE_TRIGGER_EXPIRE, 0, 32);
+				g_sequence_ids[3] = kernel_seq_pingpong(g_sprite_ids[3], false, 12, 0, 0, 2);
+				kernel_seq_range(g_sequence_ids[3], 4, 5);
+				kernel_seq_trigger(g_sequence_ids[3], KERNEL_TRIGGER_EXPIRE, 0, 32);
 				local._rightWomanMoving = true;
 				break;
 
 			case 4:
-				_globals._sequenceIndexes[3] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[3], false, 12, 2, 0, 0);
-				_scene->_sequences.setAnimRange(_globals._sequenceIndexes[3], 3, 4);
-				_scene->_sequences.addSubEntry(_globals._sequenceIndexes[3], SEQUENCE_TRIGGER_EXPIRE, 0, 32);
+				g_sequence_ids[3] = kernel_seq_forward(g_sprite_ids[3], false, 12, 0, 0, 2);
+				kernel_seq_range(g_sequence_ids[3], 3, 4);
+				kernel_seq_trigger(g_sequence_ids[3], KERNEL_TRIGGER_EXPIRE, 0, 32);
 				local._rightWomanMoving = true;
 				break;
 
@@ -1311,297 +1313,297 @@ static void room_402_daemon() {
 		}
 	}
 
-	if (_game._trigger == 32)
+	if (kernel.trigger == 32)
 		local._rightWomanMoving = false;
 
-	if (_scene->_animation[0]->getCurrentFrame() == 1) {
-		switch (_vm->getRandomNumber(1, 50)) {
+	if (kernel_anim[0].frame == 1) {
+		switch (g_engine->getRandomNumber(1, 50)) {
 		case 1:
-			_scene->_animation[0]->setCurrentFrame(2);
+			kernel_reset_animation(0, 2);
 			break;
 
 		case 2:
-			_scene->_animation[0]->setCurrentFrame(7);
+			kernel_reset_animation(0, 7);
 			break;
 
 		case 3:
-			_scene->_animation[0]->setCurrentFrame(11);
+			kernel_reset_animation(0, 11);
 			break;
 
 		default:
-			_scene->_animation[0]->setCurrentFrame(0);
+			kernel_reset_animation(0, 0);
 			break;
 		}
 	}
 
-	if ((_scene->_animation[0]->getCurrentFrame() == 4) && (local._drinkTimer < 10)) {
+	if ((kernel_anim[0].frame == 4) && (local._drinkTimer < 10)) {
 		++local._drinkTimer;
-		_scene->_animation[0]->setCurrentFrame(3);
+		kernel_reset_animation(0, 3);
 	}
 
 	if (local._drinkTimer == 10) {
 		local._drinkTimer = 0;
-		_scene->_animation[0]->setCurrentFrame(4);
-		_scene->_animation[0]->_currentFrame = 5;
+		kernel_reset_animation(0, 4);
+		kernel_anim[0].frame = 5;
 	}
 
 
-	switch (_scene->_animation[0]->getCurrentFrame()) {
+	switch (kernel_anim[0].frame) {
 	case 6:
 	case 10:
 	case 14:
-		_scene->_animation[0]->setCurrentFrame(0);
+		kernel_reset_animation(0, 0);
 		break;
 
 	default:
 		break;
 	}
 
-	switch (_game._trigger) {
+	switch (kernel.trigger) {
 	case 39:
-		_scene->_kernelMessages.reset();
-		_scene->_kernelMessages.add(Common::Point(89, 67), 0xFDFC, 32, 0, 120, _game.getQuote(0x1D8));
-		_scene->_sequences.addTimer(150, 40);
+		kernel_message_purge();
+		kernel_message_add(quote_string(kernel.quotes, 0x1D8), 89, 67, 0xFDFC, 120, 0, 32);
+		kernel_timing_trigger(150, 40);
 		break;
 
 	case 40:
-		_scene->_kernelMessages.add(Common::Point(89, 67), 0xFDFC, 32, 0, 120, _game.getQuote(0x1D9));
-		_scene->_sequences.addTimer(150, 41);
+		kernel_message_add(quote_string(kernel.quotes, 0x1D9), 89, 67, 0xFDFC, 120, 0, 32);
+		kernel_timing_trigger(150, 41);
 		break;
 
 	case 41:
-		_scene->_kernelMessages.add(Common::Point(89, 67), 0xFDFC, 32, 0, 120, _game.getQuote(0x1DA));
-		_game._player._stepEnabled = true;
+		kernel_message_add(quote_string(kernel.quotes, 0x1DA), 89, 67, 0xFDFC, 120, 0, 32);
+		player.commands_allowed = true;
 		break;
 
 	case 42:
-		_scene->_kernelMessages.reset();
-		_scene->_kernelMessages.add(Common::Point(89, 67), 0xFDFC, 32, 0, 120, _game.getQuote(0x1DC));
-		_scene->_sequences.addTimer(150, 43);
+		kernel_message_purge();
+		kernel_message_add(quote_string(kernel.quotes, 0x1DC), 89, 67, 0xFDFC, 120, 0, 32);
+		kernel_timing_trigger(150, 43);
 		break;
 
 	case 43:
-		_scene->_kernelMessages.add(Common::Point(89, 67), 0xFDFC, 32, 0, 120, _game.getQuote(0x1DD));
-		_game._player._stepEnabled = true;
+		kernel_message_add(quote_string(kernel.quotes, 0x1DD), 89, 67, 0xFDFC, 120, 0, 32);
+		player.commands_allowed = true;
 		break;
 
 	case 44:
-		_game._player._stepEnabled = true;
+		player.commands_allowed = true;
 		break;
 
 	default:
 		break;
 	}
 
-	switch (_game._trigger) {
+	switch (kernel.trigger) {
 	case 55:
 		if (local._bartenderHandsHips) {
-			_scene->_sequences.remove(_globals._sequenceIndexes[10]);
+			kernel_seq_delete(g_sequence_ids[10]);
 			local._bartenderHandsHips = false;
-			_globals._sequenceIndexes[9] = _scene->_sequences.startCycle(_globals._spriteIndexes[9], false, 1);
-			int idx = _scene->_dynamicHotspots.add(words_bartender, words_walkto, _globals._sequenceIndexes[9], Common::Rect(0, 0, 0, 0));
-			_scene->_dynamicHotspots.setPosition(idx, Common::Point(228, 83), FACING_SOUTH);
+			g_sequence_ids[9] = kernel_seq_stamp(g_sprite_ids[9], false, 1);
+			int idx = kernel_add_dynamic(words_bartender, words_walkto, 0, g_sequence_ids[9], 0, 0, 0, 0);
+			kernel_dynamic_walk(idx, 228, 83, FACING_SOUTH);
 			local._bartenderSteady = true;
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[9], 8);
+			kernel_seq_depth(g_sequence_ids[9], 8);
 		} else if (local._bartenderLooksLeft) {
-			_scene->_sequences.remove(_globals._sequenceIndexes[11]);
+			kernel_seq_delete(g_sequence_ids[11]);
 			local._bartenderLooksLeft = false;
-			_globals._sequenceIndexes[9] = _scene->_sequences.startCycle(_globals._spriteIndexes[9], false, 1);
-			int idx = _scene->_dynamicHotspots.add(words_bartender, words_walkto, _globals._sequenceIndexes[9], Common::Rect(0, 0, 0, 0));
-			_scene->_dynamicHotspots.setPosition(idx, Common::Point(228, 83), FACING_SOUTH);
+			g_sequence_ids[9] = kernel_seq_stamp(g_sprite_ids[9], false, 1);
+			int idx = kernel_add_dynamic(words_bartender, words_walkto, 0, g_sequence_ids[9], 0, 0, 0, 0);
+			kernel_dynamic_walk(idx, 228, 83, FACING_SOUTH);
 			local._bartenderSteady = true;
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[9], 8);
+			kernel_seq_depth(g_sequence_ids[9], 8);
 		}
-		_game._player._stepEnabled = false;
-		_scene->_kernelMessages.reset();
-		_scene->_kernelMessages.add(Common::Point(180, 47), 0xFBFA, 0, 0, 100, _game.getQuote(0x1FE));
-		_scene->_sequences.addTimer(120, 56);
+		player.commands_allowed = false;
+		kernel_message_purge();
+		kernel_message_add(quote_string(kernel.quotes, 0x1FE), 180, 47, 0xFBFA, 100, 0, 0);
+		kernel_timing_trigger(120, 56);
 		break;
 
 	case 56:
-		_scene->_sequences.remove(_globals._sequenceIndexes[13]);
-		_globals._sequenceIndexes[13] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[13], false, 10, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[13], 2, 5);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[13], 8);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[13], SEQUENCE_TRIGGER_EXPIRE, 0, 57);
+		kernel_seq_delete(g_sequence_ids[13]);
+		g_sequence_ids[13] = kernel_seq_forward(g_sprite_ids[13], false, 10, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[13], 2, 5);
+		kernel_seq_depth(g_sequence_ids[13], 8);
+		kernel_seq_trigger(g_sequence_ids[13], KERNEL_TRIGGER_EXPIRE, 0, 57);
 		break;
 
 	case 57:
 	{
-		int seqIdx = _globals._sequenceIndexes[13];
-		_scene->_sequences.remove(_globals._sequenceIndexes[20]);
-		_globals._sequenceIndexes[13] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[13], false, 10, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[13], 6, 9);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[13], 8);
-		_scene->_sequences.updateTimeout(_globals._sequenceIndexes[13], seqIdx);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[13], SEQUENCE_TRIGGER_EXPIRE, 0, 58);
+		int seqIdx = g_sequence_ids[13];
+		kernel_seq_delete(g_sequence_ids[20]);
+		g_sequence_ids[13] = kernel_seq_forward(g_sprite_ids[13], false, 10, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[13], 6, 9);
+		kernel_seq_depth(g_sequence_ids[13], 8);
+		kernel_seq_timeout(seqIdx, g_sequence_ids[13]);
+		kernel_seq_trigger(g_sequence_ids[13], KERNEL_TRIGGER_EXPIRE, 0, 58);
 	}
 	break;
 
 	case 58:
 	{
-		int seqIdx = _globals._sequenceIndexes[13];
-		_globals._sequenceIndexes[13] = _scene->_sequences.addReverseSpriteCycle(_globals._spriteIndexes[13], false, 10, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[13], 5, 9);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[13], 8);
-		_scene->_sequences.updateTimeout(_globals._sequenceIndexes[13], seqIdx);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[13], SEQUENCE_TRIGGER_EXPIRE, 0, 59);
+		int seqIdx = g_sequence_ids[13];
+		g_sequence_ids[13] = kernel_seq_backward(g_sprite_ids[13], false, 10, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[13], 5, 9);
+		kernel_seq_depth(g_sequence_ids[13], 8);
+		kernel_seq_timeout(seqIdx, g_sequence_ids[13]);
+		kernel_seq_trigger(g_sequence_ids[13], KERNEL_TRIGGER_EXPIRE, 0, 59);
 	}
 	break;
 
 	case 59:
 	{
-		int seqIdx = _globals._sequenceIndexes[13];
-		_globals._sequenceIndexes[13] = _scene->_sequences.addReverseSpriteCycle(_globals._spriteIndexes[13], false, 10, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[13], 1, 4);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[13], 8);
-		_scene->_sequences.updateTimeout(_globals._sequenceIndexes[13], seqIdx);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[13], SEQUENCE_TRIGGER_EXPIRE, 0, 60);
-		_globals._sequenceIndexes[20] = _scene->_sequences.startCycle(_globals._spriteIndexes[20], false, 1);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[20], 8);
-		_scene->_sequences.setPosition(_globals._sequenceIndexes[20], Common::Point(234, 72));
+		int seqIdx = g_sequence_ids[13];
+		g_sequence_ids[13] = kernel_seq_backward(g_sprite_ids[13], false, 10, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[13], 1, 4);
+		kernel_seq_depth(g_sequence_ids[13], 8);
+		kernel_seq_timeout(seqIdx, g_sequence_ids[13]);
+		kernel_seq_trigger(g_sequence_ids[13], KERNEL_TRIGGER_EXPIRE, 0, 60);
+		g_sequence_ids[20] = kernel_seq_stamp(g_sprite_ids[20], false, 1);
+		kernel_seq_depth(g_sequence_ids[20], 8);
+		kernel_seq_loc(g_sequence_ids[20], 234, 72);
 	}
 	break;
 
 	case 60:
 	{
-		int seqIdx = _globals._sequenceIndexes[13];
-		_globals._sequenceIndexes[13] = _scene->_sequences.startCycle(_globals._spriteIndexes[13], false, 2);
-		_scene->_sequences.updateTimeout(_globals._sequenceIndexes[13], seqIdx);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[13], 8);
-		_scene->_sequences.addTimer(10, 61);
+		int seqIdx = g_sequence_ids[13];
+		g_sequence_ids[13] = kernel_seq_stamp(g_sprite_ids[13], false, 2);
+		kernel_seq_timeout(seqIdx, g_sequence_ids[13]);
+		kernel_seq_depth(g_sequence_ids[13], 8);
+		kernel_timing_trigger(10, 61);
 	}
 	break;
 
 	case 61:
-		_scene->_kernelMessages.reset();
-		_scene->_kernelMessages.add(Common::Point(181, 33), 0xFBFA, 0, 0, 130, _game.getQuote(0x1FF));
-		_scene->_kernelMessages.add(Common::Point(171, 47), 0xFBFA, 0, 0, 130, _game.getQuote(0x200));
-		_scene->_sequences.addTimer(150, 63);
-		_scene->_sequences.remove(_globals._sequenceIndexes[13]);
-		_globals._sequenceIndexes[13] = _scene->_sequences.startPingPongCycle(_globals._spriteIndexes[13], false, 30, 4, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[13], 10, 11);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[13], 8);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[13], SEQUENCE_TRIGGER_EXPIRE, 0, 62);
+		kernel_message_purge();
+		kernel_message_add(quote_string(kernel.quotes, 0x1FF), 181, 33, 0xFBFA, 130, 0, 0);
+		kernel_message_add(quote_string(kernel.quotes, 0x200), 171, 47, 0xFBFA, 130, 0, 0);
+		kernel_timing_trigger(150, 63);
+		kernel_seq_delete(g_sequence_ids[13]);
+		g_sequence_ids[13] = kernel_seq_pingpong(g_sprite_ids[13], false, 30, 0, 0, 4);
+		kernel_seq_range(g_sequence_ids[13], 10, 11);
+		kernel_seq_depth(g_sequence_ids[13], 8);
+		kernel_seq_trigger(g_sequence_ids[13], KERNEL_TRIGGER_EXPIRE, 0, 62);
 		break;
 
 	case 62:
 	{
-		int seqIdx = _globals._sequenceIndexes[13];
-		_globals._sequenceIndexes[13] = _scene->_sequences.startCycle(_globals._spriteIndexes[13], false, 2);
-		_scene->_sequences.updateTimeout(_globals._sequenceIndexes[13], seqIdx);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[13], 8);
+		int seqIdx = g_sequence_ids[13];
+		g_sequence_ids[13] = kernel_seq_stamp(g_sprite_ids[13], false, 2);
+		kernel_seq_timeout(seqIdx, g_sequence_ids[13]);
+		kernel_seq_depth(g_sequence_ids[13], 8);
 	}
 	break;
 
 	case 63:
-		_scene->_kernelMessages.reset();
-		_scene->_kernelMessages.add(Common::Point(160, 33), 0xFBFA, 0, 0, 130, _game.getQuote(0x201));
-		_scene->_kernelMessages.add(Common::Point(165, 47), 0xFBFA, 0, 0, 130, _game.getQuote(0x202));
-		_scene->_sequences.addTimer(150, 64);
+		kernel_message_purge();
+		kernel_message_add(quote_string(kernel.quotes, 0x201), 160, 33, 0xFBFA, 130, 0, 0);
+		kernel_message_add(quote_string(kernel.quotes, 0x202), 165, 47, 0xFBFA, 130, 0, 0);
+		kernel_timing_trigger(150, 64);
 		break;
 
 	case 64:
-		_scene->_kernelMessages.reset();
-		_scene->_kernelMessages.add(Common::Point(210, 27), 0xFDFC, 0, 0, 130, _game.getQuote(0x1E0));
-		_scene->_kernelMessages.add(Common::Point(198, 41), 0xFDFC, 0, 0, 130, _game.getQuote(0x1E1));
-		_scene->_sequences.addTimer(150, 65);
-		_scene->_sequences.addTimer(1, 100);
+		kernel_message_purge();
+		kernel_message_add(quote_string(kernel.quotes, 0x1E0), 210, 27, 0xFDFC, 130, 0, 0);
+		kernel_message_add(quote_string(kernel.quotes, 0x1E1), 198, 41, 0xFDFC, 130, 0, 0);
+		kernel_timing_trigger(150, 65);
+		kernel_timing_trigger(1, 100);
 		local._talkTimer = 1130;
 		break;
 
 	case 65:
-		_vm->_sound->command(30);
-		_globals._sequenceIndexes[16] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[16], false, 10, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[16], 1, 6);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[16], 9);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[16], SEQUENCE_TRIGGER_EXPIRE, 0, 66);
+		g_engine->_soundManager->command(30, 0);
+		g_sequence_ids[16] = kernel_seq_forward(g_sprite_ids[16], false, 10, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[16], 1, 6);
+		kernel_seq_depth(g_sequence_ids[16], 9);
+		kernel_seq_trigger(g_sequence_ids[16], KERNEL_TRIGGER_EXPIRE, 0, 66);
 		break;
 
 	case 66:
 	{
-		int seqIdx = _globals._sequenceIndexes[16];
-		_globals._sequenceIndexes[16] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[16], false, 10, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[16], 7, 37);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[16], 9);
-		_scene->_sequences.updateTimeout(_globals._sequenceIndexes[16], seqIdx);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[16], SEQUENCE_TRIGGER_EXPIRE, 0, 68);
+		int seqIdx = g_sequence_ids[16];
+		g_sequence_ids[16] = kernel_seq_forward(g_sprite_ids[16], false, 10, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[16], 7, 37);
+		kernel_seq_depth(g_sequence_ids[16], 9);
+		kernel_seq_timeout(seqIdx, g_sequence_ids[16]);
+		kernel_seq_trigger(g_sequence_ids[16], KERNEL_TRIGGER_EXPIRE, 0, 68);
 
-		_scene->_sequences.remove(_globals._sequenceIndexes[13]);
-		_globals._sequenceIndexes[13] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[13], false, 10, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[13], 12, 13);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[13], 8);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[13], SEQUENCE_TRIGGER_EXPIRE, 0, 67);
+		kernel_seq_delete(g_sequence_ids[13]);
+		g_sequence_ids[13] = kernel_seq_forward(g_sprite_ids[13], false, 10, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[13], 12, 13);
+		kernel_seq_depth(g_sequence_ids[13], 8);
+		kernel_seq_trigger(g_sequence_ids[13], KERNEL_TRIGGER_EXPIRE, 0, 67);
 	}
 	break;
 
 	case 67:
 	{
-		int seqIdx = _globals._sequenceIndexes[13];
-		_globals._sequenceIndexes[13] = _scene->_sequences.startCycle(_globals._spriteIndexes[13], false, 13);
-		_scene->_sequences.updateTimeout(_globals._sequenceIndexes[13], seqIdx);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[13], 8);
+		int seqIdx = g_sequence_ids[13];
+		g_sequence_ids[13] = kernel_seq_stamp(g_sprite_ids[13], false, 13);
+		kernel_seq_timeout(seqIdx, g_sequence_ids[13]);
+		kernel_seq_depth(g_sequence_ids[13], 8);
 	}
 	break;
 
 	case 68:
-		_scene->_sequences.remove(_globals._sequenceIndexes[13]);
-		_globals._sequenceIndexes[13] = _scene->_sequences.addReverseSpriteCycle(_globals._spriteIndexes[13], false, 10, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[13], 12, 13);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[13], 8);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[13], SEQUENCE_TRIGGER_EXPIRE, 0, 69);
+		kernel_seq_delete(g_sequence_ids[13]);
+		g_sequence_ids[13] = kernel_seq_backward(g_sprite_ids[13], false, 10, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[13], 12, 13);
+		kernel_seq_depth(g_sequence_ids[13], 8);
+		kernel_seq_trigger(g_sequence_ids[13], KERNEL_TRIGGER_EXPIRE, 0, 69);
 		break;
 
 	case 69:
 	{
-		int seqIdx = _globals._sequenceIndexes[13];
-		_globals._sequenceIndexes[13] = _scene->_sequences.startPingPongCycle(_globals._spriteIndexes[13], false, 25, 4, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[13], 10, 11);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[13], 8);
-		_scene->_sequences.updateTimeout(_globals._sequenceIndexes[13], seqIdx);
+		int seqIdx = g_sequence_ids[13];
+		g_sequence_ids[13] = kernel_seq_pingpong(g_sprite_ids[13], false, 25, 0, 0, 4);
+		kernel_seq_range(g_sequence_ids[13], 10, 11);
+		kernel_seq_depth(g_sequence_ids[13], 8);
+		kernel_seq_timeout(seqIdx, g_sequence_ids[13]);
 
-		_scene->_kernelMessages.reset();
-		_scene->_kernelMessages.add(Common::Point(179, 33), 0xFBFA, 0, 0, 130, _game.getQuote(0x203));
-		_scene->_kernelMessages.add(Common::Point(167, 47), 0xFBFA, 0, 0, 130, _game.getQuote(0x204));
-		_scene->_sequences.addTimer(150, 71);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[13], SEQUENCE_TRIGGER_EXPIRE, 0, 70);
+		kernel_message_purge();
+		kernel_message_add(quote_string(kernel.quotes, 0x203), 179, 33, 0xFBFA, 130, 0, 0);
+		kernel_message_add(quote_string(kernel.quotes, 0x204), 167, 47, 0xFBFA, 130, 0, 0);
+		kernel_timing_trigger(150, 71);
+		kernel_seq_trigger(g_sequence_ids[13], KERNEL_TRIGGER_EXPIRE, 0, 70);
 	}
 	break;
 
 	case 70:
-		_globals._sequenceIndexes[13] = _scene->_sequences.startPingPongCycle(_globals._spriteIndexes[13], false, 25, 4, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[13], 10, 12);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[13], 8);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[13], SEQUENCE_TRIGGER_EXPIRE, 0, 72);
+		g_sequence_ids[13] = kernel_seq_pingpong(g_sprite_ids[13], false, 25, 0, 0, 4);
+		kernel_seq_range(g_sequence_ids[13], 10, 12);
+		kernel_seq_depth(g_sequence_ids[13], 8);
+		kernel_seq_trigger(g_sequence_ids[13], KERNEL_TRIGGER_EXPIRE, 0, 72);
 		break;
 
 	case 71:
-		_scene->_sequences.addTimer(210, 73);
-		_scene->_kernelMessages.reset();
-		_scene->_kernelMessages.add(Common::Point(168, 33), 0xFBFA, 0, 0, 180, _game.getQuote(0x205));
-		_scene->_kernelMessages.add(Common::Point(151, 47), 0xFBFA, 0, 0, 180, _game.getQuote(0x206));
-		if (!_game._objects.isInInventory(OBJ_REPAIR_LIST))
+		kernel_timing_trigger(210, 73);
+		kernel_message_purge();
+		kernel_message_add(quote_string(kernel.quotes, 0x205), 168, 33, 0xFBFA, 180, 0, 0);
+		kernel_message_add(quote_string(kernel.quotes, 0x206), 151, 47, 0xFBFA, 180, 0, 0);
+		if (!player_has(OBJ_REPAIR_LIST))
 			local._activeArrows = true;
 		break;
 
 	case 72:
 	{
-		int seqIdx = _globals._sequenceIndexes[13];
-		_globals._sequenceIndexes[13] = _scene->_sequences.startCycle(_globals._spriteIndexes[13], false, 2);
-		_scene->_sequences.updateTimeout(_globals._sequenceIndexes[13], seqIdx);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[13], 8);
+		int seqIdx = g_sequence_ids[13];
+		g_sequence_ids[13] = kernel_seq_stamp(g_sprite_ids[13], false, 2);
+		kernel_seq_timeout(seqIdx, g_sequence_ids[13]);
+		kernel_seq_depth(g_sequence_ids[13], 8);
 	}
 	break;
 
 	case 73:
-		_scene->_kernelMessages.reset();
-		_scene->_kernelMessages.add(Common::Point(177, 33), 0xFBFA, 0, 0, 150, _game.getQuote(0x207));
-		_scene->_kernelMessages.add(Common::Point(172, 47), 0xFBFA, 0, 0, 150, _game.getQuote(0x208));
+		kernel_message_purge();
+		kernel_message_add(quote_string(kernel.quotes, 0x207), 177, 33, 0xFBFA, 150, 0, 0);
+		kernel_message_add(quote_string(kernel.quotes, 0x208), 172, 47, 0xFBFA, 150, 0, 0);
 		local._bartenderSteady = true;
-		_game._player._stepEnabled = true;
+		player.commands_allowed = true;
 		local._helgaReady = true;
 		local._bartenderReady = true;
-		_globals[kBeenThruHelgaScene] = true;
+		global[kBeenThruHelgaScene] = true;
 		local._activeArrows = false;
 		break;
 
@@ -1610,57 +1612,57 @@ static void room_402_daemon() {
 	}
 
 	if (local._helgaReady) {
-		int rndVal = _vm->getRandomNumber(1, 1000);
+		int rndVal = g_engine->getRandomNumber(1, 1000);
 		if (rndVal < 6)
 			switch (rndVal) {
 			case 1:
 				local._cutSceneReady = false;
 				local._helgaReady = false;
-				_scene->_sequences.remove(_globals._sequenceIndexes[13]);
-				_globals._sequenceIndexes[13] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[13], false, 10, 1, 0, 0);
-				_scene->_sequences.setAnimRange(_globals._sequenceIndexes[13], 2, 5);
-				_scene->_sequences.setDepth(_globals._sequenceIndexes[13], 8);
-				_scene->_sequences.addSubEntry(_globals._sequenceIndexes[13], SEQUENCE_TRIGGER_EXPIRE, 0, 82);
+				kernel_seq_delete(g_sequence_ids[13]);
+				g_sequence_ids[13] = kernel_seq_forward(g_sprite_ids[13], false, 10, 0, 0, 1);
+				kernel_seq_range(g_sequence_ids[13], 2, 5);
+				kernel_seq_depth(g_sequence_ids[13], 8);
+				kernel_seq_trigger(g_sequence_ids[13], KERNEL_TRIGGER_EXPIRE, 0, 82);
 				break;
 
 			case 2:
 				local._cutSceneReady = false;
 				local._helgaReady = false;
-				_scene->_sequences.remove(_globals._sequenceIndexes[13]);
-				_globals._sequenceIndexes[13] = _scene->_sequences.startPingPongCycle(_globals._spriteIndexes[13], false, 15, 2, 0, 0);
-				_scene->_sequences.setAnimRange(_globals._sequenceIndexes[13], 11, 13);
-				_scene->_sequences.setDepth(_globals._sequenceIndexes[13], 8);
-				_scene->_sequences.addSubEntry(_globals._sequenceIndexes[13], SEQUENCE_TRIGGER_EXPIRE, 0, 26);
+				kernel_seq_delete(g_sequence_ids[13]);
+				g_sequence_ids[13] = kernel_seq_pingpong(g_sprite_ids[13], false, 15, 0, 0, 2);
+				kernel_seq_range(g_sequence_ids[13], 11, 13);
+				kernel_seq_depth(g_sequence_ids[13], 8);
+				kernel_seq_trigger(g_sequence_ids[13], KERNEL_TRIGGER_EXPIRE, 0, 26);
 				break;
 
 			case 3:
 				local._cutSceneReady = false;
 				local._helgaReady = false;
-				_scene->_sequences.remove(_globals._sequenceIndexes[13]);
-				_globals._sequenceIndexes[13] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[13], false, 10, 1, 0, 0);
-				_scene->_sequences.setAnimRange(_globals._sequenceIndexes[13], 10, 11);
-				_scene->_sequences.setDepth(_globals._sequenceIndexes[13], 8);
-				_scene->_sequences.addSubEntry(_globals._sequenceIndexes[13], SEQUENCE_TRIGGER_EXPIRE, 0, 26);
+				kernel_seq_delete(g_sequence_ids[13]);
+				g_sequence_ids[13] = kernel_seq_forward(g_sprite_ids[13], false, 10, 0, 0, 1);
+				kernel_seq_range(g_sequence_ids[13], 10, 11);
+				kernel_seq_depth(g_sequence_ids[13], 8);
+				kernel_seq_trigger(g_sequence_ids[13], KERNEL_TRIGGER_EXPIRE, 0, 26);
 				break;
 
 			case 4:
 				local._cutSceneReady = false;
 				local._helgaReady = false;
-				_scene->_sequences.remove(_globals._sequenceIndexes[13]);
-				_globals._sequenceIndexes[13] = _scene->_sequences.startPingPongCycle(_globals._spriteIndexes[13], false, 15, 2, 0, 0);
-				_scene->_sequences.setAnimRange(_globals._sequenceIndexes[13], 14, 15);
-				_scene->_sequences.setDepth(_globals._sequenceIndexes[13], 8);
-				_scene->_sequences.addSubEntry(_globals._sequenceIndexes[13], SEQUENCE_TRIGGER_EXPIRE, 0, 26);
+				kernel_seq_delete(g_sequence_ids[13]);
+				g_sequence_ids[13] = kernel_seq_pingpong(g_sprite_ids[13], false, 15, 0, 0, 2);
+				kernel_seq_range(g_sequence_ids[13], 14, 15);
+				kernel_seq_depth(g_sequence_ids[13], 8);
+				kernel_seq_trigger(g_sequence_ids[13], KERNEL_TRIGGER_EXPIRE, 0, 26);
 				break;
 
 			case 5:
 				local._cutSceneReady = false;
 				local._helgaReady = false;
-				_scene->_sequences.remove(_globals._sequenceIndexes[13]);
-				_globals._sequenceIndexes[13] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[13], false, 10, 1, 0, 0);
-				_scene->_sequences.setAnimRange(_globals._sequenceIndexes[13], 16, 19);
-				_scene->_sequences.setDepth(_globals._sequenceIndexes[13], 8);
-				_scene->_sequences.addSubEntry(_globals._sequenceIndexes[13], SEQUENCE_TRIGGER_EXPIRE, 0, 80);
+				kernel_seq_delete(g_sequence_ids[13]);
+				g_sequence_ids[13] = kernel_seq_forward(g_sprite_ids[13], false, 10, 0, 0, 1);
+				kernel_seq_range(g_sequence_ids[13], 16, 19);
+				kernel_seq_depth(g_sequence_ids[13], 8);
+				kernel_seq_trigger(g_sequence_ids[13], KERNEL_TRIGGER_EXPIRE, 0, 80);
 				break;
 
 			default:
@@ -1668,222 +1670,222 @@ static void room_402_daemon() {
 			}
 	}
 
-	if (_game._trigger == 80) {
-		int seqIdx = _globals._sequenceIndexes[13];
-		_globals._sequenceIndexes[13] = _scene->_sequences.startCycle(_globals._spriteIndexes[13], false, 19);
-		_scene->_sequences.updateTimeout(_globals._sequenceIndexes[13], seqIdx);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[13], 8);
-		_scene->_sequences.addTimer(_vm->getRandomNumber(60, 120), 81);
+	if (kernel.trigger == 80) {
+		int seqIdx = g_sequence_ids[13];
+		g_sequence_ids[13] = kernel_seq_stamp(g_sprite_ids[13], false, 19);
+		kernel_seq_timeout(seqIdx, g_sequence_ids[13]);
+		kernel_seq_depth(g_sequence_ids[13], 8);
+		kernel_timing_trigger(g_engine->getRandomNumber(60, 120), 81);
 	}
 
-	if (_game._trigger == 81) {
-		_scene->_sequences.remove(_globals._sequenceIndexes[13]);
-		_globals._sequenceIndexes[13] = _scene->_sequences.addReverseSpriteCycle(_globals._spriteIndexes[13], false, 10, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[13], 16, 19);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[13], 8);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[13], SEQUENCE_TRIGGER_EXPIRE, 0, 26);
+	if (kernel.trigger == 81) {
+		kernel_seq_delete(g_sequence_ids[13]);
+		g_sequence_ids[13] = kernel_seq_backward(g_sprite_ids[13], false, 10, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[13], 16, 19);
+		kernel_seq_depth(g_sequence_ids[13], 8);
+		kernel_seq_trigger(g_sequence_ids[13], KERNEL_TRIGGER_EXPIRE, 0, 26);
 	}
 
-	if (_game._trigger == 26) {
-		int seqIdx = _globals._sequenceIndexes[13];
-		_globals._sequenceIndexes[13] = _scene->_sequences.startCycle(_globals._spriteIndexes[13], false, 2);
-		_scene->_sequences.updateTimeout(_globals._sequenceIndexes[13], seqIdx);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[13], 8);
+	if (kernel.trigger == 26) {
+		int seqIdx = g_sequence_ids[13];
+		g_sequence_ids[13] = kernel_seq_stamp(g_sprite_ids[13], false, 2);
+		kernel_seq_timeout(seqIdx, g_sequence_ids[13]);
+		kernel_seq_depth(g_sequence_ids[13], 8);
 		local._cutSceneReady = true;
 
 		if (!local._cutSceneNeeded)
 			local._helgaReady = true;
 	}
 
-	if (_game._trigger == 82) {
-		_scene->_sequences.remove(_globals._sequenceIndexes[20]);
-		int seqIdx = _globals._sequenceIndexes[13];
-		_globals._sequenceIndexes[13] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[13], false, 10, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[13], 6, 9);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[13], 8);
-		_scene->_sequences.updateTimeout(_globals._sequenceIndexes[13], seqIdx);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[13], SEQUENCE_TRIGGER_EXPIRE, 0, 83);
+	if (kernel.trigger == 82) {
+		kernel_seq_delete(g_sequence_ids[20]);
+		int seqIdx = g_sequence_ids[13];
+		g_sequence_ids[13] = kernel_seq_forward(g_sprite_ids[13], false, 10, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[13], 6, 9);
+		kernel_seq_depth(g_sequence_ids[13], 8);
+		kernel_seq_timeout(seqIdx, g_sequence_ids[13]);
+		kernel_seq_trigger(g_sequence_ids[13], KERNEL_TRIGGER_EXPIRE, 0, 83);
 	}
 
-	if (_game._trigger == 83) {
-		int seqIdx = _globals._sequenceIndexes[13];
-		_globals._sequenceIndexes[13] = _scene->_sequences.addReverseSpriteCycle(_globals._spriteIndexes[13], false, 10, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[13], 5, 9);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[13], 8);
-		_scene->_sequences.updateTimeout(_globals._sequenceIndexes[13], seqIdx);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[13], SEQUENCE_TRIGGER_EXPIRE, 0, 84);
+	if (kernel.trigger == 83) {
+		int seqIdx = g_sequence_ids[13];
+		g_sequence_ids[13] = kernel_seq_backward(g_sprite_ids[13], false, 10, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[13], 5, 9);
+		kernel_seq_depth(g_sequence_ids[13], 8);
+		kernel_seq_timeout(seqIdx, g_sequence_ids[13]);
+		kernel_seq_trigger(g_sequence_ids[13], KERNEL_TRIGGER_EXPIRE, 0, 84);
 	}
 
-	if (_game._trigger == 84) {
-		int seqIdx = _globals._sequenceIndexes[13];
-		_globals._sequenceIndexes[13] = _scene->_sequences.addReverseSpriteCycle(_globals._spriteIndexes[13], false, 10, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[13], 1, 4);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[13], 8);
-		_scene->_sequences.updateTimeout(_globals._sequenceIndexes[13], seqIdx);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[13], SEQUENCE_TRIGGER_EXPIRE, 0, 85);
+	if (kernel.trigger == 84) {
+		int seqIdx = g_sequence_ids[13];
+		g_sequence_ids[13] = kernel_seq_backward(g_sprite_ids[13], false, 10, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[13], 1, 4);
+		kernel_seq_depth(g_sequence_ids[13], 8);
+		kernel_seq_timeout(seqIdx, g_sequence_ids[13]);
+		kernel_seq_trigger(g_sequence_ids[13], KERNEL_TRIGGER_EXPIRE, 0, 85);
 
-		_globals._sequenceIndexes[20] = _scene->_sequences.startCycle(_globals._spriteIndexes[20], false, 1);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[20], 8);
-		_scene->_sequences.setPosition(_globals._sequenceIndexes[20], Common::Point(234, 72));
+		g_sequence_ids[20] = kernel_seq_stamp(g_sprite_ids[20], false, 1);
+		kernel_seq_depth(g_sequence_ids[20], 8);
+		kernel_seq_loc(g_sequence_ids[20], 234, 72);
 	}
 
-	if (_game._trigger == 85) {
-		int seqIdx = _globals._sequenceIndexes[13];
-		_globals._sequenceIndexes[13] = _scene->_sequences.startCycle(_globals._spriteIndexes[13], false, 2);
-		_scene->_sequences.updateTimeout(_globals._sequenceIndexes[13], seqIdx);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[13], 8);
+	if (kernel.trigger == 85) {
+		int seqIdx = g_sequence_ids[13];
+		g_sequence_ids[13] = kernel_seq_stamp(g_sprite_ids[13], false, 2);
+		kernel_seq_timeout(seqIdx, g_sequence_ids[13]);
+		kernel_seq_depth(g_sequence_ids[13], 8);
 		local._cutSceneReady = true;
 		if (!local._cutSceneNeeded)
 			local._helgaReady = true;
 	}
 
-	if (_game._trigger == 102) {
-		_scene->_sequences.remove(_globals._sequenceIndexes[6]);
-		_game._player._priorTimer = _scene->_frameStartTime - _game._player._ticksAmount;
-		_globals._sequenceIndexes[7] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[7], false, 8, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[7], 14, 18);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[7], 5);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[7], SEQUENCE_TRIGGER_EXPIRE, 0, 103);
-	} else if (_game._trigger == 103) {
-		_game._player._priorTimer = _scene->_frameStartTime + _game._player._ticksAmount;
+	if (kernel.trigger == 102) {
+		kernel_seq_delete(g_sequence_ids[6]);
+		player.clock = kernel.clock - player.frame_delay;
+		g_sequence_ids[7] = kernel_seq_forward(g_sprite_ids[7], false, 8, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[7], 14, 18);
+		kernel_seq_depth(g_sequence_ids[7], 5);
+		kernel_seq_trigger(g_sequence_ids[7], KERNEL_TRIGGER_EXPIRE, 0, 103);
+	} else if (kernel.trigger == 103) {
+		player.clock = kernel.clock + player.frame_delay;
 		local._roxOnStool = false;
-		_game._player._facing = FACING_SOUTH;
-		_game._player.selectSeries();
-		_game._player._visible = true;
-		_game._player._stepEnabled = true;
-		_game._player._readyToWalk = true;
+		player.facing = FACING_SOUTH;
+		player_select_series();
+		player.walker_visible = true;
+		player.commands_allowed = true;
+		player.ready_to_walk = true;
 	}
 
 	if (local._activeArrows) {
 		if (!local._activeArrow1) {
-			_globals._sequenceIndexes[17] = _scene->_sequences.startCycle(_globals._spriteIndexes[17], false, 1);
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[17], 1);
-			_scene->_sequences.addTimer(_vm->getRandomNumber(10, 15), 49);
+			g_sequence_ids[17] = kernel_seq_stamp(g_sprite_ids[17], false, 1);
+			kernel_seq_depth(g_sequence_ids[17], 1);
+			kernel_timing_trigger(g_engine->getRandomNumber(10, 15), 49);
 			local._activeArrow1 = true;
 		}
 
 		if (!local._activeArrow2) {
-			_globals._sequenceIndexes[18] = _scene->_sequences.startCycle(_globals._spriteIndexes[18], false, 1);
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[18], 1);
-			_scene->_sequences.addTimer(_vm->getRandomNumber(10, 15), 50);
+			g_sequence_ids[18] = kernel_seq_stamp(g_sprite_ids[18], false, 1);
+			kernel_seq_depth(g_sequence_ids[18], 1);
+			kernel_timing_trigger(g_engine->getRandomNumber(10, 15), 50);
 			local._activeArrow2 = true;
 		}
 
 		if (!local._activeArrow3) {
-			_globals._sequenceIndexes[19] = _scene->_sequences.startCycle(_globals._spriteIndexes[19], false, 1);
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[19], 1);
-			_scene->_sequences.addTimer(_vm->getRandomNumber(10, 15), 51);
+			g_sequence_ids[19] = kernel_seq_stamp(g_sprite_ids[19], false, 1);
+			kernel_seq_depth(g_sequence_ids[19], 1);
+			kernel_timing_trigger(g_engine->getRandomNumber(10, 15), 51);
 			local._activeArrow3 = true;
 		}
 	}
 
-	if (_game._trigger == 49) {
-		_scene->_sequences.remove(_globals._sequenceIndexes[17]);
-		_scene->_sequences.addTimer(_vm->getRandomNumber(10, 15), 45);
+	if (kernel.trigger == 49) {
+		kernel_seq_delete(g_sequence_ids[17]);
+		kernel_timing_trigger(g_engine->getRandomNumber(10, 15), 45);
 	}
 
-	if (_game._trigger == 45)
+	if (kernel.trigger == 45)
 		local._activeArrow1 = false;
 
-	if (_game._trigger == 50) {
-		_scene->_sequences.remove(_globals._sequenceIndexes[18]);
-		_scene->_sequences.addTimer(_vm->getRandomNumber(10, 15), 46);
+	if (kernel.trigger == 50) {
+		kernel_seq_delete(g_sequence_ids[18]);
+		kernel_timing_trigger(g_engine->getRandomNumber(10, 15), 46);
 	}
 
-	if (_game._trigger == 46)
+	if (kernel.trigger == 46)
 		local._activeArrow2 = false;
 
-	if (_game._trigger == 51) {
-		_scene->_sequences.remove(_globals._sequenceIndexes[19]);
-		_scene->_sequences.addTimer(_vm->getRandomNumber(10, 15), 47);
+	if (kernel.trigger == 51) {
+		kernel_seq_delete(g_sequence_ids[19]);
+		kernel_timing_trigger(g_engine->getRandomNumber(10, 15), 47);
 	}
 
-	if (_game._trigger == 47)
+	if (kernel.trigger == 47)
 		local._activeArrow3 = false;
 }
 
 static void room_402_pre_parser() {
-	if (player_said_2(sit_on, bar_stool) && (_game._player._prepareWalkPos.x != 248))
-		_game._player.walk(Common::Point(232, 112), FACING_EAST);
+	if (player_said_2(sit_on, bar_stool) && (player.prepare_walk_x != 248))
+		player_walk(232, 112, FACING_EAST);
 
 	if (player_said_2(walkto, woman_on_balcony))
-		_game._player._needToWalk = _game._player._readyToWalk;
+		player.need_to_walk = player.ready_to_walk;
 
-	if (!local._roxOnStool && player_said_2(take, credit_chip) && !_game._objects.isInInventory(OBJ_CREDIT_CHIP))
-		_game._player.walk(Common::Point(246, 108), FACING_NORTH);
+	if (!local._roxOnStool && player_said_2(take, credit_chip) && !player_has(OBJ_CREDIT_CHIP))
+		player_walk(246, 108, FACING_NORTH);
 
 	if (player_said_1(take))
-		_game._player._needToWalk = false;
+		player.need_to_walk = false;
 
 	if (player_said_2(take, credit_chip) && !local._roxOnStool)
-		_game._player._needToWalk = true;
+		player.need_to_walk = true;
 
 	if (local._roxOnStool) {
 		if (player_said_1(look) || player_said_1(bar_stool) || player_said_1(talkto))
-			_game._player._needToWalk = false;
+			player.need_to_walk = false;
 
 		if (player_said_2(take, repair_list) || player_said_2(take, credit_chip))
-			_game._player._needToWalk = false;
+			player.need_to_walk = false;
 
 		if (player_said_2(talkto, woman_in_chair) || player_said_2(talkto, woman_in_alcove))
-			_game._player._needToWalk = _game._player._readyToWalk;
+			player.need_to_walk = player.ready_to_walk;
 
-		if (_game._player._needToWalk) {
-			_game._player._facing = FACING_SOUTH;
-			_game._player._readyToWalk = false;
-			_game._player._stepEnabled = false;
-			_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-			_scene->_sequences.addTimer(1, 102);
+		if (player.need_to_walk) {
+			player.facing = FACING_SOUTH;
+			player.ready_to_walk = false;
+			player.commands_allowed = false;
+			kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+			kernel_timing_trigger(1, 102);
 		}
 	}
 
-	if (player_said_2(take, repair_list) && !local._roxOnStool && !_game._objects.isInInventory(OBJ_REPAIR_LIST))
-		_game._player.walk(Common::Point(191, 99), FACING_NORTHEAST);
+	if (player_said_2(take, repair_list) && !local._roxOnStool && !player_has(OBJ_REPAIR_LIST))
+		player_walk(191, 99, FACING_NORTHEAST);
 
 	if (player_said_2(talkto, bartender) && !local._roxOnStool)
-		_game._player.walk(Common::Point(228, 83), FACING_SOUTH);
+		player_walk(228, 83, FACING_SOUTH);
 
 	if (player_said_2(talkto, repair_woman) && !local._roxOnStool)
-		_game._player.walk(Common::Point(208, 102), FACING_NORTHEAST);
+		player_walk(208, 102, FACING_NORTHEAST);
 }
 
 static void room_402_parser() {
-	if (player_said_2(take, repair_list) && _game._objects.isInRoom(OBJ_REPAIR_LIST) && local._roxOnStool) {
-		_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-		_scene->_sequences.addTimer(1, 77);
-		_game._player._needToWalk = false;
-	} else if (player_said_2(take, repair_list) && _game._objects.isInRoom(OBJ_REPAIR_LIST) && !local._roxOnStool) {
-		if (_game._trigger == 0) {
-			_game._player._stepEnabled = false;
-			_game._player._visible = false;
-			_globals._sequenceIndexes[21] = _scene->_sequences.startPingPongCycle(_globals._spriteIndexes[21], false, 7, 2, 0, 0);
-			_scene->_sequences.setAnimRange(_globals._sequenceIndexes[21], 1, 2);
-			_scene->_sequences.setMsgLayout(_globals._sequenceIndexes[21]);
-			_scene->_sequences.addSubEntry(_globals._sequenceIndexes[21], SEQUENCE_TRIGGER_SPRITE, 2, 165);
-			_scene->_sequences.addSubEntry(_globals._sequenceIndexes[21], SEQUENCE_TRIGGER_EXPIRE, 0, 166);
-		} else if (_game._trigger == 165) {
-			_scene->_sequences.remove(_globals._sequenceIndexes[14]);
-			_game._objects.addToInventory(OBJ_REPAIR_LIST);
+	if (player_said_2(take, repair_list) && object_is_here(OBJ_REPAIR_LIST) && local._roxOnStool) {
+		kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+		kernel_timing_trigger(1, 77);
+		player.need_to_walk = false;
+	} else if (player_said_2(take, repair_list) && object_is_here(OBJ_REPAIR_LIST) && !local._roxOnStool) {
+		if (kernel.trigger == 0) {
+			player.commands_allowed = false;
+			player.walker_visible = false;
+			g_sequence_ids[21] = kernel_seq_pingpong(g_sprite_ids[21], false, 7, 0, 0, 2);
+			kernel_seq_range(g_sequence_ids[21], 1, 2);
+			kernel_seq_player(g_sequence_ids[21], false);
+			kernel_seq_trigger(g_sequence_ids[21], KERNEL_TRIGGER_SPRITE, 2, 165);
+			kernel_seq_trigger(g_sequence_ids[21], KERNEL_TRIGGER_EXPIRE, 0, 166);
+		} else if (kernel.trigger == 165) {
+			kernel_seq_delete(g_sequence_ids[14]);
+			inter_give_to_player(OBJ_REPAIR_LIST);
 		}
-	} else if (_game._trigger == 166) {
-		_game._player._priorTimer = _scene->_frameStartTime + _game._player._ticksAmount;
-		_game._player._visible = true;
-		_scene->_sequences.addTimer(20, 167);
-	} else if (_game._trigger == 167) {
-		_vm->_dialogs->showItem(OBJ_REPAIR_LIST, 40240);
-		_game._player._stepEnabled = true;
-	} else if (_game._screenObjects._inputMode == kInputConversation)
+	} else if (kernel.trigger == 166) {
+		player.clock = kernel.clock + player.frame_delay;
+		player.walker_visible = true;
+		kernel_timing_trigger(20, 167);
+	} else if (kernel.trigger == 167) {
+		object_examine(OBJ_REPAIR_LIST, 40240, 0);
+		player.commands_allowed = true;
+	} else if (inter_input_mode == INTER_CONVERSATION)
 		handleDialogs();
 	else if (player_said_2(walk_into, corridor_to_south))
-		_scene->_nextSceneId = 401;
+		new_room = 401;
 	else if (player_said_2(walk_onto, dance_floor))
 		; // just... nothing
 	else if (player_said_2(talkto, repair_woman)) {
-		switch (_game._trigger) {
+		switch (kernel.trigger) {
 		case 0:
 		{
-			_game._player._stepEnabled = false;
-			int random = _vm->getRandomNumber(1, 3);
+			player.commands_allowed = false;
+			int random = g_engine->getRandomNumber(1, 3);
 			if (local._helgaTalkMode == 0)
 				random = 1;
 
@@ -1899,18 +1901,18 @@ static void room_402_parser() {
 
 			switch (random) {
 			case 1:
-				_scene->_kernelMessages.add(centerPos, 0x1110, 32 | centerFlag, 0, 90, _game.getQuote(0x211));
-				_scene->_sequences.addTimer(110, 25);
+				kernel_message_add(quote_string(kernel.quotes, 0x211), centerPos.x, centerPos.y, 0x1110, 90, 0, 32 | centerFlag);
+				kernel_timing_trigger(110, 25);
 				break;
 
 			case 2:
-				_scene->_kernelMessages.add(centerPos, 0x1110, 32 | centerFlag, 0, 90, _game.getQuote(0x212));
-				_scene->_sequences.addTimer(110, 25);
+				kernel_message_add(quote_string(kernel.quotes, 0x212), centerPos.x, centerPos.y, 0x1110, 90, 0, 32 | centerFlag);
+				kernel_timing_trigger(110, 25);
 				break;
 
 			case 3:
-				_scene->_kernelMessages.add(centerPos, 0x1110, 32 | centerFlag, 0, 90, _game.getQuote(0x213));
-				_scene->_sequences.addTimer(110, 25);
+				kernel_message_add(quote_string(kernel.quotes, 0x213), centerPos.x, centerPos.y, 0x1110, 90, 0, 32 | centerFlag);
+				kernel_timing_trigger(110, 25);
 				break;
 
 			default:
@@ -1922,32 +1924,32 @@ static void room_402_parser() {
 		case 25:
 			switch (local._helgaTalkMode) {
 			case 0:
-				_game._player._stepEnabled = false;
+				player.commands_allowed = false;
 				local._helgaTalkMode = 1;
-				_scene->_kernelMessages.add(Common::Point(177, 33), 0xFBFA, 0, 0, 130, _game.getQuote(0x209));
-				_scene->_kernelMessages.add(Common::Point(182, 47), 0xFBFA, 0, 0, 130, _game.getQuote(0x20A));
-				_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-				_scene->_sequences.addTimer(130, 28);
+				kernel_message_add(quote_string(kernel.quotes, 0x209), 177, 33, 0xFBFA, 130, 0, 0);
+				kernel_message_add(quote_string(kernel.quotes, 0x20A), 182, 47, 0xFBFA, 130, 0, 0);
+				kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+				kernel_timing_trigger(130, 28);
 				break;
 
 			case 1:
-				_game._player._stepEnabled = false;
+				player.commands_allowed = false;
 				local._helgaTalkMode = 2;
-				_scene->_kernelMessages.add(Common::Point(157, 47), 0xFBFA, 0, 0, 100, _game.getQuote(0x20B));
-				_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-				_scene->_sequences.addTimer(100, 28);
+				kernel_message_add(quote_string(kernel.quotes, 0x20B), 157, 47, 0xFBFA, 100, 0, 0);
+				kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+				kernel_timing_trigger(100, 28);
 				break;
 
 			case 2:
-				_game._player._stepEnabled = false;
+				player.commands_allowed = false;
 				local._helgaTalkMode = 3;
-				_scene->_kernelMessages.add(Common::Point(172, 47), 0xFBFA, 0, 0, 100, _game.getQuote(0x20C));
-				_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-				_scene->_sequences.addTimer(100, 28);
+				kernel_message_add(quote_string(kernel.quotes, 0x20C), 172, 47, 0xFBFA, 100, 0, 0);
+				kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+				kernel_timing_trigger(100, 28);
 				break;
 
 			case 3:
-				_game._player._stepEnabled = true;
+				player.commands_allowed = true;
 				break;
 
 			default:
@@ -1959,49 +1961,49 @@ static void room_402_parser() {
 			break;
 		}
 	} else if (player_said_2(talkto, woman_in_chair) && !local._firstTalkToGirlInChair) {
-		_scene->_kernelMessages.add(Common::Point(0, 0), 0x1110, 34, 0, 120, _game.getQuote(0x1D7));
-		_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-		_scene->_sequences.addTimer(150, 39);
-		_game._player._stepEnabled = false;
+		kernel_message_add(quote_string(kernel.quotes, 0x1D7), 0, 0, 0x1110, 120, 0, 34);
+		kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+		kernel_timing_trigger(150, 39);
+		player.commands_allowed = false;
 		local._firstTalkToGirlInChair = true;
 	} else if (player_said_2(talkto, woman_in_chair) && local._firstTalkToGirlInChair) {
-		_scene->_kernelMessages.add(Common::Point(0, 0), 0x1110, 34, 0, 120, _game.getQuote(0x1DB));
-		_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-		_scene->_sequences.addTimer(150, 42);
-		_game._player._stepEnabled = false;
+		kernel_message_add(quote_string(kernel.quotes, 0x1DB), 0, 0, 0x1110, 120, 0, 34);
+		kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+		kernel_timing_trigger(150, 42);
+		player.commands_allowed = false;
 	} else if (player_said_2(talkto, woman_in_alcove) || player_said_2(walkto, woman_in_alcove)) {
-		_scene->_kernelMessages.add(Common::Point(102, 48), 0xFBFA, 0, 0, 120, _game.getQuote(0x1DE));
-		_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-		_scene->_sequences.addTimer(120, 44);
-		_game._player._stepEnabled = false;
-	} else if (player_said_2(sit_on, bar_stool) && (_game._player._targetPos.x == 248)) {
-		_scene->_kernelMessages.add(Common::Point(0, -14), 0x1110, 34, 0, 120, _game.getQuote(0x20D));
-		_scene->_kernelMessages.add(Common::Point(0, 0), 0x1110, 34, 0, 120, _game.getQuote(0x20E));
-	} else if (player_said_2(sit_on, bar_stool) && !local._roxOnStool && (_game._player._targetPos.x != 248)) {
-		_game._player._visible = false;
-		_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-		_globals._sequenceIndexes[6] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[6], false, 7, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[6], 1, 11);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[6], 5);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[6], SEQUENCE_TRIGGER_EXPIRE, 0, 76);
-		_game._player._stepEnabled = false;
-	} else if (player_said_2(take, credit_chip) && !_game._objects.isInInventory(OBJ_CREDIT_CHIP) && local._roxOnStool) {
+		kernel_message_add(quote_string(kernel.quotes, 0x1DE), 102, 48, 0xFBFA, 120, 0, 0);
+		kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+		kernel_timing_trigger(120, 44);
+		player.commands_allowed = false;
+	} else if (player_said_2(sit_on, bar_stool) && (player.target_x == 248)) {
+		kernel_message_add(quote_string(kernel.quotes, 0x20D), 0, -14, 0x1110, 120, 0, 34);
+		kernel_message_add(quote_string(kernel.quotes, 0x20E), 0, 0, 0x1110, 120, 0, 34);
+	} else if (player_said_2(sit_on, bar_stool) && !local._roxOnStool && (player.target_x != 248)) {
+		player.walker_visible = false;
+		kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+		g_sequence_ids[6] = kernel_seq_forward(g_sprite_ids[6], false, 7, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[6], 1, 11);
+		kernel_seq_depth(g_sequence_ids[6], 5);
+		kernel_seq_trigger(g_sequence_ids[6], KERNEL_TRIGGER_EXPIRE, 0, 76);
+		player.commands_allowed = false;
+	} else if (player_said_2(take, credit_chip) && !player_has(OBJ_CREDIT_CHIP) && local._roxOnStool) {
 		local._roxMode = 20;
-		_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-		_scene->_sequences.addTimer(1, 92);
-	} else if (player_said_2(take, credit_chip) && !_game._objects.isInInventory(OBJ_CREDIT_CHIP) && !local._roxOnStool) {
-		_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-		_game._player._stepEnabled = false;
-		_game._player._visible = false;
-		_globals._sequenceIndexes[22] = _scene->_sequences.startPingPongCycle(_globals._spriteIndexes[22], false, 7, 2, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[22], 1, 2);
-		_scene->_sequences.setPosition(_globals._sequenceIndexes[22], Common::Point(_game._player._playerPos.x, _game._player._playerPos.y + 1));
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[22], 5);
-		_scene->_sequences.setScale(_globals._sequenceIndexes[22], 88);
-		_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[22], SEQUENCE_TRIGGER_EXPIRE, 0, 104);
+		kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+		kernel_timing_trigger(1, 92);
+	} else if (player_said_2(take, credit_chip) && !player_has(OBJ_CREDIT_CHIP) && !local._roxOnStool) {
+		kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+		player.commands_allowed = false;
+		player.walker_visible = false;
+		g_sequence_ids[22] = kernel_seq_pingpong(g_sprite_ids[22], false, 7, 0, 0, 2);
+		kernel_seq_range(g_sequence_ids[22], 1, 2);
+		kernel_seq_loc(g_sequence_ids[22], player.x, player.y + 1);
+		kernel_seq_depth(g_sequence_ids[22], 5);
+		kernel_seq_scale(g_sequence_ids[22], 88);
+		kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+		kernel_seq_trigger(g_sequence_ids[22], KERNEL_TRIGGER_EXPIRE, 0, 104);
 	} else if (player_said_2(talkto, bartender)) {
-		switch (_game._trigger) {
+		switch (kernel.trigger) {
 		case 0:
 		{
 			int centerFlag;
@@ -2014,7 +2016,7 @@ static void room_402_parser() {
 				centerPos = Common::Point(0, 0);
 			}
 
-			_game._player._stepEnabled = false;
+			player.commands_allowed = false;
 			int quoteId;
 			if (local._bartenderCalled) {
 				quoteId = 0x210;
@@ -2022,49 +2024,49 @@ static void room_402_parser() {
 				quoteId = 0x20F;
 				local._bartenderCalled = true;
 			}
-			_scene->_kernelMessages.reset();
-			_scene->_kernelMessages.add(centerPos, 0x1110, 32 | centerFlag, 0, 90, _game.getQuote(quoteId));
-			_scene->_sequences.addTimer(110, 29);
-			_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-			_scene->_sequences.addTimer(90, 28);
+			kernel_message_purge();
+			kernel_message_add(quote_string(kernel.quotes, quoteId), centerPos.x, centerPos.y, 0x1110, 90, 0, 32 | centerFlag);
+			kernel_timing_trigger(110, 29);
+			kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+			kernel_timing_trigger(90, 28);
 		}
 		break;
 
 		case 29:
-			_scene->_kernelMessages.reset();
+			kernel_message_purge();
 			if (!local._roxOnStool) {
-				if (_game._objects.isInRoom(OBJ_ALIEN_LIQUOR)) {
-					_scene->_kernelMessages.add(Common::Point(177, 41), 0xFDFC, 0, 0, 120, _game.getQuote(0x1DF));
-					_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-					_scene->_sequences.addTimer(1, 100);
+				if (object_is_here(OBJ_ALIEN_LIQUOR)) {
+					kernel_message_add(quote_string(kernel.quotes, 0x1DF), 177, 41, 0xFDFC, 120, 0, 0);
+					kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+					kernel_timing_trigger(1, 100);
 					local._talkTimer = 120;
 				} else if (local._rexMode == 0) {
-					_scene->_kernelMessages.add(Common::Point(175, 13), 0xFDFC, 0, 0, 180, _game.getQuote(0x1F9));
-					_scene->_kernelMessages.add(Common::Point(184, 27), 0xFDFC, 0, 0, 180, _game.getQuote(0x1FA));
-					_scene->_kernelMessages.add(Common::Point(200, 41), 0xFDFC, 0, 0, 180, _game.getQuote(0x1FB));
-					_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-					_scene->_sequences.addTimer(1, 100);
+					kernel_message_add(quote_string(kernel.quotes, 0x1F9), 175, 13, 0xFDFC, 180, 0, 0);
+					kernel_message_add(quote_string(kernel.quotes, 0x1FA), 184, 27, 0xFDFC, 180, 0, 0);
+					kernel_message_add(quote_string(kernel.quotes, 0x1FB), 200, 41, 0xFDFC, 180, 0, 0);
+					kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+					kernel_timing_trigger(1, 100);
 					local._talkTimer = 180;
 					local._rexMode = 1;
 				} else if (local._rexMode == 1) {
-					_scene->_kernelMessages.add(Common::Point(205, 41), 0xFDFC, 0, 0, 120, _game.getQuote(0x1FC));
-					_game._player._stepEnabled = true;
-					_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-					_scene->_sequences.addTimer(1, 100);
+					kernel_message_add(quote_string(kernel.quotes, 0x1FC), 205, 41, 0xFDFC, 120, 0, 0);
+					player.commands_allowed = true;
+					kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+					kernel_timing_trigger(1, 100);
 					local._talkTimer = 120;
 					local._rexMode = 3;
 				} else {
-					_game._player._stepEnabled = true;
+					player.commands_allowed = true;
 				}
 			} else {
-				if (_game._objects.isInRoom(OBJ_ALIEN_LIQUOR)) {
+				if (object_is_here(OBJ_ALIEN_LIQUOR)) {
 					if (!local._refuseAlienLiquor) {
-						_scene->_kernelMessages.reset();
-						_scene->_kernelMessages.add(Common::Point(198, 27), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, _game.getQuote(0x1E2));
-						_scene->_kernelMessages.add(Common::Point(199, 41), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, _game.getQuote(0x1E3));
+						kernel_message_purge();
+						kernel_message_add(quote_string(kernel.quotes, 0x1E2), 198, 27, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
+						kernel_message_add(quote_string(kernel.quotes, 0x1E3), 199, 41, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 						local._bartenderCurrentQuestion = 10;
-						_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-						_scene->_sequences.addTimer(1, 100);
+						kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+						kernel_timing_trigger(1, 100);
 						local._talkTimer = 120;
 						local._conversationFl = true;
 						local._bartenderDialogNode = 1;
@@ -2073,9 +2075,9 @@ static void room_402_parser() {
 
 						local._dialog1.start();
 					} else {
-						_scene->_kernelMessages.add(Common::Point(177, 41), 0xFDFC, 0, 0, INDEFINITE_TIMEOUT, _game.getQuote(0x1EF));
-						_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-						_scene->_sequences.addTimer(1, 100);
+						kernel_message_add(quote_string(kernel.quotes, 0x1EF), 177, 41, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
+						kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+						kernel_timing_trigger(1, 100);
 						local._talkTimer = 120;
 						local._bartenderCurrentQuestion = 3;
 						local._conversationFl = true;
@@ -2084,26 +2086,26 @@ static void room_402_parser() {
 							local._dialog1.write(0x214, false);
 
 						local._dialog1.start();
-						_game._player._stepEnabled = true;
+						player.commands_allowed = true;
 					}
 				} else {
 					if (local._rexMode == 0) {
-						_scene->_kernelMessages.add(Common::Point(175, 13), 0xFDFC, 0, 0, 180, _game.getQuote(0x1F9));
-						_scene->_kernelMessages.add(Common::Point(184, 27), 0xFDFC, 0, 0, 180, _game.getQuote(0x1FA));
-						_scene->_kernelMessages.add(Common::Point(200, 41), 0xFDFC, 0, 0, 180, _game.getQuote(0x1FB));
-						_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-						_scene->_sequences.addTimer(1, 100);
+						kernel_message_add(quote_string(kernel.quotes, 0x1F9), 175, 13, 0xFDFC, 180, 0, 0);
+						kernel_message_add(quote_string(kernel.quotes, 0x1FA), 184, 27, 0xFDFC, 180, 0, 0);
+						kernel_message_add(quote_string(kernel.quotes, 0x1FB), 200, 41, 0xFDFC, 180, 0, 0);
+						kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+						kernel_timing_trigger(1, 100);
 						local._talkTimer = 180;
 						local._rexMode = 1;
 					} else if (local._rexMode == 1) {
-						_scene->_kernelMessages.add(Common::Point(205, 41), 0xFDFC, 0, 0, 120, _game.getQuote(0x1FC));
-						_game._player._stepEnabled = true;
-						_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-						_scene->_sequences.addTimer(1, 100);
+						kernel_message_add(quote_string(kernel.quotes, 0x1FC), 205, 41, 0xFDFC, 120, 0, 0);
+						player.commands_allowed = true;
+						kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+						kernel_timing_trigger(1, 100);
 						local._talkTimer = 120;
 						local._rexMode = 3;
 					} else {
-						_game._player._stepEnabled = true;
+						player.commands_allowed = true;
 					}
 				}
 			}
@@ -2113,70 +2115,70 @@ static void room_402_parser() {
 			break;
 		}
 	} else if (player_said_2(look, dance_floor))
-		_vm->_dialogs->show(40210);
+		text_show(40210);
 	else if (player_said_2(look, teleporter)) {
-		if (_globals[kSomeoneHasExploded])
-			_vm->_dialogs->show(40212);
+		if (global[kSomeoneHasExploded])
+			text_show(40212);
 		else
-			_vm->_dialogs->show(40211);
+			text_show(40211);
 	} else if (player_said_2(look, bar))
-		_vm->_dialogs->show(40213);
+		text_show(40213);
 	else if (player_said_2(look, bartender))
-		_vm->_dialogs->show(40214);
+		text_show(40214);
 	else if (player_said_2(look, woman_in_alcove))
-		_vm->_dialogs->show(40215);
+		text_show(40215);
 	else if (player_said_2(look, woman_on_balcony))
-		_vm->_dialogs->show(40216);
+		text_show(40216);
 	else if (player_said_2(look, woman_in_chair))
-		_vm->_dialogs->show(40217);
+		text_show(40217);
 	else if (player_said_2(look, repair_woman))
-		_vm->_dialogs->show(40218);
+		text_show(40218);
 	else if (player_said_2(look, corridor_to_south))
-		_vm->_dialogs->show(40219);
-	else if (_action._lookFlag)
-		_vm->_dialogs->show(40220);
+		text_show(40219);
+	else if (player.look_around)
+		text_show(40220);
 	else if (player_said_2(look, women))
-		_vm->_dialogs->show(40221);
+		text_show(40221);
 	else if (player_said_2(push, repair_woman) || player_said_2(pull, repair_woman))
-		_vm->_dialogs->show(40222);
+		text_show(40222);
 	else if (player_said_2(talkto, women))
-		_vm->_dialogs->show(40223);
+		text_show(40223);
 	else if (player_said_2(talkto, woman_on_balcony))
-		_vm->_dialogs->show(40224);
+		text_show(40224);
 	else if (player_said_2(look, railing))
-		_vm->_dialogs->show(40225);
+		text_show(40225);
 	else if (player_said_2(look, table))
-		_vm->_dialogs->show(40226);
+		text_show(40226);
 	else if (player_said_2(take, table))
-		_vm->_dialogs->show(40227);
+		text_show(40227);
 	else if (player_said_2(look, sign))
-		_vm->_dialogs->show(40228);
+		text_show(40228);
 	else if (player_said_2(take, sign))
-		_vm->_dialogs->show(40229);
+		text_show(40229);
 	else if (player_said_2(look, bar_stool))
-		_vm->_dialogs->show(40230);
+		text_show(40230);
 	else if (player_said_2(take, bar_stool))
-		_vm->_dialogs->show(40231);
+		text_show(40231);
 	else if (player_said_2(look, cactus))
-		_vm->_dialogs->show(40232);
+		text_show(40232);
 	else if (player_said_2(take, cactus))
-		_vm->_dialogs->show(40233);
+		text_show(40233);
 	else if (player_said_2(look, disco_ball))
-		_vm->_dialogs->show(40234);
+		text_show(40234);
 	else if (player_said_2(look, upper_dance_floor))
-		_vm->_dialogs->show(40235);
+		text_show(40235);
 	else if (player_said_2(look, tree))
-		_vm->_dialogs->show(40236);
+		text_show(40236);
 	else if (player_said_2(look, plant))
-		_vm->_dialogs->show(40237);
+		text_show(40237);
 	else if (player_said_2(take, plant))
-		_vm->_dialogs->show(40238);
-	else if (player_said_2(look, repair_list) && _game._objects.isInRoom(OBJ_REPAIR_LIST))
-		_vm->_dialogs->show(40239);
+		text_show(40238);
+	else if (player_said_2(look, repair_list) && object_is_here(OBJ_REPAIR_LIST))
+		text_show(40239);
 	else
 		return;
 
-	_action._inProgress = false;
+	player.command_ready = false;
 }
 
 void room_402_synchronize(Common::Serializer &s) {
@@ -2226,15 +2228,15 @@ void room_402_preload() {
 	section_4_walker();
 	section_4_interface();
 
-	_scene->addActiveVocab(words_bartender);
-	_scene->addActiveVocab(words_alien_liquor);
-	_scene->addActiveVocab(words_drink);
-	_scene->addActiveVocab(words_binoculars);
-	_scene->addActiveVocab(words_walkto);
-	_scene->addActiveVocab(words_credit_chip);
-	_scene->addActiveVocab(words_take);
-	_scene->addActiveVocab(words_repair_list);
-	_scene->addActiveVocab(words_look_at);
+	vocab_make_active(words_bartender);
+	vocab_make_active(words_alien_liquor);
+	vocab_make_active(words_drink);
+	vocab_make_active(words_binoculars);
+	vocab_make_active(words_walkto);
+	vocab_make_active(words_credit_chip);
+	vocab_make_active(words_take);
+	vocab_make_active(words_repair_list);
+	vocab_make_active(words_look_at);
 }
 
 } // namespace Rooms

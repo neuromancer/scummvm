@@ -19,14 +19,15 @@
  *
  */
 
+#include "mads/core/config.h"
 #include "mads/core/game.h"
+#include "mads/core/pal.h"
 #include "mads/nebular/global.h"
 #include "mads/nebular/nebular.h"
 #include "mads/nebular/rooms/dialog.h"
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section2.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
@@ -58,7 +59,7 @@ static Scratch local;
 
 
 static void handleTwinklesSpeech(int quoteId, int shiftX, uint32 delay) {
-	_scene->_kernelMessages.add(Common::Point(10, 70 + (shiftX * 14)), 0xFDFC, 0, 0, (delay == 0) ? INDEFINITE_TIMEOUT : delay, _game.getQuote(quoteId));
+	kernel_message_add(quote_string(kernel.quotes, quoteId), 10, 70 + (shiftX * 14), 0xFDFC, (delay == 0) ? INDEFINITE_TIMEOUT : delay, 0, 0);
 }
 
 static void newNode(int node) {
@@ -101,211 +102,211 @@ static void newNode(int node) {
 static void setDialogNode(int node) {
 	switch (node) {
 	case 0:
-		_scene->_userInterface.setup(kInputBuildingSentences);
+		kernel_set_interface_mode(INTER_BUILDING_SENTENCES);
 		local._shouldFaceRex = false;
 		local._shouldTalk = false;
-		_game._player._stepEnabled = true;
+		player.commands_allowed = true;
 		local._curDialogNode = 0;
 		break;
 
 	case 2:
-		switch (_game._trigger) {
+		switch (kernel.trigger) {
 		case 1:
 			local._nextHandsPlace = 1;
 			local._shouldTalk = true;
-			_game._player._stepEnabled = false;
+			player.commands_allowed = false;
 			if (local._twinklesTalking) {
 				handleTwinklesSpeech(0xB9, -1, 0);
-				_scene->_sequences.addTimer(180, 2);
+				kernel_timing_trigger(180, 2);
 			} else {
-				_scene->_sequences.addTimer(6, 1);
+				kernel_timing_trigger(6, 1);
 			}
 			break;
 
 		case 2:
 			local._nextHandsPlace = 0;
 			handleTwinklesSpeech(186, 0, 0);
-			_scene->_sequences.addTimer(180, 3);
+			kernel_timing_trigger(180, 3);
 			break;
 
 		default:
 			local._nextHandsPlace = 0;
 			local._shouldTalk = false;
-			_game._player._stepEnabled = true;
+			player.commands_allowed = true;
 			newNode(2);
 			break;
 		}
 		break;
 
 	case 3:
-		switch (_game._trigger) {
+		switch (kernel.trigger) {
 		case 1:
 			local._nextHandsPlace = 0;
 			local._shouldTalk = true;
-			_game._player._stepEnabled = false;
+			player.commands_allowed = false;
 			if (local._twinklesTalking) {
 				handleTwinklesSpeech(0xBE, -2, 0);
-				_scene->_sequences.addTimer(180, 2);
+				kernel_timing_trigger(180, 2);
 			} else {
-				_scene->_sequences.addTimer(6, 1);
+				kernel_timing_trigger(6, 1);
 			}
 			break;
 		case 2:
 			local._nextHandsPlace = 2;
 			handleTwinklesSpeech(191, -1, 0);
-			_scene->_sequences.addTimer(180, 3);
+			kernel_timing_trigger(180, 3);
 			break;
 		case 3:
 			local._nextHandsPlace = 0;
 			handleTwinklesSpeech(192, 0, 0);
-			_scene->_sequences.addTimer(180, 4);
+			kernel_timing_trigger(180, 4);
 			break;
 		default:
 			local._shouldTalk = false;
-			_game._player._stepEnabled = true;
+			player.commands_allowed = true;
 			newNode(3);
 			break;
 		}
 		break;
 
 	case 4:
-		if (_game._trigger == 1) {
+		if (kernel.trigger == 1) {
 			local._nextHandsPlace = 1;
 			local._shouldTalk = true;
-			_game._player._stepEnabled = false;
+			player.commands_allowed = false;
 
 			int quote;
-			if (_game._storyMode == STORYMODE_NAUGHTY)
-				quote = _vm->getRandomNumber(199, 201);
+			if (config_file.naughtiness == NAUGHTY)
+				quote = g_engine->getRandomNumber(199, 201);
 			else
-				quote = _vm->getRandomNumber(197, 198);
+				quote = g_engine->getRandomNumber(197, 198);
 
 			if (local._twinklesTalking) {
 				handleTwinklesSpeech(quote, 0, 360);
-				_scene->_sequences.addTimer(120, 2);
+				kernel_timing_trigger(120, 2);
 			} else {
-				_scene->_sequences.addTimer(6, 1);
+				kernel_timing_trigger(6, 1);
 			}
 		} else {
-			_scene->_userInterface.setup(kInputBuildingSentences);
+			kernel_set_interface_mode(INTER_BUILDING_SENTENCES);
 			local._shouldFaceRex = false;
 			local._shouldTalk = false;
-			_game._player._stepEnabled = true;
+			player.commands_allowed = true;
 		}
 		break;
 
 	case 5:
-		switch (_game._trigger) {
+		switch (kernel.trigger) {
 		case 1:
 			local._nextHandsPlace = 2;
 			local._shouldTalk = true;
-			_game._player._stepEnabled = false;
+			player.commands_allowed = false;
 			if (local._twinklesTalking) {
 				handleTwinklesSpeech(0xCA, -1, 0);
-				_scene->_sequences.addTimer(180, 2);
+				kernel_timing_trigger(180, 2);
 			} else {
-				_scene->_sequences.addTimer(6, 1);
+				kernel_timing_trigger(6, 1);
 			}
 			break;
 
 		case 2:
 			local._nextHandsPlace = 1;
 			handleTwinklesSpeech(0xCB, 0, 0);
-			_scene->_sequences.addTimer(180, 3);
+			kernel_timing_trigger(180, 3);
 			break;
 
 		default:
 			local._nextHandsPlace = 2;
 			local._shouldTalk = false;
-			_game._player._stepEnabled = true;
+			player.commands_allowed = true;
 			newNode(5);
 			break;
 		}
 		break;
 
 	case 6:
-		switch (_game._trigger) {
+		switch (kernel.trigger) {
 		case 1:
 			local._nextHandsPlace = 1;
 			local._shouldTalk = true;
-			_game._player._stepEnabled = false;
+			player.commands_allowed = false;
 			if (local._twinklesTalking) {
 				handleTwinklesSpeech(0xD0, -2, 0);
-				_scene->_sequences.addTimer(180, 2);
+				kernel_timing_trigger(180, 2);
 			} else {
-				_scene->_sequences.addTimer(6, 1);
+				kernel_timing_trigger(6, 1);
 			}
 			break;
 
 		case 2:
 			handleTwinklesSpeech(0xD1, -1, 0);
-			_scene->_sequences.addTimer(180, 3);
+			kernel_timing_trigger(180, 3);
 			break;
 
 		case 3:
 			local._nextHandsPlace = 1;
 			handleTwinklesSpeech(0xD2, 0, 0);
-			_scene->_sequences.addTimer(180, 4);
+			kernel_timing_trigger(180, 4);
 			break;
 
 		default:
 			local._nextHandsPlace = 0;
 			local._shouldTalk = false;
-			_game._player._stepEnabled = true;
+			player.commands_allowed = true;
 			newNode(6);
 			break;
 		}
 		break;
 
 	case 7:
-		switch (_game._trigger) {
+		switch (kernel.trigger) {
 		case 1:
 			local._nextHandsPlace = 2;
 			local._shouldTalk = true;
-			_game._player._stepEnabled = false;
+			player.commands_allowed = false;
 			if (local._twinklesTalking) {
 				handleTwinklesSpeech(0xD6, -1, 0);
-				_scene->_sequences.addTimer(180, 2);
+				kernel_timing_trigger(180, 2);
 			} else {
-				_scene->_sequences.addTimer(6, 1);
+				kernel_timing_trigger(6, 1);
 			}
 			break;
 
 		case 2:
 			handleTwinklesSpeech(0xD7, 0, 0);
-			_scene->_sequences.addTimer(180, 3);
+			kernel_timing_trigger(180, 3);
 			break;
 
 		default:
 			local._shouldTalk = false;
-			_game._player._stepEnabled = true;
+			player.commands_allowed = true;
 			newNode(7);
 			break;
 		}
 		break;
 
 	case 8:
-		switch (_game._trigger) {
+		switch (kernel.trigger) {
 		case 1:
 			local._nextHandsPlace = 2;
 			local._shouldTalk = true;
-			_game._player._stepEnabled = false;
+			player.commands_allowed = false;
 			if (local._twinklesTalking) {
 				handleTwinklesSpeech(0xDD, -1, 0);
-				_scene->_sequences.addTimer(180, 2);
+				kernel_timing_trigger(180, 2);
 			} else {
-				_scene->_sequences.addTimer(6, 1);
+				kernel_timing_trigger(6, 1);
 			}
 			break;
 
 		case 2:
 			handleTwinklesSpeech(0xDE, 0, 0);
-			_scene->_sequences.addTimer(180, 3);
+			kernel_timing_trigger(180, 3);
 			break;
 
 		default:
 			local._shouldTalk = false;
-			_game._player._stepEnabled = true;
+			player.commands_allowed = true;
 			newNode(8);
 			break;
 		}
@@ -313,74 +314,74 @@ static void setDialogNode(int node) {
 
 
 	case 9:
-		switch (_game._trigger) {
+		switch (kernel.trigger) {
 		case 1:
 			local._nextHandsPlace = 0;
 			local._shouldTalk = true;
-			_game._player._stepEnabled = false;
+			player.commands_allowed = false;
 			if (local._twinklesTalking) {
-				_scene->_userInterface.emptyConversationList();
-				_scene->_userInterface.setup(kInputConversation);
+				inter_reset_dialog();
+				kernel_set_interface_mode(INTER_CONVERSATION);
 				handleTwinklesSpeech(0xE4, -1, 0);
-				_scene->_sequences.addTimer(180, 2);
+				kernel_timing_trigger(180, 2);
 			} else {
-				_scene->_sequences.addTimer(6, 1);
+				kernel_timing_trigger(6, 1);
 			}
 			break;
 
 		case 2:
 			handleTwinklesSpeech(0xE5, 0, 0);
-			_scene->_sequences.addTimer(180, 3);
+			kernel_timing_trigger(180, 3);
 			break;
 
 		case 3:
 			local._twinkleAnimationType = 2;
-			_globals[kCurtainOpen] = true;
-			_game._player._visible = false;
-			_vm->_palette->lock();
-			_scene->_kernelMessages.reset();
-			_scene->freeAnimation();
-			_scene->resetScene();
+			global[kCurtainOpen] = true;
+			player.walker_visible = false;
+			pal_lock();
+			kernel_message_purge();
+			kernel_abort_animation(0);
+			kernel_dump_all();
 
-			_globals._spriteIndexes[1] = _scene->_sprites.addSprites(formAnimName('c', -1));
-			_game.loadQuoteSet(0xE6, 0xE9, 0xEA, 0xE7, 0xE8, 0);
-			_scene->loadAnimation(formAnimName('B', -1), 4);
+			g_sprite_ids[1] = kernel_load_series(kernel_name('c', -1), 0);
+			kernel.quotes = quote_load(0xE6, 0xE9, 0xEA, 0xE7, 0xE8, 0);
+			kernel_run_animation(kernel_name('B', -1), 4);
 			break;
 
 		case 4:
 		{
-			_globals._spriteIndexes[8] = _scene->_sequences.startCycle(_globals._spriteIndexes[1], false, 5);
-			_scene->_sequences.setDepth(_globals._spriteIndexes[8], 1);
+			g_sprite_ids[8] = kernel_seq_stamp(g_sprite_ids[1], false, 5);
+			kernel_seq_depth(g_sprite_ids[8], 1);
 
-			int msgIndex = _scene->_kernelMessages.add(Common::Point(160, 20), 0x1110, 32, 5, 180, _game.getQuote(231));
-			_scene->_kernelMessages.setQuoted(msgIndex, 4, true);
+			int msgIndex = kernel_message_add(quote_string(kernel.quotes, 231), 160, 20, 0x1110, 180, 5, 32);
+			kernel_message_teletype(msgIndex, 4, true);
 		}
 		break;
 
 		case 5:
 		{
-			int msgIndex = _scene->_kernelMessages.add(Common::Point(160, 40), 0xFDFC, 32, 6, 180, _game.getQuote(233));
-			_scene->_kernelMessages.setQuoted(msgIndex, 4, true);
+			int msgIndex = kernel_message_add(quote_string(kernel.quotes, 233), 160, 40, 0xFDFC, 180, 6, 32);
+			kernel_message_teletype(msgIndex, 4, true);
 		}
 		break;
 
 		case 6:
 		{
-			int msgIndex = _scene->_kernelMessages.add(Common::Point(160, 60), 0x1110, 32, 7, 180, _game.getQuote(232));
-			_scene->_kernelMessages.setQuoted(msgIndex, 4, true);
+			int msgIndex = kernel_message_add(quote_string(kernel.quotes, 232), 160, 60, 0x1110, 180, 7, 32);
+			kernel_message_teletype(msgIndex, 4, true);
 		}
 		break;
 
 		case 7:
 		{
-			int msgIndex = _scene->_kernelMessages.add(Common::Point(160, 80), 0xFDFC, 32, 8, 180, _game.getQuote(234));
-			_scene->_kernelMessages.setQuoted(msgIndex, 4, true);
+			int msgIndex = kernel_message_add(quote_string(kernel.quotes, 234), 160, 80, 0xFDFC, 180, 8, 32);
+			kernel_message_teletype(msgIndex, 4, true);
 		}
 		break;
 
 		case 8:
-			_globals[kTwinklesStatus] = TWINKLES_GONE;
-			_scene->_nextSceneId = 216;
+			global[kTwinklesStatus] = TWINKLES_GONE;
+			new_room = 216;
 			break;
 
 		default:
@@ -394,7 +395,7 @@ static void setDialogNode(int node) {
 }
 
 static void handleConversation1() {
-	switch (_action._activeAction._verbId) {
+	switch (player2.words[0]) {
 	case 180:
 		setDialogNode(2);
 		break;
@@ -421,7 +422,7 @@ static void handleConversation1() {
 }
 
 static void handleConversation2() {
-	switch (_action._activeAction._verbId) {
+	switch (player2.words[0]) {
 	case 187:
 		setDialogNode(3);
 		break;
@@ -440,7 +441,7 @@ static void handleConversation2() {
 }
 
 static void handleConversation3() {
-	switch (_action._activeAction._verbId) {
+	switch (player2.words[0]) {
 	case 193:
 		setDialogNode(6);
 		break;
@@ -463,7 +464,7 @@ static void handleConversation3() {
 }
 
 static void handleConversation5() {
-	switch (_action._activeAction._verbId) {
+	switch (player2.words[0]) {
 	case 204:
 		setDialogNode(6);
 		break;
@@ -483,7 +484,7 @@ static void handleConversation5() {
 }
 
 static void handleConversation6() {
-	switch (_action._activeAction._verbId) {
+	switch (player2.words[0]) {
 	case 211:
 		setDialogNode(7);
 		break;
@@ -502,7 +503,7 @@ static void handleConversation6() {
 }
 
 static void handleConversation7() {
-	switch (_action._activeAction._verbId) {
+	switch (player2.words[0]) {
 	case 216:
 	case 217:
 	case 219:
@@ -523,7 +524,7 @@ static void handleConversation7() {
 }
 
 static void handleConversation8() {
-	switch (_action._activeAction._verbId) {
+	switch (player2.words[0]) {
 	case 223:
 	case 224:
 		setDialogNode(4);
@@ -544,25 +545,25 @@ static void handleConversation8() {
 }
 
 static void handleConversations() {
-	if (_game._trigger == 0) {
-		_scene->_kernelMessages.reset();
-		_game._player._stepEnabled = false;
-		const char *curQuote = _game.getQuote(_action._activeAction._verbId);
-		if (_scene->_kernelMessages._talkFont->getWidth(curQuote, _scene->_textSpacing) > 200) {
+	if (kernel.trigger == 0) {
+		kernel_message_purge();
+		player.commands_allowed = false;
+		char *curQuote = quote_string(kernel.quotes, player2.words[0]);
+		if (font_string_width(kernel_message_font, curQuote, kernel_message_spacing) > 200) {
 			static char line1[40], line2[40];
-			_game.splitQuote(curQuote, line1, line2);
+			quote_split_string(curQuote, line1, line2);
 			Common::strcpy_s(local._subQuote2, line2);
-			_scene->_kernelMessages.add(Common::Point(0, -14), 0x1110, 34, 0, 240, line1);
-			_scene->_sequences.addTimer(60, 50);
+			kernel_message_add(line1, 0, -14, 0x1110, 240, 0, 34);
+			kernel_timing_trigger(60, 50);
 		} else {
-			_scene->_kernelMessages.add(Common::Point(0, 0), 0x1110, 34, 1, 120, curQuote);
+			kernel_message_add(curQuote, 0, 0, 0x1110, 120, 1, 34);
 		}
-	} else if (_game._trigger == 50) {
-		_scene->_kernelMessages.add(Common::Point(0, 0), 0x1110, 34, 0, 240, local._subQuote2);
-		_scene->_sequences.addTimer(180, 1);
+	} else if (kernel.trigger == 50) {
+		kernel_message_add(local._subQuote2, 0, 0, 0x1110, 240, 0, 34);
+		kernel_timing_trigger(180, 1);
 	} else {
-		if (_game._trigger == 1)
-			_scene->_kernelMessages.reset();
+		if (kernel.trigger == 1)
+			kernel_message_purge();
 
 		switch (local._curDialogNode) {
 		case 1:
@@ -612,44 +613,50 @@ static void restoreDialogNode(int node, int msgId, int posY) {
 }
 
 static void room_210_init() {
-	_globals._spriteIndexes[1] = _scene->_sprites.addSprites(formAnimName('c', -1));
+	g_sprite_ids[1] = kernel_load_series(kernel_name('c', -1), 0);
 
-	if (!_game._visitedScenes._sceneRevisited)
-		_globals[kCurtainOpen] = 0;
+	if (!player.been_here_before)
+		global[kCurtainOpen] = 0;
 
-	if (_scene->_priorSceneId == 205)
-		_game._player._playerPos = Common::Point(277, 56);
-	else if (_scene->_priorSceneId == 215) {
-		_game._player._playerPos = Common::Point(168, 128);
-		_game._player._facing = FACING_SOUTH;
-		_globals[kCurtainOpen] = true;
-	} else if (_scene->_priorSceneId != RETURNING_FROM_DIALOG)
-		_game._player._playerPos = Common::Point(308, 132);
-
-	if (!_globals[kCurtainOpen]) {
-		_globals._sequenceIndexes[1] = _scene->_sequences.startCycle(_globals._spriteIndexes[1], false, 5);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[1], 5);
-	} else {
-		int idx = _scene->_dynamicHotspots.add(words_doorway, words_walk_through, -1, Common::Rect(163, 87, 163 + 19, 87 + 36));
-		local._doorway = _scene->_dynamicHotspots.setPosition(idx, Common::Point(168, 127), FACING_NORTH);
-		_scene->_dynamicHotspots.setCursor(local._doorway, CURSOR_GO_UP);
+	if (previous_room == 205) {
+		player.x = 277;
+		player.y = 56;
+	}
+	else if (previous_room == 215) {
+		player.x = 168;
+		player.y = 128;
+		player.facing = FACING_SOUTH;
+		global[kCurtainOpen] = true;
+	} else if (previous_room != KERNEL_RESTORING_GAME) {
+		player.x = 308;
+		player.y = 132;
 	}
 
-	_game.loadQuoteSet(0x5A, 0x73, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF, 0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB8, 0xB7,
+	if (!global[kCurtainOpen]) {
+		g_sequence_ids[1] = kernel_seq_stamp(g_sprite_ids[1], false, 5);
+		kernel_seq_depth(g_sequence_ids[1], 5);
+	} else {
+		int idx = kernel_add_dynamic(words_doorway, words_walk_through, 0, -1, 163, 87, 19, 36);
+		kernel_dynamic_walk(idx, 168, 127, FACING_NORTH);
+		local._doorway = idx;
+		kernel_dynamic_cursor(local._doorway, CURSOR_UP);
+	}
+
+	kernel.quotes = quote_load(0x5A, 0x73, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF, 0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB8, 0xB7,
 		0xB9, 0xBA, 0xBB, 0xBC, 0xBD, 0xBE, 0xBF, 0xC0, 0xC1, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7, 0xC8, 0xC9, 0xCA,
 		0xCB, 0xCC, 0xCD, 0xCE, 0xCF, 0xD0, 0xD1, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7, 0xD8, 0xD9, 0xDA, 0xDB, 0xDC,
 		0xDD, 0xDE, 0xDF, 0xE0, 0xE1, 0xE2, 0xE3, 0xE4, 0xE5, 0);
 
 	local._conv1.setup(0x2E, 0xB4, 0xB5, 0xB6, 0xB7, 0xB8, 0);
 
-	if (!_game._visitedScenes._sceneRevisited) {
+	if (!player.been_here_before) {
 		local._conv1.set(0x2E, 0xB4, 0xB5, 0xB6, 0xB8, 0);
 
-		if (_game._widepipeCtr >= 2)
+		if (kernel.cheating >= 2)
 			local._conv1.write(0xB7, true);
 	}
 
-	bool sceneRevisited = _game._visitedScenes._sceneRevisited;
+	bool sceneRevisited = player.been_here_before;
 	local._conv2.setup(0x2F, 0xBC, 0xBB, 0xBD, sceneRevisited ? 0 : -1);
 	local._conv3.setup(0x30, 0xC3, 0xC2, 0xC1, 0xC4, sceneRevisited ? 0 : -1);
 	local._conv5.setup(0x31, 0xCD, 0xCC, 0xCE, 0xCF, sceneRevisited ? 0 : -1);
@@ -660,7 +667,7 @@ static void room_210_init() {
 	local._twinkleAnimationType = 0;
 	local._twinklesCurrentFrame = 0;
 
-	if (_scene->_priorSceneId != RETURNING_FROM_DIALOG) {
+	if (previous_room != KERNEL_RESTORING_GAME) {
 		local._shouldMoveHead = false;
 		local._shouldFaceRex = false;
 		local._shouldTalk = false;
@@ -668,14 +675,14 @@ static void room_210_init() {
 		local._twinklesTalking = false;
 		local._curDialogNode = 0;
 		local._stopWalking = false;
-		local._twinklesTalk2 = (_globals[kTwinklesApproached] > 0);
+		local._twinklesTalk2 = (global[kTwinklesApproached] > 0);
 	}
 
-	if (_globals[kTwinklesStatus] == 0) {
-		_scene->loadAnimation(formAnimName('A', -1));
+	if (global[kTwinklesStatus] == 0) {
+		kernel_run_animation(kernel_name('A', -1), 0);
 		local._twinkleAnimationType = 1;
 	} else
-		_scene->_hotspots.activate(476, false);
+		kernel_flip_hotspot(476, false);
 
 	if (local._curDialogNode) {
 		int quote = 0;
@@ -715,22 +722,22 @@ static void room_210_init() {
 		}
 
 		restoreDialogNode(local._curDialogNode, quote, number);
-		if (_scene->_animation[0])
-			_scene->_animation[0]->setCurrentFrame(131);
+		if ((kernel_anim[0].anim != nullptr))
+			kernel_reset_animation(0, 131);
 	}
 
-	_vm->_palette->setEntry(252, 63, 63, 10);
-	_vm->_palette->setEntry(253, 45, 45, 5);
+	pal_change_color(252, 63, 63, 10);
+	pal_change_color(253, 45, 45, 5);
 
 	section_2_music();
 }
 
 static void room_210_daemon() {
-	if ((local._twinkleAnimationType == 1) && _scene->_animation[0]) {
-		if (local._twinklesCurrentFrame != _scene->_animation[0]->getCurrentFrame()) {
-			local._twinklesCurrentFrame = _scene->_animation[0]->getCurrentFrame();
+	if ((local._twinkleAnimationType == 1) && (kernel_anim[0].anim != nullptr)) {
+		if (local._twinklesCurrentFrame != kernel_anim[0].frame) {
+			local._twinklesCurrentFrame = kernel_anim[0].frame;
 			int reset_frame = -1;
-			int random = _vm->getRandomNumber(1, 1000);
+			int random = g_engine->getRandomNumber(1, 1000);
 
 			switch (local._twinklesCurrentFrame) {
 			case 31:
@@ -851,8 +858,8 @@ static void room_210_daemon() {
 			}
 
 			if (reset_frame >= 0) {
-				if (reset_frame != _scene->_animation[0]->getCurrentFrame()) {
-					_scene->_animation[0]->setCurrentFrame(reset_frame);
+				if (reset_frame != kernel_anim[0].frame) {
+					kernel_reset_animation(0, reset_frame);
 					local._twinklesCurrentFrame = reset_frame;
 				}
 
@@ -866,30 +873,30 @@ static void room_210_daemon() {
 		}
 	}
 
-	if ((local._twinkleAnimationType == 2) && _scene->_animation[0]) {
-		if (local._twinklesCurrentFrame != _scene->_animation[0]->getCurrentFrame()) {
-			local._twinklesCurrentFrame = _scene->_animation[0]->getCurrentFrame();
+	if ((local._twinkleAnimationType == 2) && (kernel_anim[0].anim != nullptr)) {
+		if (local._twinklesCurrentFrame != kernel_anim[0].frame) {
+			local._twinklesCurrentFrame = kernel_anim[0].frame;
 			int reset_frame = -1;
 
 			if (local._twinklesCurrentFrame == 53) {
-				_scene->_kernelMessages.add(Common::Point(151, 61), 0xFDFC, 32, 70, 180, _game.getQuote(230));
+				kernel_message_add(quote_string(kernel.quotes, 230), 151, 61, 0xFDFC, 180, 70, 32);
 				local._shouldTalk = true;
 			} else if ((local._twinklesCurrentFrame == 75) && local._shouldTalk)
 				reset_frame = 60;
 
-			if ((reset_frame >= 0) && (reset_frame != _scene->_animation[0]->getCurrentFrame())) {
-				_scene->_animation[0]->setCurrentFrame(reset_frame);
+			if ((reset_frame >= 0) && (reset_frame != kernel_anim[0].frame)) {
+				kernel_reset_animation(0, reset_frame);
 				local._twinklesCurrentFrame = reset_frame;
 			}
 		}
 
-		if (_game._trigger == 70)
+		if (kernel.trigger == 70)
 			local._shouldTalk = false;
 	}
 
-	if ((local._twinkleAnimationType == 1) && (_scene->_rails.getNext() > 0)) {
-		_game._player.walk(Common::Point(214, 150), FACING_NORTHWEST);
-		_scene->_rails.resetNext();
+	if ((local._twinkleAnimationType == 1) && (player.next_special_code > 0)) {
+		player_walk(214, 150, FACING_NORTHWEST);
+		player.next_special_code = 0;
 		local._stopWalking = true;
 	}
 }
@@ -898,61 +905,61 @@ static void room_210_pre_parser() {
 	local._stopWalking = false;
 
 	if (player_said_2(walk_down, path_to_east))
-		_game._player._walkOffScreenSceneId = 211;
+		player.walk_off_edge_to_room = 211;
 }
 
 static void room_210_parser() {
 	if (player_said_3(look, binoculars, hut_to_north)) {
-		_vm->_dialogs->show(21017);
-	} else if (_game._screenObjects._inputMode == kInputConversation) {
+		text_show(21017);
+	} else if (inter_input_mode == INTER_CONVERSATION) {
 		handleConversations();
 	} else if (player_said_2(talkto, native_woman) ||
-		((_game._player._playerPos == Common::Point(214, 150)) && (_game._player._facing == FACING_NORTHWEST) && (local._twinkleAnimationType == 1) && local._stopWalking)) {
-		switch (_game._trigger) {
+		((Common::Point(player.x, player.y) == Common::Point(214, 150)) && (player.facing == FACING_NORTHWEST) && (local._twinkleAnimationType == 1) && local._stopWalking)) {
+		switch (kernel.trigger) {
 		case 0:
 		{
-			_game._player._stepEnabled = false;
+			player.commands_allowed = false;
 			int quote;
-			if (_globals[kTwinklesApproached] == 0)
+			if (global[kTwinklesApproached] == 0)
 				quote = 90;
-			else if (_globals[kTwinklesApproached] == 1)
+			else if (global[kTwinklesApproached] == 1)
 				quote = 115;
 			else
 				quote = 171;
 
 			local._shouldFaceRex = true;
 			local._nextHandsPlace = 0;
-			_scene->_kernelMessages.reset();
-			_scene->_kernelMessages.addQuote(quote, 1, 120);
+			kernel_message_purge();
+			kernel_message_player(quote, 120, 1);
 		}
 		break;
 
 		case 1:
 			local._shouldTalk = true;
 			if (!local._twinklesTalking) {
-				_scene->_sequences.addTimer(6, 1);
+				kernel_timing_trigger(6, 1);
 			} else {
-				if (_globals[kTwinklesApproached] == 0) {
+				if (global[kTwinklesApproached] == 0) {
 					handleTwinklesSpeech(0xAF, -1, 0);
 					handleTwinklesSpeech(0xB0, 0, 0);
-				} else if (_globals[kTwinklesApproached] == 1) {
+				} else if (global[kTwinklesApproached] == 1) {
 					handleTwinklesSpeech(0xB1, 0, 0);
 				} else {
 					int quote = local._twinklesTalk2 ? 0xB3 : 0xB2;
 					local._twinklesTalk2 = true;
 					handleTwinklesSpeech(quote, 0, 0);
 				}
-				_scene->_sequences.addTimer(60, 3);
+				kernel_timing_trigger(60, 3);
 			}
 			break;
 
 		case 3:
-			_game._player._stepEnabled = true;
+			player.commands_allowed = true;
 			local._shouldMoveHead = false;
 			local._shouldTalk = false;
 
-			if (_globals[kTwinklesApproached] < 2)
-				_globals[kTwinklesApproached]++;
+			if (global[kTwinklesApproached] < 2)
+				global[kTwinklesApproached]++;
 
 			local._conv1.start();
 			local._curDialogNode = 1;
@@ -961,20 +968,20 @@ static void room_210_parser() {
 		default:
 			break;
 		}
-	} else if (player_said_2(give, native_woman) && _game._objects.isInInventory(_game._objects.getIdFromDesc(_action._activeAction._objectNameId))) {
-		switch (_game._trigger) {
+	} else if (player_said_2(give, native_woman) && player_has(object_named(player2.words[1]))) {
+		switch (kernel.trigger) {
 		case 0:
 		{
-			int quote = _vm->getRandomNumber(172, 174);
+			int quote = g_engine->getRandomNumber(172, 174);
 			local._shouldMoveHead = true;
-			_game._player._stepEnabled = false;
+			player.commands_allowed = false;
 			handleTwinklesSpeech(quote, 0, 120);
-			_scene->_sequences.addTimer(120, 1);
+			kernel_timing_trigger(120, 1);
 		}
 		break;
 
 		case 1:
-			_game._player._stepEnabled = true;
+			player.commands_allowed = true;
 			local._shouldMoveHead = false;
 			break;
 
@@ -982,95 +989,95 @@ static void room_210_parser() {
 			break;
 		}
 	} else if (player_said_2(walk_down, path_to_north) || player_said_2(walk_towards, hut_to_north)) {
-		_scene->_nextSceneId = 205;
+		new_room = 205;
 	} else if (player_said_2(walk_through, doorway)) {
-		_scene->_nextSceneId = 215;
-	} else if ((player_said_2(pull, curtain) || player_said_2(open, curtain)) && !_globals[kCurtainOpen]) {
-		switch (_game._trigger) {
+		new_room = 215;
+	} else if ((player_said_2(pull, curtain) || player_said_2(open, curtain)) && !global[kCurtainOpen]) {
+		switch (kernel.trigger) {
 		case 0:
-			_game._player._stepEnabled = false;
-			_scene->_sequences.remove(_globals._sequenceIndexes[1]);
-			_globals._sequenceIndexes[1] = _scene->_sequences.addReverseSpriteCycle(_globals._spriteIndexes[1], false, 12, 1, 0, 0);
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[1], 5);
-			_scene->_sequences.addSubEntry(_globals._sequenceIndexes[1], SEQUENCE_TRIGGER_EXPIRE, 0, 1);
+			player.commands_allowed = false;
+			kernel_seq_delete(g_sequence_ids[1]);
+			g_sequence_ids[1] = kernel_seq_backward(g_sprite_ids[1], false, 12, 0, 0, 1);
+			kernel_seq_depth(g_sequence_ids[1], 5);
+			kernel_seq_trigger(g_sequence_ids[1], KERNEL_TRIGGER_EXPIRE, 0, 1);
 			break;
 
 		case 1:
-			_game._player._stepEnabled = true;
-			_globals[kCurtainOpen] = true;
-			local._doorway = _scene->_dynamicHotspots.add(words_doorway, words_walk_through, -1, Common::Rect(163, 87, 163 + 19, 87 + 36));
-			_scene->_dynamicHotspots.setPosition(local._doorway, Common::Point(168, 127), FACING_NORTH);
-			_scene->_dynamicHotspots.setCursor(local._doorway, CURSOR_GO_UP);
+			player.commands_allowed = true;
+			global[kCurtainOpen] = true;
+			local._doorway = kernel_add_dynamic(words_doorway, words_walk_through, 0, -1, 163, 87, 19, 36);
+			kernel_dynamic_walk(local._doorway, 168, 127, FACING_NORTH);
+			kernel_dynamic_cursor(local._doorway, CURSOR_UP);
 			break;
 
 		default:
 			break;
 		}
-	} else if ((player_said_2(pull, curtain) || player_said_2(close, curtain)) && _globals[kCurtainOpen]) {
-		switch (_game._trigger) {
+	} else if ((player_said_2(pull, curtain) || player_said_2(close, curtain)) && global[kCurtainOpen]) {
+		switch (kernel.trigger) {
 		case 0:
-			_scene->_sequences.remove(_globals._sequenceIndexes[1]);
-			_game._player._stepEnabled = false;
-			_game._player._facing = FACING_NORTH;
-			_globals._sequenceIndexes[1] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[1], false, 12, 0, 0, 1);
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[1], 5);
-			_scene->_sequences.addSubEntry(_globals._sequenceIndexes[1], SEQUENCE_TRIGGER_EXPIRE, 0, 1);
-			_game._player._stepEnabled = false;
+			kernel_seq_delete(g_sequence_ids[1]);
+			player.commands_allowed = false;
+			player.facing = FACING_NORTH;
+			g_sequence_ids[1] = kernel_seq_forward(g_sprite_ids[1], false, 12, 1, 0, 0);
+			kernel_seq_depth(g_sequence_ids[1], 5);
+			kernel_seq_trigger(g_sequence_ids[1], KERNEL_TRIGGER_EXPIRE, 0, 1);
+			player.commands_allowed = false;
 			break;
 		case 1:
-			_globals._sequenceIndexes[1] = _scene->_sequences.startCycle(_globals._spriteIndexes[1], false, 5);
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[1], 5);
-			_scene->_sequences.addTimer(48, 2);
+			g_sequence_ids[1] = kernel_seq_stamp(g_sprite_ids[1], false, 5);
+			kernel_seq_depth(g_sequence_ids[1], 5);
+			kernel_timing_trigger(48, 2);
 			break;
 		case 2:
-			_scene->_dynamicHotspots.remove(local._doorway);
-			_game._player._stepEnabled = true;
-			_globals[kCurtainOpen] = false;
+			kernel_delete_dynamic(local._doorway);
+			player.commands_allowed = true;
+			global[kCurtainOpen] = false;
 			break;
 		default:
 			break;
 		}
 	} else if (player_said_2(look, hut)) {
-		if (_globals[kTwinklesStatus] == TWINKLES_GONE) {
-			if (_game._storyMode == STORYMODE_NAUGHTY)
-				_vm->_dialogs->show(21003);
+		if (global[kTwinklesStatus] == TWINKLES_GONE) {
+			if (config_file.naughtiness == NAUGHTY)
+				text_show(21003);
 			else
-				_vm->_dialogs->show(21002);
+				text_show(21002);
 		} else {
-			_vm->_dialogs->show(21001);
+			text_show(21001);
 		}
 	} else if (player_said_2(look, bra)) {
-		_vm->_dialogs->show(21004);
+		text_show(21004);
 	} else if (player_said_2(look, hotpants)) {
-		_vm->_dialogs->show(21005);
+		text_show(21005);
 	} else if (player_said_2(take, hotpants) || player_said_2(take, bra)) {
-		_vm->_dialogs->show(21006);
+		text_show(21006);
 	} else if (player_said_2(look, stream)) {
-		_vm->_dialogs->show(21007);
+		text_show(21007);
 	} else if (player_said_2(look, bushy_fern)) {
-		_vm->_dialogs->show(21008);
+		text_show(21008);
 	} else if (player_said_2(look, village_path)) {
-		_vm->_dialogs->show(21009);
+		text_show(21009);
 	} else if (player_said_2(look, native_woman)) {
-		_vm->_dialogs->show(21010);
+		text_show(21010);
 	} else if (player_said_2(shoot, native_woman) || player_said_2(hose_down, native_woman)) {
-		_vm->_dialogs->show(21011);
+		text_show(21011);
 	} else if (player_said_2(look, path_to_north)) {
-		_vm->_dialogs->show(21012);
+		text_show(21012);
 	} else if (player_said_2(look, curtain)) {
-		_vm->_dialogs->show(21013);
+		text_show(21013);
 	} else if (player_said_2(look, clothesline)) {
-		_vm->_dialogs->show(21014);
+		text_show(21014);
 	} else if (player_said_2(take, clothesline)) {
-		_vm->_dialogs->show(21015);
+		text_show(21015);
 	} else if (player_said_2(look, hut_to_north)) {
-		_vm->_dialogs->show(21016);
+		text_show(21016);
 	} else {
 		// Not handled
 		return;
 	}
 
-	_action._inProgress = false;
+	player.command_ready = false;
 }
 
 void room_210_synchronize(Common::Serializer &s) {
@@ -1102,8 +1109,8 @@ void room_210_preload() {
 
 	section_2_walker();
 	section_2_interface();
-	_scene->addActiveVocab(words_doorway);
-	_scene->addActiveVocab(words_walk_through);
+	vocab_make_active(words_doorway);
+	vocab_make_active(words_walk_through);
 }
 
 } // namespace Rooms

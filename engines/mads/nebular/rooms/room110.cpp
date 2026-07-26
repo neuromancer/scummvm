@@ -25,7 +25,6 @@
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section1.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
@@ -39,119 +38,121 @@ static Scratch local;
 
 
 static void room_110_init() {
-	_globals._spriteIndexes[0] = _scene->_sprites.addSprites(formAnimName('X', 0));
-	_globals._spriteIndexes[1] = _scene->_sprites.addSprites(formAnimName('X', 1));
-	_globals._spriteIndexes[2] = _scene->_sprites.addSprites(formAnimName('X', 2));
-	_globals._spriteIndexes[3] = _scene->_sprites.addSprites(formAnimName('X', 3));
+	g_sprite_ids[0] = kernel_load_series(kernel_name('X', 0), 0);
+	g_sprite_ids[1] = kernel_load_series(kernel_name('X', 1), 0);
+	g_sprite_ids[2] = kernel_load_series(kernel_name('X', 2), 0);
+	g_sprite_ids[3] = kernel_load_series(kernel_name('X', 3), 0);
 
 	local._crabsFl = false;
 
-	if (_scene->_priorSceneId == 109) {
-		_game._player._playerPos = Common::Point(59, 71);
-		_game._player._facing = FACING_EAST;
+	if (previous_room == 109) {
+		player.x = 59;
+		player.y = 71;
+		player.facing = FACING_EAST;
 
-		_globals._sequenceIndexes[0] = _scene->_sequences.startCycle(_globals._spriteIndexes[0], false, 1);
-		_globals._sequenceIndexes[1] = _scene->_sequences.startCycle(_globals._spriteIndexes[1], false, 1);
-		_globals._sequenceIndexes[2] = _scene->_sequences.startCycle(_globals._spriteIndexes[2], false, 1);
-		_globals._sequenceIndexes[3] = _scene->_sequences.startCycle(_globals._spriteIndexes[3], false, 1);
+		g_sequence_ids[0] = kernel_seq_stamp(g_sprite_ids[0], false, 1);
+		g_sequence_ids[1] = kernel_seq_stamp(g_sprite_ids[1], false, 1);
+		g_sequence_ids[2] = kernel_seq_stamp(g_sprite_ids[2], false, 1);
+		g_sequence_ids[3] = kernel_seq_stamp(g_sprite_ids[3], false, 1);
 
 		local._crabsFl = true;
 
-		int idx = _scene->_dynamicHotspots.add(words_crab, words_swim_to, _globals._sequenceIndexes[0], Common::Rect(0, 0, 0, 0));
-		_scene->_dynamicHotspots.setPosition(idx, Common::Point(-1, 0), FACING_NONE);
-		idx = _scene->_dynamicHotspots.add(words_crab, words_swim_to, _globals._sequenceIndexes[1], Common::Rect(0, 0, 0, 0));
-		_scene->_dynamicHotspots.setPosition(idx, Common::Point(-1, 0), FACING_NONE);
-		idx = _scene->_dynamicHotspots.add(words_crab, words_swim_to, _globals._sequenceIndexes[2], Common::Rect(0, 0, 0, 0));
-		_scene->_dynamicHotspots.setPosition(idx, Common::Point(-1, 0), FACING_NONE);
-		idx = _scene->_dynamicHotspots.add(words_crab, words_swim_to, _globals._sequenceIndexes[3], Common::Rect(0, 0, 0, 0));
-		_scene->_dynamicHotspots.setPosition(idx, Common::Point(-1, 0), FACING_NONE);
-	} else if (_scene->_priorSceneId != RETURNING_FROM_DIALOG) {
-		_game._player._playerPos = Common::Point(194, 23);
-		_game._player._facing = FACING_SOUTH;
-		_game._player._visible = false;
-		_game._player._stepEnabled = false;
-		_scene->loadAnimation(Resources::formatName(110, 'T', 1, EXT_AA, ""), 70);
+		int idx = kernel_add_dynamic(words_crab, words_swim_to, 0, g_sequence_ids[0], 0, 0, 0, 0);
+		kernel_dynamic_walk(idx, -1, 0, FACING_NONE);
+		idx = kernel_add_dynamic(words_crab, words_swim_to, 0, g_sequence_ids[1], 0, 0, 0, 0);
+		kernel_dynamic_walk(idx, -1, 0, FACING_NONE);
+		idx = kernel_add_dynamic(words_crab, words_swim_to, 0, g_sequence_ids[2], 0, 0, 0, 0);
+		kernel_dynamic_walk(idx, -1, 0, FACING_NONE);
+		idx = kernel_add_dynamic(words_crab, words_swim_to, 0, g_sequence_ids[3], 0, 0, 0, 0);
+		kernel_dynamic_walk(idx, -1, 0, FACING_NONE);
+	} else if (previous_room != KERNEL_RESTORING_GAME) {
+		player.x = 194;
+		player.y = 23;
+		player.facing = FACING_SOUTH;
+		player.walker_visible = false;
+		player.commands_allowed = false;
+		kernel_run_animation(kernel_full_name(110, 'T', 1, "", KERNEL_AA), 70);
 	}
 
 	section_1_music();
-	_game.loadQuoteSet(89, 0);
+	kernel.quotes = quote_load(89, 0);
 
-	if (!_game._visitedScenes._sceneRevisited && (_scene->_priorSceneId == 109))
-		_scene->_kernelMessages.add(Common::Point(0, 0), 0x1110, 34, 0, 120, _game.getQuote(89));
+	if (!player.been_here_before && (previous_room == 109))
+		kernel_message_add(quote_string(kernel.quotes, 89), 0, 0, 0x1110, 120, 0, 34);
 }
 
 static void room_110_daemon() {
-	if (_game._trigger == 70) {
-		_game._player._visible = true;
-		_game._player._stepEnabled = true;
+	if (kernel.trigger == 70) {
+		player.walker_visible = true;
+		player.commands_allowed = true;
 	}
 }
 
 static void room_110_pre_parser() {
 	if (player_said_2(swim_through, cave_entrance))
-		_game._player._walkOffScreenSceneId = 109;
+		player.walk_off_edge_to_room = 109;
 
 	if (local._crabsFl) {
 		local._crabsFl = false;
 
-		_scene->_sequences.remove(_globals._sequenceIndexes[0]);
-		_scene->_sequences.remove(_globals._sequenceIndexes[1]);
-		_scene->_sequences.remove(_globals._sequenceIndexes[2]);
-		_scene->_sequences.remove(_globals._sequenceIndexes[3]);
+		kernel_seq_delete(g_sequence_ids[0]);
+		kernel_seq_delete(g_sequence_ids[1]);
+		kernel_seq_delete(g_sequence_ids[2]);
+		kernel_seq_delete(g_sequence_ids[3]);
 
-		_globals._sequenceIndexes[0] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[0], false, 16, 1, 0, 0);
-		_globals._sequenceIndexes[1] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[1], false, 16, 1, 0, 0);
-		_globals._sequenceIndexes[2] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[2], false, 16, 1, 0, 0);
-		_globals._sequenceIndexes[3] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[3], false, 16, 1, 0, 0);
+		g_sequence_ids[0] = kernel_seq_forward(g_sprite_ids[0], false, 16, 0, 0, 1);
+		g_sequence_ids[1] = kernel_seq_forward(g_sprite_ids[1], false, 16, 0, 0, 1);
+		g_sequence_ids[2] = kernel_seq_forward(g_sprite_ids[2], false, 16, 0, 0, 1);
+		g_sequence_ids[3] = kernel_seq_forward(g_sprite_ids[3], false, 16, 0, 0, 1);
 
-		int idx = _scene->_dynamicHotspots.add(words_crab, words_swim_to, _globals._sequenceIndexes[0], Common::Rect(0, 0, 0, 0));
-		_scene->_dynamicHotspots.setPosition(idx, Common::Point(-1, 0), FACING_NONE);
-		idx = _scene->_dynamicHotspots.add(words_crab, words_swim_to, _globals._sequenceIndexes[1], Common::Rect(0, 0, 0, 0));
-		_scene->_dynamicHotspots.setPosition(idx, Common::Point(-1, 0), FACING_NONE);
-		idx = _scene->_dynamicHotspots.add(words_crab, words_swim_to, _globals._sequenceIndexes[2], Common::Rect(0, 0, 0, 0));
-		_scene->_dynamicHotspots.setPosition(idx, Common::Point(-1, 0), FACING_NONE);
-		idx = _scene->_dynamicHotspots.add(words_crab, words_swim_to, _globals._sequenceIndexes[3], Common::Rect(0, 0, 0, 0));
-		_scene->_dynamicHotspots.setPosition(idx, Common::Point(-1, 0), FACING_NONE);
+		int idx = kernel_add_dynamic(words_crab, words_swim_to, 0, g_sequence_ids[0], 0, 0, 0, 0);
+		kernel_dynamic_walk(idx, -1, 0, FACING_NONE);
+		idx = kernel_add_dynamic(words_crab, words_swim_to, 0, g_sequence_ids[1], 0, 0, 0, 0);
+		kernel_dynamic_walk(idx, -1, 0, FACING_NONE);
+		idx = kernel_add_dynamic(words_crab, words_swim_to, 0, g_sequence_ids[2], 0, 0, 0, 0);
+		kernel_dynamic_walk(idx, -1, 0, FACING_NONE);
+		idx = kernel_add_dynamic(words_crab, words_swim_to, 0, g_sequence_ids[3], 0, 0, 0, 0);
+		kernel_dynamic_walk(idx, -1, 0, FACING_NONE);
 	}
 }
 
 static void room_110_parser() {
 	if (player_said_2(swim_through, tunnel)) {
-		switch (_game._trigger) {
+		switch (kernel.trigger) {
 		case 0:
-			_scene->loadAnimation(Resources::formatName(110, 'T', 0, EXT_AA, ""), 1);
-			_scene->_animation[0]->setNextFrameTimer(_game._player._ticksAmount + _game._player._priorTimer);
-			_game._player._stepEnabled = false;
-			_game._player._visible = false;
+			kernel_run_animation(kernel_full_name(110, 'T', 0, "", KERNEL_AA), 1);
+			kernel_anim[0].next_clock = player.frame_delay + player.clock;
+			player.commands_allowed = false;
+			player.walker_visible = false;
 			break;
 		case 1:
-			_game._player._visible = true;
-			_game._player._stepEnabled = true;
-			_scene->_nextSceneId = 111;
+			player.walker_visible = true;
+			player.commands_allowed = true;
+			new_room = 111;
 			break;
 		default:
 			break;
 		}
-	} else if ((_action._lookFlag) || player_said_2(look, cave))
-		_vm->_dialogs->show(11001);
+	} else if ((player.look_around) || player_said_2(look, cave))
+		text_show(11001);
 	else if (player_said_2(look, cave_ceiling) || player_said_2(look_at, cave_ceiling))
-		_vm->_dialogs->show(11002);
+		text_show(11002);
 	else if (player_said_2(look, rocks))
-		_vm->_dialogs->show(11003);
+		text_show(11003);
 	else if (player_said_2(take, rocks))
-		_vm->_dialogs->show(11004);
+		text_show(11004);
 	else if (player_said_2(look, tunnel))
-		_vm->_dialogs->show(11005);
+		text_show(11005);
 	else if (player_said_2(look, cave_entrance))
-		_vm->_dialogs->show(11006);
+		text_show(11006);
 	else if (player_said_2(look, fungoids))
-		_vm->_dialogs->show(11007);
+		text_show(11007);
 	else if (player_said_2(take, fungoids))
-		_vm->_dialogs->show(11008);
+		text_show(11008);
 	else
 		return;
 
-	_action._inProgress = false;
+	player.command_ready = false;
 }
 
 void room_110_synchronize(Common::Serializer &s) {
@@ -166,7 +167,7 @@ void room_110_preload() {
 
 	section_1_walker();
 	section_1_interface();
-	_scene->addActiveVocab(words_crab);
+	vocab_make_active(words_crab);
 }
 
 } // namespace Rooms

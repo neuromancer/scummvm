@@ -25,10 +25,14 @@
 #include "common/serializer.h"
 #include "mads/core/general.h"
 #include "mads/core/global.h"
+#include "mads/core/kernel.h"
+#include "mads/core/object.h"
 #include "mads/core/player.h"
+#include "mads/core/quote.h"
 #include "mads/core/mads.h"
 #include "mads/core/heap.h"
 #include "mads/core/popup.h"
+#include "mads/core/text.h"
 
 namespace MADS {
 

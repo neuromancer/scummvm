@@ -20,71 +20,71 @@
  */
 
 #include "mads/core/game.h"
+#include "mads/core/pal.h"
 #include "mads/nebular/global.h"
 #include "mads/nebular/nebular.h"
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section3.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
 namespace Rooms {
 
 static void room_388_init() {
-	_scene->_userInterface.setup(kInputLimitedSentences);
+	kernel_set_interface_mode(INTER_LIMITED_SENTENCES);
 
-	if (_globals[kAfterHavoc])
-		_scene->_hotspots.activate(words_sauropod, false);
+	if (global[kAfterHavoc])
+		kernel_flip_hotspot(words_sauropod, false);
 	else {
-		_globals._spriteIndexes[0] = _scene->_sprites.addSprites(formAnimName('b', 0));
-		_globals._sequenceIndexes[0] = _scene->_sequences.startCycle(_globals._spriteIndexes[0], false, 1);
+		g_sprite_ids[0] = kernel_load_series(kernel_name('b', 0), 0);
+		g_sequence_ids[0] = kernel_seq_stamp(g_sprite_ids[0], false, 1);
 	}
 
-	_game._player._visible = false;
-	_vm->_palette->setEntry(252, 63, 30, 20);
-	_vm->_palette->setEntry(253, 45, 15, 12);
-	_game.loadQuoteSet(0x154, 0x155, 0x156, 0x157, 0x158, 0);
+	player.walker_visible = false;
+	pal_change_color(252, 63, 30, 20);
+	pal_change_color(253, 45, 15, 12);
+	kernel.quotes = quote_load(0x154, 0x155, 0x156, 0x157, 0x158, 0);
 
 	section_3_music();
 }
 
 static void room_388_parser() {
 	if (player_said_2(return_to, air_shaft))
-		_scene->_nextSceneId = 313;
+		new_room = 313;
 	else if (player_said_2(talkto, sauropod)) {
-		switch (_game._trigger) {
+		switch (kernel.trigger) {
 		case 0:
-			_game._player._stepEnabled = false;
-			_scene->_kernelMessages.reset();
-			_scene->_kernelMessages.add(Common::Point(160, 136), 0x1110, 32, 1, 120, _game.getQuote(0x154));
+			player.commands_allowed = false;
+			kernel_message_purge();
+			kernel_message_add(quote_string(kernel.quotes, 0x154), 160, 136, 0x1110, 120, 1, 32);
 			break;
 
 		case 1:
-			_scene->_kernelMessages.add(Common::Point(82, 38), 0xFDFC, 0, 0, 300, _game.getQuote(0x156));
-			_scene->_kernelMessages.add(Common::Point(82, 52), 0xFDFC, 0, 0, 300, _game.getQuote(0x157));
-			_scene->_kernelMessages.add(Common::Point(82, 66), 0xFDFC, 0, 2, 300, _game.getQuote(0x158));
+			kernel_message_add(quote_string(kernel.quotes, 0x156), 82, 38, 0xFDFC, 300, 0, 0);
+			kernel_message_add(quote_string(kernel.quotes, 0x157), 82, 52, 0xFDFC, 300, 0, 0);
+			kernel_message_add(quote_string(kernel.quotes, 0x158), 82, 66, 0xFDFC, 300, 2, 0);
 			break;
 
 		case 2:
-			_game._player._stepEnabled = true;
-			_scene->_kernelMessages.add(Common::Point(160, 136), 0x1110, 32, 0, 120, _game.getQuote(0x155));
+			player.commands_allowed = true;
+			kernel_message_add(quote_string(kernel.quotes, 0x155), 160, 136, 0x1110, 120, 0, 32);
 			break;
 
 		default:
 			break;
 		}
 	} else if (player_said_2(look_through, grate)) {
-		if (_globals[kAfterHavoc])
-			_vm->_dialogs->show(38811);
+		if (global[kAfterHavoc])
+			text_show(38811);
 		else
-			_vm->_dialogs->show(38810);
+			text_show(38810);
 	} else if (player_said_2(open, grate))
-		_vm->_dialogs->show(38812);
+		text_show(38812);
 	else
 		return;
 
-	_action._inProgress = false;
+	player.command_ready = false;
 }
 
 void room_388_synchronize(Common::Serializer &s) {

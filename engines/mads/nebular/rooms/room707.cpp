@@ -19,6 +19,7 @@
  *
  */
 
+#include "mads/core/config.h"
 #include "mads/core/game.h"
 #include "mads/nebular/global.h"
 #include "mads/nebular/nebular.h"
@@ -26,21 +27,20 @@
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section7.h"
 #include "mads/nebular/rooms/teleporter.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
 namespace Rooms {
 
 static void room_707_init() {
-	_globals._spriteIndexes[4] = _scene->_sprites.addSprites("*REXHAND");
+	g_sprite_ids[4] = kernel_load_series("*REXHAND", 0);
 	teleporter_init();
 
 	// The original uses Scene7xx_section_7_music
-	if (!_vm->_musicFlag)
-		_vm->_sound->command(2);
+	if (!config_file.music_flag)
+		g_engine->_soundManager->command(2, 0);
 	else
-		_vm->_sound->command(25);
+		g_engine->_soundManager->command(25, 0);
 }
 
 static void room_707_daemon() {
@@ -49,16 +49,16 @@ static void room_707_daemon() {
 
 static void room_707_parser() {
 	if (teleporter_parser()) {
-		_action._inProgress = false;
+		player.command_ready = false;
 		return;
 	}
 
 	if (player_said_2(look, viewport) || player_said_2(peer_through, viewport))
-		_vm->_dialogs->show(70710);
+		text_show(70710);
 	else if (player_said_2(look, keypad))
-		_vm->_dialogs->show(70711);
+		text_show(70711);
 	else if (player_said_2(look, display))
-		_vm->_dialogs->show(70712);
+		text_show(70712);
 	else if (player_said_2(look, 0_key) || player_said_2(look, 1_key)
 		|| player_said_2(look, 2_key) || player_said_2(look, 3_key)
 		|| player_said_2(look, 4_key) || player_said_2(look, 5_key)
@@ -66,13 +66,13 @@ static void room_707_parser() {
 		|| player_said_2(look, 8_key) || player_said_2(look, 9_key)
 		|| player_said_2(look, smile_key) || player_said_2(look, enter_key)
 		|| player_said_2(look, frown_key))
-		_vm->_dialogs->show(70713);
-	else if (player_said_2(look, device) || _action._lookFlag)
-		_vm->_dialogs->show(70714);
+		text_show(70713);
+	else if (player_said_2(look, device) || player.look_around)
+		text_show(70714);
 	else
 		return;
 
-	_action._inProgress = false;
+	player.command_ready = false;
 }
 
 void room_707_synchronize(Common::Serializer &s) {

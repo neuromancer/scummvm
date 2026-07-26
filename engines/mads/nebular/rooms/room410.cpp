@@ -25,165 +25,165 @@
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section4.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
 namespace Rooms {
 
 static void room_410_init() {
-	_globals._spriteIndexes[1] = _scene->_sprites.addSprites(formAnimName('y', -1));
-	_globals._spriteIndexes[2] = _scene->_sprites.addSprites("*ROXRC_7");
+	g_sprite_ids[1] = kernel_load_series(kernel_name('y', -1), 0);
+	g_sprite_ids[2] = kernel_load_series("*ROXRC_7", 0);
 
-	if (_game._objects.isInRoom(OBJ_CHARGE_CASES))
-		_globals._sequenceIndexes[1] = _scene->_sequences.startCycle(_globals._spriteIndexes[1], false, 1);
+	if (object_is_here(OBJ_CHARGE_CASES))
+		g_sequence_ids[1] = kernel_seq_stamp(g_sprite_ids[1], false, 1);
 	else
-		_scene->_hotspots.activate(words_charge_cases, false);
+		kernel_flip_hotspot(words_charge_cases, false);
 
-	if (_scene->_priorSceneId != RETURNING_FROM_DIALOG) {
-		_game._player._playerPos = Common::Point(155, 150);
-		_game._player._facing = FACING_NORTH;
+	if (previous_room != KERNEL_RESTORING_GAME) {
+		player.x = 155;
+		player.y = 150;
+		player.facing = FACING_NORTH;
 	}
 
 	section_4_music();
 
-	_scene->loadAnimation(Resources::formatName(410, 'r', -1, EXT_AA, ""));
-	_scene->_animation[0]->_repeatFlag = true;
+	kernel_run_animation(kernel_full_name(410, 'r', -1, "", KERNEL_AA), 0);
+	kernel_anim[0].repeat = true;
 }
 
 static void room_410_daemon() {
-	if (_scene->_animation[0]->getCurrentFrame() == 1) {
-		if (_vm->getRandomNumber(1, 30) == 1)
-			_scene->_animation[0]->setCurrentFrame(2);
+	if (kernel_anim[0].frame == 1) {
+		if (g_engine->getRandomNumber(1, 30) == 1)
+			kernel_reset_animation(0, 2);
 		else
-			_scene->_animation[0]->setCurrentFrame(0);
+			kernel_reset_animation(0, 0);
 	}
 
-	if (_scene->_animation[0]->getCurrentFrame() == 9) {
-		if (_vm->getRandomNumber(1, 30) == 1)
-			_scene->_animation[0]->setCurrentFrame(10);
+	if (kernel_anim[0].frame == 9) {
+		if (g_engine->getRandomNumber(1, 30) == 1)
+			kernel_reset_animation(0, 10);
 		else
-			_scene->_animation[0]->setCurrentFrame(8);
+			kernel_reset_animation(0, 8);
 	}
 
-	if (_scene->_animation[0]->getCurrentFrame() == 5) {
-		if (_vm->getRandomNumber(1, 30) == 1)
-			_scene->_animation[0]->setCurrentFrame(6);
+	if (kernel_anim[0].frame == 5) {
+		if (g_engine->getRandomNumber(1, 30) == 1)
+			kernel_reset_animation(0, 6);
 		else
-			_scene->_animation[0]->setCurrentFrame(4);
+			kernel_reset_animation(0, 4);
 	}
 
-	if (_scene->_animation[0]->getCurrentFrame() == 3) {
-		if (_vm->getRandomNumber(1, 2) == 1)
-			_scene->_animation[0]->setCurrentFrame(4);
+	if (kernel_anim[0].frame == 3) {
+		if (g_engine->getRandomNumber(1, 2) == 1)
+			kernel_reset_animation(0, 4);
 		else // == 2
-			_scene->_animation[0]->setCurrentFrame(8);
+			kernel_reset_animation(0, 8);
 	}
 }
 
 static void room_410_pre_parser() {
 	if (player_said_1(take) && !player_said_1(charge_cases))
-		_game._player._needToWalk = false;
+		player.need_to_walk = false;
 
-	if (player_said_2(look, charge_cases) && _game._objects.isInRoom(OBJ_CHARGE_CASES))
-		_game._player._needToWalk = true;
+	if (player_said_2(look, charge_cases) && object_is_here(OBJ_CHARGE_CASES))
+		player.need_to_walk = true;
 
 	if (player_said_2(open, sacks) || player_said_2(open, sack))
-		_game._player._needToWalk = false;
+		player.need_to_walk = false;
 
 	if (player_said_2(look, can))
-		_game._player._needToWalk = true;
+		player.need_to_walk = true;
 }
 
 static void room_410_parser() {
 	if (player_said_2(walk_into, corridor_to_south))
-		_scene->_nextSceneId = 406;
-	else if (player_said_2(take, charge_cases) && (_game._objects.isInRoom(OBJ_CHARGE_CASES) || _game._trigger)) {
-		switch (_game._trigger) {
+		new_room = 406;
+	else if (player_said_2(take, charge_cases) && (object_is_here(OBJ_CHARGE_CASES) || kernel.trigger)) {
+		switch (kernel.trigger) {
 		case 0:
-			_vm->_sound->command(57);
-			_game._player._stepEnabled = false;
-			_game._player._visible = false;
-			_globals._sequenceIndexes[2] = _scene->_sequences.startPingPongCycle(_globals._spriteIndexes[2], false, 7, 2, 0, 0);
-			_scene->_sequences.setAnimRange(_globals._sequenceIndexes[2], 1, 3);
-			_scene->_sequences.setMsgLayout(_globals._sequenceIndexes[2]);
-			_scene->_sequences.addSubEntry(_globals._sequenceIndexes[2], SEQUENCE_TRIGGER_SPRITE, 3, 1);
-			_scene->_sequences.addSubEntry(_globals._sequenceIndexes[2], SEQUENCE_TRIGGER_EXPIRE, 0, 2);
+			g_engine->_soundManager->command(57, 0);
+			player.commands_allowed = false;
+			player.walker_visible = false;
+			g_sequence_ids[2] = kernel_seq_pingpong(g_sprite_ids[2], false, 7, 0, 0, 2);
+			kernel_seq_range(g_sequence_ids[2], 1, 3);
+			kernel_seq_player(g_sequence_ids[2], false);
+			kernel_seq_trigger(g_sequence_ids[2], KERNEL_TRIGGER_SPRITE, 3, 1);
+			kernel_seq_trigger(g_sequence_ids[2], KERNEL_TRIGGER_EXPIRE, 0, 2);
 			break;
 
 		case 1:
-			_scene->_sequences.remove(_globals._sequenceIndexes[1]);
-			_scene->_hotspots.activate(words_charge_cases, false);
-			_game._objects.addToInventory(OBJ_CHARGE_CASES);
-			_vm->_dialogs->showItem(OBJ_CHARGE_CASES, 41032);
+			kernel_seq_delete(g_sequence_ids[1]);
+			kernel_flip_hotspot(words_charge_cases, false);
+			inter_give_to_player(OBJ_CHARGE_CASES);
+			object_examine(OBJ_CHARGE_CASES, 41032, 0);
 			break;
 
 		case 2:
-			_game._player._priorTimer = _game._player._ticksAmount + _scene->_frameStartTime;
-			_game._player._visible = true;
-			_scene->_sequences.addTimer(20, 3);
+			player.clock = player.frame_delay + kernel.clock;
+			player.walker_visible = true;
+			kernel_timing_trigger(20, 3);
 			break;
 
 		case 3:
-			_game._player._stepEnabled = true;
+			player.commands_allowed = true;
 			break;
 
 		default:
 			break;
 		}
 	} else if (player_said_2(look, barrel))
-		_vm->_dialogs->show(41010);
+		text_show(41010);
 	else if (player_said_2(take, barrel))
-		_vm->_dialogs->show(41011);
+		text_show(41011);
 	else if (player_said_2(open, barrel))
-		_vm->_dialogs->show(41012);
+		text_show(41012);
 	else if (player_said_2(look, rug))
-		_vm->_dialogs->show(41013);
+		text_show(41013);
 	else if (player_said_2(take, rug))
-		_vm->_dialogs->show(41014);
+		text_show(41014);
 	else if (player_said_2(look, carton) || player_said_2(open, carton)) {
-		if (_game._objects.isInRoom(OBJ_CHARGE_CASES))
-			_vm->_dialogs->show(41015);
+		if (object_is_here(OBJ_CHARGE_CASES))
+			text_show(41015);
 		else
-			_vm->_dialogs->show(41016);
+			text_show(41016);
 	} else if (player_said_2(look, flour))
-		_vm->_dialogs->show(41017);
+		text_show(41017);
 	else if (player_said_2(take, flour))
-		_vm->_dialogs->show(41018);
+		text_show(41018);
 	else if (player_said_2(look, sacks))
-		_vm->_dialogs->show(41019);
+		text_show(41019);
 	else if (player_said_2(look, sack))
-		_vm->_dialogs->show(41019);
+		text_show(41019);
 	else if (player_said_2(open, sacks))
-		_vm->_dialogs->show(41020);
+		text_show(41020);
 	else if (player_said_2(open, sack))
-		_vm->_dialogs->show(41020);
+		text_show(41020);
 	else if (player_said_2(look, bucket_of_tar))
-		_vm->_dialogs->show(41021);
+		text_show(41021);
 	else if (player_said_2(take, bucket_of_tar))
-		_vm->_dialogs->show(41022);
+		text_show(41022);
 	else if (player_said_2(look, can))
-		_vm->_dialogs->show(41023);
+		text_show(41023);
 	else if (player_said_2(take, can))
-		_vm->_dialogs->show(41024);
-	else if (player_said_2(look, charge_cases) && _game._objects.isInRoom(OBJ_CHARGE_CASES))
-		_vm->_dialogs->show(41025);
+		text_show(41024);
+	else if (player_said_2(look, charge_cases) && object_is_here(OBJ_CHARGE_CASES))
+		text_show(41025);
 	else if (player_said_2(look, fence))
-		_vm->_dialogs->show(41027);
+		text_show(41027);
 	else if (player_said_2(look, shelves))
-		_vm->_dialogs->show(41028);
+		text_show(41028);
 	else if (player_said_2(look, rat))
-		_vm->_dialogs->show(41029);
+		text_show(41029);
 	else if (player_said_2(take, rat))
-		_vm->_dialogs->show(41030);
+		text_show(41030);
 	else if (player_said_2(throw, rat))
-		_vm->_dialogs->show(41031);
-	else if (_action._lookFlag)
-		_vm->_dialogs->show(41033);
+		text_show(41031);
+	else if (player.look_around)
+		text_show(41033);
 	else
 		return;
 
-	_action._inProgress = false;
+	player.command_ready = false;
 }
 
 void room_410_synchronize(Common::Serializer &s) {

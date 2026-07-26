@@ -19,14 +19,13 @@
  *
  */
 
-#include "math/utils.h"
+#include "mads/core/config.h"
 #include "mads/core/game.h"
 #include "mads/nebular/global.h"
 #include "mads/nebular/nebular.h"
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section5.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
@@ -40,18 +39,19 @@ static Scratch local;
 
 
 static void room_507_init() {
-	_globals._spriteIndexes[1] = _scene->_sprites.addSprites(formAnimName('p', -1));
-	_globals._spriteIndexes[2] = _scene->_sprites.addSprites("*RXMRD_3");
+	g_sprite_ids[1] = kernel_load_series(kernel_name('p', -1), 0);
+	g_sprite_ids[2] = kernel_load_series("*RXMRD_3", 0);
 
-	if ((_game._difficulty != DIFFICULTY_EASY) && (_game._objects[OBJ_PENLIGHT]._roomNumber == _scene->_currentSceneId)) {
-		_globals._sequenceIndexes[1] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[1], false, 9, 0, 0, 0);
-		local._penlightHotspotId = _scene->_dynamicHotspots.add(words_penlight, words_walkto, _globals._sequenceIndexes[1], Common::Rect(0, 0, 0, 0));
-		_scene->_dynamicHotspots.setPosition(local._penlightHotspotId, Common::Point(233, 152), FACING_SOUTHEAST);
+	if ((game.difficulty != DIFFICULTY_EASY) && (object[OBJ_PENLIGHT].location == room_id)) {
+		g_sequence_ids[1] = kernel_seq_forward(g_sprite_ids[1], false, 9, 0, 0, 0);
+		local._penlightHotspotId = kernel_add_dynamic(words_penlight, words_walkto, 0, g_sequence_ids[1], 0, 0, 0, 0);
+		kernel_dynamic_walk(local._penlightHotspotId, 233, 152, FACING_SOUTHEAST);
 	}
 
-	if (_scene->_priorSceneId != RETURNING_FROM_DIALOG) {
-		_game._player._playerPos = Common::Point(121, 147);
-		_game._player._facing = FACING_NORTH;
+	if (previous_room != KERNEL_RESTORING_GAME) {
+		player.x = 121;
+		player.y = 147;
+		player.facing = FACING_NORTH;
 	}
 
 	section_5_music();
@@ -59,89 +59,89 @@ static void room_507_init() {
 
 static void room_507_parser() {
 	if (player_said_2(walk_through, entrance))
-		_scene->_nextSceneId = 506;
+		new_room = 506;
 	else if (player_said_2(take, penlight)) {
-		if (_game._trigger || !_game._objects.isInInventory(OBJ_PENLIGHT)) {
-			switch (_game._trigger) {
+		if (kernel.trigger || !player_has(OBJ_PENLIGHT)) {
+			switch (kernel.trigger) {
 			case 0:
-				_game._player._stepEnabled = false;
-				_game._player._visible = false;
-				_globals._sequenceIndexes[2] = _scene->_sequences.startPingPongCycle(_globals._spriteIndexes[2], false, 6, 1, 0, 0);
-				_scene->_sequences.setAnimRange(_globals._sequenceIndexes[2], 1, 5);
-				_scene->_sequences.setMsgLayout(_globals._sequenceIndexes[2]);
-				_scene->_sequences.addSubEntry(_globals._sequenceIndexes[2], SEQUENCE_TRIGGER_SPRITE, 5, 1);
-				_scene->_sequences.addSubEntry(_globals._sequenceIndexes[2], SEQUENCE_TRIGGER_EXPIRE, 0, 2);
+				player.commands_allowed = false;
+				player.walker_visible = false;
+				g_sequence_ids[2] = kernel_seq_pingpong(g_sprite_ids[2], false, 6, 0, 0, 1);
+				kernel_seq_range(g_sequence_ids[2], 1, 5);
+				kernel_seq_player(g_sequence_ids[2], false);
+				kernel_seq_trigger(g_sequence_ids[2], KERNEL_TRIGGER_SPRITE, 5, 1);
+				kernel_seq_trigger(g_sequence_ids[2], KERNEL_TRIGGER_EXPIRE, 0, 2);
 				break;
 
 			case 1:
-				_scene->_sequences.remove(_globals._sequenceIndexes[1]);
-				_scene->_dynamicHotspots.remove(local._penlightHotspotId);
-				_vm->_sound->command(27);
-				_game._objects.addToInventory(OBJ_PENLIGHT);
-				_vm->_dialogs->showItem(OBJ_PENLIGHT, 50730);
+				kernel_seq_delete(g_sequence_ids[1]);
+				kernel_delete_dynamic(local._penlightHotspotId);
+				g_engine->_soundManager->command(27, 0);
+				inter_give_to_player(OBJ_PENLIGHT);
+				object_examine(OBJ_PENLIGHT, 50730, 0);
 				break;
 
 			case 2:
-				_scene->_sequences.updateTimeout(-1, _globals._sequenceIndexes[2]);
-				_game._player._visible = true;
-				_game._player._stepEnabled = true;
+				kernel_seq_timeout(g_sequence_ids[2], -1);
+				player.walker_visible = true;
+				player.commands_allowed = true;
 				break;
 
 			default:
 				break;
 			}
 		}
-	} else if (_action._lookFlag)
-		_vm->_dialogs->show(50722);
+	} else if (player.look_around)
+		text_show(50722);
 	else if (player_said_2(look, swirling_light))
-		_vm->_dialogs->show(50710);
+		text_show(50710);
 	else if (player_said_2(take, swirling_light))
-		_vm->_dialogs->show(50711);
+		text_show(50711);
 	else if (player_said_2(look, old_software))
-		_vm->_dialogs->show(50712);
+		text_show(50712);
 	else if (player_said_2(take, old_software))
-		_vm->_dialogs->show(50713);
+		text_show(50713);
 	else if (player_said_2(look, advertisement))
-		_vm->_dialogs->show(50714);
+		text_show(50714);
 	else if (player_said_2(look, advertising_poster))
-		_vm->_dialogs->show(50715);
+		text_show(50715);
 	else if (player_said_2(look, sign)) {
-		if (_scene->_customDest.x < 100)
-			_vm->_dialogs->show(50726);
+		if (inter_point_x < 100)
+			text_show(50726);
 		else
-			_vm->_dialogs->show(50716);
+			text_show(50716);
 	} else if (player_said_2(look, hottest_software))
-		_vm->_dialogs->show(50717);
+		text_show(50717);
 	else if (player_said_2(look, software_shelf))
-		_vm->_dialogs->show(50718);
+		text_show(50718);
 	else if (player_said_2(look, sensor))
-		_vm->_dialogs->show(50719);
+		text_show(50719);
 	else if (player_said_2(look, cash_register))
-		_vm->_dialogs->show(50720);
+		text_show(50720);
 	else if (player_said_2(look, pad_of_paper))
-		_vm->_dialogs->show(50721);
+		text_show(50721);
 	else if (player_said_2(open, cash_register))
-		_vm->_dialogs->show(50723);
+		text_show(50723);
 	else if (player_said_2(look, bargain_vat))
-		_vm->_dialogs->show(50724);
+		text_show(50724);
 	else if (player_said_2(look, window))
-		_vm->_dialogs->show(50725);
+		text_show(50725);
 	else if (player_said_2(walk_behind, counter)) {
 		// WORKAROUND: Empty handling to prevent default "can't do that" dialogs showing
 	} else if (player_said_2(look, counter)) {
-		if (_game._objects.isInRoom(OBJ_PENLIGHT))
-			_vm->_dialogs->show(50728);
+		if (object_is_here(OBJ_PENLIGHT))
+			text_show(50728);
 		else
-			_vm->_dialogs->show(50727);
-	} else if (player_said_2(look, penlight) && !_game._objects.isInInventory(OBJ_PENLIGHT)) {
-		if (_game._objects.isInRoom(OBJ_PENLIGHT))
-			_vm->_dialogs->show(50729);
+			text_show(50727);
+	} else if (player_said_2(look, penlight) && !player_has(OBJ_PENLIGHT)) {
+		if (object_is_here(OBJ_PENLIGHT))
+			text_show(50729);
 	} else if (player_said_2(look, emergency_light))
-		_vm->_dialogs->show(50731);
+		text_show(50731);
 	else
 		return;
 
-	_action._inProgress = false;
+	player.command_ready = false;
 }
 
 void room_507_synchronize(Common::Serializer &s) {
@@ -154,8 +154,8 @@ void room_507_preload() {
 
 	section_5_walker();
 	section_5_interface();
-	_scene->addActiveVocab(words_penlight);
-	_scene->addActiveVocab(words_walkto);
+	vocab_make_active(words_penlight);
+	vocab_make_active(words_walkto);
 }
 
 } // namespace Rooms

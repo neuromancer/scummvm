@@ -19,13 +19,14 @@
  *
  */
 
+#include "mads/core/config.h"
 #include "mads/core/game.h"
+#include "mads/core/quote.h"
 #include "mads/nebular/global.h"
 #include "mads/nebular/nebular.h"
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section1.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
@@ -39,21 +40,24 @@ struct Scratch {
 static Scratch local;
 
 static void room_104_init() {
-	_globals._spriteIndexes[1] = _scene->_sprites.addSprites(formAnimName('h', -1));
-	_globals._sequenceIndexes[1] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[1], false, 14, 0, 0, 1);
-	_scene->_sequences.setDepth(_globals._sequenceIndexes[1], 8);
+	g_sprite_ids[1] = kernel_load_series(kernel_name('h', -1), 0);
+	g_sequence_ids[1] = kernel_seq_forward(g_sprite_ids[1], false, 14, 1, 0, 0);
+	kernel_seq_depth(g_sequence_ids[1], 8);
 
-	if (_scene->_priorSceneId == 105)
-		_game._player._playerPos = Common::Point(302, 107);
-	else if (_scene->_priorSceneId != RETURNING_FROM_DIALOG)
-		_game._player._playerPos = Common::Point(160, 134);
+	if (previous_room == 105) {
+		player.x = 302;
+		player.y = 107;
+	} else if (previous_room != KERNEL_RESTORING_GAME) {
+		player.x = 160;
+		player.y = 134;
+	}
 
 	local._loseFl = false;
-	_game.loadQuoteSet(0x35, 0x34, 0);
+	kernel.quotes = quote_load(0x35, 0x34, 0);
 	local._kargShootingFl = false;
 
-	if (_vm->getRandomNumber(1, 3) == 1) {
-		_scene->loadAnimation(Resources::formatName(104, 'B', -1, EXT_AA, ""), 0);
+	if (g_engine->getRandomNumber(1, 3) == 1) {
+		kernel_run_animation(kernel_full_name(104, 'B', -1, "", KERNEL_AA), 0);
 		local._kargShootingFl = true;
 	}
 
@@ -61,48 +65,48 @@ static void room_104_init() {
 }
 
 static void room_104_daemon() {
-	if ((_game._player._playerPos == Common::Point(189, 70)) && (_game._trigger || !local._loseFl)) {
-		if (_game._player._facing == FACING_SOUTHWEST || _game._player._facing == FACING_SOUTHEAST)
-			_game._player._facing = FACING_SOUTH;
+	if ((Common::Point(player.x, player.y) == Common::Point(189, 70)) && (kernel.trigger || !local._loseFl)) {
+		if (player.facing == FACING_SOUTHWEST || player.facing == FACING_SOUTHEAST)
+			player.facing = FACING_SOUTH;
 
-		if (_game._player._facing == FACING_NORTHWEST || _game._player._facing == FACING_NORTHEAST)
-			_game._player._facing = FACING_NORTH;
+		if (player.facing == FACING_NORTHWEST || player.facing == FACING_NORTHEAST)
+			player.facing = FACING_NORTH;
 
 		bool mirrorFl = false;
-		if (_game._player._facing == FACING_WEST) {
-			_game._player._facing = FACING_EAST;
+		if (player.facing == FACING_WEST) {
+			player.facing = FACING_EAST;
 			mirrorFl = true;
 		}
 
 		local._loseFl = true;
 
-		switch (_game._player._facing) {
+		switch (player.facing) {
 		case FACING_EAST:
-			switch (_game._trigger) {
+			switch (kernel.trigger) {
 			case 0:
-				_scene->_kernelMessages.reset();
-				_scene->freeAnimation();
-				_scene->resetScene();
-				_game._player._stepEnabled = false;
-				_game._player._visible = false;
-				_globals._spriteIndexes[2] = _scene->_sprites.addSprites(formAnimName('a', 0));
-				_vm->_palette->refreshSceneColors();
-				_globals._sequenceIndexes[2] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[2], mirrorFl, 7, 1, 0, 0);
-				_scene->_sequences.setPosition(_globals._sequenceIndexes[2], Common::Point(198, 143));
-				_scene->_sequences.setDepth(_globals._sequenceIndexes[2], 4);
-				_scene->_sequences.addSubEntry(_globals._sequenceIndexes[2], SEQUENCE_TRIGGER_EXPIRE, 0, 1);
+				kernel_message_purge();
+				kernel_abort_animation(0);
+				kernel_dump_all();
+				player.commands_allowed = false;
+				player.walker_visible = false;
+				g_sprite_ids[2] = kernel_load_series(kernel_name('a', 0), 0);
+				kernel_new_palette();
+				g_sequence_ids[2] = kernel_seq_forward(g_sprite_ids[2], mirrorFl, 7, 0, 0, 1);
+				kernel_seq_loc(g_sequence_ids[2], 198, 143);
+				kernel_seq_depth(g_sequence_ids[2], 4);
+				kernel_seq_trigger(g_sequence_ids[2], KERNEL_TRIGGER_EXPIRE, 0, 1);
 				break;
 
 			case 1:
-				_globals._sequenceIndexes[2] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[2], mirrorFl, 7, 0, 0, 0);
-				_scene->_sequences.setPosition(_globals._sequenceIndexes[2], Common::Point(198, 143));
-				_scene->_sequences.setAnimRange(_globals._sequenceIndexes[2], -2, -2);
-				_scene->_sequences.addTimer(90, 2);
+				g_sequence_ids[2] = kernel_seq_forward(g_sprite_ids[2], mirrorFl, 7, 0, 0, 0);
+				kernel_seq_loc(g_sequence_ids[2], 198, 143);
+				kernel_seq_range(g_sequence_ids[2], -2, -2);
+				kernel_timing_trigger(90, 2);
 				break;
 
 			case 2:
-				_vm->_dialogs->show(10406);
-				_scene->_reloadSceneFlag = true;
+				text_show(10406);
+				kernel.force_restart = true;
 				break;
 
 			default:
@@ -111,40 +115,40 @@ static void room_104_daemon() {
 			break;
 
 		case FACING_SOUTH:
-			switch (_game._trigger) {
+			switch (kernel.trigger) {
 			case 0:
-				_scene->_kernelMessages.reset();
-				_scene->freeAnimation();
-				_scene->resetScene();
-				_game._player._stepEnabled = false;
-				_game._player._visible = false;
-				_globals._spriteIndexes[3] = _scene->_sprites.addSprites(formAnimName('a', 1));
-				_vm->_palette->refreshSceneColors();
-				_globals._sequenceIndexes[3] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[3], false, 6, 1, 0, 0);
-				_scene->_sequences.setPosition(_globals._sequenceIndexes[3], Common::Point(198, 143));
-				_scene->_sequences.setDepth(_globals._sequenceIndexes[3], 4);
-				_scene->_sequences.setAnimRange(_globals._sequenceIndexes[3], 1, 14);
-				_scene->_sequences.addSubEntry(_globals._sequenceIndexes[3], SEQUENCE_TRIGGER_EXPIRE, 0, 1);
+				kernel_message_purge();
+				kernel_abort_animation(0);
+				kernel_dump_all();
+				player.commands_allowed = false;
+				player.walker_visible = false;
+				g_sprite_ids[3] = kernel_load_series(kernel_name('a', 1), 0);
+				kernel_new_palette();
+				g_sequence_ids[3] = kernel_seq_forward(g_sprite_ids[3], false, 6, 0, 0, 1);
+				kernel_seq_loc(g_sequence_ids[3], 198, 143);
+				kernel_seq_depth(g_sequence_ids[3], 4);
+				kernel_seq_range(g_sequence_ids[3], 1, 14);
+				kernel_seq_trigger(g_sequence_ids[3], KERNEL_TRIGGER_EXPIRE, 0, 1);
 				break;
 
 			case 1:
-				_globals._sequenceIndexes[3] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[3], false, 5, 1, 0, 0);
-				_scene->_sequences.setPosition(_globals._sequenceIndexes[3], Common::Point(198, 143));
-				_scene->_sequences.setDepth(_globals._sequenceIndexes[3], 4);
-				_scene->_sequences.setAnimRange(_globals._sequenceIndexes[3], 15, 32);
-				_scene->_sequences.addSubEntry(_globals._sequenceIndexes[3], SEQUENCE_TRIGGER_EXPIRE, 0, 2);
+				g_sequence_ids[3] = kernel_seq_forward(g_sprite_ids[3], false, 5, 0, 0, 1);
+				kernel_seq_loc(g_sequence_ids[3], 198, 143);
+				kernel_seq_depth(g_sequence_ids[3], 4);
+				kernel_seq_range(g_sequence_ids[3], 15, 32);
+				kernel_seq_trigger(g_sequence_ids[3], KERNEL_TRIGGER_EXPIRE, 0, 2);
 				break;
 
 			case 2:
-				_globals._sequenceIndexes[3] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[3], false, 3, 0, 0, 0);
-				_scene->_sequences.setPosition(_globals._sequenceIndexes[3], Common::Point(198, 143));
-				_scene->_sequences.setAnimRange(_globals._sequenceIndexes[3], -2, -2);
-				_scene->_sequences.addTimer(90, 3);
+				g_sequence_ids[3] = kernel_seq_forward(g_sprite_ids[3], false, 3, 0, 0, 0);
+				kernel_seq_loc(g_sequence_ids[3], 198, 143);
+				kernel_seq_range(g_sequence_ids[3], -2, -2);
+				kernel_timing_trigger(90, 3);
 				break;
 
 			case 3:
-				_vm->_dialogs->show(10406);
-				_scene->_reloadSceneFlag = true;
+				text_show(10406);
+				kernel.force_restart = true;
 				break;
 
 			default:
@@ -153,33 +157,33 @@ static void room_104_daemon() {
 			break;
 
 		case FACING_NORTH:
-			switch (_game._trigger) {
+			switch (kernel.trigger) {
 			case 0:
-				_scene->_kernelMessages.reset();
-				_scene->freeAnimation();
-				_scene->resetScene();
-				_game._player._stepEnabled = false;
-				_game._player._visible = false;
-				_globals._spriteIndexes[4] = _scene->_sprites.addSprites(formAnimName('a', 2));
-				_vm->_palette->refreshSceneColors();
-				_globals._sequenceIndexes[4] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[4], false, 8, 1, 0, 0);
-				_scene->_sequences.setPosition(_globals._sequenceIndexes[4], Common::Point(198, 143));
-				_scene->_sequences.setDepth(_globals._sequenceIndexes[4], 4);
-				_scene->_sequences.addSubEntry(_globals._sequenceIndexes[4], SEQUENCE_TRIGGER_EXPIRE, 0, 1);
-				if (_game._storyMode >= STORYMODE_NICE)
-					_scene->_sequences.addSubEntry(_globals._sequenceIndexes[4], SEQUENCE_TRIGGER_SPRITE, 15, 2);
+				kernel_message_purge();
+				kernel_abort_animation(0);
+				kernel_dump_all();
+				player.commands_allowed = false;
+				player.walker_visible = false;
+				g_sprite_ids[4] = kernel_load_series(kernel_name('a', 2), 0);
+				kernel_new_palette();
+				g_sequence_ids[4] = kernel_seq_forward(g_sprite_ids[4], false, 8, 0, 0, 1);
+				kernel_seq_loc(g_sequence_ids[4], 198, 143);
+				kernel_seq_depth(g_sequence_ids[4], 4);
+				kernel_seq_trigger(g_sequence_ids[4], KERNEL_TRIGGER_EXPIRE, 0, 1);
+				if (config_file.naughtiness >= NICE)
+					kernel_seq_trigger(g_sequence_ids[4], KERNEL_TRIGGER_SPRITE, 15, 2);
 				break;
 
 			case 1:
-				_globals._sequenceIndexes[4] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[4], false, 8, 0, 0, 0);
-				_scene->_sequences.setPosition(_globals._sequenceIndexes[4], Common::Point(198, 143));
-				_scene->_sequences.setAnimRange(_globals._sequenceIndexes[4], -2, -2);
-				_scene->_sequences.addTimer(90, 2);
+				g_sequence_ids[4] = kernel_seq_forward(g_sprite_ids[4], false, 8, 0, 0, 0);
+				kernel_seq_loc(g_sequence_ids[4], 198, 143);
+				kernel_seq_range(g_sequence_ids[4], -2, -2);
+				kernel_timing_trigger(90, 2);
 				break;
 
 			case 2:
-				_vm->_dialogs->show(10406);
-				_scene->_reloadSceneFlag = true;
+				text_show(10406);
+				kernel.force_restart = true;
 				break;
 
 			default:
@@ -190,48 +194,48 @@ static void room_104_daemon() {
 			break;
 		}
 
-		if (!_game._trigger)
-			_vm->_sound->command(34);
+		if (!kernel.trigger)
+			g_engine->_soundManager->command(34, 0);
 	}
 
-	if (_game._player._moving && (_scene->_rails.getNext() > 0)) {
-		_game._player.cancelCommand();
-		_game._player.startWalking(Common::Point(189, 70), FACING_NONE);
-		_scene->_rails.resetNext();
+	if (player.walking && (player.next_special_code > 0)) {
+		player_cancel_command();
+		player_start_walking(189, 70, FACING_NONE);
+		player.next_special_code = 0;
 	}
 
-	if ((_game._player._special > 0) && _game._player._stepEnabled)
-		_game._player._stepEnabled = false;
+	if ((player.special_code > 0) && player.commands_allowed)
+		player.commands_allowed = false;
 
-	if (local._kargShootingFl && (_scene->_animation[0]->getCurrentFrame() >= 19)) {
-		_scene->_kernelMessages.add(Common::Point(0, 0), 0x1110, 34, 0, 120, _game.getQuote(52));
+	if (local._kargShootingFl && (kernel_anim[0].frame >= 19)) {
+		kernel_message_add(quote_string(kernel.quotes, 52), 0, 0, 0x1110, 120, 0, 34);
 		local._kargShootingFl = false;
 	}
 }
 
 static void room_104_pre_parser() {
 	if (player_said_2(swim_towards, eastern_cliff_face))
-		_game._player._walkOffScreenSceneId = 105;
+		player.walk_off_edge_to_room = 105;
 
 	if (player_said_2(swim_towards, open_area_to_south))
-		_game._player._walkOffScreenSceneId = 106;
+		player.walk_off_edge_to_room = 106;
 }
 
 static void room_104_parser() {
-	if (_action._lookFlag)
-		_vm->_dialogs->show(10405);
+	if (player.look_around)
+		text_show(10405);
 	else if (player_said_2(look, curious_weed_patch))
-		_vm->_dialogs->show(10404);
+		text_show(10404);
 	else if (player_said_2(look, surface))
-		_vm->_dialogs->show(10403);
+		text_show(10403);
 	else if (player_said_2(look, cliff_face))
-		_vm->_dialogs->show(10401);
+		text_show(10401);
 	else if (player_said_2(look, ocean_floor))
-		_vm->_dialogs->show(10402);
+		text_show(10402);
 	else
 		return;
 
-	_action._inProgress = false;
+	player.command_ready = false;
 }
 
 void room_104_synchronize(Common::Serializer &s) {
@@ -245,7 +249,7 @@ void room_104_preload() {
 	room_parser_code_pointer = room_104_parser;
 	room_daemon_code_pointer = room_104_daemon;
 
-	anim_himem_preload(formAnimName('A', -1), 3);
+	anim_himem_preload(kernel_name('A', -1), 3);
 
 	section_1_walker();
 	section_1_interface();

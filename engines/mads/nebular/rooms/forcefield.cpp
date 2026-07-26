@@ -20,7 +20,6 @@
  */
 
 #include "mads/nebular/rooms/forcefield.h"
-#include "mads/nebular/rooms/thunks.h"
 #include "mads/mads.h"
 
 namespace MADS {
@@ -49,8 +48,8 @@ void init_forcefield(Forcefield *force, bool flag) {
 }
 
 void handle_forcefield(Forcefield *force, int16 *sprites) {
-	if (_game._trigger >= 150) {
-		int id = _game._trigger - 150;
+	if (kernel.trigger >= 150) {
+		int id = kernel.trigger - 150;
 		if (id < 40) {
 			if (id < 20)
 				force->_vertical--;
@@ -62,13 +61,13 @@ void handle_forcefield(Forcefield *force, int16 *sprites) {
 		return;
 	}
 
-	if (!force->_flag || (_scene->_frameStartTime < force->_timer) || (force->_vertical + force->_horizontal >= 5))
+	if (!force->_flag || (kernel.clock < force->_timer) || (force->_vertical + force->_horizontal >= 5))
 		return;
 
-	if (_vm->getRandomNumber(1, 1000) <= (200 + ((40 - (force->_vertical + force->_horizontal)) << 5))) {
+	if (g_engine->getRandomNumber(1, 1000) <= (200 + ((40 - (force->_vertical + force->_horizontal)) << 5))) {
 		int id = -1;
 		for (int i = 0; i < 100; i++) {
-			int randIdx = _vm->getRandomNumber(0, 39);
+			int randIdx = g_engine->getRandomNumber(0, 39);
 			if (force->_seqId[randIdx] < 0) {
 				id = randIdx;
 				break;
@@ -86,7 +85,7 @@ void handle_forcefield(Forcefield *force, int16 *sprites) {
 
 		int speedX, speedY;
 		int posX, posY;
-		int randVal = _vm->getRandomNumber(1, 100);
+		int randVal = g_engine->getRandomNumber(1, 100);
 		int spriteId;
 		bool mirror;
 
@@ -114,11 +113,11 @@ void handle_forcefield(Forcefield *force, int16 *sprites) {
 		}
 
 		if (id >= 0) {
-			force->_seqId[id] = _scene->_sequences.addSpriteCycle(sprites[spriteId], mirror, 2, 0, 0, 0);
-			_scene->_sequences.setDepth(force->_seqId[id], 8);
-			_scene->_sequences.setPosition(force->_seqId[id], Common::Point(posX, posY));
-			_scene->_sequences.setMotion(force->_seqId[id], 2, speedX, speedY);
-			_scene->_sequences.addSubEntry(force->_seqId[id], SEQUENCE_TRIGGER_EXPIRE, 0, 150 + id);
+			force->_seqId[id] = kernel_seq_forward(sprites[spriteId], mirror, 2, 0, 0, 0);
+			kernel_seq_depth(force->_seqId[id], 8);
+			kernel_seq_loc(force->_seqId[id], posX, posY);
+			kernel_seq_motion(force->_seqId[id], 2, speedX, speedY);
+			kernel_seq_trigger(force->_seqId[id], KERNEL_TRIGGER_EXPIRE, 0, 150 + id);
 			if (spriteId == 2)
 				force->_horizontal++;
 			else
@@ -126,7 +125,7 @@ void handle_forcefield(Forcefield *force, int16 *sprites) {
 		}
 	}
 
-	force->_timer = _scene->_frameStartTime + 4;
+	force->_timer = kernel.clock + 4;
 }
 
 } // namespace Rooms

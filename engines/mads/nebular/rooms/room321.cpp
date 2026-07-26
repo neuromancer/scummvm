@@ -19,46 +19,46 @@
  *
  */
 
+#include "mads/core/config.h"
 #include "mads/core/game.h"
 #include "mads/nebular/global.h"
 #include "mads/nebular/nebular.h"
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section3.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
 namespace Rooms {
 
 static void room_321_init() {
-	_game._player._visible = false;
-	_game._player._stepEnabled = false;
+	player.walker_visible = false;
+	player.commands_allowed = false;
 
-	_scene->_userInterface.emptyConversationList();
-	_scene->_userInterface.setup(kInputConversation);
+	inter_reset_dialog();
+	kernel_set_interface_mode(INTER_CONVERSATION);
 
 	int suffixNum;
-	if (_globals[kSexOfRex] == REX_FEMALE) {
-		_globals[kSexOfRex] = REX_MALE;
+	if (global[kSexOfRex] == REX_FEMALE) {
+		global[kSexOfRex] = REX_MALE;
 		suffixNum = 1;
 	} else {
-		_globals[kSexOfRex] = REX_FEMALE;
-		suffixNum = _game._visitedScenes._sceneRevisited ? 2 : 0;
+		global[kSexOfRex] = REX_FEMALE;
+		suffixNum = player.been_here_before ? 2 : 0;
 	}
 
-	_scene->loadAnimation(formAnimName('g', suffixNum), 60);
+	kernel_run_animation(kernel_name('g', suffixNum), 60);
 	section_3_music();
 }
 
 static void room_321_daemon() {
-	if (_scene->_animation[0] != nullptr) {
-		if ((_scene->_animation[0]->getCurrentFrame() >= 260) && (_globals[kSexOfRex] == REX_MALE) && (_game._storyMode >= STORYMODE_NICE))
-			_scene->_nextSceneId = 316;
+	if (kernel_anim[0].anim != nullptr) {
+		if ((kernel_anim[0].frame >= 260) && (global[kSexOfRex] == REX_MALE) && (config_file.naughtiness >= NICE))
+			new_room = 316;
 	}
 
-	if (_game._trigger == 60)
-		_scene->_nextSceneId = 316;
+	if (kernel.trigger == 60)
+		new_room = 316;
 }
 
 void room_321_synchronize(Common::Serializer &s) {

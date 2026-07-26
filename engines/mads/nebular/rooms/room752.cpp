@@ -25,7 +25,6 @@
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section7.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
@@ -39,47 +38,50 @@ static Scratch local;
 
 
 static void room_752_init() {
-	_globals._spriteIndexes[14] = _scene->_sprites.addSprites(formAnimName('l', -1));
-	_globals._spriteIndexes[12] = _scene->_sprites.addSprites("*RXMBD_8");
+	g_sprite_ids[14] = kernel_load_series(kernel_name('l', -1), 0);
+	g_sprite_ids[12] = kernel_load_series("*RXMBD_8", 0);
 
-	if (_scene->_priorSceneId == 751) {
-		_game._player._playerPos = Common::Point(13, 145);
-		_game._player._facing = FACING_EAST;
-	} else if (_scene->_priorSceneId != RETURNING_FROM_DIALOG) {
-		_game._player._playerPos = Common::Point(289, 138);
-		_game._player.walk(Common::Point(262, 148), FACING_WEST);
-		_game._player._facing = FACING_WEST;
-		_game._player._visible = true;
+	if (previous_room == 751) {
+		player.x = 13;
+		player.y = 145;
+		player.facing = FACING_EAST;
+	} else if (previous_room != KERNEL_RESTORING_GAME) {
+		player.x = 289;
+		player.y = 138;
+		player_walk(262, 148, FACING_WEST);
+		player.facing = FACING_WEST;
+		player.walker_visible = true;
 	}
 
-	if (_game._objects[OBJ_ID_CARD]._roomNumber == 752) {
-		_globals._spriteIndexes[13] = _scene->_sprites.addSprites(formAnimName('i', -1));
-		_globals._sequenceIndexes[13] = _scene->_sequences.startCycle(_globals._spriteIndexes[13], false, 1);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[13], 8);
-		int idx = _scene->_dynamicHotspots.add(words_id_card, words_walkto, _globals._sequenceIndexes[13], Common::Rect(0, 0, 0, 0));
-		local._cardId = _scene->_dynamicHotspots.setPosition(idx, Common::Point(234, 135), FACING_NORTH);
+	if (object[OBJ_ID_CARD].location == 752) {
+		g_sprite_ids[13] = kernel_load_series(kernel_name('i', -1), 0);
+		g_sequence_ids[13] = kernel_seq_stamp(g_sprite_ids[13], false, 1);
+		kernel_seq_depth(g_sequence_ids[13], 8);
+		int idx = kernel_add_dynamic(words_id_card, words_walkto, 0, g_sequence_ids[13], 0, 0, 0, 0);
+		kernel_dynamic_walk(idx, 234, 135, FACING_NORTH);
+		local._cardId = idx;
 	}
 
-	if (_game._globals[kLaserHoleIsThere]) {
-		_globals._sequenceIndexes[14] = _scene->_sequences.startCycle(_globals._spriteIndexes[14], false, 1);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[14], 13);
-		int idx = _scene->_dynamicHotspots.add(words_laser_beam, words_look_at, _globals._sequenceIndexes[14], Common::Rect(0, 0, 0, 0));
-		_scene->_dynamicHotspots.setPosition(idx, Common::Point(215, 130), FACING_NORTHWEST);
+	if (global[kLaserHoleIsThere]) {
+		g_sequence_ids[14] = kernel_seq_stamp(g_sprite_ids[14], false, 1);
+		kernel_seq_depth(g_sequence_ids[14], 13);
+		int idx = kernel_add_dynamic(words_laser_beam, words_look_at, 0, g_sequence_ids[14], 0, 0, 0, 0);
+		kernel_dynamic_walk(idx, 215, 130, FACING_NORTHWEST);
 	}
 
-	if (_game._globals[kTeleporterCommand]) {
-		switch (_game._globals[kTeleporterCommand]) {
+	if (global[kTeleporterCommand]) {
+		switch (global[kTeleporterCommand]) {
 		case TELEPORTER_BEAM_OUT:
 		case TELEPORTER_WRONG:
 		case TELEPORTER_STEP_OUT:
-			_game._player._visible = true;
-			_game._player._stepEnabled = true;
+			player.walker_visible = true;
+			player.commands_allowed = true;
 			break;
 		default:
 			break;
 		}
 
-		_game._globals[kTeleporterCommand] = TELEPORTER_NONE;
+		global[kTeleporterCommand] = TELEPORTER_NONE;
 	}
 
 	int32 timer = (global[kTimebombTimer + 1] << 16) | global[kTimebombTimer];
@@ -94,17 +96,17 @@ static void room_752_init() {
 static void room_752_daemon() {
 	int32 timer = (global[kTimebombTimer + 1] << 16) | global[kTimebombTimer];
 
-	if (timer >= 10800 && _game._globals[kTimebombStatus] == TIMEBOMB_ACTIVATED) {
+	if (timer >= 10800 && global[kTimebombStatus] == TIMEBOMB_ACTIVATED) {
 		global[kTimebombStatus] = TIMEBOMB_DEAD;
 		global[kTimebombTimer] = global[kTimebombTimer + 1] = 0;
-		_globals[kCheckDaemonTimebomb] = false;
-		_scene->_nextSceneId = 620;
+		global[kCheckDaemonTimebomb] = false;
+		new_room = 620;
 	}
 }
 
 static void room_752_pre_parser() {
 	if (player_said_2(walkto, west_end_of_platform)) {
-		_game._player._walkOffScreenSceneId = 751;
+		player.walk_off_edge_to_room = 751;
 	}
 }
 
@@ -112,88 +114,88 @@ static void room_752_parser() {
 	if (player_said_2(walk_along, platform))
 		;
 	else if (player_said_2(step_into, teleporter)) {
-		_game._player._stepEnabled = false;
-		_game._player._visible = false;
-		_scene->_nextSceneId = 711;
-	} else if (player_said_2(take, id_card) && (!_game._objects.isInInventory(OBJ_ID_CARD) || _game._trigger)) {
-		switch (_game._trigger) {
+		player.commands_allowed = false;
+		player.walker_visible = false;
+		new_room = 711;
+	} else if (player_said_2(take, id_card) && (!player_has(OBJ_ID_CARD) || kernel.trigger)) {
+		switch (kernel.trigger) {
 		case 0:
-			_game._player._stepEnabled = false;
-			_game._player._visible = false;
-			_globals._sequenceIndexes[12] = _scene->_sequences.startPingPongCycle(_globals._spriteIndexes[12], false, 5, 2, 0, 0);
-			_scene->_sequences.setMsgLayout(_globals._sequenceIndexes[12]);
-			_scene->_sequences.addSubEntry(_globals._sequenceIndexes[12], SEQUENCE_TRIGGER_SPRITE, 4, 1);
-			_scene->_sequences.addSubEntry(_globals._sequenceIndexes[12], SEQUENCE_TRIGGER_EXPIRE, 0, 2);
+			player.commands_allowed = false;
+			player.walker_visible = false;
+			g_sequence_ids[12] = kernel_seq_pingpong(g_sprite_ids[12], false, 5, 0, 0, 2);
+			kernel_seq_player(g_sequence_ids[12], false);
+			kernel_seq_trigger(g_sequence_ids[12], KERNEL_TRIGGER_SPRITE, 4, 1);
+			kernel_seq_trigger(g_sequence_ids[12], KERNEL_TRIGGER_EXPIRE, 0, 2);
 			break;
 		case 1:
-			_vm->_sound->command(15);
-			_scene->_sequences.remove(_globals._sequenceIndexes[13]);
-			_game._objects.addToInventory(OBJ_ID_CARD);
-			_scene->_dynamicHotspots.remove(local._cardId);
-			_vm->_dialogs->showItem(OBJ_ID_CARD, 830);
+			g_engine->_soundManager->command(15, 0);
+			kernel_seq_delete(g_sequence_ids[13]);
+			inter_give_to_player(OBJ_ID_CARD);
+			kernel_delete_dynamic(local._cardId);
+			object_examine(OBJ_ID_CARD, 830, 0);
 			break;
 		case 2:
-			_game._player._visible = true;
-			_game._player._stepEnabled = true;
+			player.walker_visible = true;
+			player.commands_allowed = true;
 			break;
 		default:
 			break;
 		}
-	} else if (player_said_2(take, bones) && (_action._savedFields._mainObjectSource == CAT_HOTSPOT) &&
-		(!_game._objects.isInInventory(OBJ_BONES) || _game._trigger)) {
-		switch (_game._trigger) {
+	} else if (player_said_2(take, bones) && (player.main_object_source == STROKE_INTERFACE) &&
+		(!player_has(OBJ_BONES) || kernel.trigger)) {
+		switch (kernel.trigger) {
 		case 0:
-			_game._player._stepEnabled = false;
-			_game._player._visible = false;
-			_globals._sequenceIndexes[12] = _scene->_sequences.startPingPongCycle(_globals._spriteIndexes[12], false, 5, 2, 0, 0);
-			_scene->_sequences.setMsgLayout(_globals._sequenceIndexes[12]);
-			_scene->_sequences.addSubEntry(_globals._sequenceIndexes[12], SEQUENCE_TRIGGER_SPRITE, 4, 1);
-			_scene->_sequences.addSubEntry(_globals._sequenceIndexes[12], SEQUENCE_TRIGGER_EXPIRE, 0, 2);
+			player.commands_allowed = false;
+			player.walker_visible = false;
+			g_sequence_ids[12] = kernel_seq_pingpong(g_sprite_ids[12], false, 5, 0, 0, 2);
+			kernel_seq_player(g_sequence_ids[12], false);
+			kernel_seq_trigger(g_sequence_ids[12], KERNEL_TRIGGER_SPRITE, 4, 1);
+			kernel_seq_trigger(g_sequence_ids[12], KERNEL_TRIGGER_EXPIRE, 0, 2);
 			break;
 		case 1:
-			_vm->_sound->command(15);
-			if (_game._objects.isInInventory(OBJ_BONE))
-				_game._objects.setRoom(OBJ_BONE, NOWHERE);
-			_game._objects.addToInventory(OBJ_BONES);
-			_vm->_dialogs->showItem(OBJ_BONES, 75221);
+			g_engine->_soundManager->command(15, 0);
+			if (player_has(OBJ_BONE))
+				inter_move_object(OBJ_BONE, NOWHERE);
+			inter_give_to_player(OBJ_BONES);
+			object_examine(OBJ_BONES, 75221, 0);
 			break;
 		case 2:
-			_scene->_sequences.updateTimeout(-1, _globals._sequenceIndexes[12]);
-			_game._player._visible = true;
-			_game._player._stepEnabled = true;
+			kernel_seq_timeout(g_sequence_ids[12], -1);
+			player.walker_visible = true;
+			player.commands_allowed = true;
 			break;
 		default:
 			break;
 		}
-	} else if (_action._lookFlag || player_said_2(look, city)) {
-		if (_globals[kLaserHoleIsThere])
-			_vm->_dialogs->show(75212);
+	} else if (player.look_around || player_said_2(look, city)) {
+		if (global[kLaserHoleIsThere])
+			text_show(75212);
 		else
-			_vm->_dialogs->show(75210);
+			text_show(75210);
 	} else if (player_said_2(look, platform))
-		_vm->_dialogs->show(75213);
+		text_show(75213);
 	else if (player_said_2(look, cement_block))
-		_vm->_dialogs->show(75214);
+		text_show(75214);
 	else if (player_said_2(look, rock))
-		_vm->_dialogs->show(75215);
+		text_show(75215);
 	else if (player_said_2(take, rock))
-		_vm->_dialogs->show(75216);
+		text_show(75216);
 	else if (player_said_2(look, west_end_of_platform))
-		_vm->_dialogs->show(75217);
+		text_show(75217);
 	else if (player_said_2(look, teleporter))
-		_vm->_dialogs->show(75218);
-	else if ((player_said_2(look, bones) || player_said_2(look, id_card)) && (_action._mainObjectSource == CAT_HOTSPOT)) {
-		if (_game._objects[OBJ_ID_CARD]._roomNumber == 752)
-			_vm->_dialogs->show(75219);
+		text_show(75218);
+	else if ((player_said_2(look, bones) || player_said_2(look, id_card)) && (player.main_object_source == STROKE_INTERFACE)) {
+		if (object[OBJ_ID_CARD].location == 752)
+			text_show(75219);
 		else
-			_vm->_dialogs->show(75220);
-	} else if (player_said_2(take, bones) && (_action._savedFields._mainObjectSource == CAT_HOTSPOT)) {
-		if (_game._objects.isInInventory(OBJ_BONES))
-			_vm->_dialogs->show(75222);
+			text_show(75220);
+	} else if (player_said_2(take, bones) && (player.main_object_source == STROKE_INTERFACE)) {
+		if (player_has(OBJ_BONES))
+			text_show(75222);
 	} else
 		return;
 
-	_action._inProgress = false;
+	player.command_ready = false;
 }
 
 void room_752_synchronize(Common::Serializer &s) {
@@ -208,10 +210,10 @@ void room_752_preload() {
 
 	section_7_walker();
 	section_7_interface();
-	_scene->addActiveVocab(words_id_card);
-	_scene->addActiveVocab(words_walkto);
-	_scene->addActiveVocab(words_look_at);
-	_scene->addActiveVocab(words_laser_beam);
+	vocab_make_active(words_id_card);
+	vocab_make_active(words_walkto);
+	vocab_make_active(words_look_at);
+	vocab_make_active(words_laser_beam);
 }
 
 } // namespace Rooms

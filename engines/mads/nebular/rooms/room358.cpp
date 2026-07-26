@@ -25,55 +25,58 @@
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section3.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
 namespace Rooms {
 
 static void room_358_init() {
-	_globals._spriteIndexes[1] = _scene->_sprites.addSprites(Resources::formatName(307, 'X', 0, EXT_SS, ""));
-	_globals._sequenceIndexes[1] = _scene->_sequences.startCycle(_globals._spriteIndexes[1], false, 1);
-	_scene->_sequences.setPosition(_globals._sequenceIndexes[1], Common::Point(127, 78));
-	_scene->_sequences.setDepth(_globals._sequenceIndexes[1], 15);
+	g_sprite_ids[1] = kernel_load_series(kernel_full_name(307, 'X', 0, "", KERNEL_SS), 0);
+	g_sequence_ids[1] = kernel_seq_stamp(g_sprite_ids[1], false, 1);
+	kernel_seq_loc(g_sequence_ids[1], 127, 78);
+	kernel_seq_depth(g_sequence_ids[1], 15);
 
-	if (_scene->_priorSceneId == 357)
-		_game._player._playerPos = Common::Point(305, 142);
-	else if (_scene->_priorSceneId != RETURNING_FROM_DIALOG)
-		_game._player._playerPos = Common::Point(12, 141);
+	if (previous_room == 357) {
+		player.x = 305;
+		player.y = 142;
+	}
+	else if (previous_room != KERNEL_RESTORING_GAME) {
+		player.x = 12;
+		player.y = 141;
+	}
 
 	section_3_music();
 }
 
 static void room_358_pre_parser() {
 	if (player_said_2(walk_down, corridor_to_east))
-		_game._player._walkOffScreenSceneId = 357;
+		player.walk_off_edge_to_room = 357;
 
 	if (player_said_2(walk_down, corridor_to_west))
-		_game._player._walkOffScreenSceneId = 359;
+		player.walk_off_edge_to_room = 359;
 }
 
 static void room_358_parser() {
-	if (_action._lookFlag)
-		_vm->_dialogs->show(35815);
+	if (player.look_around)
+		text_show(35815);
 	else if (player_said_2(look, corridor_to_west))
-		_vm->_dialogs->show(35810);
+		text_show(35810);
 	else if (player_said_2(look, corridor_to_east))
-		_vm->_dialogs->show(35811);
+		text_show(35811);
 	else if (player_said_2(look, bed))
-		_vm->_dialogs->show(35812);
+		text_show(35812);
 	else if (player_said_2(look, sink))
-		_vm->_dialogs->show(35813);
+		text_show(35813);
 	else if (player_said_2(look, toilet))
-		_vm->_dialogs->show(35814);
+		text_show(35814);
 	else if (player_said_2(look, corridor) || player_said_2(look, wall))
-		_vm->_dialogs->show(35816);
+		text_show(35816);
 	else if (player_said_2(look, air_vent))
-		_vm->_dialogs->show(35817);
+		text_show(35817);
 	else
 		return;
 
-	_action._inProgress = false;
+	player.command_ready = false;
 }
 
 void room_358_synchronize(Common::Serializer &s) {

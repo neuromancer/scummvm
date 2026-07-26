@@ -26,7 +26,6 @@
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section5.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
@@ -41,49 +40,49 @@ static Scratch local;
 
 
 static void room_504_init() {
-	_globals._spriteIndexes[2] = _scene->_sprites.addSprites(formAnimName('a', 2));
+	g_sprite_ids[2] = kernel_load_series(kernel_name('a', 2), 0);
 
 	for (int i = 0; i < 4; i++)
-		_globals._spriteIndexes[5 + i] = _scene->_sprites.addSprites(formAnimName('m', i));
+		g_sprite_ids[5 + i] = kernel_load_series(kernel_name('m', i), 0);
 
-	if (_globals[kSexOfRex] == REX_MALE)
-		_globals._spriteIndexes[1] = _scene->_sprites.addSprites(formAnimName('a', 0));
+	if (global[kSexOfRex] == REX_MALE)
+		g_sprite_ids[1] = kernel_load_series(kernel_name('a', 0), 0);
 	else {
-		_globals._spriteIndexes[1] = _scene->_sprites.addSprites(formAnimName('a', 1));
-		_scene->changeVariant(1);
+		g_sprite_ids[1] = kernel_load_series(kernel_name('a', 1), 0);
+		kernel_load_variant(1);
 	}
 
-	_globals._sequenceIndexes[1] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[1], false, 6, 1, 0, 0);
-	_scene->_sequences.setDepth(_globals._sequenceIndexes[1], 0);
-	_globals._sequenceIndexes[2] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[2], false, 6, 0, 0, 0);
+	g_sequence_ids[1] = kernel_seq_forward(g_sprite_ids[1], false, 6, 0, 0, 1);
+	kernel_seq_depth(g_sequence_ids[1], 0);
+	g_sequence_ids[2] = kernel_seq_forward(g_sprite_ids[2], false, 6, 0, 0, 0);
 	local._carFrame = -1;
 
-	if ((_scene->_priorSceneId == 505) && (_globals[kHoverCarDestination] != _globals[kHoverCarLocation])) {
+	if ((previous_room == 505) && (global[kHoverCarDestination] != global[kHoverCarLocation])) {
 		local._carAnimationMode = 1;
-		_scene->loadAnimation(formAnimName('A', -1));
-		_vm->_sound->command(14);
-		_scene->_sequences.addTimer(1, 70);
-		_game._player._stepEnabled = false;
+		kernel_run_animation(kernel_name('A', -1), 0);
+		g_engine->_soundManager->command(14, 0);
+		kernel_timing_trigger(1, 70);
+		player.commands_allowed = false;
 	} else {
-		_globals._spriteIndexes[3] = _scene->_sprites.addSprites(formAnimName('a', 3));
+		g_sprite_ids[3] = kernel_load_series(kernel_name('a', 3), 0);
 		local._carAnimationMode = 1;
-		_scene->loadAnimation(formAnimName('A', -1));
-		if ((_scene->_priorSceneId != RETURNING_FROM_DIALOG) && (_scene->_priorSceneId != 505))
-			_globals[kHoverCarLocation] = _scene->_priorSceneId;
+		kernel_run_animation(kernel_name('A', -1), 0);
+		if ((previous_room != KERNEL_RESTORING_GAME) && (previous_room != 505))
+			global[kHoverCarLocation] = previous_room;
 
-		_globals._sequenceIndexes[7] = _scene->_sequences.startCycle(_globals._spriteIndexes[7], false, 1);
+		g_sequence_ids[7] = kernel_seq_stamp(g_sprite_ids[7], false, 1);
 	}
 
-	if (_globals[kTimebombTimer] > 10500)
-		_globals[kTimebombTimer] = 10500;
+	if (global[kTimebombTimer] > 10500)
+		global[kTimebombTimer] = 10500;
 
 	section_5_music();
 }
 
 static void room_504_daemon() {
-	if ((local._carAnimationMode == 1) && (_scene->_animation[0] != nullptr)) {
-		if (_scene->_animation[0]->getCurrentFrame() != local._carFrame) {
-			local._carFrame = _scene->_animation[0]->getCurrentFrame();
+	if ((local._carAnimationMode == 1) && (kernel_anim[0].anim != nullptr)) {
+		if (kernel_anim[0].frame != local._carFrame) {
+			local._carFrame = kernel_anim[0].frame;
 			int nextFrame;
 
 			if (local._carFrame == 1)
@@ -91,36 +90,36 @@ static void room_504_daemon() {
 			else
 				nextFrame = -1;
 
-			if ((nextFrame >= 0) && (nextFrame != _scene->_animation[0]->getCurrentFrame())) {
-				_scene->_animation[0]->setCurrentFrame(nextFrame);
+			if ((nextFrame >= 0) && (nextFrame != kernel_anim[0].frame)) {
+				kernel_reset_animation(0, nextFrame);
 				local._carFrame = nextFrame;
 			}
 		}
 	}
 
 
-	if (_game._trigger >= 70) {
-		switch (_game._trigger) {
+	if (kernel.trigger >= 70) {
+		switch (kernel.trigger) {
 		case 70:
-			if (_globals[kHoverCarDestination] != -1) {
-				_game._player._stepEnabled = false;
-				_scene->freeAnimation();
+			if (global[kHoverCarDestination] != -1) {
+				player.commands_allowed = false;
+				kernel_abort_animation(0);
 				local._carAnimationMode = 2;
-				if (((_globals[kHoverCarLocation] >= 500 && _globals[kHoverCarLocation] <= 599) &&
-					(_globals[kHoverCarDestination] >= 500 && _globals[kHoverCarDestination] <= 599)) ||
-					((_globals[kHoverCarLocation] >= 600 && _globals[kHoverCarLocation] <= 699) &&
-						(_globals[kHoverCarDestination] >= 600 && _globals[kHoverCarDestination] <= 699))) {
-					_scene->loadAnimation(formAnimName('A', -1), 71);
-				} else if (_globals[kHoverCarLocation] > _globals[kHoverCarDestination])
-					_scene->loadAnimation(formAnimName('C', -1), 71);
+				if (((global[kHoverCarLocation] >= 500 && global[kHoverCarLocation] <= 599) &&
+					(global[kHoverCarDestination] >= 500 && global[kHoverCarDestination] <= 599)) ||
+					((global[kHoverCarLocation] >= 600 && global[kHoverCarLocation] <= 699) &&
+						(global[kHoverCarDestination] >= 600 && global[kHoverCarDestination] <= 699))) {
+					kernel_run_animation(kernel_name('A', -1), 71);
+				} else if (global[kHoverCarLocation] > global[kHoverCarDestination])
+					kernel_run_animation(kernel_name('C', -1), 71);
 				else
-					_scene->loadAnimation(formAnimName('B', -1), 71);
+					kernel_run_animation(kernel_name('B', -1), 71);
 			}
 			break;
 
 		case 71:
-			_vm->_sound->command(15);
-			_scene->_nextSceneId = _globals[kHoverCarDestination];
+			g_engine->_soundManager->command(15, 0);
+			new_room = global[kHoverCarDestination];
 			break;
 
 		default:
@@ -128,107 +127,107 @@ static void room_504_daemon() {
 		}
 	}
 
-	if ((_globals[kTimebombTimer] >= 10800) && (_globals[kTimebombStatus] == TIMEBOMB_ACTIVATED) && (_game._difficulty != 3)) {
-		_globals[kTimebombStatus] = TIMEBOMB_DEAD;
-		_globals[kTimebombTimer] = 0;
-		_globals[kCheckDaemonTimebomb] = false;
-		_scene->_nextSceneId = 620;
+	if ((global[kTimebombTimer] >= 10800) && (global[kTimebombStatus] == TIMEBOMB_ACTIVATED) && (game.difficulty != 3)) {
+		global[kTimebombStatus] = TIMEBOMB_DEAD;
+		global[kTimebombTimer] = 0;
+		global[kCheckDaemonTimebomb] = false;
+		new_room = 620;
 	}
 }
 
 static void room_504_pre_parser() {
-	_game._player._needToWalk = false;
+	player.need_to_walk = false;
 }
 
 static void room_504_parser() {
 	if (player_said_2(exit_from, car)) {
-		_vm->_sound->command(15);
-		_scene->_nextSceneId = _globals[kHoverCarLocation];
+		g_engine->_soundManager->command(15, 0);
+		new_room = global[kHoverCarLocation];
 	} else if (player_said_2(activate, car_controls)) {
-		switch (_game._trigger) {
+		switch (kernel.trigger) {
 		case 0:
-			_game._player._stepEnabled = false;
-			_vm->_sound->command(39);
-			_globals._sequenceIndexes[3] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[3], false, 6, 1, 0, 0);
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[3], 13);
-			_scene->_sequences.addSubEntry(_globals._sequenceIndexes[3], SEQUENCE_TRIGGER_EXPIRE, 0, 1);
-			_scene->_sequences.remove(_globals._sequenceIndexes[7]);
-			_globals._sequenceIndexes[5] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[5], false, 18, 0, 0, 0);
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[5], 14);
+			player.commands_allowed = false;
+			g_engine->_soundManager->command(39, 0);
+			g_sequence_ids[3] = kernel_seq_forward(g_sprite_ids[3], false, 6, 0, 0, 1);
+			kernel_seq_depth(g_sequence_ids[3], 13);
+			kernel_seq_trigger(g_sequence_ids[3], KERNEL_TRIGGER_EXPIRE, 0, 1);
+			kernel_seq_delete(g_sequence_ids[7]);
+			g_sequence_ids[5] = kernel_seq_forward(g_sprite_ids[5], false, 18, 0, 0, 0);
+			kernel_seq_depth(g_sequence_ids[5], 14);
 			break;
 
 		case 1:
 		{
-			int syncIdx = _globals._sequenceIndexes[3];
-			_globals._sequenceIndexes[3] = _scene->_sequences.addReverseSpriteCycle(_globals._spriteIndexes[3], false, 6, 1, 0, 0);
-			_scene->_sequences.setDepth(_globals._sequenceIndexes[3], 13);
-			_scene->_sequences.setAnimRange(_globals._sequenceIndexes[3], 1, 6);
-			_scene->_sequences.addSubEntry(_globals._sequenceIndexes[3], SEQUENCE_TRIGGER_EXPIRE, 0, 2);
-			_scene->_sequences.updateTimeout(_globals._sequenceIndexes[3], syncIdx);
+			int syncIdx = g_sequence_ids[3];
+			g_sequence_ids[3] = kernel_seq_backward(g_sprite_ids[3], false, 6, 0, 0, 1);
+			kernel_seq_depth(g_sequence_ids[3], 13);
+			kernel_seq_range(g_sequence_ids[3], 1, 6);
+			kernel_seq_trigger(g_sequence_ids[3], KERNEL_TRIGGER_EXPIRE, 0, 2);
+			kernel_seq_timeout(syncIdx, g_sequence_ids[3]);
 		}
 		break;
 
 		case 2:
-			_scene->_sequences.addTimer(10, 3);
+			kernel_timing_trigger(10, 3);
 			break;
 
 		case 3:
-			_scene->_sequences.remove(_globals._sequenceIndexes[5]);
-			if (_globals[kSexOfRex] == REX_MALE) {
-				_vm->_sound->command(34);
-				_scene->_sequences.addTimer(60, 4);
-				_globals._sequenceIndexes[6] = _scene->_sequences.startCycle(_globals._spriteIndexes[6], false, 1);
-				_scene->_sequences.setDepth(_globals._sequenceIndexes[6], 14);
+			kernel_seq_delete(g_sequence_ids[5]);
+			if (global[kSexOfRex] == REX_MALE) {
+				g_engine->_soundManager->command(34, 0);
+				kernel_timing_trigger(60, 4);
+				g_sequence_ids[6] = kernel_seq_stamp(g_sprite_ids[6], false, 1);
+				kernel_seq_depth(g_sequence_ids[6], 14);
 			} else {
-				_vm->_sound->command(40);
-				_globals._sequenceIndexes[8] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[8], false, 18, 0, 0, 0);
-				_scene->_sequences.setDepth(_globals._sequenceIndexes[8], 14);
-				_scene->_sequences.addTimer(120, 5);
+				g_engine->_soundManager->command(40, 0);
+				g_sequence_ids[8] = kernel_seq_forward(g_sprite_ids[8], false, 18, 0, 0, 0);
+				kernel_seq_depth(g_sequence_ids[8], 14);
+				kernel_timing_trigger(120, 5);
 			}
 			break;
 
 		case 4:
-			_game._player._stepEnabled = true;
-			_globals[kHoverCarDestination] = _globals[kHoverCarLocation];
-			_scene->_nextSceneId = 505;
+			player.commands_allowed = true;
+			global[kHoverCarDestination] = global[kHoverCarLocation];
+			new_room = 505;
 			break;
 
 		case 5:
-			_game._player._stepEnabled = true;
-			_scene->_sequences.remove(_globals._sequenceIndexes[8]);
-			_globals._sequenceIndexes[7] = _scene->_sequences.startCycle(_globals._spriteIndexes[7], false, 1);
-			_vm->_dialogs->show(50421);
+			player.commands_allowed = true;
+			kernel_seq_delete(g_sequence_ids[8]);
+			g_sequence_ids[7] = kernel_seq_stamp(g_sprite_ids[7], false, 1);
+			text_show(50421);
 			break;
 
 		default:
 			break;
 		}
-	} else if (_action._lookFlag || player_said_2(look, interior_of_car))
-		_vm->_dialogs->show(50412);
+	} else if (player.look_around || player_said_2(look, interior_of_car))
+		text_show(50412);
 	else if (player_said_2(look, glove_compartment))
-		_vm->_dialogs->show(50410);
+		text_show(50410);
 	else if (player_said_2(look, car_controls) || player_said_2(look, dashboard))
-		_vm->_dialogs->show(50411);
+		text_show(50411);
 	else if (player_said_2(look, scent_packet))
-		_vm->_dialogs->show(50413);
+		text_show(50413);
 	else if (player_said_2(look, soda_cans))
-		_vm->_dialogs->show(50414);
+		text_show(50414);
 	else if (player_said_2(look, kitty))
-		_vm->_dialogs->show(50415);
+		text_show(50415);
 	else if (player_said_2(look, windshield) || player_said_2(look_through, windshield))
-		_vm->_dialogs->show(50416);
+		text_show(50416);
 	else if (player_said_2(look, rearview_mirror))
-		_vm->_dialogs->show(50417);
+		text_show(50417);
 	else if (player_said_2(take, rearview_mirror))
-		_vm->_dialogs->show(50418);
+		text_show(50418);
 	else if (player_said_2(look, moldy_sock))
-		_vm->_dialogs->show(50419);
+		text_show(50419);
 	else if (player_said_2(take, moldy_sock))
-		_vm->_dialogs->show(50420);
+		text_show(50420);
 	else
 		return;
 
-	_action._inProgress = false;
+	player.command_ready = false;
 }
 
 void room_504_synchronize(Common::Serializer &s) {

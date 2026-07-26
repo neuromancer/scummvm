@@ -25,26 +25,25 @@
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section2.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
 namespace Rooms {
 
 void room_216_init() {
-	_game._player._stepEnabled = false;
-	_game._player._visible = false;
+	player.commands_allowed = false;
+	player.walker_visible = false;
 
-	_scene->_userInterface.emptyConversationList();
-	_scene->_userInterface.setup(kInputConversation);
-	_scene->loadAnimation(formAnimName('A', -1), 60);
+	inter_reset_dialog();
+	kernel_set_interface_mode(INTER_CONVERSATION);
+	kernel_run_animation(kernel_name('A', -1), 60);
 
 	section_2_music();
 }
 
 void room_216_daemon() {
-	if (_game._trigger == 60)
-		_scene->_nextSceneId = 215;
+	if (kernel.trigger == 60)
+		new_room = 215;
 }
 
 void room_216_synchronize(Common::Serializer &s) {

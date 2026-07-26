@@ -25,7 +25,6 @@
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section1.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
@@ -42,50 +41,52 @@ static Scratch local;
 
 
 static void room_111_init() {
-	_globals._spriteIndexes[0] = _scene->_sprites.addSprites(formAnimName('X', 0));
-	_globals._spriteIndexes[1] = _scene->_sprites.addSprites(formAnimName('X', 1));
-	_globals._spriteIndexes[2] = _scene->_sprites.addSprites(formAnimName('X', 2));
+	g_sprite_ids[0] = kernel_load_series(kernel_name('X', 0), 0);
+	g_sprite_ids[1] = kernel_load_series(kernel_name('X', 1), 0);
+	g_sprite_ids[2] = kernel_load_series(kernel_name('X', 2), 0);
 
-	_globals._spriteIndexes[3] = _scene->_sprites.addSprites(formAnimName('B', 0));
-	_globals._spriteIndexes[4] = _scene->_sprites.addSprites(formAnimName('B', 1));
-	_globals._spriteIndexes[5] = _scene->_sprites.addSprites(formAnimName('B', 2));
+	g_sprite_ids[3] = kernel_load_series(kernel_name('B', 0), 0);
+	g_sprite_ids[4] = kernel_load_series(kernel_name('B', 1), 0);
+	g_sprite_ids[5] = kernel_load_series(kernel_name('B', 2), 0);
 
-	_globals._sequenceIndexes[0] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[0], false, 8, 0, 0, 0);
-	_scene->_sequences.addSubEntry(_globals._sequenceIndexes[0], SEQUENCE_TRIGGER_SPRITE, 9, 73);
-	_scene->_sequences.addSubEntry(_globals._sequenceIndexes[0], SEQUENCE_TRIGGER_SPRITE, 13, 73);
+	g_sequence_ids[0] = kernel_seq_forward(g_sprite_ids[0], false, 8, 0, 0, 0);
+	kernel_seq_trigger(g_sequence_ids[0], KERNEL_TRIGGER_SPRITE, 9, 73);
+	kernel_seq_trigger(g_sequence_ids[0], KERNEL_TRIGGER_SPRITE, 13, 73);
 
-	_globals._sequenceIndexes[1] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[1], false, 5, 0, 0, 0);
-	_scene->_sequences.addSubEntry(_globals._sequenceIndexes[1], SEQUENCE_TRIGGER_SPRITE, 71, 71);
+	g_sequence_ids[1] = kernel_seq_forward(g_sprite_ids[1], false, 5, 0, 0, 0);
+	kernel_seq_trigger(g_sequence_ids[1], KERNEL_TRIGGER_SPRITE, 71, 71);
 
-	_globals._sequenceIndexes[3] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[3], false, 12, 0, 0, 0);
-	_globals._sequenceIndexes[4] = _scene->_sequences.startCycle(_globals._spriteIndexes[4], false, 1);
-	_globals._sequenceIndexes[5] = _scene->_sequences.startCycle(_globals._spriteIndexes[5], false, 1);
+	g_sequence_ids[3] = kernel_seq_forward(g_sprite_ids[3], false, 12, 0, 0, 0);
+	g_sequence_ids[4] = kernel_seq_stamp(g_sprite_ids[4], false, 1);
+	g_sequence_ids[5] = kernel_seq_stamp(g_sprite_ids[5], false, 1);
 
-	int idx = _scene->_dynamicHotspots.add(words_bats, words_look_at, _globals._sequenceIndexes[3], Common::Rect(0, 0, 0, 0));
-	_scene->_dynamicHotspots.setPosition(idx, Common::Point(-2, 0), FACING_NONE);
-	idx = _scene->_dynamicHotspots.add(words_bats, words_look_at, _globals._sequenceIndexes[4], Common::Rect(0, 0, 0, 0));
-	_scene->_dynamicHotspots.setPosition(idx, Common::Point(-2, 0), FACING_NONE);
-	idx = _scene->_dynamicHotspots.add(words_bats, words_look_at, _globals._sequenceIndexes[5], Common::Rect(0, 0, 0, 0));
-	_scene->_dynamicHotspots.setPosition(idx, Common::Point(-2, 0), FACING_NONE);
+	int idx = kernel_add_dynamic(words_bats, words_look_at, 0, g_sequence_ids[3], 0, 0, 0, 0);
+	kernel_dynamic_walk(idx, -2, 0, FACING_NONE);
+	idx = kernel_add_dynamic(words_bats, words_look_at, 0, g_sequence_ids[4], 0, 0, 0, 0);
+	kernel_dynamic_walk(idx, -2, 0, FACING_NONE);
+	idx = kernel_add_dynamic(words_bats, words_look_at, 0, g_sequence_ids[5], 0, 0, 0, 0);
+	kernel_dynamic_walk(idx, -2, 0, FACING_NONE);
 
 	local._launch1Fl = false;
 	local._launched2Fl = false;
 	local._stampedFl = false;
 
-	if ((_scene->_priorSceneId < 201) && (_scene->_priorSceneId != RETURNING_FROM_DIALOG)) {
-		_game._player._stepEnabled = false;
-		_game._player._visible = false;
-		_scene->loadAnimation(Resources::formatName(111, 'A', 0, EXT_AA, ""), 70);
-		_game._player._playerPos = Common::Point(234, 116);
-		_game._player._facing = FACING_EAST;
+	if ((previous_room < 201) && (previous_room != KERNEL_RESTORING_GAME)) {
+		player.commands_allowed = false;
+		player.walker_visible = false;
+		kernel_run_animation(kernel_full_name(111, 'A', 0, "", KERNEL_AA), 70);
+		player.x = 234;
+		player.y = 116;
+		player.facing = FACING_EAST;
 
 		local._launch1Fl = true;
 		local._launched2Fl = true;
 
-		_vm->_sound->command(36);
-	} else if (_scene->_priorSceneId != RETURNING_FROM_DIALOG) {
-		_game._player._playerPos = Common::Point(300, 130);
-		_game._player._facing = FACING_WEST;
+		g_engine->_soundManager->command(36, 0);
+	} else if (previous_room != KERNEL_RESTORING_GAME) {
+		player.x = 300;
+		player.y = 130;
+		player.facing = FACING_WEST;
 	}
 
 	local._rexDivingFl = false;
@@ -94,87 +95,87 @@ static void room_111_init() {
 }
 
 static void room_111_daemon() {
-	if (_game._trigger == 70) {
-		_game._player._stepEnabled = true;
-		_game._player._visible = true;
+	if (kernel.trigger == 70) {
+		player.commands_allowed = true;
+		player.walker_visible = true;
 		local._launch1Fl = false;
 		local._launched2Fl = false;
 	}
 
-	if ((_game._trigger == 71) && !local._stampedFl) {
+	if ((kernel.trigger == 71) && !local._stampedFl) {
 		local._stampedFl = true;
-		_globals._sequenceIndexes[2] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[2], false, 18, 1, 0, 0);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[2], SEQUENCE_TRIGGER_EXPIRE, 0, 72);
+		g_sequence_ids[2] = kernel_seq_forward(g_sprite_ids[2], false, 18, 0, 0, 1);
+		kernel_seq_trigger(g_sequence_ids[2], KERNEL_TRIGGER_EXPIRE, 0, 72);
 	}
 
-	if (_game._trigger == 72) {
-		_scene->_sequences.remove(_globals._sequenceIndexes[2]);
-		_globals._sequenceIndexes[2] = _scene->_sequences.startCycle(_globals._spriteIndexes[2], false, 20);
+	if (kernel.trigger == 72) {
+		kernel_seq_delete(g_sequence_ids[2]);
+		g_sequence_ids[2] = kernel_seq_stamp(g_sprite_ids[2], false, 20);
 	}
 
-	if (!local._launch1Fl && (_vm->getRandomNumber(1, 5000) == 1)) {
-		_scene->_sequences.remove(_globals._sequenceIndexes[4]);
-		_globals._sequenceIndexes[4] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[4], false, 5, 1, 0, 0);
+	if (!local._launch1Fl && (g_engine->getRandomNumber(1, 5000) == 1)) {
+		kernel_seq_delete(g_sequence_ids[4]);
+		g_sequence_ids[4] = kernel_seq_forward(g_sprite_ids[4], false, 5, 0, 0, 1);
 		local._launch1Fl = true;
-		int idx = _scene->_dynamicHotspots.add(words_bats, words_look_at, _globals._sequenceIndexes[4], Common::Rect(0, 0, 0, 0));
-		_scene->_dynamicHotspots.setPosition(idx, Common::Point(-2, 0), FACING_NONE);
+		int idx = kernel_add_dynamic(words_bats, words_look_at, 0, g_sequence_ids[4], 0, 0, 0, 0);
+		kernel_dynamic_walk(idx, -2, 0, FACING_NONE);
 	}
 
-	if (!local._launched2Fl && (_vm->getRandomNumber(1, 30000) == 1)) {
-		_scene->_sequences.remove(_globals._sequenceIndexes[5]);
-		_globals._sequenceIndexes[5] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[5], false, 5, 1, 0, 0);
-		int idx = _scene->_dynamicHotspots.add(words_bats, words_look_at, _globals._sequenceIndexes[5], Common::Rect(0, 0, 0, 0));
-		_scene->_dynamicHotspots.setPosition(idx, Common::Point(-2, 0), FACING_NONE);
+	if (!local._launched2Fl && (g_engine->getRandomNumber(1, 30000) == 1)) {
+		kernel_seq_delete(g_sequence_ids[5]);
+		g_sequence_ids[5] = kernel_seq_forward(g_sprite_ids[5], false, 5, 0, 0, 1);
+		int idx = kernel_add_dynamic(words_bats, words_look_at, 0, g_sequence_ids[5], 0, 0, 0, 0);
+		kernel_dynamic_walk(idx, -2, 0, FACING_NONE);
 		local._launched2Fl = true;
 	}
 
-	if (_game._trigger == 73)
-		_vm->_sound->command(37);
+	if (kernel.trigger == 73)
+		g_engine->_soundManager->command(37, 0);
 
-	if (local._rexDivingFl && (_scene->_animation[0]->getCurrentFrame() >= 9)) {
-		_vm->_sound->command(36);
+	if (local._rexDivingFl && (kernel_anim[0].frame >= 9)) {
+		g_engine->_soundManager->command(36, 0);
 		local._rexDivingFl = false;
 	}
 }
 
 static void room_111_pre_parser() {
 	if (player_said_2(walk_through, cave_entrance))
-		_game._player._walkOffScreenSceneId = 212;
+		player.walk_off_edge_to_room = 212;
 }
 
 static void room_111_parser() {
-	if (player_said_2(dive_into, pool) && _game._objects.isInInventory(OBJ_REBREATHER)) {
-		switch (_game._trigger) {
+	if (player_said_2(dive_into, pool) && player_has(OBJ_REBREATHER)) {
+		switch (kernel.trigger) {
 		case 0:
-			_scene->loadAnimation(Resources::formatName(111, 'A', 1, EXT_AA, ""), 1);
+			kernel_run_animation(kernel_full_name(111, 'A', 1, "", KERNEL_AA), 1);
 			local._rexDivingFl = true;
-			_game._player._stepEnabled = false;
-			_game._player._visible = false;
+			player.commands_allowed = false;
+			player.walker_visible = false;
 			break;
 
 		case 1:
-			_scene->_nextSceneId = 110;
+			new_room = 110;
 			break;
 
 		default:
 			break;
 		}
 	} else if (player_said_2(look, cave_floor))
-		_vm->_dialogs->show(11101);
+		text_show(11101);
 	else if (player_said_2(look, pool))
-		_vm->_dialogs->show(11102);
+		text_show(11102);
 	else if (player_said_2(look, cave_entrance))
-		_vm->_dialogs->show(11103);
+		text_show(11103);
 	else if (player_said_2(look, stalagmites))
-		_vm->_dialogs->show(11104);
+		text_show(11104);
 	else if (player_said_2(look, large_stalagmite))
-		_vm->_dialogs->show(11105);
+		text_show(11105);
 	else if ((player_said_1(pull) || player_said_1(take)) && (player_said_1(stalagmites) || player_said_1(large_stalagmite)))
-		_vm->_dialogs->show(11106);
+		text_show(11106);
 	else
 		return;
 
-	_action._inProgress = false;
+	player.command_ready = false;
 }
 
 void room_111_synchronize(Common::Serializer &s) {
@@ -190,7 +191,7 @@ void room_111_preload() {
 	room_parser_code_pointer = room_111_parser;
 	room_daemon_code_pointer = room_111_daemon;
 
-	_scene->addActiveVocab(words_bats);
+	vocab_make_active(words_bats);
 	section_1_walker();
 	section_1_interface();
 }

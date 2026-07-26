@@ -19,8 +19,11 @@
  *
  */
 
+#include "mads/mads.h"
+#include "mads/core/config.h"
+#include "mads/core/pal.h"
 #include "mads/nebular/rooms/section2.h"
-#include "mads/nebular/rooms/thunks.h"
+#include "mads/nebular/global.h"
 
 namespace MADS {
 namespace RexNebular {
@@ -42,8 +45,8 @@ extern void room_215_preload();
 extern void room_216_preload();
 
 void section_2_walker() {
-	_vm->_sound->command(5);
-	Common::String oldName = _game._player._spritesPrefix;
+	g_engine->_soundManager->command(5, 0);
+	Common::String oldName = (&player.series_name[0]);
 
 	switch (new_room) {
 	case 213:
@@ -51,7 +54,7 @@ void section_2_walker() {
 		Common::strcpy_s(player.series_name, "");
 		break;
 	default:
-		if (_globals[kSexOfRex] != SEX_MALE) {
+		if (global[kSexOfRex] != SEX_MALE) {
 			Common::strcpy_s(player.series_name, "ROX");
 		} else {
 			Common::strcpy_s(player.series_name, "RXM");
@@ -61,14 +64,14 @@ void section_2_walker() {
 
 	player.scaling_velocity = (new_room <= 212);
 
-	if (oldName != _game._player._spritesPrefix)
-		_game._player._spritesChanged = true;
+	if (oldName != (&player.series_name[0]))
+		player.walker_must_reload = true;
 
-	if ((new_room == 203 || new_room == 204) && _globals[kRhotundaStatus])
-		_game._player._loadsFirst = false;
+	if ((new_room == 203 || new_room == 204) && global[kRhotundaStatus])
+		player.walker_loads_first = false;
 
-	_vm->_palette->setEntry(16, 10, 63, 63);
-	_vm->_palette->setEntry(17, 10, 45, 45);
+	pal_change_color(16, 10, 63, 63);
+	pal_change_color(17, 10, 45, 45);
 }
 
 void section_2_interface() {
@@ -138,13 +141,13 @@ void section_2_constructor() {
 }
 
 void section_2_music() {
-	if (_vm->_musicFlag) {
+	if (config_file.music_flag) {
 		switch (new_room) {
 		case 201:
-			if ((_globals[kTeleporterCommand] == 2) || (_globals[kTeleporterCommand] == 4) || (_globals[kMeteorologistStatus] != 1))
-				_vm->_sound->command(9);
+			if ((global[kTeleporterCommand] == 2) || (global[kTeleporterCommand] == 4) || (global[kMeteorologistStatus] != 1))
+				g_engine->_soundManager->command(9, 0);
 			else
-				_vm->_sound->command(17);
+				g_engine->_soundManager->command(17, 0);
 			break;
 		case 202:
 		case 203:
@@ -153,38 +156,38 @@ void section_2_music() {
 		case 208:
 		case 209:
 		case 212:
-			_vm->_sound->command(9);
+			g_engine->_soundManager->command(9, 0);
 			break;
 		case 206:
 		case 211:
 		case 215:
-			_vm->_sound->command(10);
+			g_engine->_soundManager->command(10, 0);
 			break;
 		case 207:
 		case 214:
-			_vm->_sound->command(11);
+			g_engine->_soundManager->command(11, 0);
 			break;
 		case 210:
-			if (_globals[kTwinklesStatus] == 0)
-				_vm->_sound->command(15);
+			if (global[kTwinklesStatus] == 0)
+				g_engine->_soundManager->command(15, 0);
 			else
-				_vm->_sound->command(10);
+				g_engine->_soundManager->command(10, 0);
 			break;
 		case 213:
-			if (_globals[kMeteorologistWatch] == METEOROLOGIST_NORMAL)
-				_vm->_sound->command(1);
+			if (global[kMeteorologistWatch] == METEOROLOGIST_NORMAL)
+				g_engine->_soundManager->command(1, 0);
 			else
-				_vm->_sound->command(9);
+				g_engine->_soundManager->command(9, 0);
 			break;
 		case 216:
-			_vm->_sound->command(16);
+			g_engine->_soundManager->command(16, 0);
 			break;
 		default:
-			_vm->_sound->command(10);
+			g_engine->_soundManager->command(10, 0);
 			break;
 		}
 	} else
-		_vm->_sound->command(2);
+		g_engine->_soundManager->command(2, 0);
 }
 
 void section_2_preload() {

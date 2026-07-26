@@ -19,13 +19,14 @@
  *
  */
 
+#include "mads/core/config.h"
 #include "mads/core/game.h"
+#include "mads/core/pal.h"
 #include "mads/nebular/global.h"
 #include "mads/nebular/nebular.h"
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section3.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
@@ -41,45 +42,43 @@ static Scratch local;
 
 
 static void room_389_init() {
-	_scene->_userInterface.setup(kInputLimitedSentences);
+	kernel_set_interface_mode(INTER_LIMITED_SENTENCES);
 	local._monsterTime = 0;
 	local._circularQuoteId = 0x159;
 
-	if (_globals[kAfterHavoc])
-		_scene->_hotspots.activate(words_monster, false);
+	if (global[kAfterHavoc])
+		kernel_flip_hotspot(words_monster, false);
 	else {
-		_globals._spriteIndexes[0] = _scene->_sprites.addSprites(formAnimName('m', -1));
-		_globals._sequenceIndexes[0] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[0], false, 6, 0, 0, 0);
-		_scene->_kernelMessages.initRandomMessages(1,
-			Common::Rect(88, 19, 177, 77), 13, 2, 0xFDFC, 60,
-			247, 248, 249, 0);
+		g_sprite_ids[0] = kernel_load_series(kernel_name('m', -1), 0);
+		g_sequence_ids[0] = kernel_seq_forward(g_sprite_ids[0], false, 6, 0, 0, 0);
+		kernel_random_messages_init(1, 88, 177, 19, 77, 13, 2, 0xFDFC, 60, 247, 248, 249, 0);
 	}
 
-	_vm->_palette->setEntry(252, 63, 37, 26);
-	_vm->_palette->setEntry(253, 45, 24, 17);
-	_game._player._visible = false;
-	_game.loadQuoteSet(0xF7, 0xF8, 0xF9, 0x159, 0x15A, 0x15B, 0);
+	pal_change_color(252, 63, 37, 26);
+	pal_change_color(253, 45, 24, 17);
+	player.walker_visible = false;
+	kernel.quotes = quote_load(0xF7, 0xF8, 0xF9, 0x159, 0x15A, 0x15B, 0);
 
 	section_3_music();
 }
 
 static void room_389_daemon() {
-	_scene->_kernelMessages.randomServer();
-	if (_scene->_frameStartTime >= local._monsterTime) {
-		int chanceMinor = _scene->_kernelMessages.checkRandom() * 4 + 1;
-		_scene->_kernelMessages.generateRandom(20, chanceMinor);
-		local._monsterTime = _scene->_frameStartTime + 2;
+	kernel_random_message_server();
+	if (kernel.clock >= local._monsterTime) {
+		int chanceMinor = kernel_check_random() * 4 + 1;
+		kernel_generate_random_message(20, chanceMinor);
+		local._monsterTime = kernel.clock + 2;
 	}
 }
 
 static void room_389_parser() {
 	if (player_said_2(return_to, air_shaft))
-		_scene->_nextSceneId = 313;
+		new_room = 313;
 	else if (player_said_2(talkto, monster)) {
-		switch (_game._trigger) {
+		switch (kernel.trigger) {
 		case 0:
-			_game._player._stepEnabled = false;
-			_scene->_kernelMessages.add(Common::Point(160, 136), 0x1110, 32, 1, 120, _game.getQuote(local._circularQuoteId));
+			player.commands_allowed = false;
+			kernel_message_add(quote_string(kernel.quotes, local._circularQuoteId), 160, 136, 0x1110, 120, 1, 32);
 			local._circularQuoteId++;
 			if (local._circularQuoteId > 0x15B)
 				local._circularQuoteId = 0x159;
@@ -87,29 +86,29 @@ static void room_389_parser() {
 			break;
 
 		case 1:
-			_game._player._stepEnabled = true;
+			player.commands_allowed = true;
 			break;
 
 		default:
 			break;
 		}
 	} else if (player_said_2(look_through, grate)) {
-		if (_globals[kAfterHavoc]) {
-			if ((_game._difficulty != DIFFICULTY_HARD) && (_game._objects[OBJ_SECURITY_CARD]._roomNumber == 359))
-				_vm->_dialogs->show(38911);
+		if (global[kAfterHavoc]) {
+			if ((game.difficulty != DIFFICULTY_HARD) && (object[OBJ_SECURITY_CARD].location == 359))
+				text_show(38911);
 			else
-				_vm->_dialogs->show(38912);
+				text_show(38912);
 		} else
-			_vm->_dialogs->show(38910);
+			text_show(38910);
 	} else if (player_said_2(open, grate)) {
-		if (_globals[kAfterHavoc])
-			_vm->_dialogs->show(38914);
+		if (global[kAfterHavoc])
+			text_show(38914);
 		else
-			_vm->_dialogs->show(38913);
+			text_show(38913);
 	} else
 		return;
 
-	_action._inProgress = false;
+	player.command_ready = false;
 }
 
 void room_389_synchronize(Common::Serializer &s) {

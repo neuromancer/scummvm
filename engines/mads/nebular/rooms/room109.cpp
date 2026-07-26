@@ -19,14 +19,16 @@
  *
  */
 
+#include "mads/core/config.h"
 #include "mads/core/game.h"
 #include "mads/core/himem.h"
+#include "mads/core/matte.h"
+#include "mads/core/pal.h"
 #include "mads/nebular/global.h"
 #include "mads/nebular/nebular.h"
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section1.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
@@ -48,13 +50,13 @@ static Scratch local;
 
 
 static void room_109_init() {
-	_globals[kFishIn105] = true;
+	global[kFishIn105] = true;
 
-	_globals._spriteIndexes[0] = _scene->_sprites.addSprites("*RXSWRC_6");
-	_globals._spriteIndexes[1] = _scene->_sprites.addSprites(formAnimName('O', 1));
-	_globals._spriteIndexes[2] = _scene->_sprites.addSprites(formAnimName('O', 2));
-	_globals._spriteIndexes[3] = _scene->_sprites.addSprites(formAnimName('O', 0));
-	_globals._spriteIndexes[6] = _scene->_sprites.addSprites(formAnimName('H', 4));
+	g_sprite_ids[0] = kernel_load_series("*RXSWRC_6", 0);
+	g_sprite_ids[1] = kernel_load_series(kernel_name('O', 1), 0);
+	g_sprite_ids[2] = kernel_load_series(kernel_name('O', 2), 0);
+	g_sprite_ids[3] = kernel_load_series(kernel_name('O', 0), 0);
+	g_sprite_ids[6] = kernel_load_series(kernel_name('H', 4), 0);
 
 	local._rexThrowingObject = false;
 	local._throwingObjectId = 0;
@@ -62,59 +64,61 @@ static void room_109_init() {
 	local._eatingRex = false;
 	local._hungryFl = false;
 
-	if (_scene->_priorSceneId == 110) {
-		_game._player._playerPos = Common::Point(248, 38);
-		_globals[kHoovicSated] = 2;
-	} else if (_scene->_priorSceneId != RETURNING_FROM_DIALOG) {
-		_game._player._playerPos = Common::Point(20, 68);
-		_game._player._facing = FACING_EAST;
+	if (previous_room == 110) {
+		player.x = 248;
+		player.y = 38;
+		global[kHoovicSated] = 2;
+	} else if (previous_room != KERNEL_RESTORING_GAME) {
+		player.x = 20;
+		player.y = 68;
+		player.facing = FACING_EAST;
 	}
 
-	if (!_globals[kHoovicAlive]) {
-		_globals._sequenceIndexes[6] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[6], false, 6, 1, 0, 0);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[6], 4);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[6], -2, -2);
+	if (!global[kHoovicAlive]) {
+		g_sequence_ids[6] = kernel_seq_forward(g_sprite_ids[6], false, 6, 0, 0, 1);
+		kernel_seq_depth(g_sequence_ids[6], 4);
+		kernel_seq_range(g_sequence_ids[6], -2, -2);
 
-		int idx = _scene->_dynamicHotspots.add(words_dead_purple_monster, words_swim_to, -1, Common::Rect(256, 57, 267, 87));
-		_scene->_dynamicHotspots.setPosition(idx, Common::Point(241, 91), FACING_NORTHEAST);
-		idx = _scene->_dynamicHotspots.add(words_dead_purple_monster, words_swim_to, -1, Common::Rect(242, 79, 265, 90));
-		_scene->_dynamicHotspots.setPosition(idx, Common::Point(241, 91), FACING_NORTHEAST);
-		idx = _scene->_dynamicHotspots.add(words_monster_sludge, words_swim_to, -1, Common::Rect(231, 88, 253, 94));
-		_scene->_dynamicHotspots.setPosition(idx, Common::Point(241, 91), FACING_NORTHEAST);
+		int idx = kernel_add_dynamic(words_dead_purple_monster, words_swim_to, 0, -1, 256, 57, 11, 30);
+		kernel_dynamic_walk(idx, 241, 91, FACING_NORTHEAST);
+		idx = kernel_add_dynamic(words_dead_purple_monster, words_swim_to, 0, -1, 242, 79, 23, 11);
+		kernel_dynamic_walk(idx, 241, 91, FACING_NORTHEAST);
+		idx = kernel_add_dynamic(words_monster_sludge, words_swim_to, 0, -1, 231, 88, 22, 6);
+		kernel_dynamic_walk(idx, 241, 91, FACING_NORTHEAST);
 	}
 
-	if (!_globals[kHoovicAlive] || _globals[kHoovicSated])
-		_scene->changeVariant(1);
+	if (!global[kHoovicAlive] || global[kHoovicSated])
+		kernel_load_variant(1);
 
-	if (_game._objects.isInRoom(OBJ_BURGER)) {
-		_globals._sequenceIndexes[3] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[3], false, 6, 0, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[3], -2, -2);
-		int idx = _scene->_dynamicHotspots.add(words_burger, words_swim_to, _globals._sequenceIndexes[3], Common::Rect(0, 0, 0, 0));
-		_scene->_dynamicHotspots.setPosition(idx, Common::Point(-3, 0), FACING_NORTHEAST);
-	} else if (_scene->_roomChanged)
-		_game._objects.addToInventory(OBJ_BURGER);
+	if (object_is_here(OBJ_BURGER)) {
+		g_sequence_ids[3] = kernel_seq_forward(g_sprite_ids[3], false, 6, 0, 0, 0);
+		kernel_seq_range(g_sequence_ids[3], -2, -2);
+		int idx = kernel_add_dynamic(words_burger, words_swim_to, 0, g_sequence_ids[3], 0, 0, 0, 0);
+		kernel_dynamic_walk(idx, -3, 0, FACING_NORTHEAST);
+	} else if (kernel.teleported_in)
+		inter_give_to_player(OBJ_BURGER);
 
-	if (_scene->_roomChanged) {
-		_game._objects.addToInventory(OBJ_DEAD_FISH);
-		_game._objects.addToInventory(OBJ_STUFFED_FISH);
+	if (kernel.teleported_in) {
+		inter_give_to_player(OBJ_DEAD_FISH);
+		inter_give_to_player(OBJ_STUFFED_FISH);
 	}
 
-	_vm->_palette->setEntry(252, 50, 50, 63);
-	_vm->_palette->setEntry(253, 30, 30, 50);
+	pal_change_color(252, 50, 50, 63);
+	pal_change_color(253, 30, 30, 50);
 
-	_game.loadQuoteSet(0x53, 0x52, 0x54, 0x55, 0x56, 0x57, 0x58, 0);
-	local._eatingFirstFish = (!_game._visitedScenes._sceneRevisited) && (_scene->_priorSceneId < 110);
+	kernel.quotes = quote_load(0x53, 0x52, 0x54, 0x55, 0x56, 0x57, 0x58, 0);
+	local._eatingFirstFish = (!player.been_here_before) && (previous_room < 110);
 
 	if (local._eatingFirstFish) {
-		_globals._spriteIndexes[10] = _scene->_sprites.addSprites(Resources::formatName(105, 'F', 1, EXT_SS, ""));
-		_globals._spriteIndexes[9] = _scene->_sprites.addSprites(formAnimName('H', 1));
+		g_sprite_ids[10] = kernel_load_series(kernel_full_name(105, 'F', 1, "", KERNEL_SS), 0);
+		g_sprite_ids[9] = kernel_load_series(kernel_name('H', 1), 0);
 
-		_globals._sequenceIndexes[10] = _scene->_sequences.startPingPongCycle(_globals._spriteIndexes[10], true, 4, 0, 0, 0);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[10], 5);
-		_scene->_sequences.setPosition(_globals._sequenceIndexes[10], Common::Point(126, 39));
-		_scene->_sequences.setMotion(_globals._sequenceIndexes[10], 0, 200, 0);
-		_scene->_sequences.setScale(_globals._sequenceIndexes[10], 80);
-		_game._player._stepEnabled = false;
+		g_sequence_ids[10] = kernel_seq_pingpong(g_sprite_ids[10], true, 4, 0, 0, 0);
+		kernel_seq_depth(g_sequence_ids[10], 5);
+		kernel_seq_loc(g_sequence_ids[10], 126, 39);
+		kernel_seq_motion(g_sequence_ids[10], 0, 200, 0);
+		kernel_seq_scale(g_sequence_ids[10], 80);
+		player.commands_allowed = false;
 	}
 
 	section_1_music();
@@ -123,23 +127,23 @@ static void room_109_init() {
 static void room_109_daemon() {
 	if (local._beforeEatingRex) {
 		if (!local._eatingRex) {
-			if (_game._player._playerPos.x > 205) {
-				_globals._sequenceIndexes[4] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[4], false, 6, 1, 0, 0);
-				_scene->_sequences.setDepth(_globals._sequenceIndexes[4], 4);
-				_scene->_sequences.addSubEntry(_globals._sequenceIndexes[4], SEQUENCE_TRIGGER_SPRITE, 6, 70);
-				_scene->_sequences.addSubEntry(_globals._sequenceIndexes[4], SEQUENCE_TRIGGER_EXPIRE, 0, 71);
+			if (player.x > 205) {
+				g_sequence_ids[4] = kernel_seq_forward(g_sprite_ids[4], false, 6, 0, 0, 1);
+				kernel_seq_depth(g_sequence_ids[4], 4);
+				kernel_seq_trigger(g_sequence_ids[4], KERNEL_TRIGGER_SPRITE, 6, 70);
+				kernel_seq_trigger(g_sequence_ids[4], KERNEL_TRIGGER_EXPIRE, 0, 71);
 
 				local._eatingRex = true;
-				_vm->_sound->command(34);
+				g_engine->_soundManager->command(34, 0);
 			}
 		} else {
-			switch (_game._trigger) {
+			switch (kernel.trigger) {
 			case 70:
-				_game._player._visible = false;
+				player.walker_visible = false;
 				break;
 
 			case 71:
-				_scene->_reloadSceneFlag = true;
+				kernel.force_restart = true;
 				break;
 
 			default:
@@ -148,139 +152,140 @@ static void room_109_daemon() {
 		}
 	}
 
-	if (local._hungryFl && (_game._player._playerPos == Common::Point(160, 32)) && (_game._player._facing == FACING_EAST)) {
-		_game._player.walk(Common::Point(226, 24), FACING_EAST);
-		_game._player._stepEnabled = false;
+	if (local._hungryFl && (Common::Point(player.x, player.y) == Common::Point(160, 32)) && (player.facing == FACING_EAST)) {
+		player_walk(226, 24, FACING_EAST);
+		player.commands_allowed = false;
 		local._hungryFl = false;
 		local._beforeEatingRex = true;
-		_scene->_sprites.remove(_globals._spriteIndexes[6]);
-		_globals._spriteIndexes[4] = _scene->_sprites.addSprites(formAnimName('H', 0));
-		_vm->_palette->refreshSceneColors();
+		matte_deallocate_series(g_sprite_ids[6], true);
+		g_sprite_ids[4] = kernel_load_series(kernel_name('H', 0), 0);
+		kernel_new_palette();
 	}
 
-	if (_game._player._moving && (_scene->_rails.getNext() > 0) && _globals[kHoovicAlive] && !_globals[kHoovicSated] && !local._hungryFl && !local._beforeEatingRex) {
-		_game._player.cancelCommand();
-		_game._player.startWalking(Common::Point(160, 32), FACING_EAST);
-		_scene->_rails.resetNext();
+	if (player.walking && (player.next_special_code > 0) && global[kHoovicAlive] && !global[kHoovicSated] && !local._hungryFl && !local._beforeEatingRex) {
+		player_cancel_command();
+		player_start_walking(160, 32, FACING_EAST);
+		player.next_special_code = 0;
 		local._hungryFl = true;
 	}
 
-	if (local._eatingFirstFish && (_scene->_sequences[_globals._sequenceIndexes[10]]._position.x >= 178)) {
-		_globals._sequenceIndexes[9] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[9], false, 4, 1, 0, 0);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[9], 4);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[9], SEQUENCE_TRIGGER_SPRITE, 29, 72);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[9], SEQUENCE_TRIGGER_EXPIRE, 29, 73);
-		_scene->_sequences.updateTimeout(_globals._sequenceIndexes[10], _globals._sequenceIndexes[9]);
+	if (local._eatingFirstFish && (sequence_list[g_sequence_ids[10]].x >= 178)) {
+		g_sequence_ids[9] = kernel_seq_forward(g_sprite_ids[9], false, 4, 0, 0, 1);
+		kernel_seq_depth(g_sequence_ids[9], 4);
+		kernel_seq_trigger(g_sequence_ids[9], KERNEL_TRIGGER_SPRITE, 29, 72);
+		kernel_seq_trigger(g_sequence_ids[9], KERNEL_TRIGGER_EXPIRE, 29, 73);
+		kernel_seq_timeout(g_sequence_ids[9], g_sequence_ids[10]);
 		local._eatingFirstFish = false;
-		_game._player._stepEnabled = true;
-		_vm->_sound->command(34);
+		player.commands_allowed = true;
+		g_engine->_soundManager->command(34, 0);
 	}
 
-	if (_game._trigger == 72)
-		_scene->_sequences.remove(_globals._sequenceIndexes[10]);
+	if (kernel.trigger == 72)
+		kernel_seq_delete(g_sequence_ids[10]);
 
-	if (_game._trigger == 73) {
-		_scene->_sequences.remove(_globals._sequenceIndexes[9]);
-		_scene->_sprites.remove(_globals._spriteIndexes[9]);
-		_scene->_sprites.remove(_globals._spriteIndexes[10]);
+	if (kernel.trigger == 73) {
+		kernel_seq_delete(g_sequence_ids[9]);
+		matte_deallocate_series(g_sprite_ids[9], true);
+		matte_deallocate_series(g_sprite_ids[10], true);
 
-		_scene->_spriteSlots.clear();
-		_scene->_spriteSlots.fullRefresh();
+		image_marker = 0;
+		matte_refresh_work();
 
-		int randVal = _vm->getRandomNumber(85, 88);
-		int idx = _scene->_kernelMessages.add(Common::Point(0, 0), 0x1110, 34, 0, 120, _game.getQuote(randVal));
-		_scene->_kernelMessages.setQuoted(idx, 4, true);
-		_scene->_kernelMessages._entries[idx]._frameTimer = _scene->_frameStartTime + 4;
+		int randVal = g_engine->getRandomNumber(85, 88);
+		int idx = kernel_message_add(quote_string(kernel.quotes, randVal), 0, 0, 0x1110, 120, 0, 34);
+		kernel_message_teletype(idx, 4, true);
+		kernel_message[idx].update_time = kernel.clock + 4;
 	}
 }
 
 static void room_109_pre_parser() {
 	if (player_said_2(swim_under, overhang_to_west))
-		_game._player._walkOffScreenSceneId = 108;
+		player.walk_off_edge_to_room = 108;
 
 	if ((player_said_1(throw) || player_said_1(give) || player_said_1(put))
 		&& (player_said_1(small_hole) || player_said_1(tunnel))
 		&& (player_said_1(dead_fish) || player_said_1(stuffed_fish) || player_said_1(burger))) {
-		int idx = _game._objects.getIdFromDesc(_action._activeAction._objectNameId);
-		if ((idx >= 0) && _game._objects.isInInventory(idx)) {
-			_game._player._prepareWalkPos = Common::Point(106, 38);
-			_game._player._prepareWalkFacing = FACING_EAST;
-			_game._player._needToWalk = true;
-			_game._player._readyToWalk = true;
+		int idx = object_named(player2.words[1]);
+		if ((idx >= 0) && player_has(idx)) {
+			player.prepare_walk_x = 106;
+			player.prepare_walk_y = 38;
+			player.prepare_walk_facing = FACING_EAST;
+			player.need_to_walk = true;
+			player.ready_to_walk = true;
 		}
 	}
 
 	if ((player_said_2(swim_into, tunnel) || player_said_2(swim_to, small_hole))
-		&& (!_globals[kHoovicAlive] || _globals[kHoovicSated]) && (player_said_1(tunnel)))
-		_game._player._walkOffScreenSceneId = 110;
+		&& (!global[kHoovicAlive] || global[kHoovicSated]) && (player_said_1(tunnel)))
+		player.walk_off_edge_to_room = 110;
 
 	local._hungryFl = false;
 }
 
 static void room_109_parser() {
-	if (_action._lookFlag) {
-		_vm->_dialogs->show(10912);
-		_action._inProgress = false;
+	if (player.look_around) {
+		text_show(10912);
+		player.command_ready = false;
 		return;
 	}
 
 	if ((player_said_1(throw) || player_said_1(give)) && (player_said_1(small_hole) || player_said_1(tunnel))) {
 		if (player_said_1(dead_fish) || player_said_1(stuffed_fish) || player_said_1(burger)) {
-			local._throwingObjectId = _game._objects.getIdFromDesc(_action._activeAction._objectNameId);
+			local._throwingObjectId = object_named(player2.words[1]);
 			if (local._throwingObjectId >= 0) {
-				if ((_game._objects.isInInventory(local._throwingObjectId) && _globals[kHoovicAlive]) || local._rexThrowingObject) {
-					switch (_game._trigger) {
+				if ((player_has(local._throwingObjectId) && global[kHoovicAlive]) || local._rexThrowingObject) {
+					switch (kernel.trigger) {
 					case 0:
 						local._rexThrowingObject = true;
 						local._hoovicDifficultFl = false;
-						_game._objects.setRoom(local._throwingObjectId, NOWHERE);
-						_globals._sequenceIndexes[0] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[0], false, 4, 1, 0, 0);
-						_scene->_sequences.setMsgLayout(_globals._sequenceIndexes[0]);
-						_scene->_sequences.addSubEntry(_globals._sequenceIndexes[0], SEQUENCE_TRIGGER_EXPIRE, 0, 1);
-						_game._player._visible = false;
-						_game._player._stepEnabled = false;
+						inter_move_object(local._throwingObjectId, NOWHERE);
+						g_sequence_ids[0] = kernel_seq_forward(g_sprite_ids[0], false, 4, 0, 0, 1);
+						kernel_seq_player(g_sequence_ids[0], false);
+						kernel_seq_trigger(g_sequence_ids[0], KERNEL_TRIGGER_EXPIRE, 0, 1);
+						player.walker_visible = false;
+						player.commands_allowed = false;
 
 						switch (local._throwingObjectId) {
 						case OBJ_DEAD_FISH:
 						case OBJ_STUFFED_FISH:
-							_globals._spriteIndexes[8] = _scene->_sprites.addSprites(formAnimName('H', 1));
+							g_sprite_ids[8] = kernel_load_series(kernel_name('H', 1), 0);
 							break;
 
 						case OBJ_BURGER:
-							local._hoovicDifficultFl = (_game._difficulty == DIFFICULTY_HARD);
-							_globals._spriteIndexes[8] = _scene->_sprites.addSprites(formAnimName('H', (local._hoovicDifficultFl ? 3 : 1)));
+							local._hoovicDifficultFl = (game.difficulty == DIFFICULTY_HARD);
+							g_sprite_ids[8] = kernel_load_series(kernel_name('H', (local._hoovicDifficultFl ? 3 : 1)), 0);
 							break;
 
 						default:
 							break;
 						}
 
-						_vm->_palette->refreshSceneColors();
+						kernel_new_palette();
 						break;
 
 					case 1:
-						_game._player._visible = true;
+						player.walker_visible = true;
 						local._hoovicTrigger = 4;
 						switch (local._throwingObjectId) {
 						case OBJ_BURGER:
-							_globals._sequenceIndexes[3] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[3], false, (local._hoovicDifficultFl ? 4 : 6), 1, 0, 0);
-							_scene->_sequences.addSubEntry(_globals._sequenceIndexes[3], SEQUENCE_TRIGGER_SPRITE, 2, 2);
+							g_sequence_ids[3] = kernel_seq_forward(g_sprite_ids[3], false, (local._hoovicDifficultFl ? 4 : 6), 0, 0, 1);
+							kernel_seq_trigger(g_sequence_ids[3], KERNEL_TRIGGER_SPRITE, 2, 2);
 							if (local._hoovicDifficultFl) {
-								_scene->_sequences.setAnimRange(_globals._sequenceIndexes[3], 1, 30);
-								_scene->_sequences.addSubEntry(_globals._sequenceIndexes[3], SEQUENCE_TRIGGER_EXPIRE, 0, 5);
+								kernel_seq_range(g_sequence_ids[3], 1, 30);
+								kernel_seq_trigger(g_sequence_ids[3], KERNEL_TRIGGER_EXPIRE, 0, 5);
 							} else {
-								_scene->_sequences.setAnimRange(_globals._sequenceIndexes[3], 1, 4);
-								_scene->_sequences.addSubEntry(_globals._sequenceIndexes[3], SEQUENCE_TRIGGER_EXPIRE, 0, 8);
+								kernel_seq_range(g_sequence_ids[3], 1, 4);
+								kernel_seq_trigger(g_sequence_ids[3], KERNEL_TRIGGER_EXPIRE, 0, 8);
 								local._hoovicTrigger = 3;
 							}
 							break;
 						case OBJ_DEAD_FISH:
-							_globals._sequenceIndexes[1] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[1], false, 4, 1, 0, 0);
-							_scene->_sequences.addSubEntry(_globals._sequenceIndexes[1], SEQUENCE_TRIGGER_SPRITE, 2, 2);
+							g_sequence_ids[1] = kernel_seq_forward(g_sprite_ids[1], false, 4, 0, 0, 1);
+							kernel_seq_trigger(g_sequence_ids[1], KERNEL_TRIGGER_SPRITE, 2, 2);
 							break;
 						case OBJ_STUFFED_FISH:
-							_globals._sequenceIndexes[2] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[2], false, 4, 1, 0, 0);
-							_scene->_sequences.addSubEntry(_globals._sequenceIndexes[2], SEQUENCE_TRIGGER_SPRITE, 2, 2);
+							g_sequence_ids[2] = kernel_seq_forward(g_sprite_ids[2], false, 4, 0, 0, 1);
+							kernel_seq_trigger(g_sequence_ids[2], KERNEL_TRIGGER_SPRITE, 2, 2);
 							local._hoovicTrigger = 3;
 							break;
 						default:
@@ -290,38 +295,38 @@ static void room_109_parser() {
 
 					case 2:
 						if (local._hoovicDifficultFl)
-							_globals._sequenceIndexes[8] = _scene->_sequences.startPingPongCycle(_globals._spriteIndexes[8], false, 4, 2, 0, 0);
+							g_sequence_ids[8] = kernel_seq_pingpong(g_sprite_ids[8], false, 4, 0, 0, 2);
 						else
-							_globals._sequenceIndexes[8] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[8], false, 4, 1, 0, 0);
+							g_sequence_ids[8] = kernel_seq_forward(g_sprite_ids[8], false, 4, 0, 0, 1);
 
-						_scene->_sequences.setDepth(_globals._sequenceIndexes[8], 4);
-						_scene->_sequences.addSubEntry(_globals._sequenceIndexes[8], SEQUENCE_TRIGGER_EXPIRE, 0, local._hoovicTrigger);
-						_vm->_sound->command(34);
+						kernel_seq_depth(g_sequence_ids[8], 4);
+						kernel_seq_trigger(g_sequence_ids[8], KERNEL_TRIGGER_EXPIRE, 0, local._hoovicTrigger);
+						g_engine->_soundManager->command(34, 0);
 						break;
 
 					case 3:
-						_scene->loadAnimation(Resources::formatName(109, 'H', 2, EXT_AA, ""), 4);
-						_vm->_sound->command(35);
-						_globals[kHoovicAlive] = false;
+						kernel_run_animation(kernel_full_name(109, 'H', 2, "", KERNEL_AA), 4);
+						g_engine->_soundManager->command(35, 0);
+						global[kHoovicAlive] = false;
 						break;
 
 					case 4:
-						if (!_globals[kHoovicAlive]) {
-							_globals._sequenceIndexes[6] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[6], false, 6, 1, 0, 0);
-							_scene->_sequences.setDepth(_globals._sequenceIndexes[6], 4);
-							_scene->_sequences.setAnimRange(_globals._sequenceIndexes[6], -2, -2);
-							int idx = _scene->_dynamicHotspots.add(words_dead_purple_monster, words_swim_to, -1, Common::Rect(256, 57, 256 + 12, 57 + 31));
-							_scene->_dynamicHotspots.setPosition(idx, Common::Point(241, 91), FACING_NORTHEAST);
-							idx = _scene->_dynamicHotspots.add(words_dead_purple_monster, words_swim_to, -1, Common::Rect(242, 79, 242 + 24, 79 + 12));
-							_scene->_dynamicHotspots.setPosition(idx, Common::Point(241, 91), FACING_NORTHEAST);
-							idx = _scene->_dynamicHotspots.add(words_monster_sludge, words_swim_to, -1, Common::Rect(231, 88, 231 + 23, 88 + 7));
-							_scene->_dynamicHotspots.setPosition(idx, Common::Point(241, 91), FACING_NORTHEAST);
-							_scene->changeVariant(1);
+						if (!global[kHoovicAlive]) {
+							g_sequence_ids[6] = kernel_seq_forward(g_sprite_ids[6], false, 6, 0, 0, 1);
+							kernel_seq_depth(g_sequence_ids[6], 4);
+							kernel_seq_range(g_sequence_ids[6], -2, -2);
+							int idx = kernel_add_dynamic(words_dead_purple_monster, words_swim_to, 0, -1, 256, 57, 12, 31);
+							kernel_dynamic_walk(idx, 241, 91, FACING_NORTHEAST);
+							idx = kernel_add_dynamic(words_dead_purple_monster, words_swim_to, 0, -1, 242, 79, 24, 12);
+							kernel_dynamic_walk(idx, 241, 91, FACING_NORTHEAST);
+							idx = kernel_add_dynamic(words_monster_sludge, words_swim_to, 0, -1, 231, 88, 23, 7);
+							kernel_dynamic_walk(idx, 241, 91, FACING_NORTHEAST);
+							kernel_load_variant(1);
 						} else {
 							if (local._throwingObjectId == OBJ_DEAD_FISH) {
-								++_globals[kHoovicFishEaten];
+								++global[kHoovicFishEaten];
 								int threshold;
-								switch (_game._difficulty) {
+								switch (game.difficulty) {
 								case DIFFICULTY_HARD:
 									threshold = 1;
 									break;
@@ -333,111 +338,111 @@ static void room_109_parser() {
 									break;
 								}
 
-								if (_globals[kHoovicFishEaten] >= threshold) {
-									int randVal = _vm->getRandomNumber(83, 84);
-									_scene->_kernelMessages.add(Common::Point(230, 24), 0xFDFC, 0, 0, 120, _game.getQuote(randVal));
-									_globals[kHoovicFishEaten] = 0;
-									_globals[kHoovicSated] = 1;
-									_scene->changeVariant(1);
+								if (global[kHoovicFishEaten] >= threshold) {
+									int randVal = g_engine->getRandomNumber(83, 84);
+									kernel_message_add(quote_string(kernel.quotes, randVal), 230, 24, 0xFDFC, 120, 0, 0);
+									global[kHoovicFishEaten] = 0;
+									global[kHoovicSated] = 1;
+									kernel_load_variant(1);
 								}
 							}
 						}
-						_scene->freeAnimation();
-						_scene->_sequences.remove(_globals._sequenceIndexes[8]);
-						_scene->_sprites.remove(_globals._spriteIndexes[8]);
-						_scene->_spriteSlots.clear();
-						_scene->_spriteSlots.fullRefresh();
-						_scene->_sequences.scan();
-						if (_game._player._visible) {
-							_game._player._forceRefresh = true;
-							_game._player.update();
+						kernel_abort_animation(0);
+						kernel_seq_delete(g_sequence_ids[8]);
+						matte_deallocate_series(g_sprite_ids[8], true);
+						image_marker = 0;
+						matte_refresh_work();
+						kernel_seq_full_update();
+						if (player.walker_visible) {
+							player.sprite_changed = true;
+							player_set_image();
 						}
 
-						_game._player._stepEnabled = true;
+						player.commands_allowed = true;
 						local._rexThrowingObject = false;
 						break;
 
 					case 5:
 					{
-						_game._objects.setRoom(OBJ_BURGER, _scene->_currentSceneId);
-						_globals._sequenceIndexes[3] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[3], false, 6, 0, 0, 0);
-						_scene->_sequences.setAnimRange(_globals._sequenceIndexes[3], 30, 30);
-						int idx = _scene->_dynamicHotspots.add(words_burger, words_swim_to, _globals._sequenceIndexes[3], Common::Rect(0, 0, 0, 0));
-						_scene->_dynamicHotspots.setPosition(idx, Common::Point(-3, 0), FACING_NORTHEAST);
-						_scene->_sequences.addTimer(65, 6);
+						inter_move_object(OBJ_BURGER, room_id);
+						g_sequence_ids[3] = kernel_seq_forward(g_sprite_ids[3], false, 6, 0, 0, 0);
+						kernel_seq_range(g_sequence_ids[3], 30, 30);
+						int idx = kernel_add_dynamic(words_burger, words_swim_to, 0, g_sequence_ids[3], 0, 0, 0, 0);
+						kernel_dynamic_walk(idx, -3, 0, FACING_NORTHEAST);
+						kernel_timing_trigger(65, 6);
 					}
 					break;
 
 					case 6:
 					{
-						_scene->_sequences.remove(_globals._sequenceIndexes[3]);
-						_globals._sequenceIndexes[3] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[3], false, 6, 1, 0, 0);
-						_scene->_sequences.setAnimRange(_globals._sequenceIndexes[3], 31, 46);
-						int idx = _scene->_dynamicHotspots.add(words_burger, words_swim_to, _globals._sequenceIndexes[3], Common::Rect(0, 0, 0, 0));
-						_scene->_dynamicHotspots.setPosition(idx, Common::Point(-3, 0), FACING_NORTHEAST);
-						_scene->_sequences.addSubEntry(_globals._sequenceIndexes[3], SEQUENCE_TRIGGER_EXPIRE, 0, 7);
+						kernel_seq_delete(g_sequence_ids[3]);
+						g_sequence_ids[3] = kernel_seq_forward(g_sprite_ids[3], false, 6, 0, 0, 1);
+						kernel_seq_range(g_sequence_ids[3], 31, 46);
+						int idx = kernel_add_dynamic(words_burger, words_swim_to, 0, g_sequence_ids[3], 0, 0, 0, 0);
+						kernel_dynamic_walk(idx, -3, 0, FACING_NORTHEAST);
+						kernel_seq_trigger(g_sequence_ids[3], KERNEL_TRIGGER_EXPIRE, 0, 7);
 					}
 					break;
 
 					case 7:
 					{
-						_scene->_sequences.remove(_globals._sequenceIndexes[3]);
-						_globals._sequenceIndexes[3] = _scene->_sequences.startCycle(_globals._spriteIndexes[3], false, -2);
-						int idx = _scene->_dynamicHotspots.add(words_burger, words_swim_to, _globals._sequenceIndexes[3], Common::Rect(0, 0, 0, 0));
-						_scene->_dynamicHotspots.setPosition(idx, Common::Point(-3, 0), FACING_NORTHEAST);
-						_vm->_dialogs->show(10915);
+						kernel_seq_delete(g_sequence_ids[3]);
+						g_sequence_ids[3] = kernel_seq_stamp(g_sprite_ids[3], false, -2);
+						int idx = kernel_add_dynamic(words_burger, words_swim_to, 0, g_sequence_ids[3], 0, 0, 0, 0);
+						kernel_dynamic_walk(idx, -3, 0, FACING_NORTHEAST);
+						text_show(10915);
 					}
 					break;
 
 					case 8:
-						_globals._sequenceIndexes[3] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[3], false, 7, 1, 0, 0);
-						_scene->_sequences.setAnimRange(_globals._sequenceIndexes[3], 5, 16);
+						g_sequence_ids[3] = kernel_seq_forward(g_sprite_ids[3], false, 7, 0, 0, 1);
+						kernel_seq_range(g_sequence_ids[3], 5, 16);
 						break;
 
 					default:
 						break;
 					}
-					_action._inProgress = false;
+					player.command_ready = false;
 					return;
-				} else if (_game._objects.isInInventory(local._throwingObjectId)) {
+				} else if (player_has(local._throwingObjectId)) {
 					// Nothing.
 				}
 			}
 		}
 	}
 
-	if (player_said_2(take, burger) && _game._objects.isInRoom(OBJ_BURGER)) {
-		_scene->_sequences.remove(_globals._sequenceIndexes[3]);
-		_game._objects.addToInventory(OBJ_BURGER);
+	if (player_said_2(take, burger) && object_is_here(OBJ_BURGER)) {
+		kernel_seq_delete(g_sequence_ids[3]);
+		inter_give_to_player(OBJ_BURGER);
 	} else if (player_said_2(look, ocean_floor))
-		_vm->_dialogs->show(10901);
+		text_show(10901);
 	else if (player_said_2(look, coral))
-		_vm->_dialogs->show(10902);
+		text_show(10902);
 	else if ((player_said_1(take) || player_said_1(pull)) && player_said_1(coral))
-		_vm->_dialogs->show(10903);
+		text_show(10903);
 	else if (player_said_2(look, rocks))
-		_vm->_dialogs->show(10904);
+		text_show(10904);
 	else if (player_said_2(take, rocks))
-		_vm->_dialogs->show(10905);
+		text_show(10905);
 	else if (player_said_2(look, cave_wall))
-		_vm->_dialogs->show(10906);
+		text_show(10906);
 	else if (player_said_2(look, tunnel)) {
-		if (_globals[kHoovicAlive])
-			_vm->_dialogs->show(10907);
+		if (global[kHoovicAlive])
+			text_show(10907);
 		else
-			_vm->_dialogs->show(10913);
+			text_show(10913);
 	} else if (player_said_2(look, small_hole))
-		_vm->_dialogs->show(10908);
+		text_show(10908);
 	else if (player_said_2(look, overhang_to_west))
-		_vm->_dialogs->show(10911);
+		text_show(10911);
 	else if (player_said_2(put, small_hole))
-		_vm->_dialogs->show(10910);
+		text_show(10910);
 	else if (player_said_2(look, dead_purple_monster))
-		_vm->_dialogs->show(10914);
+		text_show(10914);
 	else
 		return;
 
-	_action._inProgress = false;
+	player.command_ready = false;
 }
 
 void room_109_synchronize(Common::Serializer &s) {
@@ -461,8 +466,8 @@ void room_109_preload() {
 		himem_preload_series(kernel_full_name(109, 'H', count, nullptr, 0), 3);
 	}
 
-	_scene->addActiveVocab(words_dead_purple_monster);
-	_scene->addActiveVocab(words_monster_sludge);
+	vocab_make_active(words_dead_purple_monster);
+	vocab_make_active(words_monster_sludge);
 
 	section_1_walker();
 	section_1_interface();

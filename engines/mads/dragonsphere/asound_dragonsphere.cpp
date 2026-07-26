@@ -19,86 +19,10 @@
  *
  */
 
-#include "common/endian.h"
-#include "common/file.h"
-#include "common/md5.h"
-#include "common/textconsole.h"
-#include "mads/dragonsphere/sound_dragonsphere.h"
+#include "mads/dragonsphere/asound_dragonsphere.h"
 
 namespace MADS {
 namespace Dragonsphere {
-
-void DragonSoundManager::validate() {
-	Common::File f;
-	static const char *const MD5[] = {
-		"cac84f53ccf18ca56f4c03352037790f",
-		"2dcdbe18ca5225384cdb97ceb7f5642a",
-		"c6001b0dfe32cb9399ab60742b631c2e",
-		"1596b657c6171e13714eaf114bf94641",
-		"ecbb8bdf1e2e36fcacedce79761e625b",
-		"29639869e5faed1378dd2cdc1d132889",
-		nullptr,
-		nullptr,
-		"379fcc9af2142f15a3e7166eee6dd49d"
-	};
-	static const char *const MD5_DEMO[] = {
-		"c4fc9e9d7e2392c69ea7b3ca997e832d",
-		nullptr, nullptr, nullptr, nullptr,
-		nullptr, nullptr, nullptr,
-		"21432c2dd055d0d505ede8fecc77b29a"
-	};
-
-	for (int i = 1; i <= 9; ++i) {
-		if (i == 7 || i == 8)
-			continue;
-		if (_isDemo && i != 1 && i != 9)
-			continue;
-
-		Common::Path filename(Common::String::format("asound.dr%d", i));
-		if (!f.open(filename))
-			error("Could not process - %s", filename.toString().c_str());
-		Common::String md5str = Common::computeStreamMD5AsString(f, 8192);
-		f.close();
-
-		if (md5str != (_isDemo ? MD5_DEMO[i - 1] : MD5[i - 1]))
-			error("Invalid sound file - %s", filename.toString().c_str());
-	}
-}
-
-void DragonSoundManager::loadDriver(int sectionNumber) {
-	switch (sectionNumber) {
-	case 1:
-		if (_isDemo)
-			_driver = new ASoundDemo1(_mixer, _opl);
-		else
-			_driver = new ASound1(_mixer, _opl);
-		break;
-	case 2:
-		_driver = new ASound2(_mixer, _opl);
-		break;
-	case 3:
-		_driver = new ASound3(_mixer, _opl);
-		break;
-	case 4:
-		_driver = new ASound4(_mixer, _opl);
-		break;
-	case 5:
-		_driver = new ASound5(_mixer, _opl);
-		break;
-	case 6:
-		_driver = new ASound6(_mixer, _opl);
-		break;
-	case 9:
-		if (_isDemo)
-			_driver = new ASoundDemo9(_mixer, _opl);
-		else
-			_driver = new ASound9(_mixer, _opl);
-		break;
-	default:
-		_driver = nullptr;
-		return;
-	}
-}
 
 /*-----------------------------------------------------------------------*/
 /* ASound1  (asound.dr1)                                                  *
@@ -145,8 +69,8 @@ const ASound1::CommandPtr ASound1::_commandList[102] = {
 	&ASound1::command100, &ASound1::command101
 };
 
-ASound1::ASound1(Audio::Mixer *mixer, OPL::OPL *opl)
-		: ASound(mixer, opl, "asound.dr1", 0x2520, 0x49e0) {
+ASound1::ASound1(Audio::Mixer *mixer)
+		: ASound(mixer, "asound.dr1", 0x2520, 0x49e0) {
 	auto samplesStream = getDataStream(0x1dc);
 	for (int i = 0; i < 182; ++i)
 		_samples.push_back(AdlibSample(samplesStream));
@@ -787,8 +711,8 @@ const ASound2::CommandPtr ASound2::_commandList[76] = {
 	&ASound2::command72,    nullptr,             nullptr,             nullptr
 };
 
-ASound2::ASound2(Audio::Mixer *mixer, OPL::OPL *opl)
-		: ASound(mixer, opl, "asound.dr2", 0x1fa0, 0x2950) {
+ASound2::ASound2(Audio::Mixer *mixer)
+		: ASound(mixer, "asound.dr2", 0x1fa0, 0x2950) {
 	auto samplesStream = getDataStream(0x1dc);
 	for (int i = 0; i < 182; ++i)
 		_samples.push_back(AdlibSample(samplesStream));
@@ -1076,8 +1000,8 @@ const ASound3::CommandPtr ASound3::_commandList[77] = {
 	nullptr,             nullptr,             nullptr
 };
 
-ASound3::ASound3(Audio::Mixer *mixer, OPL::OPL *opl)
-		: ASound(mixer, opl, "asound.dr3", 0x1f30, 0x2750) {
+ASound3::ASound3(Audio::Mixer *mixer)
+		: ASound(mixer, "asound.dr3", 0x1f30, 0x2750) {
 	// Load sound samples
 	auto samplesStream = getDataStream(0x1dc);
 	for (int i = 0; i < 182; ++i)
@@ -1351,8 +1275,8 @@ const ASound4::CommandPtr ASound4::_commandList[82] = {
 	&ASound4::command80, &ASound4::command81
 };
 
-ASound4::ASound4(Audio::Mixer *mixer, OPL::OPL *opl)
-		: ASound(mixer, opl, "asound.dr4", 0x2120, 0x31d0) {
+ASound4::ASound4(Audio::Mixer *mixer)
+		: ASound(mixer, "asound.dr4", 0x2120, 0x31d0) {
 	auto samplesStream = getDataStream(0x1dc);
 	for (int i = 0; i < 182; ++i)
 		_samples.push_back(AdlibSample(samplesStream));
@@ -1712,8 +1636,8 @@ const ASound5::CommandPtr ASound5::_commandList[82] = {
 	&ASound5::command80, &ASound5::command81
 };
 
-ASound5::ASound5(Audio::Mixer *mixer, OPL::OPL *opl)
-		: ASound(mixer, opl, "asound.dr5", 0x20d0, 0x2ee0) {
+ASound5::ASound5(Audio::Mixer *mixer)
+		: ASound(mixer, "asound.dr5", 0x20d0, 0x2ee0) {
 	auto samplesStream = getDataStream(0x1dc);
 	for (int i = 0; i < 182; ++i)
 		_samples.push_back(AdlibSample(samplesStream));
@@ -2046,8 +1970,8 @@ const ASound6::CommandPtr ASound6::_commandList[102] = {
 	&ASound6::command100, &ASound6::command101
 };
 
-ASound6::ASound6(Audio::Mixer *mixer, OPL::OPL *opl)
-		: ASound(mixer, opl, "asound.dr6", 0x2370, 0x3870) {
+ASound6::ASound6(Audio::Mixer *mixer)
+		: ASound(mixer, "asound.dr6", 0x2370, 0x3870) {
 	auto samplesStream = getDataStream(0x1dc);
 	for (int i = 0; i < 182; ++i)
 		_samples.push_back(AdlibSample(samplesStream));
@@ -2507,8 +2431,8 @@ const ASound9::CommandPtr ASound9::_commandList[65] = {
 	nullptr,
 };
 
-ASound9::ASound9(Audio::Mixer *mixer, OPL::OPL *opl) :
-		ASound(mixer, opl, "asound.dr9", 0x23a0, 0x6a10) {
+ASound9::ASound9(Audio::Mixer *mixer) :
+		ASound(mixer, "asound.dr9", 0x23a0, 0x6a10) {
 	// Load sound samples
 	auto samplesStream = getDataStream(0x1dc);
 	for (int i = 0; i < 182; ++i)
@@ -3107,8 +3031,8 @@ const ASoundDemo1::CommandPtr ASoundDemo1::_commandList[93] = {
 	&ASoundDemo1::command90, &ASoundDemo1::command91, &ASoundDemo1::command92
 };
 
-ASoundDemo1::ASoundDemo1(Audio::Mixer *mixer, OPL::OPL *opl)
-		: ASound(mixer, opl, "asound.dr1", 0x23e0, 0x4900) {
+ASoundDemo1::ASoundDemo1(Audio::Mixer *mixer)
+		: ASound(mixer, "asound.dr1", 0x23e0, 0x4900) {
 	auto samplesStream = getDataStream(0x1dc);
 	for (int i = 0; i < 182; ++i)
 		_samples.push_back(AdlibSample(samplesStream));
@@ -3571,8 +3495,8 @@ const ASoundDemo9::CommandPtr ASoundDemo9::_commandList[51] = {
 	&ASoundDemo9::command50
 };
 
-ASoundDemo9::ASoundDemo9(Audio::Mixer *mixer, OPL::OPL *opl)
-		: ASound(mixer, opl, "asound.dr9", 0x23a0, 0x62b0) {
+ASoundDemo9::ASoundDemo9(Audio::Mixer *mixer)
+		: ASound(mixer, "asound.dr9", 0x23a0, 0x62b0) {
 	auto samplesStream = getDataStream(0x1dc);
 	for (int i = 0; i < 182; ++i)
 		_samples.push_back(AdlibSample(samplesStream));

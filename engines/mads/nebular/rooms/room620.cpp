@@ -25,50 +25,49 @@
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section6.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
 namespace Rooms {
 
 static void room_620_init() {
-	_globals._spriteIndexes[1] = _scene->_sprites.addSprites(formAnimName('b', 0));
-	_globals._sequenceIndexes[1] = _scene->_sequences.startCycle(_globals._spriteIndexes[1], false, -1);
-	_game._player._stepEnabled = false;
-	_game._player._visible = false;
-	_scene->_sequences.addTimer(30, 70);
-	_scene->_userInterface.setup(kInputLimitedSentences);
+	g_sprite_ids[1] = kernel_load_series(kernel_name('b', 0), 0);
+	g_sequence_ids[1] = kernel_seq_stamp(g_sprite_ids[1], false, -1);
+	player.commands_allowed = false;
+	player.walker_visible = false;
+	kernel_timing_trigger(30, 70);
+	kernel_set_interface_mode(INTER_LIMITED_SENTENCES);
 	section_6_music();
 }
 
 static void room_620_daemon() {
-	switch (_game._trigger) {
+	switch (kernel.trigger) {
 	case 70:
-		_scene->_sequences.remove(_globals._sequenceIndexes[1]);
-		_scene->loadAnimation(formAnimName('E', -1), 71);
+		kernel_seq_delete(g_sequence_ids[1]);
+		kernel_run_animation(kernel_name('E', -1), 71);
 		break;
 
 	case 71:
-		if (_scene->_priorSceneId == 751) {
-			_globals[kCityFlooded] = true;
-			_globals[kTeleporterRoom + 5] = 0;
-			_scene->_nextSceneId = 701;
-		} else if (_scene->_priorSceneId == 752) {
-			_globals[kCityFlooded] = true;
-			_globals[kTeleporterRoom + 5] = 0;
-			_scene->_nextSceneId = 702;
-		} else if (_scene->_priorSceneId < 501 || _scene->_priorSceneId > 752) {
-			_globals[kCityFlooded] = true;
-			_globals[kTeleporterRoom + 5] = 0;
-			_scene->_nextSceneId = _scene->_priorSceneId;
-		} else if (_scene->_priorSceneId >= 501 && _scene->_priorSceneId <= 612) {
-			_globals[kResurrectRoom] = _globals[kHoverCarLocation];
-			_game._objects.addToInventory(OBJ_TIMEBOMB);
-			_globals[kTimebombStatus] = 0;
-			_globals[kTimebombTimer] = 0;
-			_scene->_nextSceneId = 605;
+		if (previous_room == 751) {
+			global[kCityFlooded] = true;
+			global[kTeleporterRoom + 5] = 0;
+			new_room = 701;
+		} else if (previous_room == 752) {
+			global[kCityFlooded] = true;
+			global[kTeleporterRoom + 5] = 0;
+			new_room = 702;
+		} else if (previous_room < 501 || previous_room > 752) {
+			global[kCityFlooded] = true;
+			global[kTeleporterRoom + 5] = 0;
+			new_room = previous_room;
+		} else if (previous_room >= 501 && previous_room <= 612) {
+			global[kResurrectRoom] = global[kHoverCarLocation];
+			inter_give_to_player(OBJ_TIMEBOMB);
+			global[kTimebombStatus] = 0;
+			global[kTimebombTimer] = 0;
+			new_room = 605;
 		}
-		_game._player._stepEnabled = true;
+		player.commands_allowed = true;
 		break;
 
 	default:

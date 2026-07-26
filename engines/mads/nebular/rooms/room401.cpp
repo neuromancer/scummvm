@@ -26,7 +26,6 @@
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section4.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
@@ -43,69 +42,72 @@ static Scratch local;
 
 
 static void room_401_init() {
-	if (_scene->_priorSceneId != RETURNING_FROM_DIALOG)
+	if (previous_room != KERNEL_RESTORING_GAME)
 		local._northFl = false;
 
 	local._timer = 0;
 
-	if (_scene->_priorSceneId == 402) {
-		_game._player._playerPos = Common::Point(203, 115);
-		_game._player._facing = FACING_WEST;
-	} else if (_scene->_priorSceneId == 354) {
-		_game._player._playerPos = Common::Point(149, 90);
-		_game._player._facing = FACING_SOUTH;
+	if (previous_room == 402) {
+		player.x = 203;
+		player.y = 115;
+		player.facing = FACING_WEST;
+	} else if (previous_room == 354) {
+		player.x = 149;
+		player.y = 90;
+		player.facing = FACING_SOUTH;
 		local._northFl = true;
-	} else if (_scene->_priorSceneId != RETURNING_FROM_DIALOG) {
-		_game._player._playerPos = Common::Point(142, 131);
-		_game._player._facing = FACING_NORTH;
+	} else if (previous_room != KERNEL_RESTORING_GAME) {
+		player.x = 142;
+		player.y = 131;
+		player.facing = FACING_NORTH;
 	}
 
-	_game.loadQuoteSet(0x1D4, 0);
+	kernel.quotes = quote_load(0x1D4, 0);
 	section_4_music();
 }
 
 static void room_401_daemon() {
-	if (_game._trigger == 70) {
-		_scene->_nextSceneId = 354;
-		_scene->_reloadSceneFlag = true;
+	if (kernel.trigger == 70) {
+		new_room = 354;
+		kernel.force_restart = true;
 	}
 
-	if (_game._trigger == 80) {
-		_game._player._priorTimer = _scene->_frameStartTime - _game._player._ticksAmount;
-		_game._player._stepEnabled = true;
-		_game._player._visible = true;
+	if (kernel.trigger == 80) {
+		player.clock = kernel.clock - player.frame_delay;
+		player.commands_allowed = true;
+		player.walker_visible = true;
 		local._northFl = false;
-		_game._player.walk(Common::Point(149, 110), FACING_SOUTH);
+		player_walk(149, 110, FACING_SOUTH);
 	}
 
-	if (_scene->_frameStartTime >= local._timer) {
-		int dist = 64 - ((Math::hypotenuse(_game._player._playerPos.x - 219, _game._player._playerPos.y - 115) * 64) / 120);
+	if (kernel.clock >= local._timer) {
+		int dist = 64 - ((Math::hypotenuse(player.x - 219, player.y - 115) * 64) / 120);
 
 		if (dist > 64)
 			dist = 64;
 		else if (dist < 1)
 			dist = 1;
 
-		_vm->_sound->command(12, dist);
-		local._timer = _scene->_frameStartTime + _game._player._ticksAmount;
+		g_engine->_soundManager->command(12, dist);
+		local._timer = kernel.clock + player.frame_delay;
 	}
 
 }
 
 static void room_401_pre_parser() {
 	if (player_said_2(walk_down, corridor_to_north)) {
-		_game._player.walk(Common::Point(149, 89), FACING_NORTH);
+		player_walk(149, 89, FACING_NORTH);
 		local._northFl = false;
 	}
 
 	if (player_said_2(walk_down, corridor_to_south) && !local._northFl)
-		_game._player._walkOffScreenSceneId = 405;
+		player.walk_off_edge_to_room = 405;
 
 	if (player_said_1(take))
-		_game._player._needToWalk = false;
+		player.need_to_walk = false;
 
-	if (_game._player._needToWalk && local._northFl) {
-		if (_globals[kSexOfRex] == REX_MALE) {
+	if (player.need_to_walk && local._northFl) {
+		if (global[kSexOfRex] == REX_MALE) {
 			local._dest_x = 148;
 			local._dest_y = 94;
 		} else {
@@ -113,59 +115,59 @@ static void room_401_pre_parser() {
 			local._dest_y = 99;
 		}
 
-		_game._player.walk(Common::Point(local._dest_x, local._dest_y), FACING_SOUTH);
+		player_walk(local._dest_x, local._dest_y, FACING_SOUTH);
 	}
 }
 
 static void room_401_parser() {
-	if (_game._player._playerPos.x == local._dest_x && _game._player._playerPos.y && local._northFl) {
-		if (_globals[kSexOfRex] == REX_MALE) {
-			_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-			_game._player._stepEnabled = false;
-			_game._player._visible = false;
-			_vm->_sound->command(21);
-			_scene->loadAnimation(formAnimName('s', 1), 70);
-			_globals[kHasBeenScanned] = true;
-			_vm->_sound->command(22);
-			int idx = _scene->_kernelMessages.add(Common::Point(153, 46), 0x1110, 32, 0, 60, _game.getQuote(0x1D4));
-			_scene->_kernelMessages.setQuoted(idx, 4, true);
+	if (player.x == local._dest_x && player.y && local._northFl) {
+		if (global[kSexOfRex] == REX_MALE) {
+			kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+			player.commands_allowed = false;
+			player.walker_visible = false;
+			g_engine->_soundManager->command(21, 0);
+			kernel_run_animation(kernel_name('s', 1), 70);
+			global[kHasBeenScanned] = true;
+			g_engine->_soundManager->command(22, 0);
+			int idx = kernel_message_add(quote_string(kernel.quotes, 0x1D4), 153, 46, 0x1110, 60, 0, 32);
+			kernel_message_teletype(idx, 4, true);
 		}
 
-		if (_globals[kSexOfRex] == REX_FEMALE) {
-			_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-			_game._player._stepEnabled = false;
-			_game._player._visible = false;
-			_vm->_sound->command(21);
-			_scene->loadAnimation(formAnimName('s', 2), 80);
-			_vm->_sound->command(23);
-			_globals[kHasBeenScanned] = true;
+		if (global[kSexOfRex] == REX_FEMALE) {
+			kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+			player.commands_allowed = false;
+			player.walker_visible = false;
+			g_engine->_soundManager->command(21, 0);
+			kernel_run_animation(kernel_name('s', 2), 80);
+			g_engine->_soundManager->command(23, 0);
+			global[kHasBeenScanned] = true;
 		}
 	}
 
 	if (player_said_2(walk_into, bar)) {
 		if (!local._northFl)
-			_scene->_nextSceneId = 402;
+			new_room = 402;
 	} else if (player_said_2(walk_down, corridor_to_north))
-		_scene->_nextSceneId = 354;
+		new_room = 354;
 	else if (player_said_2(look, scanner)) {
-		if (_globals[kHasBeenScanned])
-			_vm->_dialogs->show(40111);
+		if (global[kHasBeenScanned])
+			text_show(40111);
 		else
-			_vm->_dialogs->show(40110);
+			text_show(40110);
 	} else if (player_said_2(look, bar))
-		_vm->_dialogs->show(40112);
+		text_show(40112);
 	else if (player_said_2(look, sign))
-		_vm->_dialogs->show(40113);
+		text_show(40113);
 	else if (player_said_2(look, corridor_to_south))
-		_vm->_dialogs->show(40114);
+		text_show(40114);
 	else if (player_said_2(look, corridor_to_north))
-		_vm->_dialogs->show(40115);
-	else if (_action._lookFlag)
-		_vm->_dialogs->show(40116);
+		text_show(40115);
+	else if (player.look_around)
+		text_show(40116);
 	else
 		return;
 
-	_action._inProgress = false;
+	player.command_ready = false;
 }
 
 void room_401_synchronize(Common::Serializer &s) {

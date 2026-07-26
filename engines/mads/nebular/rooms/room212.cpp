@@ -25,19 +25,20 @@
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section2.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
 namespace Rooms {
 
 static void room_212_init() {
-	if (_scene->_priorSceneId == 208) {
-		_game._player._playerPos = Common::Point(195, 85);
-		_game._player._facing = FACING_SOUTH;
-	} else if (_scene->_priorSceneId != RETURNING_FROM_DIALOG) {
-		_game._player._playerPos = Common::Point(67, 117);
-		_game._player._facing = FACING_NORTHEAST;
+	if (previous_room == 208) {
+		player.x = 195;
+		player.y = 85;
+		player.facing = FACING_SOUTH;
+	} else if (previous_room != KERNEL_RESTORING_GAME) {
+		player.x = 67;
+		player.y = 117;
+		player.facing = FACING_NORTHEAST;
 	}
 
 	section_2_music();
@@ -49,36 +50,36 @@ static void room_212_daemon() {
 
 static void room_212_pre_parser() {
 	if (player_said_2(walk_through, cave_entrance))
-		_game._player._walkOffScreenSceneId = 111;
+		player.walk_off_edge_to_room = 111;
 }
 
 static void room_212_parser() {
-	if (_action._lookFlag)
-		_vm->_dialogs->show(21209);
+	if (player.look_around)
+		text_show(21209);
 	else if (player_said_1(walk_towards) && (player_said_1(field_to_north) || player_said_1(mountains)))
-		_scene->_nextSceneId = 208;
+		new_room = 208;
 	else if (player_said_2(walk_towards, cave))
-		_scene->_nextSceneId = 111;
+		new_room = 111;
 	else if (player_said_2(look, grass))
-		_vm->_dialogs->show(21201);
+		text_show(21201);
 	else if (player_said_2(look, rocks))
-		_vm->_dialogs->show(21202);
+		text_show(21202);
 	else if (player_said_2(look, cave_entrance))
-		_vm->_dialogs->show(21203);
+		text_show(21203);
 	else if (player_said_2(look, sky))
-		_vm->_dialogs->show(21204);
+		text_show(21204);
 	else if (player_said_2(look, field_to_north))
-		_vm->_dialogs->show(21205);
+		text_show(21205);
 	else if (player_said_2(look, trees))
-		_vm->_dialogs->show(21206);
+		text_show(21206);
 	else if (player_said_2(look, plants))
-		_vm->_dialogs->show(21207);
+		text_show(21207);
 	else if (player_said_2(look, mountains))
-		_vm->_dialogs->show(21208);
+		text_show(21208);
 	else
 		return;
 
-	_action._inProgress = false;
+	player.command_ready = false;
 }
 
 void room_212_synchronize(Common::Serializer &s) {
@@ -93,7 +94,7 @@ void room_212_preload() {
 
 	section_2_walker();
 	section_2_interface();
-	_scene->addActiveVocab(words_bouncing_reptile);
+	vocab_make_active(words_bouncing_reptile);
 }
 
 } // namespace Rooms

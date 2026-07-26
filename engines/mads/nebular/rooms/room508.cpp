@@ -26,7 +26,6 @@
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section5.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
@@ -40,114 +39,116 @@ static Scratch local;
 
 
 static void room_508_init() {
-	_globals._spriteIndexes[1] = _scene->_sprites.addSprites(formAnimName('a', 0));
-	_globals._spriteIndexes[2] = _scene->_sprites.addSprites(formAnimName('m', 0));
-	_globals._spriteIndexes[3] = _scene->_sprites.addSprites(formAnimName('h', 0));
-	_globals._spriteIndexes[4] = _scene->_sprites.addSprites(formAnimName('l', 2));
-	_globals._spriteIndexes[5] = _scene->_sprites.addSprites(formAnimName('t', 0));
-	_globals._spriteIndexes[6] = _scene->_sprites.addSprites("*RXMRC_9");
-	_globals._spriteIndexes[7] = _scene->_sprites.addSprites(formAnimName('l', 3));
+	g_sprite_ids[1] = kernel_load_series(kernel_name('a', 0), 0);
+	g_sprite_ids[2] = kernel_load_series(kernel_name('m', 0), 0);
+	g_sprite_ids[3] = kernel_load_series(kernel_name('h', 0), 0);
+	g_sprite_ids[4] = kernel_load_series(kernel_name('l', 2), 0);
+	g_sprite_ids[5] = kernel_load_series(kernel_name('t', 0), 0);
+	g_sprite_ids[6] = kernel_load_series("*RXMRC_9", 0);
+	g_sprite_ids[7] = kernel_load_series(kernel_name('l', 3), 0);
 
-	if (!_game._visitedScenes._sceneRevisited) {
-		_globals[kLaserOn] = false;
+	if (!player.been_here_before) {
+		global[kLaserOn] = false;
 		local._chosenObject = 0;
 	}
 
-	if (!_globals[kLaserOn]) {
-		_globals._sequenceIndexes[3] = _scene->_sequences.startCycle(_globals._spriteIndexes[3], false, -2);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[3], 8);
-		_globals._sequenceIndexes[5] = _scene->_sequences.startCycle(_globals._spriteIndexes[5], false, -2);
-		int idx = _scene->_dynamicHotspots.add(words_spinach_patch_doll, words_walkto, _globals._sequenceIndexes[5], Common::Rect(0, 0, 0, 0));
-		_scene->_dynamicHotspots.setPosition(idx, Common::Point(57, 116), FACING_NORTHEAST);
-		_scene->_hotspots.activate(words_hole, false);
-		_scene->_hotspots.activate(words_laser_beam, false);
+	if (!global[kLaserOn]) {
+		g_sequence_ids[3] = kernel_seq_stamp(g_sprite_ids[3], false, -2);
+		kernel_seq_depth(g_sequence_ids[3], 8);
+		g_sequence_ids[5] = kernel_seq_stamp(g_sprite_ids[5], false, -2);
+		int idx = kernel_add_dynamic(words_spinach_patch_doll, words_walkto, 0, g_sequence_ids[5], 0, 0, 0, 0);
+		kernel_dynamic_walk(idx, 57, 116, FACING_NORTHEAST);
+		kernel_flip_hotspot(words_hole, false);
+		kernel_flip_hotspot(words_laser_beam, false);
 	} else {
-		_scene->changeVariant(1);
-		_globals._sequenceIndexes[3] = _scene->_sequences.startCycle(_globals._spriteIndexes[3], false, -2);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[3], 8);
-		_globals._sequenceIndexes[4] = _scene->_sequences.startCycle(_globals._spriteIndexes[4], false, -2);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[4], 11);
-		int idx = _scene->_dynamicHotspots.add(words_laser_beam, words_walkto, _globals._sequenceIndexes[4], Common::Rect(0, 0, 0, 0));
-		_scene->_dynamicHotspots.setPosition(idx, Common::Point(57, 116), FACING_NORTHEAST);
-		_globals._sequenceIndexes[2] = _scene->_sequences.startPingPongCycle(_globals._spriteIndexes[2], false, 15, 0, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[2], 6, 8);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[2], 6);
-		if (_globals[kLaserHoleIsThere]) {
-			_globals._sequenceIndexes[7] = _scene->_sequences.startCycle(_globals._spriteIndexes[7], false, -2);
-			_scene->_hotspots.activate(words_hole, true);
-			_scene->_hotspots.activate(words_laser_beam, true);
+		kernel_load_variant(1);
+		g_sequence_ids[3] = kernel_seq_stamp(g_sprite_ids[3], false, -2);
+		kernel_seq_depth(g_sequence_ids[3], 8);
+		g_sequence_ids[4] = kernel_seq_stamp(g_sprite_ids[4], false, -2);
+		kernel_seq_depth(g_sequence_ids[4], 11);
+		int idx = kernel_add_dynamic(words_laser_beam, words_walkto, 0, g_sequence_ids[4], 0, 0, 0, 0);
+		kernel_dynamic_walk(idx, 57, 116, FACING_NORTHEAST);
+		g_sequence_ids[2] = kernel_seq_pingpong(g_sprite_ids[2], false, 15, 0, 0, 0);
+		kernel_seq_range(g_sequence_ids[2], 6, 8);
+		kernel_seq_depth(g_sequence_ids[2], 6);
+		if (global[kLaserHoleIsThere]) {
+			g_sequence_ids[7] = kernel_seq_stamp(g_sprite_ids[7], false, -2);
+			kernel_flip_hotspot(words_hole, true);
+			kernel_flip_hotspot(words_laser_beam, true);
 		}
-		_vm->_sound->command(21);
+		g_engine->_soundManager->command(21, 0);
 	}
-	_vm->_sound->command(20);
+	g_engine->_soundManager->command(20, 0);
 
-	if (_scene->_priorSceneId == 515) {
-		_game._player._playerPos = Common::Point(57, 116);
-		_game._player._facing = FACING_NORTHEAST;
-	} else if (_scene->_priorSceneId != RETURNING_FROM_DIALOG) {
-		_game._player._playerPos = Common::Point(289, 139);
-		_game._player._facing = FACING_WEST;
+	if (previous_room == 515) {
+		player.x = 57;
+		player.y = 116;
+		player.facing = FACING_NORTHEAST;
+	} else if (previous_room != KERNEL_RESTORING_GAME) {
+		player.x = 289;
+		player.y = 139;
+		player.facing = FACING_WEST;
 	}
 
 	section_5_music();
-	_game.loadQuoteSet(0x273, 0);
+	kernel.quotes = quote_load(0x273, 0);
 
-	if (_scene->_roomChanged) {
-		_game._objects.addToInventory(OBJ_COMPACT_CASE);
-		_game._objects.addToInventory(OBJ_REARVIEW_MIRROR);
+	if (kernel.teleported_in) {
+		inter_give_to_player(OBJ_COMPACT_CASE);
+		inter_give_to_player(OBJ_REARVIEW_MIRROR);
 	}
 }
 
 static void room_508_pre_parser() {
 	if (player_said_2(walk, outside))
-		_game._player._walkOffScreenSceneId = 506;
+		player.walk_off_edge_to_room = 506;
 }
 
 static void handlePedestral() {
-	if (!_globals[kLaserOn])
-		_vm->_dialogs->show(50835);
+	if (!global[kLaserOn])
+		text_show(50835);
 
-	if (_globals[kLaserHoleIsThere])
-		_vm->_dialogs->show(50836);
+	if (global[kLaserHoleIsThere])
+		text_show(50836);
 
-	if (_globals[kLaserOn] && !_globals[kLaserHoleIsThere]) {
-		switch (_game._trigger) {
+	if (global[kLaserOn] && !global[kLaserHoleIsThere]) {
+		switch (kernel.trigger) {
 		case 0:
-			_game._player._stepEnabled = false;
-			_game._player._visible = false;
-			_globals._sequenceIndexes[6] = _scene->_sequences.startPingPongCycle(_globals._spriteIndexes[6], false, 9, 1, 0, 0);
-			_scene->_sequences.setAnimRange(_globals._sequenceIndexes[6], 1, 4);
-			_scene->_sequences.setMsgLayout(_globals._sequenceIndexes[6]);
-			_scene->_sequences.addSubEntry(_globals._sequenceIndexes[6], SEQUENCE_TRIGGER_SPRITE, 4, 1);
-			_scene->_sequences.addSubEntry(_globals._sequenceIndexes[6], SEQUENCE_TRIGGER_EXPIRE, 0, 3);
+			player.commands_allowed = false;
+			player.walker_visible = false;
+			g_sequence_ids[6] = kernel_seq_pingpong(g_sprite_ids[6], false, 9, 0, 0, 1);
+			kernel_seq_range(g_sequence_ids[6], 1, 4);
+			kernel_seq_player(g_sequence_ids[6], false);
+			kernel_seq_trigger(g_sequence_ids[6], KERNEL_TRIGGER_SPRITE, 4, 1);
+			kernel_seq_trigger(g_sequence_ids[6], KERNEL_TRIGGER_EXPIRE, 0, 3);
 			break;
 
 		case 1:
 			if (local._chosenObject == 2)
-				_game._objects.removeFromInventory(OBJ_COMPACT_CASE, 1);
+				inter_take_from_player(OBJ_COMPACT_CASE, 1);
 			else
-				_game._objects.removeFromInventory(OBJ_REARVIEW_MIRROR, 1);
+				inter_take_from_player(OBJ_REARVIEW_MIRROR, 1);
 
-			_globals._sequenceIndexes[7] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[7], false, 6, 1, 0, 0);
-			_scene->_sequences.addSubEntry(_globals._sequenceIndexes[7], SEQUENCE_TRIGGER_EXPIRE, 0, 2);
+			g_sequence_ids[7] = kernel_seq_forward(g_sprite_ids[7], false, 6, 0, 0, 1);
+			kernel_seq_trigger(g_sequence_ids[7], KERNEL_TRIGGER_EXPIRE, 0, 2);
 			break;
 
 		case 2:
-			_globals._sequenceIndexes[7] = _scene->_sequences.startCycle(_globals._spriteIndexes[7], false, -2);
-			_scene->_hotspots.activate(words_hole, true);
-			_scene->_hotspots.activate(words_laser_beam, true);
+			g_sequence_ids[7] = kernel_seq_stamp(g_sprite_ids[7], false, -2);
+			kernel_flip_hotspot(words_hole, true);
+			kernel_flip_hotspot(words_laser_beam, true);
 			break;
 
 		case 3:
-			_scene->_sequences.updateTimeout(-1, _globals._sequenceIndexes[6]);
-			_game._player._visible = true;
-			_scene->_sequences.addTimer(120, 4);
+			kernel_seq_timeout(g_sequence_ids[6], -1);
+			player.walker_visible = true;
+			kernel_timing_trigger(120, 4);
 			break;
 
 		case 4:
-			_vm->_dialogs->show(50834);
-			_globals[kLaserHoleIsThere] = true;
-			_scene->_nextSceneId = 515;
+			text_show(50834);
+			global[kLaserHoleIsThere] = true;
+			new_room = 515;
 			break;
 
 		default:
@@ -158,70 +159,70 @@ static void handlePedestral() {
 
 static void room_508_parser() {
 	if (player_said_2(pull, lever)) {
-		if (!_globals[kLaserOn]) {
-			switch (_game._trigger) {
+		if (!global[kLaserOn]) {
+			switch (kernel.trigger) {
 			case 0:
-				_game._player._stepEnabled = false;
-				_scene->_kernelMessages.reset();
-				_scene->_kernelMessages.add(Common::Point(0, 0), 0x1110, 34, 2, 120, _game.getQuote(0x273));
+				player.commands_allowed = false;
+				kernel_message_purge();
+				kernel_message_add(quote_string(kernel.quotes, 0x273), 0, 0, 0x1110, 120, 2, 34);
 				break;
 
 			case 2:
-				_game._player._visible = false;
-				_scene->_sequences.remove(_globals._sequenceIndexes[3]);
-				_globals._sequenceIndexes[1] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[1], false, 10, 1, 0, 0);
-				_scene->_sequences.setDepth(_globals._sequenceIndexes[1], 7);
-				_scene->_sequences.updateTimeout(_globals._sequenceIndexes[1], -1);
-				_scene->_sequences.addSubEntry(_globals._sequenceIndexes[1], SEQUENCE_TRIGGER_EXPIRE, 0, 3);
+				player.walker_visible = false;
+				kernel_seq_delete(g_sequence_ids[3]);
+				g_sequence_ids[1] = kernel_seq_forward(g_sprite_ids[1], false, 10, 0, 0, 1);
+				kernel_seq_depth(g_sequence_ids[1], 7);
+				kernel_seq_timeout(-1, g_sequence_ids[1]);
+				kernel_seq_trigger(g_sequence_ids[1], KERNEL_TRIGGER_EXPIRE, 0, 3);
 				break;
 
 			case 3:
-				_vm->_sound->command(19);
-				_globals._sequenceIndexes[2] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[2], false, 15, 1, 0, 0);
-				_scene->_sequences.setDepth(_globals._sequenceIndexes[2], 6);
-				_scene->_sequences.addSubEntry(_globals._sequenceIndexes[2], SEQUENCE_TRIGGER_EXPIRE, 0, 4);
-				_globals._sequenceIndexes[3] = _scene->_sequences.startCycle(_globals._spriteIndexes[3], false, -2);
-				_scene->_sequences.setDepth(_globals._sequenceIndexes[3], 8);
-				_scene->_sequences.updateTimeout(-1, _globals._sequenceIndexes[1]);
-				_game._player._visible = true;
-				_scene->_sequences.addTimer(15, 5);
+				g_engine->_soundManager->command(19, 0);
+				g_sequence_ids[2] = kernel_seq_forward(g_sprite_ids[2], false, 15, 0, 0, 1);
+				kernel_seq_depth(g_sequence_ids[2], 6);
+				kernel_seq_trigger(g_sequence_ids[2], KERNEL_TRIGGER_EXPIRE, 0, 4);
+				g_sequence_ids[3] = kernel_seq_stamp(g_sprite_ids[3], false, -2);
+				kernel_seq_depth(g_sequence_ids[3], 8);
+				kernel_seq_timeout(g_sequence_ids[1], -1);
+				player.walker_visible = true;
+				kernel_timing_trigger(15, 5);
 				break;
 
 			case 4:
-				_globals._sequenceIndexes[2] = _scene->_sequences.startPingPongCycle(_globals._spriteIndexes[2], false, 15, 0, 0, 0);
-				_scene->_sequences.setAnimRange(_globals._sequenceIndexes[2], 6, 8);
-				_scene->_sequences.setDepth(_globals._sequenceIndexes[2], 6);
+				g_sequence_ids[2] = kernel_seq_pingpong(g_sprite_ids[2], false, 15, 0, 0, 0);
+				kernel_seq_range(g_sequence_ids[2], 6, 8);
+				kernel_seq_depth(g_sequence_ids[2], 6);
 				break;
 
 			case 5:
-				_scene->_sequences.remove(_globals._sequenceIndexes[5]);
-				_scene->loadAnimation(formAnimName('B', 1), 6);
+				kernel_seq_delete(g_sequence_ids[5]);
+				kernel_run_animation(kernel_name('B', 1), 6);
 				break;
 
 			case 6:
 			{
-				_vm->_sound->command(22);
-				_globals._sequenceIndexes[4] = _scene->_sequences.startCycle(_globals._spriteIndexes[4], false, -2);
-				_scene->_sequences.setDepth(_globals._sequenceIndexes[4], 11);
-				int idx = _scene->_dynamicHotspots.add(words_laser_beam, words_walkto, _globals._sequenceIndexes[4], Common::Rect(0, 0, 0, 0));
-				_scene->_dynamicHotspots.setPosition(idx, Common::Point(57, 116), FACING_NORTHEAST);
-				_scene->_kernelMessages.reset();
-				_scene->changeVariant(1);
-				_scene->_sequences.addTimer(30, 7);
+				g_engine->_soundManager->command(22, 0);
+				g_sequence_ids[4] = kernel_seq_stamp(g_sprite_ids[4], false, -2);
+				kernel_seq_depth(g_sequence_ids[4], 11);
+				int idx = kernel_add_dynamic(words_laser_beam, words_walkto, 0, g_sequence_ids[4], 0, 0, 0, 0);
+				kernel_dynamic_walk(idx, 57, 116, FACING_NORTHEAST);
+				kernel_message_purge();
+				kernel_load_variant(1);
+				kernel_timing_trigger(30, 7);
 			}
 			break;
 
 			case 7:
-				_globals[kLaserOn] = true;
-				_vm->_dialogs->show(50833);
-				_game._player._stepEnabled = true;
+				global[kLaserOn] = true;
+				text_show(50833);
+				player.commands_allowed = true;
 				break;
 
 			default:
 				break;
 			}
 		} else {
-			_vm->_dialogs->show(50837);
+			text_show(50837);
 		}
 	} else if (player_said_3(reflect, rearview_mirror, laser_beam) || player_said_3(put, rearview_mirror, pedestal) || player_said_3(put, rearview_mirror, laser_beam)) {
 		local._chosenObject = 1;
@@ -229,64 +230,64 @@ static void room_508_parser() {
 	} else if (player_said_3(put, compact_case, pedestal) || player_said_3(put, compact_case, laser_beam) || player_said_3(reflect, compact_case, laser_beam)) {
 		local._chosenObject = 2;
 		handlePedestral();
-	} else if (_action._lookFlag)
-		_vm->_dialogs->show(50822);
+	} else if (player.look_around)
+		text_show(50822);
 	else if (player_said_2(look, target_area))
-		_vm->_dialogs->show(50810);
+		text_show(50810);
 	else if (player_said_2(look, spinach_patch_doll))
-		_vm->_dialogs->show(50811);
+		text_show(50811);
 	else if (player_said_2(take, spinach_patch_doll))
-		_vm->_dialogs->show(50812);
+		text_show(50812);
 	else if (player_said_2(look, sand_bags))
-		_vm->_dialogs->show(50816);
+		text_show(50816);
 	else if (player_said_2(take, sand_bags))
-		_vm->_dialogs->show(50817);
+		text_show(50817);
 	else if (player_said_2(look, control_station))
-		_vm->_dialogs->show(50818);
+		text_show(50818);
 	else if (player_said_2(look, monitor)) {
-		if (_globals[kLaserOn])
-			_vm->_dialogs->show(50820);
+		if (global[kLaserOn])
+			text_show(50820);
 		else
-			_vm->_dialogs->show(50819);
+			text_show(50819);
 	} else if (player_said_2(look, laser_cannon)) {
-		if (_globals[kLaserOn])
-			_vm->_dialogs->show(50822);
+		if (global[kLaserOn])
+			text_show(50822);
 		else
-			_vm->_dialogs->show(50821);
+			text_show(50821);
 	} else if (player_said_2(take, laser_cannon))
-		_vm->_dialogs->show(50823);
+		text_show(50823);
 	else if (player_said_2(look, lever)) {
-		if (_globals[kLaserOn])
-			_vm->_dialogs->show(50825);
+		if (global[kLaserOn])
+			text_show(50825);
 		else
-			_vm->_dialogs->show(50824);
+			text_show(50824);
 	} else if (player_said_2(push, lever))
-		_vm->_dialogs->show(50826);
+		text_show(50826);
 	else if (player_said_2(look, laser_beam)) {
-		if (_globals[kLaserHoleIsThere])
-			_vm->_dialogs->show(50828);
+		if (global[kLaserHoleIsThere])
+			text_show(50828);
 		else
-			_vm->_dialogs->show(50827);
+			text_show(50827);
 	} else if (player_said_2(take, laser_beam))
-		_vm->_dialogs->show(50829);
+		text_show(50829);
 	else if (player_said_2(look, ceiling)) {
-		if (_globals[kLaserHoleIsThere])
-			_vm->_dialogs->show(50831);
+		if (global[kLaserHoleIsThere])
+			text_show(50831);
 		else
-			_vm->_dialogs->show(50830);
+			text_show(50830);
 	} else if (player_said_2(look, wall))
-		_vm->_dialogs->show(50832);
+		text_show(50832);
 	else if (player_said_2(look, pedestal)) {
-		if (!_globals[kLaserOn])
-			_vm->_dialogs->show(50813);
-		else if (!_globals[kLaserHoleIsThere])
-			_vm->_dialogs->show(50814);
+		if (!global[kLaserOn])
+			text_show(50813);
+		else if (!global[kLaserHoleIsThere])
+			text_show(50814);
 		else
-			_vm->_dialogs->show(50815);
+			text_show(50815);
 	} else
 		return;
 
-	_action._inProgress = false;
+	player.command_ready = false;
 }
 
 void room_508_synchronize(Common::Serializer &s) {
@@ -300,9 +301,9 @@ void room_508_preload() {
 
 	section_5_walker();
 	section_5_interface();
-	_scene->addActiveVocab(words_spinach_patch_doll);
-	_scene->addActiveVocab(words_walkto);
-	_scene->addActiveVocab(words_laser_beam);
+	vocab_make_active(words_spinach_patch_doll);
+	vocab_make_active(words_walkto);
+	vocab_make_active(words_laser_beam);
 }
 
 } // namespace Rooms

@@ -27,36 +27,41 @@
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section3.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
 namespace Rooms {
 
 static void room_313_init() {
-	_scene->_userInterface.setup(kInputLimitedSentences);
+	kernel_set_interface_mode(INTER_LIMITED_SENTENCES);
 
-	if ((_scene->_priorSceneId == 366) || (_scene->_priorSceneId == 316)) {
-		_game._player._playerPos = Common::Point(30, 80);
-		_game._player._facing = FACING_NORTH;
-	} else if ((_scene->_priorSceneId == 311) || (_scene->_priorSceneId == 361) || (_scene->_priorSceneId == 391)) {
-		_game._player._playerPos = Common::Point(90, 70);
-		_game._player._facing = FACING_EAST;
-	} else if (_scene->_priorSceneId == 390) {
-		_game._player._playerPos = Common::Point(126, 70);
-		_game._player._facing = FACING_EAST;
-	} else if ((_scene->_priorSceneId == 389) || (_scene->_priorSceneId == 399)) {
-		_game._player._playerPos = Common::Point(163, 70);
-		_game._player._facing = FACING_WEST;
-	} else if (_scene->_priorSceneId == 388) {
-		_game._player._playerPos = Common::Point(199, 70);
-		_game._player._facing = FACING_WEST;
-	} else if (_scene->_priorSceneId != RETURNING_FROM_DIALOG) {
-		_game._player._playerPos = Common::Point(234, 70);
-		_game._player._facing = FACING_WEST;
+	if ((previous_room == 366) || (previous_room == 316)) {
+		player.x = 30;
+		player.y = 80;
+		player.facing = FACING_NORTH;
+	} else if ((previous_room == 311) || (previous_room == 361) || (previous_room == 391)) {
+		player.x = 90;
+		player.y = 70;
+		player.facing = FACING_EAST;
+	} else if (previous_room == 390) {
+		player.x = 126;
+		player.y = 70;
+		player.facing = FACING_EAST;
+	} else if ((previous_room == 389) || (previous_room == 399)) {
+		player.x = 163;
+		player.y = 70;
+		player.facing = FACING_WEST;
+	} else if (previous_room == 388) {
+		player.x = 199;
+		player.y = 70;
+		player.facing = FACING_WEST;
+	} else if (previous_room != KERNEL_RESTORING_GAME) {
+		player.x = 234;
+		player.y = 70;
+		player.facing = FACING_WEST;
 	}
 
-	if (_globals[kAfterHavoc]) {
+	if (global[kAfterHavoc]) {
 		for (uint16 i = 0; i < cycle_list.num_cycles; i++) {
 			int palIdx = cycle_list.table[i].first_list_color;
 			int size = cycle_list.table[i].num_colors * 3;
@@ -70,32 +75,32 @@ static void room_313_init() {
 
 static void room_313_parser() {
 	if (player_said_2(crawl_to, fourth_cell))
-		_scene->_nextSceneId = 387;
+		new_room = 387;
 	else if (player_said_2(crawl_to, third_cell))
-		_scene->_nextSceneId = 388;
+		new_room = 388;
 	else if (player_said_2(crawl_to, second_cell)) {
-		if (_globals[kAfterHavoc])
-			_scene->_nextSceneId = 399;
+		if (global[kAfterHavoc])
+			new_room = 399;
 		else
-			_scene->_nextSceneId = 389;
+			new_room = 389;
 	} else if (player_said_2(crawl_to, first_cell))
-		_scene->_nextSceneId = 390;
+		new_room = 390;
 	else if (player_said_2(crawl_to, security_station)) {
-		if (_globals[kSexOfRex] == REX_FEMALE) {
-			_globals[kSexOfRex] = REX_MALE;
-			_vm->_dialogs->show(31301);
+		if (global[kSexOfRex] == REX_FEMALE) {
+			global[kSexOfRex] = REX_MALE;
+			text_show(31301);
 		}
-		_scene->_nextSceneId = 391;
+		new_room = 391;
 	} else if (player_said_2(crawl_to, equipment_room)) {
-		if (_globals[kSexOfRex] == REX_FEMALE) {
-			_globals[kSexOfRex] = REX_MALE;
-			_vm->_dialogs->show(31301);
+		if (global[kSexOfRex] == REX_FEMALE) {
+			global[kSexOfRex] = REX_MALE;
+			text_show(31301);
 		}
-		_scene->_nextSceneId = 366;
+		new_room = 366;
 	} else if (!player_said_2(crawl_down, air_shaft))
 		return;
 
-	_action._inProgress = false;
+	player.command_ready = false;
 }
 
 void room_313_synchronize(Common::Serializer &s) {

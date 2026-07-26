@@ -20,6 +20,8 @@
  */
 
 #include "audio/fmopl.h"
+#include "common/file.h"
+#include "common/md5.h"
 #include "common/memstream.h"
 #include "mads/nebular/asound.h"
 
@@ -28,53 +30,16 @@ namespace RexNebular {
 
 bool AdlibChannel::_channelsEnabled;
 
-AdlibChannel::AdlibChannel() {
-	_owner = nullptr;
-	_activeCount = 0;
-	_field1 = 0;
-	_field2 = 0;
-	_field3 = 0;
-	_field4 = 0;
-	_sampleIndex = 0;
-	_volume = 0;
-	_volumeOffset = 0;
-	_field7 = 0;
-	_field8 = 0;
-	_field9 = 0;
-	_fieldA = 0;
-	_fieldB = 0;
-	_fieldC = 0;
-	_fieldD = 0;
-	_fieldE = 0;
-	_ptr1 = nullptr;
-	_pSrc = nullptr;
-	_ptr3 = nullptr;
-	_ptr4 = nullptr;
-	_ptrEnd = nullptr;
-	_field17 = 0;
-	_field19 = 0;
-	_soundData = nullptr;
-	_field1D = 0;
-	_field1F = 0;
-
-	_field20 = 0;
-	_field26 = 0;
-	_field28 = 0;
-	_field2A = 0;
-	_field2B = 0;
-	_field2C = 0;
-}
-
 void AdlibChannel::reset() {
 	_activeCount = 0;
-	_field1 = 0;
-	_field2 = 0;
-	_field3 = 0;
+	_pitchBend = 0;
+	_volumeFadeStep = 0;
+	_attenFadeStep = 0;
 }
 
 void AdlibChannel::enable(int flag) {
 	if (_activeCount) {
-		_fieldE = flag;
+		_pendingStop = flag;
 
 		// WORKAROUND: Original set _soundData pointer to flag. Since this seems
 		// just intended to invalidate any prior pointer, I've replaced it with
@@ -87,43 +52,40 @@ void AdlibChannel::enable(int flag) {
 
 void AdlibChannel::setPtr2(byte *pData) {
 	_pSrc = pData;
-	_field2 = 0xFF;
-	_fieldA = 1;
-	_field9 = 1;
+	_volumeFadeStep = 0xFF;
+	_volumeFadeReload = 1;
+	_volumeFadeCounter = 1;
 }
 
 void AdlibChannel::load(byte *pData) {
-	_ptr1 = _pSrc = _ptr3 = pData;
-	_ptr4 = _soundData = pData;
+	_ptr1 = _pSrc = _innerLoopPtr = pData;
+	_outerLoopPtr = _soundData = pData;
 	_volumeOffset = 0;
-	_fieldA = 0xFF;
+	_volumeFadeReload = 0xFF;
 	_activeCount = 1;
-	_fieldD = 64;
-	_field1 = 0;
-	_field1F = 0;
-	_field2 = _field3 = 0;
-	_volume = _field7 = 0;
-	_field1D = 0;
-	_fieldE = 0;
-	_field9 = 0;
-	_fieldB = 0;
-	_field17 = 0;
-	_field19 = 0;
-
-	auto &cacheEntry = _owner->getCachedData(pData);
-	_ptrEnd = cacheEntry._dataEnd;
+	_patchAttenuation = 64;
+	_pitchBend = 0;
+	_octaveTranspose = 0;
+	_volumeFadeStep = _attenFadeStep = 0;
+	_volume = _noteOffset = 0;
+	_transpose = 0;
+	_pendingStop = 0;
+	_volumeFadeCounter = 0;
+	_attenFadeCounter = 0;
+	_innerLoopCount = 0;
+	_outerLoopCount = 0;
 }
 
 void AdlibChannel::check(byte *nullPtr) {
-	if (_activeCount && _fieldE) {
+	if (_activeCount && _pendingStop) {
 		if (!_volumeOffset) {
 			_pSrc = nullPtr;
-			_fieldE = 0;
+			_pendingStop = 0;
 		} else {
-			_field2 = 0xFF;
-			_fieldA = 4;
-			if (!_field9)
-				_field9 = 1;
+			_volumeFadeStep = 0xFF;
+			_volumeFadeReload = 4;
+			if (!_volumeFadeCounter)
+				_volumeFadeCounter = 1;
 		}
 	}
 }
@@ -145,17 +107,17 @@ AdlibSample::AdlibSample(Common::SeekableReadStream &s) {
 	_ampMod = s.readByte() != 0;
 	_vib = s.readByte();
 	_alg = s.readByte();
-	_fieldE = s.readByte();
+	_noiseMode = s.readByte();
 	s.skip(1);
 	_freqMask = s.readUint16LE();
 	_freqBase = s.readUint16LE();
-	_field14 = s.readUint16LE();
+	_freqStep = s.readUint16LE();
 }
 
 /*-----------------------------------------------------------------------*/
 
-ASound::ASound(Audio::Mixer *mixer, OPL::OPL *opl, const Common::Path &filename,
-	int dataOffset, int dataSize) : SoundDriver(mixer, opl, filename, dataOffset, dataSize) {
+ASound::ASound(Audio::Mixer *mixer, const Common::Path &filename, int dataOffset, int dataSize) :
+		SoundDriver(mixer, filename, dataOffset, dataSize) {
 	// Initialize fields
 	_commandParam = 0;
 	_activeChannelPtr = nullptr;
@@ -163,31 +125,31 @@ ASound::ASound(Audio::Mixer *mixer, OPL::OPL *opl, const Common::Path &filename,
 	_frameCounter = 0;
 	_isDisabled = false;
 	_masterVolume = 255;
-	_v1 = 0;
-	_v2 = 0;
+	_noiseTicks1 = 0;
+	_noiseTicks2 = 0;
 	_activeChannelNumber = 0;
 	_freqMask1 = _freqMask2 = 0;
 	_freqBase1 = _freqBase2 = 0;
-	_channelNum1 = _channelNum2 = 0;
-	_v7 = 0;
-	_v8 = 0;
-	_v9 = 0;
-	_v10 = 0;
+	_noiseChannel1 = _noiseChannel2 = 0;
+	_noiseFreqStep1 = 0;
+	_noiseFreqStep2 = 0;
+	_savedNoiseTicks1 = 0;
+	_savedNoiseTicks2 = 0;
 	_pollResult = 0;
 	_resultFlag = 0;
 	_nullData[0] = _nullData[1] = 0;
 	Common::fill(&_ports[0], &_ports[256], 0);
 	_stateFlag = false;
 	_activeChannelReg = 0;
-	_v11 = 0;
+	_outputReg = 0;
 	_randomSeed = 1234;
 	_amDep = _vibDep = _splitPoint = true;
 
 	for (int i = 0; i < 11; ++i) {
-		_channelData[i]._field0 = 0;
+		_channelData[i]._hasNoiseMode = 0;
 		_channelData[i]._freqMask = 0;
 		_channelData[i]._freqBase = 0;
-		_channelData[i]._field6 = 0;
+		_channelData[i]._freqStep = 0;
 	}
 
 	for (int i = 0; i < ADLIB_CHANNEL_COUNT; ++i)
@@ -204,6 +166,32 @@ ASound::ASound(Audio::Mixer *mixer, OPL::OPL *opl, const Common::Path &filename,
 	_opl->start(new Common::Functor0Mem<void, ASound>(this, &ASound::onTimer), CALLBACKS_PER_SECOND);
 }
 
+void ASound::validate() {
+	Common::File f;
+	static const char *const MD5[] = {
+		"205398468de2c8873b7d4d73d5be8ddc",
+		"f9b2d944a2fb782b1af5c0ad592306d3",
+		"7431f8dad77d6ddfc24e6f3c0c4ac7df",
+		"eb1f3f5a4673d3e73d8ac1818c957cf4",
+		"f936dd853073fa44f3daac512e91c476",
+		"3dc139d3e02437a6d9b732072407c366",
+		"af0edab2934947982e9a405476702e03",
+		"8cbc25570b50ba41c9b5361cad4fbedc",
+		"a31e4783e098f633cbb6689adb41dd4f"
+	};
+
+	for (int i = 1; i <= 9; ++i) {
+		Common::Path filename(Common::String::format("ASOUND.00%d", i));
+		if (!f.open(filename))
+			error("Could not process - %s", filename.toString().c_str());
+		Common::String md5str = Common::computeStreamMD5AsString(f, 8192);
+		f.close();
+
+		if (md5str != MD5[i - 1])
+			error("Invalid sound file - %s", filename.toString().c_str());
+	}
+}
+
 void ASound::adlibInit() {
 	write(4, 0x60);
 	write(4, 0x80);
@@ -211,33 +199,6 @@ void ASound::adlibInit() {
 	write(4, 0x21);
 	write(4, 0x60);
 	write(4, 0x80);
-}
-
-
-byte *ASound::loadData(int offset, int size) {
-	byte *ptr = &_soundData[offset];
-
-	// Check for an existing cache entry
-	uint idx;
-	for (idx = 0; idx < _dataCache.size() && _dataCache[idx]._dataStart != ptr; ++idx) {
-	}
-
-	if (idx == _dataCache.size())
-		_dataCache.push_back(CachedDataEntry(ptr, size));
-
-	// Return the data pointer
-	return ptr;
-}
-
-ASound::CachedDataEntry &ASound::getCachedData(byte *pData) {
-	Common::Array<CachedDataEntry>::iterator i;
-	for (i = _dataCache.begin(); i != _dataCache.end(); ++i) {
-		CachedDataEntry &e = *i;
-		if (e._dataStart == pData)
-			return e;
-	}
-
-	error("Could not find previously loaded data");
 }
 
 int ASound::stop() {
@@ -260,12 +221,12 @@ int ASound::poll() {
 void ASound::noise() {
 	int randomVal = getRandomNumber();
 
-	if (_v1) {
-		setFrequency(_channelNum1, ((randomVal ^ 0xFFFF) & _freqMask1) + _freqBase1);
+	if (_noiseTicks1) {
+		setFrequency(_noiseChannel1, ((randomVal ^ 0xFFFF) & _freqMask1) + _freqBase1);
 	}
 
-	if (_v2) {
-		setFrequency(_channelNum2, (randomVal & _freqMask2) + _freqBase2);
+	if (_noiseTicks2) {
+		setFrequency(_noiseChannel2, (randomVal & _freqMask2) + _freqBase2);
 	}
 }
 
@@ -302,9 +263,9 @@ void ASound::resultCheck() {
 	}
 }
 
-void ASound::playSound(int offset, int size) {
+void ASound::playSound(int offset) {
 	// Load the specified data block
-	playSoundData(loadData(offset, size));
+	playSoundData(loadData(offset));
 }
 
 void ASound::playSoundData(byte *pData, int startingChannel) {
@@ -318,7 +279,7 @@ void ASound::playSoundData(byte *pData, int startingChannel) {
 
 	// None found, do a secondary scan for an interruptable channel
 	for (int i = ADLIB_CHANNEL_COUNT - 1; i >= startingChannel; --i) {
-		if (_channels[i]._fieldE == 0xFF) {
+		if (_channels[i]._pendingStop == 0xFF) {
 			_channels[i].load(pData);
 			return;
 		}
@@ -326,7 +287,7 @@ void ASound::playSoundData(byte *pData, int startingChannel) {
 }
 
 bool ASound::isSoundActive(byte *pData) {
-	for (int i = 0; i < ADLIB_CHANNEL_MIDWAY; ++i) {
+	for (int i = 0; i <= ADLIB_CHANNEL_MIDWAY; ++i) {
 		if (_channels[i]._activeCount && _channels[i]._soundData == pData)
 			return true;
 	}
@@ -350,32 +311,34 @@ void ASound::update() {
 	if (_isDisabled)
 		return;
 
+	tickCallback();
+
 	++_frameCounter;
 	pollChannels();
 	checkChannels();
 
-	if (_v1 == _v2) {
+	if (_noiseTicks1 == _noiseTicks2) {
 		if (_resultFlag != -1) {
 			_resultFlag = -1;
 			_pollResult = -1;
 		}
 	} else {
-		if (_v1) {
-			_freqBase1 += _v7;
-			if (!--_v1) {
-				if (!_v2 || _channelNum1 != _channelNum2) {
-					write2(8, 0xA0 + _channelNum1, 0);
-					write2(8, 0xB0 + _channelNum1, 0);
+		if (_noiseTicks1) {
+			_freqBase1 += _noiseFreqStep1;
+			if (!--_noiseTicks1) {
+				if (!_noiseTicks2 || _noiseChannel1 != _noiseChannel2) {
+					write2(8, 0xA0 + _noiseChannel1, 0);
+					write2(8, 0xB0 + _noiseChannel1, 0);
 				}
 			}
 		}
 
-		if (_v2) {
-			_freqBase2 += _v8;
-			if (!--_v2) {
-				if (!_v1 || _channelNum2 != _channelNum1) {
-					write2(8, 0xA0 + _channelNum2, 0);
-					write2(8, 0xB0 + _channelNum2, 0);
+		if (_noiseTicks2) {
+			_freqBase2 += _noiseFreqStep2;
+			if (!--_noiseTicks2) {
+				if (!_noiseTicks1 || _noiseChannel2 != _noiseChannel1) {
+					write2(8, 0xA0 + _noiseChannel2, 0);
+					write2(8, 0xB0 + _noiseChannel2, 0);
 				}
 			}
 		}
@@ -401,7 +364,7 @@ void ASound::pollActiveChannel() {
 	AdlibChannel *chan = _activeChannelPtr;
 
 	if (chan->_activeCount) {
-		if (chan->_field8 > 0 && --chan->_field8 == 0)
+		if (chan->_keyOnDelay > 0 && --chan->_keyOnDelay == 0)
 			updateOctave();
 
 		bool updateFlag = true;
@@ -412,23 +375,19 @@ void ASound::pollActiveChannel() {
 					warning("pollActiveChannel(): No data found for sound channel");
 					break;
 				}
-				if (pSrc > chan->_ptrEnd) {
-					warning("Read beyond end of loaded sound data");
-					return;
-				}
 
 				if (!(*pSrc & 0x80) || (*pSrc <= (0xff - _chanCommandCount))) {
 					if (updateFlag)
 						updateActiveChannel();
 
-					chan->_field4 = *pSrc++;
+					chan->_note = *pSrc++;
 					chan->_activeCount = *pSrc++;
 					chan->_pSrc += 2;
 
-					if (!chan->_field4 || !chan->_activeCount) {
+					if (!chan->_note || !chan->_activeCount) {
 						updateOctave();
 					} else {
-						chan->_field8 = chan->_activeCount - chan->_field7;
+						chan->_keyOnDelay = chan->_activeCount - chan->_noteOffset;
 						updateChannelState();
 					}
 
@@ -441,20 +400,20 @@ void ASound::pollActiveChannel() {
 			}
 		}
 
-		if (chan->_field1)
+		if (chan->_pitchBend)
 			updateFNumber();
 
 		updateFlag = false;
-		if (chan->_field9 || chan->_fieldB) {
-			if (!--chan->_field9) {
-				chan->_field9 = chan->_fieldA;
-				if (chan->_field2) {
-					int8 newVal = (int8)chan->_field2 + (int8)chan->_volumeOffset;
+		if (chan->_volumeFadeCounter || chan->_attenFadeCounter) {
+			if (!--chan->_volumeFadeCounter) {
+				chan->_volumeFadeCounter = chan->_volumeFadeReload;
+				if (chan->_volumeFadeStep) {
+					int8 newVal = (int8)chan->_volumeFadeStep + (int8)chan->_volumeOffset;
 					if (newVal < 0) {
-						chan->_field9 = 0;
+						chan->_volumeFadeCounter = 0;
 						newVal = 0;
 					} else if (newVal > 63) {
-						chan->_field9 = 0;
+						chan->_volumeFadeCounter = 0;
 						newVal = 63;
 					}
 
@@ -463,10 +422,10 @@ void ASound::pollActiveChannel() {
 				}
 			}
 
-			if (!--chan->_fieldB) {
-				chan->_fieldB = chan->_fieldC;
-				if (chan->_field3) {
-					chan->_fieldD = chan->_field3;
+			if (!--chan->_attenFadeCounter) {
+				chan->_attenFadeCounter = chan->_attenFadeReload;
+				if (chan->_attenFadeStep) {
+					chan->_patchAttenuation += chan->_attenFadeStep;
 					updateFlag = true;
 				}
 			}
@@ -492,40 +451,40 @@ static int _vList1[] = {
 void ASound::updateChannelState() {
 	updateActiveChannel();
 
-	if (_channelData[_activeChannelNumber]._field0) {
-		if (_channelNum1 == _activeChannelNumber)
+	if (_channelData[_activeChannelNumber]._hasNoiseMode) {
+		if (_noiseChannel1 == _activeChannelNumber)
 			_stateFlag = 0;
-		if (_channelNum2 == _activeChannelNumber)
+		if (_noiseChannel2 == _activeChannelNumber)
 			_stateFlag = 1;
 
 		if (!_stateFlag) {
 			_stateFlag = 1;
-			if (_v1)
-				write2(8, 0xB0 + _channelNum1, _ports[0xB0 + _channelNum1] & 0xDF);
+			if (_noiseTicks1)
+				write2(8, 0xB0 + _noiseChannel1, _ports[0xB0 + _noiseChannel1] & 0xDF);
 
-			_channelNum1 = _activeChannelNumber;
-			_v1 = _channelData[_channelNum1]._field0;
-			_freqMask1 = _channelData[_channelNum1]._freqMask;
-			_freqBase1 = _channelData[_channelNum1]._freqBase;
-			_v7 = _channelData[_channelNum1]._field6;
+			_noiseChannel1 = _activeChannelNumber;
+			_noiseTicks1 = _channelData[_noiseChannel1]._hasNoiseMode;
+			_freqMask1 = _channelData[_noiseChannel1]._freqMask;
+			_freqBase1 = _channelData[_noiseChannel1]._freqBase;
+			_noiseFreqStep1 = _channelData[_noiseChannel1]._freqStep;
 		} else {
 			_stateFlag = 0;
-			if (_v2)
-				write2(8, 0xB0 + _channelNum2, _ports[0xB0 + _channelNum2] & 0xDF);
+			if (_noiseTicks2)
+				write2(8, 0xB0 + _noiseChannel2, _ports[0xB0 + _noiseChannel2] & 0xDF);
 
-			_channelNum2 = _activeChannelNumber;
-			_v2 = _channelData[_channelNum2]._field0;
-			_freqMask2 = _channelData[_channelNum2]._freqMask;
-			_freqBase2 = _channelData[_channelNum2]._freqBase;
-			_v8 = _channelData[_channelNum2]._field6;
+			_noiseChannel2 = _activeChannelNumber;
+			_noiseTicks2 = _channelData[_noiseChannel2]._hasNoiseMode;
+			_freqMask2 = _channelData[_noiseChannel2]._freqMask;
+			_freqBase2 = _channelData[_noiseChannel2]._freqBase;
+			_noiseFreqStep2 = _channelData[_noiseChannel2]._freqStep;
 		}
 
 		resultCheck();
 	} else {
 		int reg = 0xA0 + _activeChannelNumber;
-		int vTimes = (byte)(_activeChannelPtr->_field4 + _activeChannelPtr->_field1F) / 12;
-		int vOffset = (byte)(_activeChannelPtr->_field4 + _activeChannelPtr->_field1F) % 12;
-		int val = _vList1[vOffset] + _activeChannelPtr->_field1D;
+		int vTimes = (byte)(_activeChannelPtr->_note + _activeChannelPtr->_octaveTranspose) / 12;
+		int vOffset = (byte)(_activeChannelPtr->_note + _activeChannelPtr->_octaveTranspose) % 12;
+		int val = _vList1[vOffset] + _activeChannelPtr->_transpose;
 		write2(8, reg, val & 0xFF);
 
 		reg += 0x10;
@@ -545,7 +504,8 @@ static const int outputChannels[] = {
 void ASound::updateActiveChannel() {
 	int reg = 0x40 + outputChannels[outputIndexes[_activeChannelNumber * 2 + 1]];
 	int portVal = _ports[reg] & 0xFFC0;
-	int newVolume = CLIP(_activeChannelPtr->_volume + _activeChannelPtr->_volumeOffset, 0, 63);
+	int newVolume = CLIP(_activeChannelPtr->_volume + _activeChannelPtr->_volumeOffset
+		+ (int8)_activeChannelPtr->_channelAttenuation, 0, 63);
 	newVolume = newVolume * _masterVolume / 255;
 
 	// Note: Original had a whole block not seeming to be used, since the initialisation
@@ -561,23 +521,23 @@ void ASound::loadSample(int sampleIndex) {
 
 	_activeChannelReg = _activeChannelNumber;
 	_samplePtr = &_samples[sampleIndex * 2];
-	_v11 = outputChannels[outputIndexes[_activeChannelReg * 2]];
+	_outputReg = outputChannels[outputIndexes[_activeChannelReg * 2]];
 	processSample();
 
 	AdlibChannelData &cd = _channelData[_activeChannelNumber];
-	cd._field6 = _samplePtr->_field14;
+	cd._freqStep = _samplePtr->_freqStep;
 	cd._freqBase = _samplePtr->_freqBase;
 	cd._freqMask = _samplePtr->_freqMask;
-	cd._field0 = _samplePtr->_fieldE;
+	cd._hasNoiseMode = _samplePtr->_noiseMode;
 
 	_samplePtr = &_samples[sampleIndex * 2 + 1];
-	_v11 = outputChannels[outputIndexes[_activeChannelReg * 2 + 1]];
+	_outputReg = outputChannels[outputIndexes[_activeChannelReg * 2 + 1]];
 	processSample();
 }
 
 void ASound::processSample() {
 	// Write out vib flags and split point
-	write2(8, 0x40 + _v11, 0x3F);
+	write2(8, 0x40 + _outputReg, 0x3F);
 	int depthRhythm = (_ports[0xBD] & 0x3F) | (_amDep ? 0x80 : 0) |
 		(_vibDep ? 0x40 : 0);
 	write2(8, 0xBD, depthRhythm);
@@ -589,31 +549,31 @@ void ASound::processSample() {
 
 	// Write out attack/decay rate
 	val = (_samplePtr->_attackRate << 4) | (_samplePtr->_decayRate & 0xF);
-	write2(8, 0x60 + _v11, val);
+	write2(8, 0x60 + _outputReg, val);
 
 	// Write out sustain level/release rate
 	val = (_samplePtr->_sustainLevel << 4) | (_samplePtr->_releaseRate & 0xF);
-	write2(8, 0x80 + _v11, val);
+	write2(8, 0x80 + _outputReg, val);
 
 	// Write out misc flags
 	val = (_samplePtr->_ampMod ? 0x80 : 0) | (_samplePtr->_vib ? 0x40 : 0)
 		| (_samplePtr->_egTyp ? 0x20 : 0) | (_samplePtr->_ksr ? 0x10 : 0)
 		| (_samplePtr->_freqMultiple & 0xF);
-	write2(8, 0x20 + _v11, val);
+	write2(8, 0x20 + _outputReg, val);
 
 	// Write out waveform select
-	write2(8, 0xE0 + _v11, _samplePtr->_waveformSelect & 3);
+	write2(8, 0xE0 + _outputReg, _samplePtr->_waveformSelect & 3);
 
 	// Write out total level & scaling level
 	val = -((_samplePtr->_totalLevel & 0x3F) - 0x3F) | (_samplePtr->_scalingLevel << 6);
-	write2(8, 0x40 + _v11, val);
+	write2(8, 0x40 + _outputReg, val);
 }
 
 void ASound::updateFNumber() {
 	int loReg = 0xA0 + _activeChannelNumber;
 	int hiReg = 0xB0 + _activeChannelNumber;
 	int val1 = (_ports[hiReg] & 0x1F) << 8;
-	val1 += _ports[loReg] + _activeChannelPtr->_field1;
+	val1 += _ports[loReg] + _activeChannelPtr->_pitchBend;
 	write2(8, loReg, val1);
 
 	int val2 = (_ports[hiReg] & 0x20) | (val1 >> 8);
@@ -639,12 +599,12 @@ int ASound::command0() {
 	for (int i = 0; i < ADLIB_CHANNEL_COUNT; ++i)
 		_channels[i].reset();
 
-	_v1 = 0;
-	_v2 = 0;
+	_noiseTicks1 = 0;
+	_noiseTicks2 = 0;
 	_freqMask1 = _freqMask2 = 0;
 	_freqBase1 = _freqBase2 = 0;
-	_v7 = 0;
-	_v8 = 0;
+	_noiseFreqStep1 = 0;
+	_noiseFreqStep2 = 0;
 
 	// Reset Adlib port registers
 	for (int reg = 0x4F; reg >= 0x40; --reg)
@@ -690,10 +650,10 @@ int ASound::command5() {
 }
 
 int ASound::command6() {
-	_v9 = _v1;
-	_v1 = 0;
-	_v10 = _v2;
-	_v2 = 0;
+	_savedNoiseTicks1 = _noiseTicks1;
+	_noiseTicks1 = 0;
+	_savedNoiseTicks2 = _noiseTicks2;
+	_noiseTicks2 = 0;
 
 	channelOff(0x43);
 	channelOff(0x44);
@@ -716,14 +676,14 @@ int ASound::command7() {
 	channelOn(0x4C, _channels[4]._volume);
 	channelOn(0x4D, _channels[5]._volume);
 
-	_v1 = _v9;
-	_v2 = _v10;
+	_noiseTicks1 = _savedNoiseTicks1;
+	_noiseTicks2 = _savedNoiseTicks2;
 
-	if (_v9 != _v10)
+	if (_savedNoiseTicks1 != _savedNoiseTicks2)
 		resultCheck();
 
 	_isDisabled = 0;
-	return _v10;
+	return _savedNoiseTicks2;
 }
 
 int ASound::command8() {
@@ -732,6 +692,174 @@ int ASound::command8() {
 		result |= _channels[i]._activeCount;
 
 	return result;
+}
+
+/*-----------------------------------------------------------------------*/
+
+RexASound::RexASound(Audio::Mixer *mixer,  const Common::Path &filename, int dataOffset, int dataSize) :
+		ASound(mixer, filename, dataOffset, dataSize) {
+	_chanCommandCount = 15;
+}
+
+void RexASound::channelCommand(byte *&pSrc, bool &updateFlag) {
+	AdlibChannel *chan = _activeChannelPtr;
+	int cmdNum = 255 - *pSrc;
+
+	switch (cmdNum) {
+	case 0:
+		if (!chan->_innerLoopCount) {
+			if (*++pSrc == 0) {
+				chan->_pSrc += 2;
+				chan->_innerLoopPtr = chan->_pSrc;
+				chan->_innerLoopCount = 0;
+			} else {
+				chan->_innerLoopCount = *pSrc;
+				chan->_pSrc = chan->_innerLoopPtr;
+			}
+		} else if (--chan->_innerLoopCount) {
+			chan->_pSrc = chan->_innerLoopPtr;
+		} else {
+			chan->_pSrc += 2;
+			chan->_innerLoopPtr = chan->_pSrc;
+		}
+		break;
+
+	case 1:
+		if (!chan->_outerLoopCount) {
+			if (*++pSrc == 0) {
+				chan->_pSrc += 2;
+				chan->_outerLoopPtr = chan->_pSrc;
+				chan->_innerLoopPtr = chan->_pSrc;
+				chan->_innerLoopCount = 0;
+				chan->_outerLoopCount = 0;
+			} else {
+				chan->_outerLoopCount = *pSrc;
+				chan->_pSrc = chan->_outerLoopPtr;
+				chan->_innerLoopPtr = chan->_outerLoopPtr;
+			}
+		} else if (--chan->_outerLoopCount) {
+			chan->_outerLoopPtr = chan->_pSrc;
+			chan->_innerLoopPtr = chan->_pSrc;
+		} else {
+			chan->_pSrc += 2;
+			chan->_outerLoopPtr = chan->_pSrc;
+			chan->_innerLoopPtr = chan->_pSrc;
+		}
+		break;
+
+	case 2:
+		// Loop sound data
+		chan->_pitchBend = 0;
+		chan->_volumeFadeStep = chan->_attenFadeStep = 0;
+		chan->_volume = chan->_noteOffset = 0;
+		chan->_transpose = chan->_volumeOffset = 0;
+		chan->_keyOnDelay = 0;
+		chan->_volumeFadeCounter = 0;
+		chan->_attenFadeCounter = 0;
+		chan->_innerLoopCount = 0;
+		chan->_outerLoopCount = 0;
+		chan->_patchAttenuation = 0x40;
+		chan->_ptr1 = chan->_soundData;
+		chan->_pSrc = chan->_soundData;
+		chan->_innerLoopPtr = chan->_soundData;
+		chan->_outerLoopPtr = chan->_soundData;
+
+		chan->_pSrc += 2;
+		break;
+
+	case 3:
+		chan->_sampleIndex = *++pSrc;
+		chan->_pSrc += 2;
+		loadSample(chan->_sampleIndex);
+		break;
+
+	case 4:
+		chan->_noteOffset = *++pSrc;
+		chan->_pSrc += 2;
+		break;
+
+	case 5:
+		chan->_pitchBend = *++pSrc;
+		chan->_pSrc += 2;
+		break;
+
+	case 6:
+		++pSrc;
+		if (chan->_pendingStop) {
+			chan->_pSrc += 2;
+		} else {
+			chan->_volume = *pSrc >> 1;
+			updateFlag = true;
+			chan->_pSrc += 2;
+		}
+		break;
+
+	case 7:
+		++pSrc;
+		if (!chan->_pendingStop) {
+			chan->_volumeFadeReload = *pSrc;
+			chan->_volumeFadeStep = *++pSrc;
+			chan->_volumeFadeCounter = 1;
+		}
+
+		chan->_pSrc += 3;
+		break;
+
+	case 8:
+		chan->_transpose = (int8) * ++pSrc;
+		chan->_pSrc += 2;
+		break;
+
+	case 9:
+	{
+		int v1 = *++pSrc;
+		++pSrc;
+		int v2 = (v1 - 1) & getRandomNumber();
+		int v3 = pSrc[v2];
+		int v4 = pSrc[v1];
+
+		pSrc[v4 + v1 + 1] = v3;
+		chan->_pSrc += v1 + 3;
+		break;
+	}
+
+	case 10:
+		++pSrc;
+		if (chan->_pendingStop) {
+			chan->_pSrc += 2;
+		} else {
+			chan->_volumeOffset = *pSrc >> 1;
+			updateFlag = true;
+			chan->_pSrc += 2;
+		}
+		break;
+
+	case 11:
+		chan->_patchAttenuation = *++pSrc;
+		updateFlag = true;
+		chan->_pSrc += 2;
+		break;
+
+	case 12:
+		chan->_attenFadeReload = *++pSrc;
+		chan->_attenFadeStep = *++pSrc;
+		chan->_attenFadeCounter = 1;
+		chan->_pSrc += 2;
+		break;
+
+	case 13:
+		++pSrc;
+		chan->_pSrc += 2;
+		break;
+
+	case 14:
+		chan->_octaveTranspose = *++pSrc;
+		chan->_pSrc += 2;
+		break;
+
+	default:
+		break;
+	}
 }
 
 } // namespace RexNebular

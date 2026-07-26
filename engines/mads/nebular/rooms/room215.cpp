@@ -25,127 +25,128 @@
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section2.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
 namespace Rooms {
 
 static void room_215_init() {
-	_globals._spriteIndexes[1] = _scene->_sprites.addSprites(formAnimName('e', 0));
-	_globals._spriteIndexes[3] = _scene->_sprites.addSprites(formAnimName('a', 0));
+	g_sprite_ids[1] = kernel_load_series(kernel_name('e', 0), 0);
+	g_sprite_ids[3] = kernel_load_series(kernel_name('a', 0), 0);
 
-	_globals._sequenceIndexes[1] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[1], false, 7, 0, 0, 0);
-	_scene->_sequences.setPosition(_globals._sequenceIndexes[1], Common::Point(235, 83));
-	_scene->_sequences.setDepth(_globals._sequenceIndexes[1], 15);
+	g_sequence_ids[1] = kernel_seq_forward(g_sprite_ids[1], false, 7, 0, 0, 0);
+	kernel_seq_loc(g_sequence_ids[1], 235, 83);
+	kernel_seq_depth(g_sequence_ids[1], 15);
 
-	if (_globals[kSexOfRex] == REX_MALE)
-		_globals._spriteIndexes[2] = _scene->_sprites.addSprites("*RXMRC_9");
+	if (global[kSexOfRex] == REX_MALE)
+		g_sprite_ids[2] = kernel_load_series("*RXMRC_9", 0);
 	else
-		_globals._spriteIndexes[2] = _scene->_sprites.addSprites("*ROXRC_9");
+		g_sprite_ids[2] = kernel_load_series("*ROXRC_9", 0);
 
-	if (_scene->_priorSceneId == 216) {
-		_game._player._playerPos = Common::Point(140, 119);
-		_game._player._facing = FACING_SOUTHWEST;
-		_game._player._visible = false;
-		_game._player._stepEnabled = false;
-		_globals._sequenceIndexes[3] = _scene->_sequences.startCycle(_globals._spriteIndexes[3], false, 1);
-		_scene->_sequences.addTimer(120, 70);
-	} else if (_scene->_priorSceneId != RETURNING_FROM_DIALOG) {
-		_game._player._playerPos = Common::Point(204, 152);
-		_game._player._facing = FACING_NORTH;
+	if (previous_room == 216) {
+		player.x = 140;
+		player.y = 119;
+		player.facing = FACING_SOUTHWEST;
+		player.walker_visible = false;
+		player.commands_allowed = false;
+		g_sequence_ids[3] = kernel_seq_stamp(g_sprite_ids[3], false, 1);
+		kernel_timing_trigger(120, 70);
+	} else if (previous_room != KERNEL_RESTORING_GAME) {
+		player.x = 204;
+		player.y = 152;
+		player.facing = FACING_NORTH;
 	}
 
-	_game.loadQuoteSet(0xA9, 0xAA, 0);
+	kernel.quotes = quote_load(0xA9, 0xAA, 0);
 	section_2_music();
 }
 
 static void room_215_daemon() {
-	if (_game._trigger == 70) {
-		_scene->_sequences.remove(_globals._sequenceIndexes[3]);
-		_globals._sequenceIndexes[3] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[3], false, 6, 1, 0, 0);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[3], SEQUENCE_TRIGGER_EXPIRE, 0, 71);
+	if (kernel.trigger == 70) {
+		kernel_seq_delete(g_sequence_ids[3]);
+		g_sequence_ids[3] = kernel_seq_forward(g_sprite_ids[3], false, 6, 0, 0, 1);
+		kernel_seq_trigger(g_sequence_ids[3], KERNEL_TRIGGER_EXPIRE, 0, 71);
 	}
 
-	if (_game._trigger == 71) {
-		_scene->_sequences.updateTimeout(-1, _globals._sequenceIndexes[3]);
-		_game._player._visible = true;
-		_game._player._stepEnabled = true;
+	if (kernel.trigger == 71) {
+		kernel_seq_timeout(g_sequence_ids[3], -1);
+		player.walker_visible = true;
+		player.commands_allowed = true;
 	}
 }
 
 static void room_215_parser() {
-	if (_action._lookFlag)
-		_vm->_dialogs->show(21509);
+	if (player.look_around)
+		text_show(21509);
 	else if (player_said_2(take, twinkifruit)) {
-		if (!_game._objects.isInInventory(OBJ_TWINKIFRUIT) || _game._trigger) {
-			switch (_game._trigger) {
+		if (!player_has(OBJ_TWINKIFRUIT) || kernel.trigger) {
+			switch (kernel.trigger) {
 			case 0:
-				if (_globals[kSexOfRex] == REX_MALE) {
-					_game._player._visible = false;
-					_game._player._stepEnabled = false;
-					_globals._sequenceIndexes[2] = _scene->_sequences.startPingPongCycle(_globals._spriteIndexes[2], false, 6, 2, 0, 0);
-					_scene->_sequences.setAnimRange(_globals._sequenceIndexes[2], 1, 4);
-					_scene->_sequences.setMsgLayout(_globals._sequenceIndexes[2]);
-					_scene->_sequences.addSubEntry(_globals._sequenceIndexes[2], SEQUENCE_TRIGGER_LOOP, 0, 1);
-					_scene->_sequences.addSubEntry(_globals._sequenceIndexes[2], SEQUENCE_TRIGGER_EXPIRE, 0, 2);
+				if (global[kSexOfRex] == REX_MALE) {
+					player.walker_visible = false;
+					player.commands_allowed = false;
+					g_sequence_ids[2] = kernel_seq_pingpong(g_sprite_ids[2], false, 6, 0, 0, 2);
+					kernel_seq_range(g_sequence_ids[2], 1, 4);
+					kernel_seq_player(g_sequence_ids[2], false);
+					kernel_seq_trigger(g_sequence_ids[2], KERNEL_TRIGGER_LOOP, 0, 1);
+					kernel_seq_trigger(g_sequence_ids[2], KERNEL_TRIGGER_EXPIRE, 0, 2);
 				} else {
-					_game._objects.addToInventory(OBJ_TWINKIFRUIT);
-					_vm->_dialogs->showItem(OBJ_TWINKIFRUIT, 0x5404);
+					inter_give_to_player(OBJ_TWINKIFRUIT);
+					object_examine(OBJ_TWINKIFRUIT, 0x5404, 0);
 				}
 				break;
 
 			case 1:
-				if (!_game._objects.isInInventory(OBJ_TWINKIFRUIT)) {
-					_game._objects.addToInventory(OBJ_TWINKIFRUIT);
-					_vm->_dialogs->showItem(OBJ_TWINKIFRUIT, 0x5404);
+				if (!player_has(OBJ_TWINKIFRUIT)) {
+					inter_give_to_player(OBJ_TWINKIFRUIT);
+					object_examine(OBJ_TWINKIFRUIT, 0x5404, 0);
 				}
 				break;
 
 			case 2:
-				_game._player._visible = true;
-				_game._player._stepEnabled = true;
-				_scene->_sequences.updateTimeout(-1, _globals._sequenceIndexes[2]);
+				player.walker_visible = true;
+				player.commands_allowed = true;
+				kernel_seq_timeout(g_sequence_ids[2], -1);
 				break;
 
 			default:
 				break;
 			}
 		} else {
-			int idx = _vm->getRandomNumber(169, 170);
-			_scene->_kernelMessages.reset();
-			_scene->_kernelMessages.add(Common::Point(0, 0), 0x1110, 34, 0, 120, _game.getQuote(idx));
+			int idx = g_engine->getRandomNumber(169, 170);
+			kernel_message_purge();
+			kernel_message_add(quote_string(kernel.quotes, idx), 0, 0, 0x1110, 120, 0, 34);
 		}
 	} else if (player_said_2(walk_outside, hut))
-		_scene->_nextSceneId = 210;
+		new_room = 210;
 	else if (player_said_2(look, bear_rug))
-		_vm->_dialogs->show(21501);
+		text_show(21501);
 	else if (player_said_2(look, bed))
-		_vm->_dialogs->show(21502);
+		text_show(21502);
 	else if (player_said_2(look, welcome_mat))
-		_vm->_dialogs->show(21503);
+		text_show(21503);
 	else if (player_said_2(look, love_altar))
-		_vm->_dialogs->show(21504);
+		text_show(21504);
 	else if (player_said_2(look, window))
-		_vm->_dialogs->show(21505);
+		text_show(21505);
 	else if (player_said_2(look, picture))
-		_vm->_dialogs->show(21506);
-	else if (player_said_2(look, twinkifruit) && (_action._savedFields._mainObjectSource == 4))
-		_vm->_dialogs->show(21507);
+		text_show(21506);
+	else if (player_said_2(look, twinkifruit) && (player.main_object_source == 4))
+		text_show(21507);
 	else if (player_said_2(take, bear_rug))
-		_vm->_dialogs->show(21510);
+		text_show(21510);
 	else if (player_said_2(take, love_altar))
-		_vm->_dialogs->show(21511);
+		text_show(21511);
 	else if (player_said_2(look, bag_of_twinkifruits))
-		_vm->_dialogs->show(21512);
+		text_show(21512);
 	else if (player_said_2(take, bag_of_twinkifruits))
-		_vm->_dialogs->show(21513);
+		text_show(21513);
 	else if (player_said_2(take, welcome_mat))
-		_vm->_dialogs->show(21514);
+		text_show(21514);
 	else
 		return;
 
-	_action._inProgress = false;
+	player.command_ready = false;
 }
 
 void room_215_synchronize(Common::Serializer &s) {

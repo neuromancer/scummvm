@@ -19,7 +19,7 @@
  *
  */
 
-#include "math/utils.h"
+#include "mads/core/config.h"
 #include "mads/core/game.h"
 #include "mads/nebular/global.h"
 #include "mads/nebular/nebular.h"
@@ -27,27 +27,26 @@
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section5.h"
 #include "mads/nebular/rooms/teleporter.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
 namespace Rooms {
 
 static void room_502_init() {
-	if (_globals[kSexOfRex] == REX_MALE)
-		_globals._spriteIndexes[4] = _scene->_sprites.addSprites("*REXHAND");
+	if (global[kSexOfRex] == REX_MALE)
+		g_sprite_ids[4] = kernel_load_series("*REXHAND", 0);
 	else
-		_globals._spriteIndexes[4] = _scene->_sprites.addSprites("*ROXHAND");
+		g_sprite_ids[4] = kernel_load_series("*ROXHAND", 0);
 
 	teleporter_init();
 
 	// The original uses scene5xx_section_5_music
-	if (!_vm->_musicFlag)
-		_vm->_sound->command(2);
-	else if (_scene->_priorSceneId == 503)
-		_vm->_sound->command(38);
+	if (!config_file.music_flag)
+		g_engine->_soundManager->command(2, 0);
+	else if (previous_room == 503)
+		g_engine->_soundManager->command(38, 0);
 	else
-		_vm->_sound->command(29);
+		g_engine->_soundManager->command(29, 0);
 }
 
 static void room_502_daemon() {
@@ -56,16 +55,16 @@ static void room_502_daemon() {
 
 static void room_502_parser() {
 	if (teleporter_parser()) {
-		_action._inProgress = false;
+		player.command_ready = false;
 		return;
 	}
 
 	if (player_said_2(look, viewport) || player_said_2(peer_through, viewport))
-		_vm->_dialogs->show(50210);
+		text_show(50210);
 	else if (player_said_2(look, keypad))
-		_vm->_dialogs->show(50211);
+		text_show(50211);
 	else if (player_said_2(look, display))
-		_vm->_dialogs->show(50212);
+		text_show(50212);
 	else if (player_said_2(look, 0_key) || player_said_2(look, 1_key)
 		|| player_said_2(look, 2_key) || player_said_2(look, 3_key)
 		|| player_said_2(look, 4_key) || player_said_2(look, 5_key)
@@ -73,13 +72,13 @@ static void room_502_parser() {
 		|| player_said_2(look, 8_key) || player_said_2(look, 9_key)
 		|| player_said_2(look, smile_key) || player_said_2(look, enter_key)
 		|| player_said_2(look, frown_key))
-		_vm->_dialogs->show(50213);
-	else if (player_said_2(look, device) || _action._lookFlag)
-		_vm->_dialogs->show(50214);
+		text_show(50213);
+	else if (player_said_2(look, device) || player.look_around)
+		text_show(50214);
 	else
 		return;
 
-	_action._inProgress = false;
+	player.command_ready = false;
 }
 
 void room_502_synchronize(Common::Serializer &s) {

@@ -25,44 +25,43 @@
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section6.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
 namespace Rooms {
 
 static void room_605_init() {
-	_globals._spriteIndexes[1] = _scene->_sprites.addSprites(formAnimName('r', -1));
-	_globals._spriteIndexes[2] = _scene->_sprites.addSprites(formAnimName('b', -1));
-	_globals._spriteIndexes[3] = _scene->_sprites.addSprites(formAnimName('l', -1));
-	_globals._spriteIndexes[4] = _scene->_sprites.addSprites(formAnimName('p', -1));
-	_globals._spriteIndexes[5] = _scene->_sprites.addSprites(formAnimName('n', -1));
-	_globals._spriteIndexes[6] = _scene->_sprites.addSprites(formAnimName('f', -1));
+	g_sprite_ids[1] = kernel_load_series(kernel_name('r', -1), 0);
+	g_sprite_ids[2] = kernel_load_series(kernel_name('b', -1), 0);
+	g_sprite_ids[3] = kernel_load_series(kernel_name('l', -1), 0);
+	g_sprite_ids[4] = kernel_load_series(kernel_name('p', -1), 0);
+	g_sprite_ids[5] = kernel_load_series(kernel_name('n', -1), 0);
+	g_sprite_ids[6] = kernel_load_series(kernel_name('f', -1), 0);
 
-	_globals._sequenceIndexes[1] = _scene->_sequences.startPingPongCycle(_globals._spriteIndexes[1], false, 15, 0, 0, 0);
-	_globals._sequenceIndexes[2] = _scene->_sequences.startPingPongCycle(_globals._spriteIndexes[2], false, 17, 0, 0, 0);
-	_globals._sequenceIndexes[3] = _scene->_sequences.startPingPongCycle(_globals._spriteIndexes[3], false, 14, 0, 0, 0);
-	_globals._sequenceIndexes[4] = _scene->_sequences.startPingPongCycle(_globals._spriteIndexes[4], false, 13, 0, 0, 0);
-	_globals._sequenceIndexes[5] = _scene->_sequences.startPingPongCycle(_globals._spriteIndexes[5], false, 17, 0, 0, 0);
-	_globals._sequenceIndexes[6] = _scene->_sequences.startPingPongCycle(_globals._spriteIndexes[6], false, 18, 0, 0, 0);
+	g_sequence_ids[1] = kernel_seq_pingpong(g_sprite_ids[1], false, 15, 0, 0, 0);
+	g_sequence_ids[2] = kernel_seq_pingpong(g_sprite_ids[2], false, 17, 0, 0, 0);
+	g_sequence_ids[3] = kernel_seq_pingpong(g_sprite_ids[3], false, 14, 0, 0, 0);
+	g_sequence_ids[4] = kernel_seq_pingpong(g_sprite_ids[4], false, 13, 0, 0, 0);
+	g_sequence_ids[5] = kernel_seq_pingpong(g_sprite_ids[5], false, 17, 0, 0, 0);
+	g_sequence_ids[6] = kernel_seq_pingpong(g_sprite_ids[6], false, 18, 0, 0, 0);
 
-	_game._player._visible = false;
-	_game._player._stepEnabled = false;
-	_scene->_sequences.addTimer(600, 70);
-	_scene->_userInterface.setup(kInputLimitedSentences);
+	player.walker_visible = false;
+	player.commands_allowed = false;
+	kernel_timing_trigger(600, 70);
+	kernel_set_interface_mode(INTER_LIMITED_SENTENCES);
 	section_6_music();
-	_vm->_sound->command(22);
+	g_engine->_soundManager->command(22, 0);
 }
 
 static void room_605_daemon() {
-	if (_game._trigger == 70) {
-		_vm->_sound->command(23);
-		if (_globals[kResurrectRoom] >= 700)
-			_vm->_dialogs->show(60598);
+	if (kernel.trigger == 70) {
+		g_engine->_soundManager->command(23, 0);
+		if (global[kResurrectRoom] >= 700)
+			text_show(60598);
 		else
-			_vm->_dialogs->show(60599);
+			text_show(60599);
 
-		_scene->_nextSceneId = _globals[kResurrectRoom];
+		new_room = global[kResurrectRoom];
 	}
 }
 

@@ -25,7 +25,6 @@
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section2.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
@@ -45,21 +44,21 @@ static Scratch local;
 
 
 static void room_207_init() {
-	_globals._spriteIndexes[1] = _scene->_sprites.addSprites(formAnimName('h', 0));
-	_globals._spriteIndexes[2] = _scene->_sprites.addSprites(formAnimName('h', 1));
-	_globals._spriteIndexes[4] = _scene->_sprites.addSprites(formAnimName('c', -1));
-	_globals._spriteIndexes[5] = _scene->_sprites.addSprites(formAnimName('e', 0));
-	_globals._spriteIndexes[6] = _scene->_sprites.addSprites(formAnimName('e', 1));
-	_globals._spriteIndexes[7] = _scene->_sprites.addSprites(formAnimName('g', 1));
-	_globals._spriteIndexes[8] = _scene->_sprites.addSprites(formAnimName('g', 0));
-	_globals._sequenceIndexes[5] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[5], false, 7, 0, 0, 0);
-	_scene->_sequences.setDepth(_globals._sequenceIndexes[5], 7);
+	g_sprite_ids[1] = kernel_load_series(kernel_name('h', 0), 0);
+	g_sprite_ids[2] = kernel_load_series(kernel_name('h', 1), 0);
+	g_sprite_ids[4] = kernel_load_series(kernel_name('c', -1), 0);
+	g_sprite_ids[5] = kernel_load_series(kernel_name('e', 0), 0);
+	g_sprite_ids[6] = kernel_load_series(kernel_name('e', 1), 0);
+	g_sprite_ids[7] = kernel_load_series(kernel_name('g', 1), 0);
+	g_sprite_ids[8] = kernel_load_series(kernel_name('g', 0), 0);
+	g_sequence_ids[5] = kernel_seq_forward(g_sprite_ids[5], false, 7, 0, 0, 0);
+	kernel_seq_depth(g_sequence_ids[5], 7);
 
 	int var2;
-	if (!_game._visitedScenes._sceneRevisited) {
+	if (!player.been_here_before) {
 		var2 = 1;
 	} else {
-		var2 = _vm->getRandomNumber(4) + 1;
+		var2 = g_engine->getRandomNumber(4) + 1;
 	}
 
 	if (var2 > 2)
@@ -70,95 +69,97 @@ static void room_207_init() {
 	local._spiderFl = (var2 & 1);
 
 	if (local._vultureFl) {
-		_globals._sequenceIndexes[1] = _scene->_sequences.startPingPongCycle(_globals._spriteIndexes[1], false, 30, 0, 0, 400);
-		local._vultureHotspotId = _scene->_dynamicHotspots.add(words_vulture, words_walkto, _globals._sequenceIndexes[1], Common::Rect(0, 0, 0, 0));
-		_scene->_dynamicHotspots.setPosition(local._vultureHotspotId, Common::Point(254, 94), FACING_WEST);
+		g_sequence_ids[1] = kernel_seq_pingpong(g_sprite_ids[1], false, 30, 400, 0, 0);
+		local._vultureHotspotId = kernel_add_dynamic(words_vulture, words_walkto, 0, g_sequence_ids[1], 0, 0, 0, 0);
+		kernel_dynamic_walk(local._vultureHotspotId, 254, 94, FACING_WEST);
 	}
 
 	if (local._spiderFl) {
-		_globals._sequenceIndexes[4] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[4], false, 7, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[4], -1, -1);
-		local._spiderHotspotId = _scene->_dynamicHotspots.add(words_spider, words_walkto, _globals._sequenceIndexes[4], Common::Rect(0, 0, 0, 0));
-		_scene->_dynamicHotspots.setPosition(local._spiderHotspotId, Common::Point(59, 132), FACING_SOUTH);
+		g_sequence_ids[4] = kernel_seq_forward(g_sprite_ids[4], false, 7, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[4], -1, -1);
+		local._spiderHotspotId = kernel_add_dynamic(words_spider, words_walkto, 0, g_sequence_ids[4], 0, 0, 0, 0);
+		kernel_dynamic_walk(local._spiderHotspotId, 59, 132, FACING_SOUTH);
 	}
 
 	local._eyeFl = false;
-	if (_scene->_priorSceneId == 211) {
-		_game._player._playerPos = Common::Point(13, 105);
-		_game._player._facing = FACING_EAST;
-	} else if (_scene->_priorSceneId == 214) {
-		_game._player._playerPos = Common::Point(164, 117);
-		_game._player._facing = FACING_SOUTH;
-	} else if (_scene->_priorSceneId != RETURNING_FROM_DIALOG) {
-		_game._player._playerPos = Common::Point(305, 131);
+	if (previous_room == 211) {
+		player.x = 13;
+		player.y = 105;
+		player.facing = FACING_EAST;
+	} else if (previous_room == 214) {
+		player.x = 164;
+		player.y = 117;
+		player.facing = FACING_SOUTH;
+	} else if (previous_room != KERNEL_RESTORING_GAME) {
+		player.x = 305;
+		player.y = 131;
 	}
 
 	section_2_music();
 
-	_globals._sequenceIndexes[6] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[6], false, 10, 1, 0, 0);
-	_scene->_sequences.setAnimRange(_globals._sequenceIndexes[6], 1, 22);
-	_scene->_sequences.setDepth(_globals._sequenceIndexes[6], 6);
-	_scene->_sequences.addSubEntry(_globals._sequenceIndexes[6], SEQUENCE_TRIGGER_EXPIRE, 0, 70);
+	g_sequence_ids[6] = kernel_seq_forward(g_sprite_ids[6], false, 10, 0, 0, 1);
+	kernel_seq_range(g_sequence_ids[6], 1, 22);
+	kernel_seq_depth(g_sequence_ids[6], 6);
+	kernel_seq_trigger(g_sequence_ids[6], KERNEL_TRIGGER_EXPIRE, 0, 70);
 }
 
 static void moveVulture() {
-	_scene->_sequences.remove(_globals._sequenceIndexes[1]);
-	_globals._sequenceIndexes[2] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[2], false, 7, 1, 0, 0);
-	_vm->_sound->command(43);
+	kernel_seq_delete(g_sequence_ids[1]);
+	g_sequence_ids[2] = kernel_seq_forward(g_sprite_ids[2], false, 7, 0, 0, 1);
+	g_engine->_soundManager->command(43, 0);
 	local._vultureFl = false;
-	local._vultureTime = _game._player._priorTimer;
-	_scene->_dynamicHotspots.remove(local._vultureHotspotId);
+	local._vultureTime = player.clock;
+	kernel_delete_dynamic(local._vultureHotspotId);
 }
 
 static void moveSpider() {
-	_scene->_sequences.remove(_globals._sequenceIndexes[4]);
-	_globals._sequenceIndexes[4] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[4], false, 5, 1, 0, 0);
+	kernel_seq_delete(g_sequence_ids[4]);
+	g_sequence_ids[4] = kernel_seq_forward(g_sprite_ids[4], false, 5, 0, 0, 1);
 	local._spiderFl = false;
-	local._spiderTime = _game._player._priorTimer;
-	_scene->_dynamicHotspots.remove(local._spiderHotspotId);
+	local._spiderTime = player.clock;
+	kernel_delete_dynamic(local._spiderHotspotId);
 }
 
 static void room_207_daemon() {
-	auto &gplayer = _game._player;
 
 	if (local._vultureFl) {
-		if (((int32)gplayer._priorTimer - local._vultureTime) > 1700)
+		if (((int32)player.clock - local._vultureTime) > 1700)
 			moveVulture();
 	}
 
 	if (local._spiderFl) {
-		if (((int32)gplayer._priorTimer - local._spiderTime) > 800)
+		if (((int32)player.clock - local._spiderTime) > 800)
 			moveSpider();
 	}
 
-	if (_game._trigger == 70) {
-		_globals._sequenceIndexes[6] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[6], false, 10, 0, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[6], 23, 34);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[6], 6);
+	if (kernel.trigger == 70) {
+		g_sequence_ids[6] = kernel_seq_forward(g_sprite_ids[6], false, 10, 0, 0, 0);
+		kernel_seq_range(g_sequence_ids[6], 23, 34);
+		kernel_seq_depth(g_sequence_ids[6], 6);
 	}
 
-	if (_game._trigger == 71)
+	if (kernel.trigger == 71)
 		local._eyeFl = false;
 
 	if (local._eyeFl)
 		return;
 
-	if ((_game._player._playerPos.x >= 124) && (_game._player._playerPos.x <= 201)) {
-		_globals._sequenceIndexes[7] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[7], false, 10, 1, 0, 0);
-		_globals._sequenceIndexes[8] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[8], false, 8, 1, 0, 0);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[7], 6);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[8], 6);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[7], SEQUENCE_TRIGGER_EXPIRE, 0, 71);
+	if ((player.x >= 124) && (player.x <= 201)) {
+		g_sequence_ids[7] = kernel_seq_forward(g_sprite_ids[7], false, 10, 0, 0, 1);
+		g_sequence_ids[8] = kernel_seq_forward(g_sprite_ids[8], false, 8, 0, 0, 1);
+		kernel_seq_depth(g_sequence_ids[7], 6);
+		kernel_seq_depth(g_sequence_ids[8], 6);
+		kernel_seq_trigger(g_sequence_ids[7], KERNEL_TRIGGER_EXPIRE, 0, 71);
 		local._eyeFl = true;
 	}
 }
 
 static void room_207_pre_parser() {
 	if (player_said_2(walk_down, path_to_west))
-		_game._player._walkOffScreenSceneId = 211;
+		player.walk_off_edge_to_room = 211;
 
 	if (player_said_2(walk_towards, open_field_to_east))
-		_game._player._walkOffScreenSceneId = 208;
+		player.walk_off_edge_to_room = 208;
 
 	if (player_said_1(walkto) || player_said_1(look)) {
 		if (player_said_1(vulture)) {
@@ -170,59 +171,59 @@ static void room_207_pre_parser() {
 }
 
 static void room_207_parser() {
-	if (_action._savedFields._lookFlag)
-		_vm->_dialogs->show(20711);
+	if (player.look_around)
+		text_show(20711);
 	else if (player_said_2(walk_through, doorway))
-		_scene->_nextSceneId = 214;
+		new_room = 214;
 	else {
-		if ((_game._player._playerPos.x > 150) && (_game._player._playerPos.x < 189) &&
-			(_game._player._playerPos.y > 111) && (_game._player._playerPos.y < 130)) {
-			if ((_game._player._playerPos.x <= 162) || (_game._player._playerPos.x >= 181) ||
-				(_game._player._playerPos.y <= 115) || (_game._player._playerPos.y >= 126)) {
-				_globals._sequenceIndexes[7] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[7], false, 10, 2, 0, 0);
-				_globals._sequenceIndexes[8] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[8], false, 8, 2, 0, 0);
-				_scene->_sequences.setDepth(_globals._sequenceIndexes[7], 6);
-				_scene->_sequences.setDepth(_globals._sequenceIndexes[8], 6);
+		if ((player.x > 150) && (player.x < 189) &&
+			(player.y > 111) && (player.y < 130)) {
+			if ((player.x <= 162) || (player.x >= 181) ||
+				(player.y <= 115) || (player.y >= 126)) {
+				g_sequence_ids[7] = kernel_seq_forward(g_sprite_ids[7], false, 10, 0, 0, 2);
+				g_sequence_ids[8] = kernel_seq_forward(g_sprite_ids[8], false, 8, 0, 0, 2);
+				kernel_seq_depth(g_sequence_ids[7], 6);
+				kernel_seq_depth(g_sequence_ids[8], 6);
 			}
 		} else if (local._eyeFl) {
-			_scene->_sequences.remove(_globals._sequenceIndexes[7]);
-			_scene->_sequences.remove(_globals._sequenceIndexes[8]);
+			kernel_seq_delete(g_sequence_ids[7]);
+			kernel_seq_delete(g_sequence_ids[8]);
 			local._eyeFl = false;
 		}
 
 		if (player_said_2(look, dense_forest))
-			_vm->_dialogs->show(20701);
+			text_show(20701);
 		else if (player_said_2(look, hedge))
-			_vm->_dialogs->show(20702);
+			text_show(20702);
 		else if (player_said_2(look, skull_and_crossbones))
-			_vm->_dialogs->show(20703);
+			text_show(20703);
 		else if (player_said_2(look, cauldron))
-			_vm->_dialogs->show(20704);
+			text_show(20704);
 		else if (player_said_2(look, witchdoctor_hut))
-			_vm->_dialogs->show(20705);
+			text_show(20705);
 		else if (player_said_2(look, path_to_west))
-			_vm->_dialogs->show(20706);
+			text_show(20706);
 		else if (player_said_2(look, mountains))
-			_vm->_dialogs->show(20707);
+			text_show(20707);
 		else if (player_said_2(look, aloe_plant))
-			_vm->_dialogs->show(20708);
+			text_show(20708);
 		else if (player_said_2(look, lawn))
-			_vm->_dialogs->show(20709);
+			text_show(20709);
 		else if (player_said_2(look, vulture))
-			_vm->_dialogs->show(20710);
+			text_show(20710);
 		else if (player_said_2(take, skull_and_crossbones))
-			_vm->_dialogs->show(20712);
+			text_show(20712);
 		else if (player_said_2(take, aloe_plant))
-			_vm->_dialogs->show(20713);
+			text_show(20713);
 		else if (player_said_2(look, spider))
-			_vm->_dialogs->show(20714);
+			text_show(20714);
 		else if (player_said_2(take, spider))
-			_vm->_dialogs->show(20715);
+			text_show(20715);
 		else
 			return;
 	}
 
-	_action._inProgress = false;
+	player.command_ready = false;
 }
 
 void room_207_synchronize(Common::Serializer &s) {
@@ -235,8 +236,8 @@ void room_207_synchronize(Common::Serializer &s) {
 }
 
 void room_207_preload() {
-	local._spiderTime = _game._player._priorTimer;
-	local._vultureTime = _game._player._priorTimer;
+	local._spiderTime = player.clock;
+	local._vultureTime = player.clock;
 
 	room_init_code_pointer = room_207_init;
 	room_pre_parser_code_pointer = room_207_pre_parser;
@@ -245,10 +246,10 @@ void room_207_preload() {
 
 	section_2_walker();
 	section_2_interface();
-	_scene->addActiveVocab(words_vulture);
-	_scene->addActiveVocab(words_walkto);
-	_scene->addActiveVocab(words_spider);
-	_scene->addActiveVocab(words_walkto);
+	vocab_make_active(words_vulture);
+	vocab_make_active(words_walkto);
+	vocab_make_active(words_spider);
+	vocab_make_active(words_walkto);
 }
 
 } // namespace Rooms

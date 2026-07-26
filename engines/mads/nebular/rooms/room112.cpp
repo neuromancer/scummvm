@@ -19,13 +19,13 @@
  *
  */
 
+#include "mads/core/config.h"
 #include "mads/core/game.h"
 #include "mads/nebular/global.h"
 #include "mads/nebular/nebular.h"
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section1.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
@@ -34,42 +34,42 @@ namespace Rooms {
 static void room_112_init() {
 	section_1_music();
 
-	_globals._spriteIndexes[0] = _scene->_sprites.addSprites(formAnimName('X', 0));
-	_globals._spriteIndexes[1] = _scene->_sprites.addSprites(formAnimName('X', 1));
-	_globals._spriteIndexes[2] = _scene->_sprites.addSprites(formAnimName('X', 2));
-	_globals._spriteIndexes[3] = _scene->_sprites.addSprites(formAnimName('X', 5));
+	g_sprite_ids[0] = kernel_load_series(kernel_name('X', 0), 0);
+	g_sprite_ids[1] = kernel_load_series(kernel_name('X', 1), 0);
+	g_sprite_ids[2] = kernel_load_series(kernel_name('X', 2), 0);
+	g_sprite_ids[3] = kernel_load_series(kernel_name('X', 5), 0);
 
-	_globals._sequenceIndexes[0] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[0], false, 10, 0, 17, 20);
-	_globals._sequenceIndexes[1] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[1], false, 4, 0, 0, 0);
-	_globals._sequenceIndexes[2] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[2], false, 6, 0, 3, 0);
+	g_sequence_ids[0] = kernel_seq_forward(g_sprite_ids[0], false, 10, 20, 17, 0);
+	g_sequence_ids[1] = kernel_seq_forward(g_sprite_ids[1], false, 4, 0, 0, 0);
+	g_sequence_ids[2] = kernel_seq_forward(g_sprite_ids[2], false, 6, 0, 3, 0);
 
-	_game._player._stepEnabled = false;
-	_game._player._visible = false;
+	player.commands_allowed = false;
+	player.walker_visible = false;
 
-	_scene->_userInterface.emptyConversationList();
-	_scene->_userInterface.setup(kInputConversation);
+	inter_reset_dialog();
+	kernel_set_interface_mode(INTER_CONVERSATION);
 
-	_scene->loadAnimation(Resources::formatName(112, 'X', -1, EXT_AA, ""), 70);
+	kernel_run_animation(kernel_full_name(112, 'X', -1, "", KERNEL_AA), 70);
 }
 
 static void room_112_daemon() {
-	if ((_scene->_animation[0] != nullptr) && (_game._storyMode == STORYMODE_NICE)) {
-		if (_scene->_animation[0]->getCurrentFrame() >= 54) {
-			_scene->freeAnimation();
-			_game._trigger = 70;
+	if ((kernel_anim[0].anim != nullptr) && (config_file.naughtiness == NICE)) {
+		if (kernel_anim[0].frame >= 54) {
+			kernel_abort_animation(0);
+			kernel.trigger = 70;
 		}
 	}
 
-	if (_game._trigger == 70) {
-		_globals._sequenceIndexes[3] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[3], false, 7, 3, 0, 11);
-		_scene->_sequences.setDepth(_globals._sequenceIndexes[3], 1);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[3], SEQUENCE_TRIGGER_EXPIRE, 0, 71);
+	if (kernel.trigger == 70) {
+		g_sequence_ids[3] = kernel_seq_forward(g_sprite_ids[3], false, 7, 11, 0, 3);
+		kernel_seq_depth(g_sequence_ids[3], 1);
+		kernel_seq_trigger(g_sequence_ids[3], KERNEL_TRIGGER_EXPIRE, 0, 71);
 	}
 
-	if (_game._trigger == 71) {
-		_scene->_nextSceneId = 101;
-		_game._player._stepEnabled = true;
-		_game._player._visible = true;
+	if (kernel.trigger == 71) {
+		new_room = 101;
+		player.commands_allowed = true;
+		player.walker_visible = true;
 	}
 }
 

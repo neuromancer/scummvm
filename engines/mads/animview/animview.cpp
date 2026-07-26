@@ -441,6 +441,7 @@ static void animate() {
 		mcga_setpal(&cycling_palette);
 	}
 
+	g_engine->_soundManager->removeDriver();
 	speech_init();
 
 	for (count = 0; count < anim_count && !error_code; ++count) {
@@ -486,8 +487,10 @@ static void animate() {
 		if (!current_anim)
 			error("Could not load anim for - %s", buf);
 
-		tile_pan(&picture_map, current_anim->frame->view_x, current_anim->frame->view_y);
-		tile_pan(&depth_map, current_anim->frame->view_x, current_anim->frame->view_y);
+		if (g_engine->getGameID() != GType_RexNebular) {
+			tile_pan(&picture_map, current_anim->frame->view_x, current_anim->frame->view_y);
+			tile_pan(&depth_map, current_anim->frame->view_x, current_anim->frame->view_y);
+		}
 
 		if (current_anim->misc_any_packed) {
 			packIndex = current_anim->misc_packed_series;
@@ -642,6 +645,8 @@ void animview_main(const char *resName) {
 	}
 
 	animate();
+
+	g_engine->flushKeys();
 }
 
 } // namespace AnimView

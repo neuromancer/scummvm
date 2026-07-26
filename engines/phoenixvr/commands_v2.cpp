@@ -85,19 +85,6 @@ struct Leave_Save : public Command {
 	}
 };
 
-struct Save_Slot : public Command {
-	int index;
-	Common::String name;
-	Save_Slot(const Common::Array<Common::String> &args) : index(atoi(args[0].c_str())), name(args[1]) {}
-	void exec(ExecutionContext &ctx) const override {
-		debug("save slot %d: %s", index, name.c_str());
-		g_engine->captureContext();
-		auto err = g_engine->saveGameState(index, name);
-		if (err.getCode() != Common::kNoError)
-			warning("saving to slot %d failed: %s / %d", index, err.getDesc().c_str(), (int)err.getCode());
-	}
-};
-
 struct Goto_Warp : public Command {
 	Common::String name;
 	Goto_Warp(const Common::Array<Common::String> &args) : name(args[0]) {}
@@ -120,11 +107,22 @@ struct Play_AnimBloc : public Command {
 	}
 };
 
+struct Stop_AnimBloc : public Command {
+	Common::String name;
+
+	Stop_AnimBloc(const Common::Array<Common::String> &args) : name(args[0]) {}
+	void exec(ExecutionContext &ctx) const override {
+		debug("Stop_AnimBloc %s", name.c_str());
+		g_engine->stopAnimation(name);
+	}
+};
+
 struct Play_Amb : public Command {
 	Common::String path;
 	int volume;
 	int loops;
-	Play_Amb(const Common::Array<Common::String> &args) : path(args[0]), volume(atoi(args[1].c_str())), loops(atoi(args[2].c_str())) {}
+	Play_Amb(const Common::Array<Common::String> &args) : path(args[0]),
+														  volume(args.size() > 1 ? atoi(args[1].c_str()) : 100), loops(args.size() > 2 ? atoi(args[2].c_str()) : 0) {}
 	void exec(ExecutionContext &ctx) const override {
 		g_engine->playSound(path, Audio::Mixer::kMusicSoundType, volume, loops);
 	}
@@ -139,6 +137,16 @@ struct Delay_Sound : public Command {
 	void exec(ExecutionContext &ctx) const override {
 		warning("delay sound stub, delay: %gs", delay);
 		g_engine->playSound(path, Audio::Mixer::kSFXSoundType, volume, loops);
+	}
+};
+
+struct Stop_Delay : public Command {
+	Common::String name;
+	Stop_Delay(const Common::Array<Common::String> &args) : name(args[0]) {}
+
+	void exec(ExecutionContext &ctx) const override {
+		warning("stop delay %s stub", name.c_str());
+		g_engine->stopSound(name);
 	}
 };
 
@@ -355,11 +363,12 @@ struct Play_Movie : public Command {
 };
 
 struct Test_Slot : public Command {
-	int index;
+	Common::String slot;
 	Common::String sprite;
 	Common::String var;
-	Test_Slot(const Common::Array<Common::String> &args) : index(atoi(args[0].c_str())), sprite(args[1]), var(args[2]) {}
+	Test_Slot(const Common::Array<Common::String> &args) : slot(args[0]), sprite(args[1]), var(args[2]) {}
 	void exec(ExecutionContext &ctx) const override {
+		auto index = valueOf(slot);
 		auto value = g_engine->testSaveSlot(index);
 		debug("test slot %d %s %s, slot exists: %d", index, sprite.c_str(), var.c_str(), value);
 		g_engine->setVariable(var, value);
@@ -370,13 +379,28 @@ struct Test_Slot : public Command {
 };
 
 struct Load_Slot : public Command {
-	int slot;
-	Load_Slot(const Common::Array<Common::String> &args) : slot(atoi(args[0].c_str())) {}
+	Common::String slot;
+	Load_Slot(const Common::Array<Common::String> &args) : slot(args[0]) {}
 	void exec(ExecutionContext &ctx) const override {
-		debug("load slot %d", slot);
-		auto err = g_engine->loadGameState(slot);
+		auto index = valueOf(slot);
+		debug("load slot %s (%d)", slot.c_str(), index);
+		auto err = g_engine->loadGameState(index);
 		if (err.getCode() != Common::ErrorCode::kNoError)
-			error("loading state failed %d", slot);
+			error("loading state failed %d", index);
+	}
+};
+
+struct Save_Slot : public Command {
+	Common::String slot;
+	Common::String name;
+	Save_Slot(const Common::Array<Common::String> &args) : slot(args[0]), name(args[1]) {}
+	void exec(ExecutionContext &ctx) const override {
+		auto index = valueOf(slot);
+		debug("save slot %s (%d): %s", slot.c_str(), index, name.c_str());
+		g_engine->captureContext();
+		auto err = g_engine->saveGameState(index, name);
+		if (err.getCode() != Common::kNoError)
+			warning("saving to slot %d failed: %s / %d", index, err.getDesc().c_str(), (int)err.getCode());
 	}
 };
 
@@ -413,6 +437,14 @@ struct Set_View_Angle : public Command {
 	}
 };
 
+struct Continue_Game : public Command {
+	Continue_Game(const Common::Array<Common::String> &args) {}
+	void exec(ExecutionContext &ctx) const override {
+		debug("continue game");
+		g_engine->setNextLevel();
+	}
+};
+
 struct Exit_Game : public Command {
 	Exit_Game(const Common::Array<Common::String> &args) {}
 	void exec(ExecutionContext &ctx) const override {
@@ -441,7 +473,6 @@ struct UnhandledV2Command : public Command {
 static const char *const kUnhandledV2Commands[] = {
 	"AND",
 	"BREAK",
-	"CONTINUE_GAME",
 	"CURSOR_CLOSE",
 	"CURSOR_MODE",
 	"CURSOR_SET",
@@ -471,8 +502,6 @@ static const char *const kUnhandledV2Commands[] = {
 	"SPRITE_SCREEN_MODE",
 	"SPRITE_WARP",
 	"SPRITE_WARP_MODE",
-	"STOP_ANIMBLOC",
-	"STOP_DELAY",
 	"STOP_MUSIC",
 	"UNDERWATER_EFFECT",
 	"ZONES_CLICK_MODE"};
@@ -481,6 +510,7 @@ static const char *const kUnhandledV2Commands[] = {
 
 #define COMMAND_LIST(E) \
 	E(Add)              \
+	E(Continue_Game)    \
 	E(Cursor_Load)      \
 	E(Cursor_Set)       \
 	E(Delay_Sound)      \
@@ -510,6 +540,8 @@ static const char *const kUnhandledV2Commands[] = {
 	E(Start_Light)      \
 	E(Start_Timer)      \
 	E(Stop_All_Sounds)  \
+	E(Stop_AnimBloc)    \
+	E(Stop_Delay)       \
 	E(Stop_Light)       \
 	E(Stop_Sound)       \
 	E(Stop_Timer)       \

@@ -25,29 +25,28 @@
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section3.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
 namespace Rooms {
 
 static void room_301_init() {
-	_globals._spriteIndexes[1] = _scene->_sprites.addSprites(formAnimName('x', 0));
-	_globals._sequenceIndexes[1] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[1], false, 9, 0, 0, 0);
+	g_sprite_ids[1] = kernel_load_series(kernel_name('x', 0), 0);
+	g_sequence_ids[1] = kernel_seq_forward(g_sprite_ids[1], false, 9, 0, 0, 0);
 
-	_globals[kMeteorologistStatus] = METEOROLOGIST_GONE;
-	_globals[kTeleporterCommand] = TELEPORTER_NONE;
+	global[kMeteorologistStatus] = METEOROLOGIST_GONE;
+	global[kTeleporterCommand] = TELEPORTER_NONE;
 
-	_game._player._stepEnabled = false;
-	_game._player._visible = false;
-	_scene->loadAnimation(formAnimName('a', -1), 60);
+	player.commands_allowed = false;
+	player.walker_visible = false;
+	kernel_run_animation(kernel_name('a', -1), 60);
 
 	section_3_music();
 }
 
 static void room_301_daemon() {
-	if (_game._trigger == 60)
-		_scene->_nextSceneId = 302;
+	if (kernel.trigger == 60)
+		new_room = 302;
 }
 
 void room_301_synchronize(Common::Serializer &s) {

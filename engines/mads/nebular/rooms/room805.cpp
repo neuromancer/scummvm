@@ -25,121 +25,119 @@
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section8.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
 namespace Rooms {
 
 static void room_805_init() {
-	_game._player._visible = false;
-	_scene->_userInterface.setup(kInputLimitedSentences);
+	player.walker_visible = false;
+	kernel_set_interface_mode(INTER_LIMITED_SENTENCES);
 
-	_globals._spriteIndexes[1] = _scene->_sprites.addSprites(formAnimName('a', 1));
-	_globals._spriteIndexes[2] = _scene->_sprites.addSprites(formAnimName('a', 2));
+	g_sprite_ids[1] = kernel_load_series(kernel_name('a', 1), 0);
+	g_sprite_ids[2] = kernel_load_series(kernel_name('a', 2), 0);
 
-	if (_globals[kShieldModInstalled]) {
-		_scene->_hotspots.activate(OBJ_SHIELD_MODULATOR, false);
-		_globals._sequenceIndexes[1] = _scene->_sequences.startCycle(_globals._spriteIndexes[1], false, 25);
-		int idx = _scene->_dynamicHotspots.add(words_shield_modulator, words_remove, _globals._sequenceIndexes[1], Common::Rect(0, 0, 0, 0));
-		_scene->_dynamicHotspots.setPosition(idx, Common::Point(0, 0), 0);
+	if (global[kShieldModInstalled]) {
+		kernel_flip_hotspot(OBJ_SHIELD_MODULATOR, false);
+		g_sequence_ids[1] = kernel_seq_stamp(g_sprite_ids[1], false, 25);
+		int idx = kernel_add_dynamic(words_shield_modulator, words_remove, 0, g_sequence_ids[1], 0, 0, 0, 0);
+		kernel_dynamic_walk(idx, 0, 0, 0);
 	}
 
-	if (_globals[kTargetModInstalled]) {
-		_scene->_hotspots.activate(OBJ_TARGET_MODULE, false);
-		_globals._sequenceIndexes[2] = _scene->_sequences.startCycle(_globals._spriteIndexes[2], false, 12);
-		int idx = _scene->_dynamicHotspots.add(words_target_module, words_remove, _globals._sequenceIndexes[2], Common::Rect(0, 0, 0, 0));
-		_scene->_dynamicHotspots.setPosition(idx, Common::Point(0, 0), 0);
+	if (global[kTargetModInstalled]) {
+		kernel_flip_hotspot(OBJ_TARGET_MODULE, false);
+		g_sequence_ids[2] = kernel_seq_stamp(g_sprite_ids[2], false, 12);
+		int idx = kernel_add_dynamic(words_target_module, words_remove, 0, g_sequence_ids[2], 0, 0, 0, 0);
+		kernel_dynamic_walk(idx, 0, 0, 0);
 	}
 
 	section_8_music();
 }
 
 static void room_805_daemon() {
-	auto &userInterface = _vm->_game->_scene._userInterface;
 
-	if (_game._trigger == 70) {
-		_scene->_hotspots.activate(OBJ_SHIELD_MODULATOR, false);
-		_globals._sequenceIndexes[1] = _scene->_sequences.startCycle(_globals._spriteIndexes[1], false, 25);
-		int idx = _scene->_dynamicHotspots.add(words_shield_modulator, words_remove, _globals._sequenceIndexes[1], Common::Rect(0, 0, 0, 0));
-		_scene->_dynamicHotspots.setPosition(idx, Common::Point(0, 0), 0);
-		_globals[kShieldModInstalled] = true;
-		_game._objects.setRoom(OBJ_SHIELD_MODULATOR, NOWHERE);
-		userInterface._selectedInvIndex = -1;
-		_game._player._stepEnabled = true;
-		_vm->_sound->command(24);
+	if (kernel.trigger == 70) {
+		kernel_flip_hotspot(OBJ_SHIELD_MODULATOR, false);
+		g_sequence_ids[1] = kernel_seq_stamp(g_sprite_ids[1], false, 25);
+		int idx = kernel_add_dynamic(words_shield_modulator, words_remove, 0, g_sequence_ids[1], 0, 0, 0, 0);
+		kernel_dynamic_walk(idx, 0, 0, 0);
+		global[kShieldModInstalled] = true;
+		inter_move_object(OBJ_SHIELD_MODULATOR, NOWHERE);
+		active_inven = -1;
+		player.commands_allowed = true;
+		g_engine->_soundManager->command(24, 0);
 	}
 
-	if (_game._trigger == 80) {
-		_scene->_hotspots.activate(OBJ_TARGET_MODULE, false);
-		_globals._sequenceIndexes[2] = _scene->_sequences.startCycle(_globals._spriteIndexes[2], false, 12);
-		int idx = _scene->_dynamicHotspots.add(words_target_module, words_remove, _globals._sequenceIndexes[2], Common::Rect(0, 0, 0, 0));
-		_scene->_dynamicHotspots.setPosition(idx, Common::Point(0, 0), 0);
-		_globals[kTargetModInstalled] = true;
-		_game._objects.setRoom(OBJ_TARGET_MODULE, NOWHERE);
-		userInterface._selectedInvIndex = -1;
-		_game._player._stepEnabled = true;
-		_vm->_sound->command(24);
+	if (kernel.trigger == 80) {
+		kernel_flip_hotspot(OBJ_TARGET_MODULE, false);
+		g_sequence_ids[2] = kernel_seq_stamp(g_sprite_ids[2], false, 12);
+		int idx = kernel_add_dynamic(words_target_module, words_remove, 0, g_sequence_ids[2], 0, 0, 0, 0);
+		kernel_dynamic_walk(idx, 0, 0, 0);
+		global[kTargetModInstalled] = true;
+		inter_move_object(OBJ_TARGET_MODULE, NOWHERE);
+		active_inven = -1;
+		player.commands_allowed = true;
+		g_engine->_soundManager->command(24, 0);
 	}
 
-	if (_game._trigger == 71) {
-		_scene->_hotspots.activate(OBJ_SHIELD_MODULATOR, true);
-		_globals[kShieldModInstalled] = false;
-		_game._objects.addToInventory(OBJ_SHIELD_MODULATOR);
-		_game._player._stepEnabled = true;
+	if (kernel.trigger == 71) {
+		kernel_flip_hotspot(OBJ_SHIELD_MODULATOR, true);
+		global[kShieldModInstalled] = false;
+		inter_give_to_player(OBJ_SHIELD_MODULATOR);
+		player.commands_allowed = true;
 	}
 
-	if (_game._trigger == 81) {
-		_scene->_hotspots.activate(OBJ_TARGET_MODULE, true);
-		_globals[kTargetModInstalled] = false;
-		_game._objects.addToInventory(OBJ_TARGET_MODULE);
-		_game._player._stepEnabled = true;
+	if (kernel.trigger == 81) {
+		kernel_flip_hotspot(OBJ_TARGET_MODULE, true);
+		global[kTargetModInstalled] = false;
+		inter_give_to_player(OBJ_TARGET_MODULE);
+		player.commands_allowed = true;
 	}
 }
 
 static void room_805_pre_parser() {
-	_game._player._needToWalk = false;
+	player.need_to_walk = false;
 }
 
 static void room_805_parser() {
 	if (player_said_2(exit, service_panel))
-		_scene->_nextSceneId = 804;
-	else if (player_said_2(install, shield_modulator) && _game._objects.isInInventory(OBJ_SHIELD_MODULATOR)) {
-		_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-		_globals._sequenceIndexes[1] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[1], false, 7, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[1], -1, -2);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[1], SEQUENCE_TRIGGER_EXPIRE, 0, 70);
-		_game._player._stepEnabled = false;
-	} else if (player_said_2(install, target_module) && _game._objects.isInInventory(OBJ_TARGET_MODULE)) {
-		_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-		_globals._sequenceIndexes[2] = _scene->_sequences.addSpriteCycle(_globals._spriteIndexes[2], false, 7, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[2], -1, -2);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[2], SEQUENCE_TRIGGER_EXPIRE, 0, 80);
-		_game._player._stepEnabled = false;
-	} else if (player_said_2(remove, shield_modulator) && _globals[kShieldModInstalled]) {
-		_scene->_sequences.remove(_globals._sequenceIndexes[1]);
-		_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-		_globals._sequenceIndexes[1] = _scene->_sequences.addReverseSpriteCycle(_globals._spriteIndexes[1], false, 7, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[1], -1, -2);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[1], SEQUENCE_TRIGGER_EXPIRE, 0, 71);
-		_game._player._stepEnabled = false;
-	} else if (player_said_2(remove, target_module) && _globals[kTargetModInstalled]) {
-		_scene->_sequences.remove(_globals._sequenceIndexes[2]);
-		_game._triggerSetupMode = SEQUENCE_TRIGGER_DAEMON;
-		_globals._sequenceIndexes[2] = _scene->_sequences.addReverseSpriteCycle(_globals._spriteIndexes[2], false, 7, 1, 0, 0);
-		_scene->_sequences.setAnimRange(_globals._sequenceIndexes[2], -1, -2);
-		_scene->_sequences.addSubEntry(_globals._sequenceIndexes[2], SEQUENCE_TRIGGER_EXPIRE, 0, 81);
-		_game._player._stepEnabled = false;
-	} else if (player_said_2(install, shield_modulator) && !_game._objects.isInInventory(OBJ_SHIELD_MODULATOR))
-		_vm->_dialogs->show(80511);
-	else if (player_said_2(install, target_module) && !_game._objects.isInInventory(OBJ_TARGET_MODULE))
-		_vm->_dialogs->show(80510);
+		new_room = 804;
+	else if (player_said_2(install, shield_modulator) && player_has(OBJ_SHIELD_MODULATOR)) {
+		kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+		g_sequence_ids[1] = kernel_seq_forward(g_sprite_ids[1], false, 7, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[1], -1, -2);
+		kernel_seq_trigger(g_sequence_ids[1], KERNEL_TRIGGER_EXPIRE, 0, 70);
+		player.commands_allowed = false;
+	} else if (player_said_2(install, target_module) && player_has(OBJ_TARGET_MODULE)) {
+		kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+		g_sequence_ids[2] = kernel_seq_forward(g_sprite_ids[2], false, 7, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[2], -1, -2);
+		kernel_seq_trigger(g_sequence_ids[2], KERNEL_TRIGGER_EXPIRE, 0, 80);
+		player.commands_allowed = false;
+	} else if (player_said_2(remove, shield_modulator) && global[kShieldModInstalled]) {
+		kernel_seq_delete(g_sequence_ids[1]);
+		kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+		g_sequence_ids[1] = kernel_seq_backward(g_sprite_ids[1], false, 7, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[1], -1, -2);
+		kernel_seq_trigger(g_sequence_ids[1], KERNEL_TRIGGER_EXPIRE, 0, 71);
+		player.commands_allowed = false;
+	} else if (player_said_2(remove, target_module) && global[kTargetModInstalled]) {
+		kernel_seq_delete(g_sequence_ids[2]);
+		kernel.trigger_setup_mode = KERNEL_TRIGGER_DAEMON;
+		g_sequence_ids[2] = kernel_seq_backward(g_sprite_ids[2], false, 7, 0, 0, 1);
+		kernel_seq_range(g_sequence_ids[2], -1, -2);
+		kernel_seq_trigger(g_sequence_ids[2], KERNEL_TRIGGER_EXPIRE, 0, 81);
+		player.commands_allowed = false;
+	} else if (player_said_2(install, shield_modulator) && !player_has(OBJ_SHIELD_MODULATOR))
+		text_show(80511);
+	else if (player_said_2(install, target_module) && !player_has(OBJ_TARGET_MODULE))
+		text_show(80510);
 	else if (player_said_2(remove, life_support_module))
-		_vm->_dialogs->show(80512);
+		text_show(80512);
 	else
 		return;
 
-	_action._inProgress = false;
+	player.command_ready = false;
 }
 
 void room_805_synchronize(Common::Serializer &s) {
@@ -154,9 +152,9 @@ void room_805_preload() {
 
 	section_8_walker();
 	section_8_interface();
-	_scene->addActiveVocab(words_remove);
-	_scene->addActiveVocab(words_target_module);
-	_scene->addActiveVocab(words_shield_modulator);
+	vocab_make_active(words_remove);
+	vocab_make_active(words_target_module);
+	vocab_make_active(words_shield_modulator);
 }
 
 } // namespace Rooms

@@ -25,45 +25,44 @@
 #include "mads/nebular/mads/inventory.h"
 #include "mads/nebular/mads/words.h"
 #include "mads/nebular/rooms/section7.h"
-#include "mads/nebular/rooms/thunks.h"
 
 namespace MADS {
 namespace RexNebular {
 namespace Rooms {
 
 static void room_710_init() {
-	_scene->_userInterface.setup(kInputLimitedSentences);
+	kernel_set_interface_mode(INTER_LIMITED_SENTENCES);
 
-	if (_game._objects[OBJ_VASE]._roomNumber == 706) {
-		_globals._spriteIndexes[1] = _scene->_sprites.addSprites(formAnimName('g', -1));
-		_globals._sequenceIndexes[1] = _scene->_sequences.startPingPongCycle(_globals._spriteIndexes[1], false, 6, 0, 0, 0);
+	if (object[OBJ_VASE].location == 706) {
+		g_sprite_ids[1] = kernel_load_series(kernel_name('g', -1), 0);
+		g_sequence_ids[1] = kernel_seq_pingpong(g_sprite_ids[1], false, 6, 0, 0, 0);
 	}
 
-	_game._player._visible = false;
-	_scene->_sequences.addTimer(600, 70);
+	player.walker_visible = false;
+	kernel_timing_trigger(600, 70);
 
 	section_7_music();
 }
 
 static void room_710_daemon() {
-	if (_game._trigger == 70) {
-		if (_game._globals[kCityFlooded])
-			_scene->_nextSceneId = 701;
+	if (kernel.trigger == 70) {
+		if (global[kCityFlooded])
+			new_room = 701;
 		else
-			_scene->_nextSceneId = 751;
+			new_room = 751;
 	}
 }
 
 static void room_710_parser() {
 	if (player_said_2(put_down, binoculars)) {
-		_game._player._stepEnabled = false;
+		player.commands_allowed = false;
 
-		if (_game._globals[kCityFlooded])
-			_scene->_nextSceneId = 701;
+		if (global[kCityFlooded])
+			new_room = 701;
 		else
-			_scene->_nextSceneId = 751;
+			new_room = 751;
 
-		_action._inProgress = false;
+		player.command_ready = false;
 	}
 }
 
