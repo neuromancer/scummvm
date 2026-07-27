@@ -127,12 +127,7 @@ jobs:
     container:
       image: archlinux:base-devel
     steps:
-      - name: Checkout repo (per il PKGBUILD e i sorgenti)
-        uses: actions/checkout@v4
-        with:
-          path: repo
-
-      - name: Installa dipendenze
+      - name: Installa dipendenze (git deve esserci PRIMA del checkout)
         run: |
           pacman -Syu --noconfirm
           pacman -S --noconfirm --needed \
@@ -141,6 +136,11 @@ jobs:
             libtheora faad2 libmad libvorbis libogg flac libmpeg2 \
             fluidsynth speex speexdsp libvpx curl glew mesa gtk3 \
             zlib bzip2 libutf8proc
+
+      - name: Checkout repo (per il PKGBUILD e i sorgenti)
+        uses: actions/checkout@v4
+        with:
+          path: repo
 
       - name: Crea utente non privilegiato per makepkg
         run: |
