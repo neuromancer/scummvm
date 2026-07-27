@@ -3081,6 +3081,57 @@ static const uint16 hoyle5PatchHeartsStrategy[] = {
 	PATCH_END
 };
 
+// Checkers can crash when the script calculates the computer's next move.
+//  Tree:alphaBeta is a large method that evaluates moves and potentially adds
+//  and removes elements to a List object. At the end, it sometimes selects a
+//  random move from the List, but without verifying that the List is not empty.
+//  There are codepaths where the List remains empty but is accessed anyway.
+//
+// We fix this by adding a check to skip selecting a random move when movLst is
+//  empty. This does not prevent the computer from making a move, as the script
+//  has already selected a default move.
+//
+// Applies to: All versions
+// Responsible method: Tree:alphaBeta
+// Fixes bug: #17020
+static const uint16 hoyle5SignatureCheckersAiWindows[] = {
+	0x31, 0x3d,                        // bnt 3d [ skip rng ]
+	SIG_ADDTOOFFSET(+17),              // acc = movLst:size
+	0x36,                              // push
+	0x35, 0x01, SIG_MAGICDWORD,        // ldi 01
+	0x04,                              // sub
+	0x36,                              // push
+	0x43, 0x3c, SIG_UINT16(0x0004),    // callk Random 04
+	0xa5, 0x00,                        // sat 00 [ unused ]
+	SIG_END
+};
+
+static const uint16 hoyle5PatchCheckersAiWindows[] = {
+	PATCH_ADDTOOFFSET(+19),
+	0x31, 0x2a,                        // bnt 2a [ skip rng if movLst:size == 0 ]
+	PATCH_GETORIGINALBYTES(19, 9),
+	PATCH_END
+};
+
+static const uint16 hoyle5SignatureCheckersAiMac[] = {
+	0x31, 0x31,                        // bnt 31 [ skip rng ]
+	SIG_ADDTOOFFSET(+11),              // acc = movLst:size
+	0x36,                              // push
+	0x35, 0x01, SIG_MAGICDWORD,        // ldi 01
+	0x04,                              // sub
+	0x36,                              // push
+	0x43, 0x3c, SIG_UINT16(0x0004),    // callk Random 04
+	0xa5, 0x00,                        // sat 00 [ unused ]
+	SIG_END
+};
+
+static const uint16 hoyle5PatchCheckersAiMac[] = {
+	PATCH_ADDTOOFFSET(+13),
+	0x31, 0x24,                        // bnt 24 [ skip rng if movLst:size == 0 ]
+	PATCH_GETORIGINALBYTES(13, 9),
+	PATCH_END
+};
+
 //          script, description,                                      signature                         patch
 static const SciScriptPatcherEntry hoyle5Signatures[] = {
 	{  true,     0, "disable volume reset on startup",             1, sci2VolumeResetSignature,         sci2VolumeResetPatch },
@@ -3089,6 +3140,8 @@ static const SciScriptPatcherEntry hoyle5Signatures[] = {
 	{  true,   200, "fix setScale calls",                         11, hoyle5SetScaleSignature,          hoyle5PatchSetScale },
 	{  true,   300, "hearts strategy",                             1, hoyle5SignatureHeartsStrategy,    hoyle5PatchHeartsStrategy },
 	{  true,   500, "remove kGetTime spin",                        1, hoyle5SignatureSpinLoop,          hoyle5PatchSpinLoop },
+	{  true,  1202, "fix checkers ai",                             1, hoyle5SignatureCheckersAiWindows, hoyle5PatchCheckersAiWindows },
+	{  true,  1202, "fix checkers ai",                             1, hoyle5SignatureCheckersAiMac,     hoyle5PatchCheckersAiMac },
 	{  true,  6001, "fix solitaire init",                          1, hoyle5SignatureSolitaireInit,     hoyle5PatchSolitaireInit },
 	{  true,  6002, "fix solitaire init",                          1, hoyle5SignatureSolitaireInit,     hoyle5PatchSolitaireInit },
 	{  true,  6004, "fix solitaire init",                          1, hoyle5SignatureSolitaireInit,     hoyle5PatchSolitaireInit },
@@ -10507,6 +10560,31 @@ static const uint16 larry6HiresLockerPathfindingPatch[] = {
 	PATCH_END
 };
 
+// When Cavaricchi kills Larry in room 440, a flag is set by the death dialog
+//  when playing the narrator's speech. If Larry is killed a second time, the
+//  narrator's speech does not play because the flag is not reset.
+//
+// We fix this by resetting the flag before displaying the death dialog.
+//
+// Applies to: All versions
+// Responsible method: talkToCavScr:changeState(13)
+// Fixes bug: #17018
+static const uint16 larry6HiresResetCavDeathFlagSignature[] = {
+	SIG_MAGICDWORD,
+	0x43, 0x11, SIG_UINT16(0x0004),     // callk ShakeScreen 04
+	0x35, 0x78,                         // ldi 78
+	0x65, 0x22,                         // aTop ticks [ ticks = 120 ]
+	0x32,                               // jmp [ end of switch ]
+	SIG_END
+};
+
+static const uint16 larry6HiresResetCavDeathFlagPatch[] = {
+	PATCH_ADDTOOFFSET(+8),
+	0x76,                               // push0
+	0xab, 0x03,                         // ssl 03 [ local3 = 0 ]
+	PATCH_END
+};
+
 //          script, description,                                      signature                             patch
 static const SciScriptPatcherEntry larry6HiresSignatures[] = {
 	{  true,     0, "disable mac volume restore",                  1, larry6HiresMacVolumeRestoreSignature, larry6HiresMacVolumeRestorePatch },
@@ -10520,6 +10598,7 @@ static const SciScriptPatcherEntry larry6HiresSignatures[] = {
 	{  true,   270, "fix incorrect setScale call",                 1, larry6HiresSetScaleSignature,         larry6HiresSetScalePatch },
 	{  true,   330, "fix whale oil lamp lockup",                   1, larry6HiresWhaleOilLampSignature,     larry6HiresWhaleOilLampPatch },
 	{  true,   340, "fix locker pathfinding",                      1, larry6HiresLockerPathfindingSignature,larry6HiresLockerPathfindingPatch },
+	{  true,   440, "reset Cavaricchi death flag",                 1, larry6HiresResetCavDeathFlagSignature,larry6HiresResetCavDeathFlagPatch },
 	{  true,   610, "phone operator crash",                        1, larry6HiresPhoneOperatorSignature,    larry6HiresPhoneOperatorPatch },
 	{  true,   620, "bathroom door sound",                         1, larry6HiresBathroomDoorSoundSignature,larry6HiresBathroomDoorSoundPatch },
 	{  true,   680, "room 680 exits",                              1, larry6HiresRoom680ExitsSignature,     larry6HiresRoom680ExitsPatch },
