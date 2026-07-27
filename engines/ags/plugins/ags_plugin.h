@@ -616,13 +616,13 @@ public:
 	// work mode should contain flag set of the AGSSTREAM_MODE_* values.
 	// Returns IAGSStream object, or null on failure. The returned stream object
 	// is owned by the caller, and must be deleted by calling its Dispose() method.
-	AGSIFUNC(IAGSStream*) OpenFileStream(const char *script_path, int file_mode, int work_mode);
+	AGSIFUNC(::AGS3::IAGSStream*) OpenFileStream(const char *script_path, int file_mode, int work_mode);
 	// Returns IAGSStream object identified by the given stream handle.
 	// This lets to retrieve IAGSStream object from a handle received in a event callback.
 	// *IMPORTANT*: The returned stream's ownership is NOT passed to the caller;
 	// this stream should not be closed or disposed, doing so will lead to errors in the engine.
 	// Returns null if handle is invalid.
-	AGSIFUNC(IAGSStream*) GetFileStreamByHandle(int32 fhandle);
+	AGSIFUNC(::AGS3::IAGSStream*) GetFileStreamByHandle(int32 fhandle);
 
 	// *** BELOW ARE INTERFACE VERSION 29 AND ABOVE ONLY
 	// Print message to the engine's log, under one of the log levels AGSLOG_LEVEL_*.
