@@ -354,19 +354,83 @@ void InteractionVariable::Write(Shared::Stream *out) const {
 
 //-----------------------------------------------------------------------------
 
-InteractionScripts *InteractionScripts::CreateFromStream(Stream *in) {
+//-----------------------------------------------------------------------------
+// InteractionEvents implementation
+//-----------------------------------------------------------------------------
+
+bool InteractionEvents::Read_v361(Stream *in) {
+	Events.clear();
+	ScriptModule.Empty();
 	const size_t evt_count = in->ReadInt32();
 	if (evt_count > MAX_NEWINTERACTION_EVENTS) {
-		quit("Can't deserialize interaction scripts: too many events");
-		return nullptr;
+		quit("Can't deserialize interaction events: too many events");
+		return false;
 	}
-
-	InteractionScripts *scripts = new InteractionScripts();
 	for (size_t i = 0; i < evt_count; ++i) {
 		String name = String::FromStream(in);
-		scripts->ScriptFuncNames.push_back(name);
+		Events.push_back(EventHandler(name));
 	}
-	return scripts;
+	return true;
+}
+
+bool InteractionEvents::Read_v362(Stream *in) {
+	Events.clear();
+	int ver = in->ReadInt32();
+	if (ver != kInterEvents_v362) {
+		return false;
+	}
+	ScriptModule = String::FromStream(in);
+	const size_t evt_count = in->ReadInt32();
+	if (evt_count > MAX_NEWINTERACTION_EVENTS) {
+		quit("Can't deserialize interaction events: too many events");
+		return false;
+	}
+	for (size_t i = 0; i < evt_count; ++i) {
+		String name = String::FromStream(in);
+		Events.push_back(EventHandler(name));
+	}
+	return true;
+}
+
+void InteractionEvents::Write_v361(Stream *out) const {
+	out->WriteInt32(Events.size());
+	for (size_t i = 0; i < Events.size(); ++i)
+		Events[i].FunctionName.Write(out);
+}
+
+void InteractionEvents::Write_v362(Stream *out) const {
+	out->WriteInt32(kInterEvents_v362);
+	ScriptModule.Write(out);
+	out->WriteInt32(Events.size());
+	for (size_t i = 0; i < Events.size(); ++i)
+		Events[i].FunctionName.Write(out);
+}
+
+InteractionEvents *InteractionEvents::CreateFromStream(Stream *in) {
+	InteractionEvents *evts = new InteractionEvents();
+	if (!evts->Read_v361(in)) {
+		delete evts;
+		return nullptr;
+	}
+	return evts;
+}
+
+InteractionEvents *InteractionEvents::CreateFromStream_v361(Stream *in) {
+	InteractionEvents *evts = new InteractionEvents();
+	if (!evts->Read_v361(in)) {
+		delete evts;
+		return nullptr;
+	}
+	return evts;
+}
+
+InteractionEvents *InteractionEvents::CreateFromStream_v362(Stream *in) {
+	InteractionEvents *evts = new InteractionEvents();
+	if (!evts->Read_v362(in)) {
+		delete evts;
+		return nullptr;
+	}
+	return evts;
 }
 
 } // namespace Shared

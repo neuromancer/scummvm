@@ -185,13 +185,13 @@ HError ReadMainBlock(RoomStruct *room, Stream *in, RoomFileVersion data_ver) {
 
 	// Event script links
 	if (data_ver >= kRoomVersion_300a) {
-		room->EventHandlers.reset(InteractionScripts::CreateFromStream(in));
+		room->EventHandlers.reset(InteractionEvents::CreateFromStream(in));
 		for (size_t i = 0; i < room->HotspotCount; ++i)
-			room->Hotspots[i].EventHandlers.reset(InteractionScripts::CreateFromStream(in));
+			room->Hotspots[i].EventHandlers.reset(InteractionEvents::CreateFromStream(in));
 		for (auto &obj : room->Objects)
-			obj.EventHandlers.reset(InteractionScripts::CreateFromStream(in));
+			obj.EventHandlers.reset(InteractionEvents::CreateFromStream(in));
 		for (size_t i = 0; i < room->RegionCount; ++i)
-			room->Regions[i].EventHandlers.reset(InteractionScripts::CreateFromStream(in));
+			room->Regions[i].EventHandlers.reset(InteractionEvents::CreateFromStream(in));
 	}
 
 	if (data_ver >= kRoomVersion_200_alpha) {
@@ -626,10 +626,8 @@ HRoomFileError ExtractScriptText(String &script, Stream *in, RoomFileVersion dat
 	return HRoomFileError::None();
 }
 
-void WriteInteractionScripts(const InteractionScripts *interactions, Stream *out) {
-	out->WriteInt32(interactions->ScriptFuncNames.size());
-	for (size_t i = 0; i < interactions->ScriptFuncNames.size(); ++i)
-		interactions->ScriptFuncNames[i].Write(out);
+void WriteInteractionScripts(const InteractionEvents *interactions, Stream *out) {
+	interactions->Write_v361(out);
 }
 
 void WriteMainBlock(const RoomStruct *room, Stream *out) {

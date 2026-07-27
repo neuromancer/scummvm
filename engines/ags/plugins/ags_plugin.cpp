@@ -48,6 +48,7 @@
 #include "ags/engine/ac/sys_events.h"
 #include "ags/shared/ac/sprite_cache.h"
 #include "ags/engine/ac/dynobj/script_string.h"
+#include "ags/engine/ac/dynobj/cc_dynamic_array.h"
 #include "ags/engine/ac/dynobj/dynobj_manager.h"
 #include "ags/shared/font/fonts.h"
 #include "ags/engine/debugging/debug_log.h"
@@ -68,6 +69,7 @@
 #include "ags/engine/script/script.h"
 #include "ags/engine/script/script_runtime.h"
 #include "ags/shared/util/file_stream.h"
+#include "ags/engine/ac/path_helper.h"
 #include "ags/engine/util/library.h"
 #include "ags/engine/util/library_scummvm.h"
 #include "ags/shared/util/memory.h"
@@ -88,7 +90,7 @@ namespace AGS3 {
 using namespace AGS::Shared;
 using namespace AGS::Engine;
 
-const int PLUGIN_API_VERSION = 26;
+const int PLUGIN_API_VERSION = 30;
 
 // On save/restore, the Engine will provide the plugin with a handle. Because we only ever save to one file at a time,
 // we can reuse the same handle.
@@ -96,6 +98,88 @@ const int PLUGIN_API_VERSION = 26;
 void PluginSimulateMouseClick(int pluginButtonID) {
 	_G(simulatedClick) = static_cast<eAGSMouseButton>(pluginButtonID);
 }
+
+// PluginStreamWrapper adapts an internal AGS::Shared::Stream to the
+// plugin-facing IAGSStream interface
+class PluginStreamWrapper : public IAGSStream {
+public:
+	PluginStreamWrapper(AGS::Shared::Stream *stream, bool owning)
+		: _stream(stream), _owning(owning) {}
+	~PluginStreamWrapper() override {}
+
+	int GetMode() const override {
+		int mode = 0;
+		if (_stream->CanRead()) mode |= AGSSTREAM_MODE_READ;
+		if (_stream->CanWrite()) mode |= AGSSTREAM_MODE_WRITE;
+		if (_stream->CanSeek()) mode |= AGSSTREAM_MODE_SEEK;
+		return mode;
+	}
+
+	const char *GetPath() const override {
+		return _stream->GetPath().GetCStr();
+	}
+
+	bool EOS() const override {
+		return _stream->EOS();
+	}
+
+	bool GetError() const override {
+		return _stream->GetError();
+	}
+
+	int64_t GetLength() const override {
+		return _stream->GetLength();
+	}
+
+	int64_t GetPosition() const override {
+		return _stream->GetPosition();
+	}
+
+	size_t Read(void *buffer, size_t len) override {
+		return _stream->Read(buffer, len);
+	}
+
+	int32_t ReadByte() override {
+		return _stream->ReadByte();
+	}
+
+	size_t Write(const void *buffer, size_t len) override {
+		return _stream->Write(buffer, len);
+	}
+
+	int32_t WriteByte(uint8_t b) override {
+		return _stream->WriteByte(b);
+	}
+
+	int64_t Seek(int64_t offset, int origin) override {
+		AGS::Shared::StreamSeek sOrigin;
+		switch (origin) {
+		case AGSSTREAM_SEEK_SET: sOrigin = AGS::Shared::kSeekBegin; break;
+		case AGSSTREAM_SEEK_CUR: sOrigin = AGS::Shared::kSeekCurrent; break;
+		case AGSSTREAM_SEEK_END: sOrigin = AGS::Shared::kSeekEnd; break;
+		default: return -1;
+		}
+		return _stream->Seek(static_cast<AGS::Shared::soff_t>(offset), sOrigin);
+	}
+
+	bool Flush() override {
+		return _stream->Flush();
+	}
+
+	void Close() override {
+		_stream->Close();
+	}
+
+	void Dispose() override {
+		if (_owning)
+			delete _stream;
+		delete this;
+	}
+
+private:
+	AGS::Shared::Stream *_stream;
+	bool _owning;
+};
 
 void IAGSEngine::AbortGame(const char *reason) {
 	quit(reason);
@@ -603,16 +687,16 @@ int IAGSEngine::CanRunScriptFunctionNow() {
 	return 1;
 }
 
-int IAGSEngine::CallGameScriptFunction(const char *name, int32 globalScript, int32 numArgs, long arg1, long arg2, long arg3) {
+int IAGSEngine::CallGameScriptFunction(const char *name, int32 globalScript, int32 numArgs, intptr_t arg1, intptr_t arg2, intptr_t arg3) {
 	if (_G(inside_script))
 		return -300;
 
 	ccInstance *toRun = GetScriptInstanceByType(globalScript ? kScInstGame : kScInstRoom);
 
 	RuntimeScriptValue params[]{
-		   RuntimeScriptValue().SetPluginArgument(arg1),
-		   RuntimeScriptValue().SetPluginArgument(arg2),
-		   RuntimeScriptValue().SetPluginArgument(arg3),
+		   RuntimeScriptValue().SetPluginArgument(static_cast<int32_t>(arg1)),
+		   RuntimeScriptValue().SetPluginArgument(static_cast<int32_t>(arg2)),
+		   RuntimeScriptValue().SetPluginArgument(static_cast<int32_t>(arg3)),
 	};
 	int toret = RunScriptFunction(toRun, name, numArgs, params);
 	return toret;
@@ -630,7 +714,7 @@ void IAGSEngine::SetSpriteAlphaBlended(int32 slot, int32 isAlphaBlended) {
 		_GP(game).SpriteInfos[slot].Flags |= SPF_ALPHACHANNEL;
 }
 
-void IAGSEngine::QueueGameScriptFunction(const char *name, int32 globalScript, int32 numArgs, long arg1, long arg2) {
+void IAGSEngine::QueueGameScriptFunction(const char *name, int32 globalScript, int32 numArgs, intptr_t arg1, intptr_t arg2) {
 	if (!_G(inside_script)) {
 		this->CallGameScriptFunction(name, globalScript, numArgs, arg1, arg2, 0);
 		return;
@@ -639,8 +723,8 @@ void IAGSEngine::QueueGameScriptFunction(const char *name, int32 globalScript, i
 	if (numArgs < 0 || numArgs > 2)
 		quit("IAGSEngine::QueueGameScriptFunction: invalid number of arguments");
 
-	RuntimeScriptValue params[]{ RuntimeScriptValue().SetPluginArgument(arg1),
-		RuntimeScriptValue().SetPluginArgument(arg2) };
+	RuntimeScriptValue params[]{ RuntimeScriptValue().SetPluginArgument(static_cast<int32_t>(arg1)),
+		RuntimeScriptValue().SetPluginArgument(static_cast<int32_t>(arg2)) };
 	_G(curscript)->run_another(name, globalScript ? kScInstGame : kScInstRoom, numArgs, params);
 }
 
@@ -739,8 +823,15 @@ IAGSFontRenderer *IAGSEngine::ReplaceFontRenderer(int fontNumber, IAGSFontRender
 	return old_render;
 }
 
-const char *IAGSEngine::ResolveFilePath(const char *script_path) {
-	return File_ResolvePath(script_path);
+size_t IAGSEngine::ResolveFilePath(const char *script_path, char *buf, size_t buf_len) {
+	ResolvedPath rp;
+	ResolveScriptPath(script_path, true, rp);
+	String path = Path::MakeAbsolutePath(rp.FullPath);
+	if (!buf)
+		return path.GetLength() + 1;
+	size_t copy_len = path.GetLength() < buf_len - 1 ? path.GetLength() : buf_len - 1;
+	Common::strlcpy(buf, path.GetCStr(), buf_len);
+	return copy_len + 1;
 }
 
 void IAGSEngine::GetRenderStageDesc(AGSRenderStageDesc *desc) {
@@ -766,6 +857,67 @@ IAGSFontRenderer* IAGSEngine::ReplaceFontRenderer2(int fontNumber, IAGSFontRende
 void IAGSEngine::NotifyFontUpdated(int fontNumber) {
 	font_recalc_metrics(fontNumber);
 	GUI::MarkForFontUpdate(fontNumber);
+}
+
+IAGSStream *IAGSEngine::OpenFileStream(const char *script_path, int file_mode, int work_mode) {
+	FileOpenMode open_mode = static_cast<FileOpenMode>(file_mode - 1);
+	FileWorkMode work = (work_mode & AGSSTREAM_MODE_WRITE) ? kFile_Write : kFile_Read;
+
+	ResolvedPath rp;
+	if (!ResolveScriptPath(script_path, (work_mode & AGSSTREAM_MODE_WRITE) == 0, rp))
+		return nullptr;
+
+	FileStream *stream = new FileStream(rp.FullPath, open_mode, work);
+	if (!stream->IsValid()) {
+		delete stream;
+		return nullptr;
+	}
+	return new PluginStreamWrapper(stream, true);
+}
+
+IAGSStream *IAGSEngine::GetFileStreamByHandle(int32 fhandle) {
+	Stream *stream = get_valid_file_stream_from_handle(fhandle, "IAGSEngine::GetFileStreamByHandle");
+	if (!stream)
+		return nullptr;
+	return new PluginStreamWrapper(stream, false);
+}
+
+void IAGSEngine::Log(int level, const char *fmt, ...) {
+	String logbuf;
+	logbuf.Format("%s : ", _GP(plugins)[this->pluginId].filename.GetCStr());
+	va_list argptr;
+	va_start(argptr, fmt);
+	logbuf.AppendFmtv(fmt, argptr);
+	va_end(argptr);
+	AGS::Shared::Debug::Printf(static_cast<AGS::Shared::MessageType>(level), logbuf);
+}
+
+void *IAGSEngine::CreateDynamicArray(size_t elem_count, size_t elem_size, bool is_managed_type) {
+	if (elem_count > INT32_MAX || elem_size > INT32_MAX ||
+			(static_cast<uint64_t>(elem_count) * elem_size) > UINT32_MAX) {
+		debug_script_warn("IAGSEngine::CreateDynamicArray: requested array size exceeds the supported limit");
+		return nullptr;
+	}
+	if (is_managed_type && elem_size != sizeof(int32_t)) {
+		debug_script_warn("IAGSEngine::CreateDynamicArray: managed handles must have elem_size = 4, requested %zu instead", elem_size);
+		return nullptr;
+	}
+
+	auto obj_ref = CCDynamicArray::Create(static_cast<int>(elem_count), static_cast<int>(elem_size), is_managed_type);
+	return obj_ref.Obj;
+}
+
+size_t IAGSEngine::GetDynamicArrayLength(const void *arr) {
+	if (!arr)
+		return 0;
+	const auto &hdr = CCDynamicArray::GetHeader(arr);
+	return hdr.ElemCount & (~ARRAY_MANAGED_TYPE_FLAG);
+}
+
+size_t IAGSEngine::GetDynamicArraySize(const void *arr) {
+	if (!arr)
+		return 0;
+	return CCDynamicArray::GetHeader(arr).TotalSize;
 }
 
 // *********** General plugin implementation **********

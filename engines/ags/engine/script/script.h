@@ -37,7 +37,7 @@ namespace AGS3 {
 using AGS::Shared::String;
 using AGS::Shared::Interaction;
 using AGS::Shared::InteractionCommandList;
-using AGS::Shared::InteractionScripts;
+using AGS::Shared::InteractionEvents;
 using AGS::Shared::InteractionVariable;
 
 #define LATE_REP_EXEC_ALWAYS_NAME "late_repeatedly_execute_always"
@@ -81,7 +81,7 @@ int     run_interaction_event(const ObjectEvent &obj_evt, Interaction *nint, int
 // Runs the ObjectEvent using a script callback of 'evnt' index,
 // or alternatively of 'chkAny' index, if previous does not exist
 // Returns 0 normally, or -1 telling of a game state change (eg. a room change occurred).
-int     run_interaction_script(const ObjectEvent &obj_evt, InteractionScripts *nint, int evnt, int chkAny = -1);
+int     run_interaction_script(const ObjectEvent &obj_evt, InteractionEvents *nint, int evnt, int chkAny = -1);
 int     run_interaction_commandlist(const ObjectEvent &obj_evt, InteractionCommandList *nicl, int *timesrun, int *cmdsrun);
 void    run_unhandled_event(const ObjectEvent &obj_evt, int evnt);
 int     create_global_script();

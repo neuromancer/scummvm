@@ -456,19 +456,21 @@ ScriptAudioChannel *PlayVoiceClip(CharacterInfo *ch, int sndid, bool as_speech) 
 }
 
 // Construct an asset name for the voice-over clip for the given character and cue id
-String get_cue_filename(int charid, int sndid) {
+String get_cue_filename(int charid, int sndid, bool old_style = true) {
 	String asset_path = get_voice_assetpath();
-	String script_name;
-	if (charid >= 0) {
-		// append the first 4 characters of the script name to the filename
-		if (_GP(game).chars2[charid].scrname_new.GetAt(0) == 'c')
-			script_name.SetString(_GP(game).chars2[charid].scrname_new.GetCStr() + 1, 4);
-		else
-			script_name.SetString(_GP(game).chars2[charid].scrname_new.GetCStr(), 4);
-	} else {
-		script_name = "NARR";
-	}
-	return String::FromFormat("%s%s%d", asset_path.GetCStr(), script_name.GetCStr(), sndid);
+	// Clip name generation rule:
+	// New-style: use full script name (past the 'c' prefix),
+	//            clip number is separated by a dot: "CHARNAME.X"
+	// Old-style: use only first 4 characters (past the 'c' prefix),
+	//            clip number is not separated: "CHARX"
+	const char *charname = (charid >= 0) ? _GP(game).chars2[charid].scrname_new.GetCStr()
+		: "narrator";
+	size_t from = (charname[0] == 'c') ? 1 : 0u;
+	size_t len = old_style ? 4 : SIZE_MAX;
+	String charname_fix(charname + from, len);
+	const char *fmt_str = old_style ? "%s%d" : "%s.%d";
+	String asset_filename = String::FromFormat(fmt_str, charname_fix.GetCStr(), sndid);
+	return Path::ConcatPaths(asset_path, asset_filename);
 }
 
 // Play voice-over clip on the common channel;
@@ -546,7 +548,7 @@ bool play_voice_speech(int charid, int sndid) {
 	if (!_GP(play).ShouldPlayVoiceSpeech())
 		return false;
 
-	String voice_file = get_cue_filename(charid, sndid);
+	String voice_file = get_cue_filename(charid, sndid, !_GP(game).options[OPT_VOICECLIPNAMERULE]);
 	if (!play_voice_clip_impl(voice_file, true, true))
 		return false;
 
@@ -581,7 +583,7 @@ bool play_voice_nonblocking(int charid, int sndid, bool as_speech) {
 	if (_GP(play).IsBlockingVoiceSpeech())
 		return false;
 
-	String voice_file = get_cue_filename(charid, sndid);
+	String voice_file = get_cue_filename(charid, sndid, !_GP(game).options[OPT_VOICECLIPNAMERULE]);
 	return play_voice_clip_impl(voice_file, as_speech, false);
 }
 

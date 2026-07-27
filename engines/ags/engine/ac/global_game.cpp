@@ -378,6 +378,7 @@ void SetGameSpeed(int newspd) {
 	if (newspd > 1000) newspd = 1000;
 	if (newspd < 10) newspd = 10;
 	set_game_speed(newspd);
+	_GP(game).options[OPT_GAMEFPS] = newspd;
 	debug_script_log("Game speed set to %d", newspd);
 }
 

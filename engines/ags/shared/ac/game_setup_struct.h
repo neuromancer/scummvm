@@ -37,6 +37,7 @@
 #include "ags/shared/ac/mouse_cursor.h"
 #include "ags/shared/ac/dynobj/script_audio_clip.h"
 #include "ags/shared/game/custom_properties.h"
+#include "ags/shared/game/interactions.h"
 #include "ags/shared/game/main_game_file.h" // TODO: constants to separate header or split out reading functions
 
 namespace AGS3 {
@@ -45,9 +46,8 @@ namespace AGS {
 namespace Shared {
 struct AssetLibInfo;
 struct Interaction;
-struct InteractionScripts;
+struct InteractionEvents;
 typedef std::shared_ptr<Interaction> PInteraction;
-typedef std::shared_ptr<InteractionScripts> PInteractionScripts;
 } // namespace Shared
 } // namespace AGS
 

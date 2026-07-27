@@ -61,6 +61,7 @@ using namespace AGS; // FIXME later
 #define CHF_MOVENOTWALK     0x10000   // engine only - do not do walk anim
 #define CHF_ANTIGLIDE       0x20000
 #define CHF_HASLIGHT        0x40000
+#define CHF_TURNWHENFACE    0x80000
 #define CHF_TINTLIGHTMASK   (CHF_NOLIGHTING | CHF_HASTINT | CHF_HASLIGHT)
 // Speechcol is no longer part of the flags as of v2.5
 #define OCHF_SPEECHCOL      0xff000000
@@ -96,6 +97,7 @@ enum CharacterSvgVersion {
 	kCharSvgVersion_36025 = 2,   // animation volume
 	kCharSvgVersion_36109 = 3,   // removed movelists, save externally
 	kCharSvgVersion_36115 = 4,   // no limit on character name's length
+	kCharSvgVersion_36205 = 3060205, // 32-bit "following" parameters
 };
 
 

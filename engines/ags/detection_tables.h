@@ -3942,6 +3942,22 @@ const PlainGameDescriptor GAME_NAMES[] = {
 #define DEMO_ENTRY(ID, FILENAME, MD5, SIZE) \
 	DETECTION_ENTRY(ID, FILENAME, MD5, SIZE, Common::UNK_LANG, "Demo", ADGF_DEMO, 0)
 
+// 3.6.2 game entries (now supported)
+#define GAME_ENTRY_362(ID, FILENAME, MD5, SIZE) \
+	DETECTION_ENTRY(ID, FILENAME, MD5, SIZE, Common::UNK_LANG, "", ADGF_NO_FLAGS, 0)
+
+#define GAME_ENTRY_362_EN(ID, FILENAME, MD5, SIZE) \
+	DETECTION_ENTRY(ID, FILENAME, MD5, SIZE, Common::EN_ANY, "", ADGF_NO_FLAGS, 0)
+
+#define GAME_ENTRY_362_LANG(ID, FILENAME, MD5, SIZE, LANG) \
+	DETECTION_ENTRY(ID, FILENAME, MD5, SIZE, LANG, "", ADGF_NO_FLAGS, 0)
+
+#define DEMO_ENTRY_362_EN(ID, FILENAME, MD5, SIZE) \
+	DETECTION_ENTRY(ID, FILENAME, MD5, SIZE, Common::EN_ANY, "Demo", ADGF_DEMO, 0)
+
+#define DEMO_ENTRY_362(ID, FILENAME, MD5, SIZE) \
+	DETECTION_ENTRY(ID, FILENAME, MD5, SIZE, Common::UNK_LANG, "Demo", ADGF_DEMO, 0)
+
 #define DEMO_ENTRY_EN(ID, FILENAME, MD5, SIZE) \
 	DETECTION_ENTRY(ID, FILENAME, MD5, SIZE, Common::EN_ANY, "Demo", ADGF_DEMO, 0)
 
@@ -4391,92 +4407,92 @@ const AGSGameDescription GAME_DESCRIPTIONS[] = {
 	UNSUPPORTED_GAME_ENTRY_EN("zak2", "clk:fanadv_zak2.exe:Zak2.exe", "A:e88fd6a23a5e498d7b0d50e3bb914085", 8686711),
 	UNSUPPORTED_GAME_ENTRY_EN("zak2", "Zak2.exe", "0b7529a76f38283d6e850b8d56526fc1", 9205143),
 
-	// AGS 3.6.2/3 games
-	UNSUPPORTED_GAME_ENTRY_EN("2ampipe", "2-am-pipe-down.ags", "d91910d7588637c51f483d4c3e48d961", 3688125),
-	UNSUPPORTED_DEMO_ENTRY("aftergold", "Aftergold.ags", "149e43eaadd2ddd6fade14c55f901266", 9495772),  // Eng-Esp
-	UNSUPPORTED_GAME_ENTRY_EN("agent11", "Agent 11 - The Missing Knight.ags", "4b9c9d5bdab4df97f13ac68fff8f9a1e", 472664809),
-	UNSUPPORTED_GAME_ENTRY_EN("badcoral", "BadToTheCoral.ags", "404ba29796e56672febce37c38d41d23", 4638605),  //v1.02
-	UNSUPPORTED_GAME_ENTRY_EN("beachbelly", "BeachBellyBloodbath.ags", "4792bc8c90ba9d08dfe32394af61420b", 25562809),
-	UNSUPPORTED_GAME_ENTRY_EN("beachbelly", "BeachBellyBloodbath.ags", "08d7ab12e0844b2217171b9f16f87062", 11267330),  // Post-Jam
-	UNSUPPORTED_GAME_ENTRY_EN("beachbelly", "BeachBellyBloodbath.ags", "b9e0b0bbbb82a04d9c83efa455610eda", 11728709),  // Post-Jam v11
-	UNSUPPORTED_DEMO_ENTRY_EN("bearingdown", "Bear Game.ags", "f5271361fcbad7c5d588d863272a560b", 2576138),
-	UNSUPPORTED_DEMO_ENTRY_EN("bookertail", "Bookertail.ags", "036588310f7c60c40ae97be9f2ea641c", 8593198),
-	UNSUPPORTED_GAME_ENTRY_EN("blackcomet", "BlackComet.ags", "35c78ae37fad8495724872a0958d43d6", 2351438),
-	UNSUPPORTED_GAME_ENTRY_EN("brainrot", "brainrot.ags", "6f6d233e14167a68c257eb0599cd9234", 417226),
-	UNSUPPORTED_GAME_ENTRY_EN("brownieadv1", "Brownie1.exe", "a3a797d0ea4bacd17e75d06edc5a7c4b", 166779573),  // GOG v8.0
-	UNSUPPORTED_DEMO_ENTRY_EN("brownieadvfinal", "BA3ANR.exe", "ba3b67bd973d39c10871303118bbd31c", 207511283),
-	UNSUPPORTED_DEMO_ENTRY_EN("brownieadvfinal", "BA3ANR.exe", "66fd18bb3949aae150bcc20936de6521", 207736051),
-	UNSUPPORTED_DEMO_ENTRY_EN("brownieadvfinal", "BA3ANR.exe", "66fd18bb3949aae150bcc20936de6521", 207738231),
-	UNSUPPORTED_GAME_ENTRY_EN("bugadv", "bug game file.exe", "0ce1f999753709e6bb9d0aac5ab3c5b8", 330311727),
-	UNSUPPORTED_GAME_ENTRY_EN("burncloset", "BurnDownTheCLoset.ags", "adfdd31c0cfa9ae131da1f1071e75a7a", 4734045),
-	UNSUPPORTED_GAME_ENTRY_EN("bvsr", "BvR.exe", "2587f046d5f079359e6aec043519fa70", 7264253),  // v1.0.1
-	UNSUPPORTED_GAME_ENTRY("bvsr", "BvR.exe", "282d24b629030b11147c17862e295d44", 7356698),  // v1.0.3 Eng-Deu
-	UNSUPPORTED_GAME_ENTRY_EN("bvsr", "BvR.ags", "e0fcd3d59fb160e504700ab8a0101e2f", 4147230),
-	UNSUPPORTED_GAME_ENTRY("bvsr", "BvR.ags", "a22b468346036f972fcb5f7353bf935a", 4225798),  // v1.0.3 Eng-Deu
-	UNSUPPORTED_GAME_ENTRY_EN("carnivalags", "Carnival.exe", "7b206bbaec47b9e30d7c41212e3f9a31", 312099935),
-	UNSUPPORTED_DEMO_ENTRY("catsfault", "ItAllCatsFault.ags", "d81133ee8769cefc86ef8db30a52eadd", 145028486),  // Eng-Rus
-	UNSUPPORTED_DEMO_ENTRY("chuckisland", "Chuck et l'ile aux Geants.ags", "d72d0f45296f9085690d244da1e73d22", 43544604),  // En-Fr
-	UNSUPPORTED_DEMO_ENTRY_EN("cowisland", "LoCI.exe", "0e59f2bebcd30d717a16922376357c71", 7623538),
-	UNSUPPORTED_GAME_ENTRY_EN("cowisland", "LoCI.exe", "0e59f2bebcd30d717a16922376357c71", 8969147),  // Steam
-	UNSUPPORTED_GAME_ENTRY_EN("db0oops", "db0oops.exe", "0ce1f999753709e6bb9d0aac5ab3c5b8", 85067623),
-	UNSUPPORTED_GAME_ENTRY_EN("detentionrampage", "DetentionRR.ags", "58efd28bb8afec118e0c05ccd58313ec", 89454076),
-	UNSUPPORTED_GAME_ENTRY_EN("evanquest", "Evan's Quest.ags", "dc22667b05d7850a1baf5b03abb3060a", 552593),
-	UNSUPPORTED_DEMO_ENTRY_EN("fifthbell", "The Fifth Bell.ags", "63b681362829477b94506c71508b021d", 4113424005),
-	UNSUPPORTED_DEMO_ENTRY_EN("gregorags", "GregorDemo.ags", "c320c1099720c6074ddad87d0782e1cf", 8044720),
-	UNSUPPORTED_GAME_ENTRY_EN("holeags", "HOLE_AGS.ags", "8361748898173f96456b0ea966b32db3", 13689500),
-	UNSUPPORTED_GAME_ENTRY("incendieecole", "incendieecole.ags", "70a590291ce21d73cb3dd1dd09d98247", 6162150),  // En-Fr
-	UNSUPPORTED_DEMO_ENTRY_EN("input", "Cyber_320.ags", "7abdf06274bdb9dfa2cdba0188a9c02f", 490613151),  // v0.2
-	UNSUPPORTED_DEMO_ENTRY_EN("input", "Cyber_320.ags", "95cce7f3189caffa73032cd359b2f7e8", 492937326),  // v0.21
-	UNSUPPORTED_GAME_ENTRY_EN("jexvortigan", "Vortigan.ags", "fc5d21c55dc117c8621b3ec56c99228d", 1358443999),
-	UNSUPPORTED_GAME_ENTRY_EN("layingpipe", "LayingPipe.ags", "fd9c3686e252b665dad5914ed5128e1a", 2094206),
-	UNSUPPORTED_GAME_ENTRY("leisuresuitlarry1", "Leisure Suit Larry 1 AGI+ Remake.ags", "054602686ccc228b3cf19dda3d015887", 4486500),  // v1.0.2.8 Eng-Hebrew
-	UNSUPPORTED_GAME_ENTRY("leisuresuitlarry1", "Leisure Suit Larry 1 AGI+ Remake.ags", "6773b4f0e4406498e0fc544a87d2a591", 4532130),  // v1.1.0.0 Eng-Hebrew
-	UNSUPPORTED_GAME_ENTRY("leisuresuitlarry1", "Leisure Suit Larry 1 AGI+ Remake.ags", "f29c710359b2c79997a628757a1068c3", 4529648),  // v1.2.2.0 Eng-Hebrew
-	UNSUPPORTED_DEMO_ENTRY("lionelbusqueda", "Lionel.exe", "110f894006ef43f0b8f532da18405e2a", 80064586),  // En-Fr-Es-It-Por
-	UNSUPPORTED_GAME_ENTRY("lionelbusqueda", "Lionel.exe", "5777220f773685a33c11df3f014b92e8", 764938283),  // En-Es
-	UNSUPPORTED_GAME_ENTRY_EN("magentaspacech12", "Magenta.exe", "d1fb19834d10cd56b763669b320ec6fd", 100972135),
-	UNSUPPORTED_GAME_ENTRY_EN("mallicious", "MalliciousAdventure.ags", "488d26e22b916ed7e436c398d16afb0d", 8722317),
-	UNSUPPORTED_GAME_ENTRY_EN("mallicious", "MalliciousAdventure.ags", "1743733c37df10c9a7dbcaa381d27243", 8723553),  // v1.02
-	UNSUPPORTED_GAME_ENTRY_EN("mallicious", "MalliciousAdventure.ags", "9bd8c917a39028ada9640967d1f59fac", 8723957),  // v1.03
-	UNSUPPORTED_DEMO_ENTRY_EN("manster", "Manster.ags", "c7e58a20aaf9ff6118f407973deff37d", 4487886),
-	UNSUPPORTED_GAME_ENTRY("metcego", "When_I_met_Cego.ags", "4206351a92dfb0bb056bccf87bc690ff", 468059342),  // Eng-Esp
-	UNSUPPORTED_GAME_ENTRY_LANG("mmm61", "BernardsRoom.ags", "2023239ae99f2cebbc4d457fa4d14784", 4656127, Common::DE_DEU),  // Talkie
-	UNSUPPORTED_GAME_ENTRY_EN("moribundgold", "A Pirate Adventure.exe", "e4a1fe064099ee464e4680ebbda82e05", 21047188),
-	UNSUPPORTED_GAME_ENTRY_EN("perfecttidess2s", "s2s.exe", "fa6ce74d091e1bf012a2b7a667276f97", 1570235856),
-	UNSUPPORTED_GAME_ENTRY_EN("perfecttidess2s", "s2s.exe", "fa6ce74d091e1bf012a2b7a667276f97", 1568442721),  // v1.12
-	UNSUPPORTED_GAME_ENTRY_EN("pqpn1", "PQPN.ags", "a48d4e2cb25c1fd8c8d48a2832120801", 3266124),
-	UNSUPPORTED_GAME_ENTRY_EN("principessasangue", "principessa.exe", "30ef2c1c7d7fe6f535e14657401d0c89", 9262162),  // Win
-	UNSUPPORTED_GAME_ENTRY_EN("principessasangue", "principessa.ags", "9379fac054876b3ef2d15b152031430b", 6150206),  // Linux
-	UNSUPPORTED_GAME_ENTRY("projectdevonia", "PDM.ags", "c99085930b667b3d67c2a9d5c60e447b", 40149942),  // En-De
-	UNSUPPORTED_GAME_ENTRY("projectdevonia", "PDM.ags", "52ace52f870a3219d60af095aace1631", 40150955),  // En-De v1.0.4
-	UNSUPPORTED_GAME_ENTRY_EN("psico", "PsiCoDelivery.ags", "996b2ca765eb93e76503951bba5af484", 3681653),
-	UNSUPPORTED_GAME_ENTRY_EN("raorchard", "OtGW Fan Game.ags", "3630f3417d103c9ab942cd4b1fb15825", 57489965),  // itch.io client
-	UNSUPPORTED_GAME_ENTRY_EN("remembersmile", "socialcues.ags", "47b9859ee2ad917ea71e09db5d6e39b6", 1554396),
-	UNSUPPORTED_GAME_ENTRY_EN("schooled", "Schoold.ags", "392f36864840694d66791eca00b5f310", 34396465),
-	UNSUPPORTED_GAME_ENTRY_EN("sequencebreak", "Sequence Break.exe", "a9661d5c5313a1ab1eabc97c412401e4", 24895535),  // PoC Win
-	UNSUPPORTED_GAME_ENTRY_EN("sequencebreak", "Sequence Break.ags", "81561910dd2cf232a9aca096aad16411", 21778459),  // PoC Linux
-	UNSUPPORTED_GAME_ENTRY_EN("sequencebreak", "Sequence Break.ags", "1a80f829b0739c6db5ac4141eb880b82", 28319904),  // PoC Win/Linux v2
-	UNSUPPORTED_GAME_ENTRY_EN("shardsofgod", "Shards of God.ags", "dafcc09ca5a4f4d4ba721f905dc9f366", 79014256),  // v1.3
-	UNSUPPORTED_GAME_ENTRY_EN("sinkholesy", "Sinkhole Sy.ags", "e450236f4a67a6191ce669d815975bdc", 2228303),
-	UNSUPPORTED_DEMO_ENTRY_EN("smokeymike", "Smokey.ags", "aa1d62e8ee2b0f8927a0e2a00b3aaf64", 112633325),
-	UNSUPPORTED_GAME_ENTRY_EN("snarl", "Snarl.exe", "7b206bbaec47b9e30d7c41212e3f9a31", 75839830),  // v1.0.2
-	UNSUPPORTED_GAME_ENTRY_EN("snarl", "Snarl.exe", "7b206bbaec47b9e30d7c41212e3f9a31", 75841814),  // TRAC #16236
-	UNSUPPORTED_GAME_ENTRY_EN("snarl", "Snarl.exe", "7b206bbaec47b9e30d7c41212e3f9a31", 75845392),  // v1.0.3
-	UNSUPPORTED_DEMO_ENTRY_EN("starfall", "Starfall.exe", "e046d316d8c791e787a86deece6e8638", 26605793),
-	UNSUPPORTED_GAME_ENTRY("startrekxeno", "Star Trek Xenomorph Alert V2.ags", "1422a3b5a3870def6ef910774a0242be", AD_NO_SIZE),  // En-Fr
-	UNSUPPORTED_GAME_ENTRY_EN("thedissident", "Dissident.ags", "2fb5af288fe73751d51635d1576c42ca", 11952309),
-	UNSUPPORTED_GAME_ENTRY_EN("theescapeags", "escape.exe", "6dc8f0aedfd55a47f81323f0a412bc15", 19623142),
-	UNSUPPORTED_GAME_ENTRY_EN("theescapeags", "escape.ags", "e5e26631bf6a375ab722f9588e2f82a1", 16513746),
-	UNSUPPORTED_GAME_ENTRY_EN("thepromise", "The Promise.ags", "1754e480c1cfc53659c3a13d8c86a4c4", 564675374),
-	UNSUPPORTED_GAME_ENTRY_EN("theriftags", "TheRift.ags", "7208dcd6fa4eb2b6c69cf506fbd103b3", 4612299),
-	UNSUPPORTED_GAME_ENTRY("ultrasecreto", "UltraSecreto.ags", "b4eac3a05a3d442691a061478e4c747b", 12085980),  // v1.0.3
-	UNSUPPORTED_GAME_ENTRY("ultrasecreto", "UltraSecreto.ags", "6e6a8755fdf5a14e5e0dc1aeb1c4b7e8", 11828134),  // v1.0.4
-	UNSUPPORTED_GAME_ENTRY_EN("umbraadv", "umbraGame.ags", "9e7cfa6b7e63b32669e57e11c60bece6", 649267),
-	UNSUPPORTED_GAME_ENTRY_LANG("valbourg", "Valbourg.ags", "5bf37570e233f46d14aea5470711d43c", 53013006, Common::FR_FRA),
-	UNSUPPORTED_GAME_ENTRY_EN("vasafasa", "The Vasa Fasa.ags", "0bffe4b12ae8f62bf7c0b9b51f7173e8", 50323076),
-	UNSUPPORTED_GAME_ENTRY_EN("vasafasa", "The Vasa Fasa.ags", "ca487ef688d4fa464986b5ff18d15a23", 59310114),
-	UNSUPPORTED_GAME_ENTRY_EN("weightgravity", "Weight of Gravity.ags", "d5532595b86ca80fb656d4343063ab15", 245545607),
-	UNSUPPORTED_GAME_ENTRY_EN("yanms", "YANMS.ags", "ce8d9fa4d0d53db063d59e71a514f61a", 5007178),
+	// AGS 3.6.2 games
+	GAME_ENTRY_362_EN("2ampipe", "2-am-pipe-down.ags", "d91910d7588637c51f483d4c3e48d961", 3688125),
+	DEMO_ENTRY_362("aftergold", "Aftergold.ags", "149e43eaadd2ddd6fade14c55f901266", 9495772),  // Eng-Esp
+	GAME_ENTRY_362_EN("agent11", "Agent 11 - The Missing Knight.ags", "4b9c9d5bdab4df97f13ac68fff8f9a1e", 472664809),
+	GAME_ENTRY_362_EN("badcoral", "BadToTheCoral.ags", "404ba29796e56672febce37c38d41d23", 4638605),  //v1.02
+	GAME_ENTRY_362_EN("beachbelly", "BeachBellyBloodbath.ags", "4792bc8c90ba9d08dfe32394af61420b", 25562809),
+	GAME_ENTRY_362_EN("beachbelly", "BeachBellyBloodbath.ags", "08d7ab12e0844b2217171b9f16f87062", 11267330),  // Post-Jam
+	GAME_ENTRY_362_EN("beachbelly", "BeachBellyBloodbath.ags", "b9e0b0bbbb82a04d9c83efa455610eda", 11728709),  // Post-Jam v11
+	DEMO_ENTRY_362_EN("bearingdown", "Bear Game.ags", "f5271361fcbad7c5d588d863272a560b", 2576138),
+	DEMO_ENTRY_362_EN("bookertail", "Bookertail.ags", "036588310f7c60c40ae97be9f2ea641c", 8593198),
+	GAME_ENTRY_362_EN("blackcomet", "BlackComet.ags", "35c78ae37fad8495724872a0958d43d6", 2351438),
+	GAME_ENTRY_362_EN("brainrot", "brainrot.ags", "6f6d233e14167a68c257eb0599cd9234", 417226),
+	GAME_ENTRY_362_EN("brownieadv1", "Brownie1.exe", "a3a797d0ea4bacd17e75d06edc5a7c4b", 166779573),  // GOG v8.0
+	DEMO_ENTRY_362_EN("brownieadvfinal", "BA3ANR.exe", "ba3b67bd973d39c10871303118bbd31c", 207511283),
+	DEMO_ENTRY_362_EN("brownieadvfinal", "BA3ANR.exe", "66fd18bb3949aae150bcc20936de6521", 207736051),
+	DEMO_ENTRY_362_EN("brownieadvfinal", "BA3ANR.exe", "66fd18bb3949aae150bcc20936de6521", 207738231),
+	GAME_ENTRY_362_EN("bugadv", "bug game file.exe", "0ce1f999753709e6bb9d0aac5ab3c5b8", 330311727),
+	GAME_ENTRY_362_EN("burncloset", "BurnDownTheCLoset.ags", "adfdd31c0cfa9ae131da1f1071e75a7a", 4734045),
+	GAME_ENTRY_362_EN("bvsr", "BvR.exe", "2587f046d5f079359e6aec043519fa70", 7264253),  // v1.0.1
+	GAME_ENTRY_362("bvsr", "BvR.exe", "282d24b629030b11147c17862e295d44", 7356698),  // v1.0.3 Eng-Deu
+	GAME_ENTRY_362_EN("bvsr", "BvR.ags", "e0fcd3d59fb160e504700ab8a0101e2f", 4147230),
+	GAME_ENTRY_362("bvsr", "BvR.ags", "a22b468346036f972fcb5f7353bf935a", 4225798),  // v1.0.3 Eng-Deu
+	GAME_ENTRY_362_EN("carnivalags", "Carnival.exe", "7b206bbaec47b9e30d7c41212e3f9a31", 312099935),
+	DEMO_ENTRY_362("catsfault", "ItAllCatsFault.ags", "d81133ee8769cefc86ef8db30a52eadd", 145028486),  // Eng-Rus
+	DEMO_ENTRY_362("chuckisland", "Chuck et l'ile aux Geants.ags", "d72d0f45296f9085690d244da1e73d22", 43544604),  // En-Fr
+	DEMO_ENTRY_362_EN("cowisland", "LoCI.exe", "0e59f2bebcd30d717a16922376357c71", 7623538),
+	GAME_ENTRY_362_EN("cowisland", "LoCI.exe", "0e59f2bebcd30d717a16922376357c71", 8969147),  // Steam
+	GAME_ENTRY_362_EN("db0oops", "db0oops.exe", "0ce1f999753709e6bb9d0aac5ab3c5b8", 85067623),
+	GAME_ENTRY_362_EN("detentionrampage", "DetentionRR.ags", "58efd28bb8afec118e0c05ccd58313ec", 89454076),
+	GAME_ENTRY_362_EN("evanquest", "Evan's Quest.ags", "dc22667b05d7850a1baf5b03abb3060a", 552593),
+	DEMO_ENTRY_362_EN("fifthbell", "The Fifth Bell.ags", "63b681362829477b94506c71508b021d", 4113424005),
+	DEMO_ENTRY_362_EN("gregorags", "GregorDemo.ags", "c320c1099720c6074ddad87d0782e1cf", 8044720),
+	GAME_ENTRY_362_EN("holeags", "HOLE_AGS.ags", "8361748898173f96456b0ea966b32db3", 13689500),
+	GAME_ENTRY_362("incendieecole", "incendieecole.ags", "70a590291ce21d73cb3dd1dd09d98247", 6162150),  // En-Fr
+	DEMO_ENTRY_362_EN("input", "Cyber_320.ags", "7abdf06274bdb9dfa2cdba0188a9c02f", 490613151),  // v0.2
+	DEMO_ENTRY_362_EN("input", "Cyber_320.ags", "95cce7f3189caffa73032cd359b2f7e8", 492937326),  // v0.21
+	GAME_ENTRY_362_EN("jexvortigan", "Vortigan.ags", "fc5d21c55dc117c8621b3ec56c99228d", 1358443999),
+	GAME_ENTRY_362_EN("layingpipe", "LayingPipe.ags", "fd9c3686e252b665dad5914ed5128e1a", 2094206),
+	GAME_ENTRY_362("leisuresuitlarry1", "Leisure Suit Larry 1 AGI+ Remake.ags", "054602686ccc228b3cf19dda3d015887", 4486500),  // v1.0.2.8 Eng-Hebrew
+	GAME_ENTRY_362("leisuresuitlarry1", "Leisure Suit Larry 1 AGI+ Remake.ags", "6773b4f0e4406498e0fc544a87d2a591", 4532130),  // v1.1.0.0 Eng-Hebrew
+	GAME_ENTRY_362("leisuresuitlarry1", "Leisure Suit Larry 1 AGI+ Remake.ags", "f29c710359b2c79997a628757a1068c3", 4529648),  // v1.2.2.0 Eng-Hebrew
+	DEMO_ENTRY_362("lionelbusqueda", "Lionel.exe", "110f894006ef43f0b8f532da18405e2a", 80064586),  // En-Fr-Es-It-Por
+	GAME_ENTRY_362("lionelbusqueda", "Lionel.exe", "5777220f773685a33c11df3f014b92e8", 764938283),  // En-Es
+	GAME_ENTRY_362_EN("magentaspacech12", "Magenta.exe", "d1fb19834d10cd56b763669b320ec6fd", 100972135),
+	GAME_ENTRY_362_EN("mallicious", "MalliciousAdventure.ags", "488d26e22b916ed7e436c398d16afb0d", 8722317),
+	GAME_ENTRY_362_EN("mallicious", "MalliciousAdventure.ags", "1743733c37df10c9a7dbcaa381d27243", 8723553),  // v1.02
+	GAME_ENTRY_362_EN("mallicious", "MalliciousAdventure.ags", "9bd8c917a39028ada9640967d1f59fac", 8723957),  // v1.03
+	DEMO_ENTRY_362_EN("manster", "Manster.ags", "c7e58a20aaf9ff6118f407973deff37d", 4487886),
+	GAME_ENTRY_362("metcego", "When_I_met_Cego.ags", "4206351a92dfb0bb056bccf87bc690ff", 468059342),  // Eng-Esp
+	GAME_ENTRY_362_LANG("mmm61", "BernardsRoom.ags", "2023239ae99f2cebbc4d457fa4d14784", 4656127, Common::DE_DEU),  // Talkie
+	GAME_ENTRY_362_EN("moribundgold", "A Pirate Adventure.exe", "e4a1fe064099ee464e4680ebbda82e05", 21047188),
+	GAME_ENTRY_362_EN("perfecttidess2s", "s2s.exe", "fa6ce74d091e1bf012a2b7a667276f97", 1570235856),
+	GAME_ENTRY_362_EN("perfecttidess2s", "s2s.exe", "fa6ce74d091e1bf012a2b7a667276f97", 1568442721),  // v1.12
+	GAME_ENTRY_362_EN("pqpn1", "PQPN.ags", "a48d4e2cb25c1fd8c8d48a2832120801", 3266124),
+	GAME_ENTRY_362_EN("principessasangue", "principessa.exe", "30ef2c1c7d7fe6f535e14657401d0c89", 9262162),  // Win
+	GAME_ENTRY_362_EN("principessasangue", "principessa.ags", "9379fac054876b3ef2d15b152031430b", 6150206),  // Linux
+	GAME_ENTRY_362("projectdevonia", "PDM.ags", "c99085930b667b3d67c2a9d5c60e447b", 40149942),  // En-De
+	GAME_ENTRY_362("projectdevonia", "PDM.ags", "52ace52f870a3219d60af095aace1631", 40150955),  // En-De v1.0.4
+	GAME_ENTRY_362_EN("psico", "PsiCoDelivery.ags", "996b2ca765eb93e76503951bba5af484", 3681653),
+	GAME_ENTRY_362_EN("raorchard", "OtGW Fan Game.ags", "3630f3417d103c9ab942cd4b1fb15825", 57489965),  // itch.io client
+	GAME_ENTRY_362_EN("remembersmile", "socialcues.ags", "47b9859ee2ad917ea71e09db5d6e39b6", 1554396),
+	GAME_ENTRY_362_EN("schooled", "Schoold.ags", "392f36864840694d66791eca00b5f310", 34396465),
+	GAME_ENTRY_362_EN("sequencebreak", "Sequence Break.exe", "a9661d5c5313a1ab1eabc97c412401e4", 24895535),  // PoC Win
+	GAME_ENTRY_362_EN("sequencebreak", "Sequence Break.ags", "81561910dd2cf232a9aca096aad16411", 21778459),  // PoC Linux
+	GAME_ENTRY_362_EN("sequencebreak", "Sequence Break.ags", "1a80f829b0739c6db5ac4141eb880b82", 28319904),  // PoC Win/Linux v2
+	GAME_ENTRY_362_EN("shardsofgod", "Shards of God.ags", "dafcc09ca5a4f4d4ba721f905dc9f366", 79014256),  // v1.3
+	GAME_ENTRY_362_EN("sinkholesy", "Sinkhole Sy.ags", "e450236f4a67a6191ce669d815975bdc", 2228303),
+	DEMO_ENTRY_362_EN("smokeymike", "Smokey.ags", "aa1d62e8ee2b0f8927a0e2a00b3aaf64", 112633325),
+	GAME_ENTRY_362_EN("snarl", "Snarl.exe", "7b206bbaec47b9e30d7c41212e3f9a31", 75839830),  // v1.0.2
+	GAME_ENTRY_362_EN("snarl", "Snarl.exe", "7b206bbaec47b9e30d7c41212e3f9a31", 75841814),  // TRAC #16236
+	GAME_ENTRY_362_EN("snarl", "Snarl.exe", "7b206bbaec47b9e30d7c41212e3f9a31", 75845392),  // v1.0.3
+	DEMO_ENTRY_362_EN("starfall", "Starfall.exe", "e046d316d8c791e787a86deece6e8638", 26605793),
+	GAME_ENTRY_362("startrekxeno", "Star Trek Xenomorph Alert V2.ags", "1422a3b5a3870def6ef910774a0242be", AD_NO_SIZE),  // En-Fr
+	GAME_ENTRY_362_EN("thedissident", "Dissident.ags", "2fb5af288fe73751d51635d1576c42ca", 11952309),
+	GAME_ENTRY_362_EN("theescapeags", "escape.exe", "6dc8f0aedfd55a47f81323f0a412bc15", 19623142),
+	GAME_ENTRY_362_EN("theescapeags", "escape.ags", "e5e26631bf6a375ab722f9588e2f82a1", 16513746),
+	GAME_ENTRY_362_EN("thepromise", "The Promise.ags", "1754e480c1cfc53659c3a13d8c86a4c4", 564675374),
+	GAME_ENTRY_362_EN("theriftags", "TheRift.ags", "7208dcd6fa4eb2b6c69cf506fbd103b3", 4612299),
+	GAME_ENTRY_362("ultrasecreto", "UltraSecreto.ags", "b4eac3a05a3d442691a061478e4c747b", 12085980),  // v1.0.3
+	GAME_ENTRY_362("ultrasecreto", "UltraSecreto.ags", "6e6a8755fdf5a14e5e0dc1aeb1c4b7e8", 11828134),  // v1.0.4
+	GAME_ENTRY_362_EN("umbraadv", "umbraGame.ags", "9e7cfa6b7e63b32669e57e11c60bece6", 649267),
+	GAME_ENTRY_362_LANG("valbourg", "Valbourg.ags", "5bf37570e233f46d14aea5470711d43c", 53013006, Common::FR_FRA),
+	GAME_ENTRY_362_EN("vasafasa", "The Vasa Fasa.ags", "0bffe4b12ae8f62bf7c0b9b51f7173e8", 50323076),
+	GAME_ENTRY_362_EN("vasafasa", "The Vasa Fasa.ags", "ca487ef688d4fa464986b5ff18d15a23", 59310114),
+	GAME_ENTRY_362_EN("weightgravity", "Weight of Gravity.ags", "d5532595b86ca80fb656d4343063ab15", 245545607),
+	GAME_ENTRY_362_EN("yanms", "YANMS.ags", "ce8d9fa4d0d53db063d59e71a514f61a", 5007178),
 
 	// AGS 4 games
 	AGS4_ENTRY("achristmasnightmare", "xmasnightmare.exe", "53db6ba4864b17a28b8176d92459c7bc", 49689828),  // v1.3 Windows En-Es-It

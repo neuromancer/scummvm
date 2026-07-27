@@ -1136,6 +1136,9 @@ int initialize_engine(const ConfigTree &startup_opts) {
 
 	engine_adjust_for_rotation_settings();
 
+	// Set game speed from game options, or use default
+	set_game_speed((_GP(game).options[OPT_GAMEFPS] > 0) ? _GP(game).options[OPT_GAMEFPS] : 40);
+
 	// Attempt to initialize graphics mode
 	if (!engine_try_set_gfxmode_any(_GP(usetup).Screen))
 		return EXIT_ERROR;

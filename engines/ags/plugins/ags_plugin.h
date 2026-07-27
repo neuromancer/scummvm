@@ -30,6 +30,7 @@
 #ifndef AGS_PLUGINS_AGS_PLUGIN_H
 #define AGS_PLUGINS_AGS_PLUGIN_H
 
+#include <cstdarg>
 #include "common/array.h"
 #include "ags/shared/core/types.h"
 #include "ags/shared/font/ags_font_renderer.h"
@@ -221,6 +222,54 @@ public:
 	// de-register a script header (pass same pointer as when added)
 	AGSIFUNC(void) UnregisterScriptHeader(const char *header);
 };
+
+// File open modes
+#define AGSSTREAM_FILE_OPEN         1
+#define AGSSTREAM_FILE_CREATE       2
+#define AGSSTREAM_FILE_CREATEALWAYS 3
+
+// Stream work modes
+#define AGSSTREAM_MODE_READ  0x01
+#define AGSSTREAM_MODE_WRITE 0x02
+#define AGSSTREAM_MODE_READWRITE (AGSSTREAM_MODE_READ | AGSSTREAM_MODE_WRITE)
+#define AGSSTREAM_MODE_SEEK  0x04
+
+// Stream seek origins
+#define AGSSTREAM_SEEK_SET 0
+#define AGSSTREAM_SEEK_CUR 1
+#define AGSSTREAM_SEEK_END 2
+
+class IAGSStream {
+public:
+	virtual int    GetMode() const = 0;
+	virtual const char *GetPath() const = 0;
+	virtual bool   EOS() const = 0;
+	virtual bool   GetError() const = 0;
+	virtual int64_t GetLength() const = 0;
+	virtual int64_t GetPosition() const = 0;
+
+	virtual size_t Read(void *buffer, size_t len) = 0;
+	virtual int32_t ReadByte() = 0;
+	virtual size_t Write(const void *buffer, size_t len) = 0;
+	virtual int32_t WriteByte(uint8_t b) = 0;
+	virtual int64_t Seek(int64_t offset, int origin) = 0;
+	virtual bool   Flush() = 0;
+	virtual void   Close() = 0;
+	virtual void   Dispose() = 0;
+
+protected:
+	IAGSStream() = default;
+	~IAGSStream() = default;
+};
+
+// Logging levels
+#define AGSLOG_LEVEL_NONE   0
+#define AGSLOG_LEVEL_ALERT  1
+#define AGSLOG_LEVEL_FATAL  2
+#define AGSLOG_LEVEL_ERROR  3
+#define AGSLOG_LEVEL_WARN   4
+#define AGSLOG_LEVEL_INFO   5
+#define AGSLOG_LEVEL_DEBUG  6
 
 // GetFontType font types
 #define FNT_INVALID 0
@@ -474,7 +523,7 @@ public:
 	// check whether a script function can be run now
 	AGSIFUNC(int)    CanRunScriptFunctionNow();
 	// call a user-defined script function
-	AGSIFUNC(int)    CallGameScriptFunction(const char *name, int32 globalScript, int32 numArgs, long arg1 = 0, long arg2 = 0, long arg3 = 0);
+	AGSIFUNC(int)    CallGameScriptFunction(const char *name, int32 globalScript, int32 numArgs, intptr_t arg1 = 0, intptr_t arg2 = 0, intptr_t arg3 = 0);
 
 	// *** BELOW ARE INTERFACE VERSION 15 AND ABOVE ONLY
 	// force any sprites on-screen using the slot to be updated
@@ -482,7 +531,7 @@ public:
 	// change whether the specified sprite is a 32-bit alpha blended image
 	AGSIFUNC(void)   SetSpriteAlphaBlended(int32 slot, int32 isAlphaBlended);
 	// run the specified script function whenever script engine is available
-	AGSIFUNC(void)   QueueGameScriptFunction(const char *name, int32 globalScript, int32 numArgs, long arg1 = 0, long arg2 = 0);
+	AGSIFUNC(void)   QueueGameScriptFunction(const char *name, int32 globalScript, int32 numArgs, intptr_t arg1 = 0, intptr_t arg2 = 0);
 	// register a new dynamic managed script object
 	AGSIFUNC(int)    RegisterManagedObject(void *object, IAGSScriptManagedObject *callback);
 	// add an object reader for the specified object type
@@ -556,7 +605,49 @@ public:
 
 	// *** BELOW ARE INTERFACE VERSION 27 AND ABOVE ONLY
 	// Resolves a script path to a system filepath, same way as script command File.Open does.
-	AGSIFUNC(const char *)	ResolveFilePath(const char *script_path);
+	// Caller should provide an output buffer and its length in bytes.
+	// Passing NULL instead of a buffer pointer will make function calculate and return
+	// length necessary to store a resulting path (in bytes).
+	AGSIFUNC(size_t) ResolveFilePath(const char *script_path, char *buf, size_t buf_len);
+
+	// *** BELOW ARE INTERFACE VERSION 28 AND ABOVE ONLY
+	// Opens a data stream, resolving a script path.
+	// File mode should contain one of the AGSSTREAM_FILE_* values,
+	// work mode should contain flag set of the AGSSTREAM_MODE_* values.
+	// Returns IAGSStream object, or null on failure. The returned stream object
+	// is owned by the caller, and must be deleted by calling its Dispose() method.
+	AGSIFUNC(IAGSStream*) OpenFileStream(const char *script_path, int file_mode, int work_mode);
+	// Returns IAGSStream object identified by the given stream handle.
+	// This lets to retrieve IAGSStream object from a handle received in a event callback.
+	// *IMPORTANT*: The returned stream's ownership is NOT passed to the caller;
+	// this stream should not be closed or disposed, doing so will lead to errors in the engine.
+	// Returns null if handle is invalid.
+	AGSIFUNC(IAGSStream*) GetFileStreamByHandle(int32 fhandle);
+
+	// *** BELOW ARE INTERFACE VERSION 29 AND ABOVE ONLY
+	// Print message to the engine's log, under one of the log levels AGSLOG_LEVEL_*.
+	AGSIFUNC(void)  Log(int level, const char *fmt, ...);
+
+	// *** BELOW ARE INTERFACE VERSION 30 AND ABOVE ONLY
+	// Create a new dynamic array, allocating space for the given number of elements
+	// of the given size. Optionally instructs to create an array for managed handles,
+	// in which case the element size must be sizeof(int32).
+	// IMPORTANT: you MUST correctly tell if this is going to be an array of handles, because
+	// otherwise engine won't know to release their references, which may lead to memory leaks.
+	// IMPORTANT: when writing handles into this array, you MUST inc ref count for each one
+	// of them (see IncrementManagedObjectRefCount), otherwise these objects may get disposed
+	// before the array itself, making these handles invalid!
+	// Dynamic arrays have their meta data allocated prior to array of elements;
+	// this function returns a pointer to the element array, which you may write to.
+	// You may return this pointer from the registered plugin's function just like any other
+	// managed object pointer.
+	AGSIFUNC(void*) CreateDynamicArray(size_t elem_count, size_t elem_size, bool is_managed_type);
+	// Retrieves dynamic array's length (number of elements).
+	// You should pass a dynamic array object either received from the engine in your registered
+	// script function, or created by you with CreateDynamicArray().
+	AGSIFUNC(size_t) GetDynamicArrayLength(const void *arr);
+	// Retrieves dynamic array's size (total capacity in bytes).
+	AGSIFUNC(size_t) GetDynamicArraySize(const void *arr);
 };
 
 struct EnginePlugin {

@@ -90,7 +90,11 @@ namespace AGS3 {
 #define OPT_KEYHANDLEAPI    50 // key handling mode (old/new)
 #define OPT_CUSTOMENGINETAG 51 // custom engine tag (for overriding behavior)
 #define OPT_SCALECHAROFFSETS 52 // apply character scaling to the sprite offsets (z, locked offs)
-#define OPT_HIGHESTOPTION   OPT_SCALECHAROFFSETS
+#define OPT_SAVESCREENSHOTLAYER 53 // which render layer to capture for save screenshots
+#define OPT_VOICECLIPNAMERULE 54 // voice-over clip naming rule
+#define OPT_SAVECOMPONENTSIGNORE 55 // components to skip when saving/restoring
+#define OPT_GAMEFPS         56 // game speed (frames per second)
+#define OPT_HIGHESTOPTION   OPT_GAMEFPS
 #define OPT_NOMODMUSIC      98 // [DEPRECATED]
 #define OPT_LIPSYNCTEXT     99
 
@@ -194,7 +198,8 @@ enum ScriptAPIVersion {
 	kScriptAPI_v360 = 3060000,
 	kScriptAPI_v36026 = 3060026,
 	kScriptAPI_v361 = 3060100,
-	kScriptAPI_Current = kScriptAPI_v361
+	kScriptAPI_v362 = 3060200,
+	kScriptAPI_Current = kScriptAPI_v362
 };
 
 extern const char *GetScriptAPIName(ScriptAPIVersion v);

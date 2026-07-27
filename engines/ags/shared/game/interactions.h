@@ -197,14 +197,50 @@ struct InteractionVariable {
 typedef std::vector<InteractionVariable> InterVarVector;
 
 
-// A list of script function names for all supported events
-struct InteractionScripts {
-	StringV ScriptFuncNames;
+// An indexed list of script function links for all supported events.
+struct InteractionEvents {
+	// An optional name of a script module to run functions in
+	String ScriptModule;
+	// Script function names, corresponding to the event's index,
+	// paired with Enabled flag to tell if this event handler has to be processed,
+	// and Checked flag that tells whether the handler test in script was performed.
+	struct EventHandler {
+		String FunctionName;
 
-	static InteractionScripts *CreateFromStream(Stream *in);
+		bool Enabled = false;
+		bool Checked = false;
+
+		inline bool IsEnabled() const { return Enabled; }
+		inline bool IsChecked() const { return Checked; }
+		inline void SetChecked(bool enabled) { Checked = true; Enabled = enabled; }
+
+		EventHandler() = default;
+		EventHandler(const String &fn_name)
+			: FunctionName(fn_name), Enabled(!fn_name.IsEmpty()), Checked(fn_name.IsEmpty()) {}
+	};
+	std::vector<EventHandler> Events;
+
+	InteractionEvents() = default;
+
+	// Read pre-3.6.2 version of the InteractionEvents
+	bool Read_v361(Stream *in);
+	// Read 3.6.2+ version of the InteractionEvents
+	bool Read_v362(Stream *in);
+	void Write_v361(Stream *out) const;
+	void Write_v362(Stream *out) const;
+
+	// Legacy factory method for v361 format (compatibility shim)
+	static InteractionEvents *CreateFromStream(Stream *in);
+	static InteractionEvents *CreateFromStream_v361(Stream *in);
+	static InteractionEvents *CreateFromStream_v362(Stream *in);
 };
 
-typedef std::shared_ptr<InteractionScripts> PInteractionScripts;
+typedef std::shared_ptr<InteractionEvents> PInteractionScripts;
+
+enum InteractionEventsVersion {
+	kInterEvents_Initial = 0,
+	kInterEvents_v362    = 3060200,
+};
 
 } // namespace Shared
 } // namespace AGS
