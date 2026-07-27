@@ -836,7 +836,8 @@ size_t IAGSEngine::ResolveFilePath(const char *script_path, char *buf, size_t bu
 
 void IAGSEngine::GetRenderStageDesc(AGSRenderStageDesc *desc) {
 	if (desc->Version >= 25) {
-		_G(gfxDriver)->GetStageMatrixes((RenderMatrixes &)desc->Matrixes);
+		RenderMatrixes rm;
+		_G(gfxDriver)->GetStageMatrixes(rm);
 	}
 }
 
