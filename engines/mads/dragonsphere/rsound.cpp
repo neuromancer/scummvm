@@ -20,10 +20,10 @@
  */
 
 #include "common/util.h"
-#include "mads/phantom/rsound.h"
+#include "mads/dragonsphere/rsound.h"
 
 namespace MADS {
-namespace Phantom {
+namespace Dragonsphere {
 
 /*-----------------------------------------------------------------------*/
 
@@ -64,11 +64,6 @@ void Channel::reset(byte *startPtr) {
 void Channel::enable(int flag) {
 	if (_activeCount) {
 		_pendingStop = flag;
-		// Matches Channel_enable's "mov [bx+20h], ax" - invalidates the
-		// identity pointer so isSoundActive() no longer matches this
-		// channel. The original writes register garbage (AH was never
-		// explicitly cleared); nullptr is the correct semantic
-		// equivalent without inheriting undefined register state.
 		_soundData = nullptr;
 	}
 }
@@ -85,6 +80,7 @@ RSound::RSound(Audio::Mixer *mixer, const Common::Path &filename,
 		int dataOffset, int dataSize, int sysExOffset) : SoundDriver(mixer, filename, dataOffset, dataSize) {
 	_commandParam = 0;
 	_frameCounter = 0;
+	_tickCounter = 0;
 	_isDisabled = false;
 	_randomSeed = 1234;
 	_lastMidiStatus = 0;
@@ -95,7 +91,6 @@ RSound::RSound(Audio::Mixer *mixer, const Common::Path &filename,
 	_fadeCheckCounter = 0;
 	_fadeCheckPeriod = 0;
 
-	_tickCounter = 0;
 	_clockMedTarget = 0;
 	_clockCoarseTarget = 0;
 	_clockUnknown = 0;
@@ -104,7 +99,11 @@ RSound::RSound(Audio::Mixer *mixer, const Common::Path &filename,
 	_clockFine = 7;
 	_clockEnabled1 = 0;
 	_clockEnabled2 = 0;
-	_randomAmbianceTriggerFlag = 0;
+
+	_callbackCounter = 0;
+	_callbackPeriod = 0;
+	_callbackFnPtr = nullptr;
+	_musicIndex = 0;
 
 	for (int i = 0; i < RSOUND_CHANNEL_COUNT; ++i) {
 		_channels[i]._owner = this;
@@ -140,7 +139,6 @@ void RSound::setVolume(int volume) {
 }
 
 void RSound::resultCheck() {
-	// Matches the "cmp word_12BB8, 0xFFFF" latch right after rsound_update.
 	if (_stateChangedFlag != 0xFFFF) {
 		_stateChangedFlag = 0xFFFF;
 		_pollResult = 0xFFFF;
@@ -174,31 +172,18 @@ Channel *RSound::playSoundData(byte *pData, int startingChannel, int freeScanEnd
 	return nullptr;
 }
 
-Channel *RSound::playSound(int offset) {
-	// Channels 6-8 (0-based 5-7), symmetric free/fallback scan.
+Channel *RSound::playSoundChannels6to8(int offset) {
+	// Channels 6-8 (0-based 5-7), symmetric free/fallback scan. Matches
+	// the disassembly's own playSoundChannels6to8 exactly.
 	return playSoundData(loadData(offset), 5, 7, 7);
 }
 
 Channel *RSound::playSoundChannels1To5(int offset) {
-	// Channels 1-5 (0-based 0-4) for the free scan, but the pending-stop
-	// fallback only reaches down to channel 4 (0-based 3) - channel 5
-	// can never be pre-empted here, confirmed from the disassembly.
-	return playSoundData(loadData(offset), 0, 4, 3);
-}
-
-Channel *RSound::playSoundAny(int offset) {
-	// Channels 1-8 (0-based 0-7), symmetric free/fallback scan.
-	return playSoundData(loadData(offset), 0, 7, 7);
-}
-
-Channel *RSound::playSoundChannels5To8(int offset) {
-	// Channels 5-8 (0-based 4-7), symmetric free/fallback scan.
-	return playSoundData(loadData(offset), 4, 7, 7);
-}
-
-Channel *RSound::playSoundChannels1To6(int offset) {
-	// Channels 1-6 (0-based 0-5), symmetric free/fallback scan.
-	return playSoundData(loadData(offset), 0, 5, 5);
+	// Matches the disassembly's own playSoundAny exactly: channels 1-5
+	// (0-based 0-4), fully symmetric free/fallback scan. Renamed from
+	// playSoundAny for clarity - NOT Phantom's same-named function's 1-8
+	// range.
+	return playSoundData(loadData(offset), 0, 4, 4);
 }
 
 bool RSound::isSoundActive(byte *pData) {
@@ -209,6 +194,14 @@ bool RSound::isSoundActive(byte *pData) {
 			return true;
 	}
 	return false;
+}
+
+int RSound::isMusicChannelsActive() {
+	// Matches sub_10477: channels 1-5 AND 9 (this driver's "lower"/music
+	// group) - NOT Phantom/ASound's fixed channel range.
+	return _channels[0]._activeCount || _channels[1]._activeCount ||
+		_channels[2]._activeCount || _channels[3]._activeCount ||
+		_channels[4]._activeCount || _channels[8]._activeCount;
 }
 
 /*-----------------------------------------------------------------------*/
@@ -229,6 +222,11 @@ void RSound::sendStatus(int midiChannel, byte statusNibble) {
 }
 
 void RSound::sendNoteOn(int midiChannel, int note, int velocity) {
+	// Matches sub_10AC2. The disassembly derives midiChannel/velocity from
+	// the currently-active channel context rather than taking them as
+	// explicit call-site parameters, but the transmitted bytes are
+	// identical either way - kept parameterized here for API consistency
+	// with the rest of the class (and with the Phantom RSound family).
 	sendStatus(midiChannel, 0x90);
 	sendMidiByte(note);
 	sendMidiByte(velocity);
@@ -239,16 +237,22 @@ void RSound::sendProgramChange(int midiChannel, int program) {
 	sendMidiByte(program);
 }
 
-void RSound::sendVolume(int midiChannel, int volume) {
-	sendStatus(midiChannel, 0xB0);
+void RSound::sendVolume(Channel *ch) {
+	// CORRECTED naming and NEW gate - see rsound.h class comment. The
+	// disassembly's real volume-sender (sub_10B54, unnamed) only
+	// transmits when the channel is not pending-stop; Channel_checkFade's
+	// own fade-out mechanism takes over otherwise.
+	if (ch->_pendingStop)
+		return;
+	sendStatus(ch->_midiChannel, 0xB0);
 	sendMidiByte(7);
-	sendMidiByte(volume);
+	sendMidiByte(ch->_volume);
 }
 
 void RSound::sendVolumeCC(int midiChannel, int volume) {
-	// Matches sub_10423: unlike sendVolume()/sendStatus(), this sends the
-	// status byte UNCONDITIONALLY (no _lastMidiStatus dedup check) -
-	// used by command7 when restoring all 9 channels' volumes in a row.
+	// Unlike sendVolume(), this sends the status byte UNCONDITIONALLY (no
+	// _lastMidiStatus dedup check) - used by command7 when restoring all
+	// 9 channels' volumes in a row.
 	byte status = 0xB0 | midiChannel;
 	_lastMidiStatus = status;
 	sendMidiByte(status);
@@ -267,13 +271,14 @@ void RSound::resetPitchBend(int midiChannel) {
 }
 
 void RSound::sendPan(int midiChannel, int value) {
+	// CORRECTED naming - see rsound.h class comment: this is the function
+	// the disassembly auto-named "sendVolume", which actually sends CC#10.
 	sendStatus(midiChannel, 0xB0);
 	sendMidiByte(0x0A); // CC#10: Pan
 	sendMidiByte(value);
 }
 
 void RSound::muteChannel(int midiChannel) {
-	// Matches muteChannel: unconditional status send, like sendVolumeCC().
 	byte status = 0xB0 | midiChannel;
 	_lastMidiStatus = status;
 	sendMidiByte(status);
@@ -282,10 +287,10 @@ void RSound::muteChannel(int midiChannel) {
 }
 
 void RSound::sendGmReset(int count) {
-	// Matches sub_1068A: counts DOWN from count to 1, using the counter
+	// Matches sendGmReset: counts DOWN from count to 1, using the counter
 	// itself as the MIDI channel number each iteration.
 	for (int midiChannel = count; midiChannel >= 1; --midiChannel) {
-		_fadeCheckPeriod = 0; // matches "mov cs:byte_107BE, 0" at the top of every iteration
+		_fadeCheckPeriod = 0;
 
 		byte status = 0xB0 | midiChannel;
 		_lastMidiStatus = status;
@@ -321,14 +326,12 @@ void RSound::sendSysEx(int offset) {
 }
 
 void RSound::sendPatchInitSequence() {
-	// TENTATIVE - see header comment for sendPatchInitSequence(). Matches
-	// sub_102BE exactly: 4 outer iterations, each sending one SysEx
-	// message built from the fixed header at loadData(0xA3) plus a
-	// computed payload; byte_12BD2 (here: base) persists and accumulates
-	// across outer iterations.
+	// Matches sendPatchInitSequence exactly: 4 outer iterations, each
+	// sending one SysEx message built from the fixed header at
+	// loadData(0x61) plus a computed payload.
 	byte base = 0;
 	for (int outer = 0; outer < 4; ++outer) {
-		byte *header = loadData(0xA3);
+		byte *header = loadData(0x61);
 		for (int i = 0; header[i] != 0xFF; ++i)
 			sendMidiByte(header[i]);
 
@@ -360,14 +363,9 @@ void RSound::sendPatchInitSequence() {
 }
 
 void RSound::sendReverbSysEx(int mode, int time, int level) {
-	// CONFIRMED: unk_12BC9 (RSound1's dseg offset 0xA9) holds the fixed
-	// 3-byte Roland address 10 00 01h - the real MT-32 System Area Reverb
-	// parameter address, a hardware protocol constant rather than
-	// driver-specific sound data - immediately followed by the 3 mutable
-	// payload bytes (byte_12BCC/CD/CE) that this function fills in
-	// before sending. Hardcoded (not read via loadData()) since there's
-	// no reason to expect this address to live at the same offset in
-	// every driver's own resource file.
+	// INFERRED by structural analogy to Phantom's confirmed
+	// sendReverbSysEx() - see rsound.h class comment: not independently
+	// confirmed against rsound.dr1's literal offset-0x67 sysex template.
 	byte buffer[7] = { 0x10, 0x00, 0x01, (byte)(mode & 3), (byte)(time & 7), (byte)(level & 7), 0xFF };
 	sendSysExData(buffer);
 }
@@ -393,20 +391,17 @@ void RSound::Channel_checkFade(Channel *channel, int midiChannel) {
 		return;
 
 	if (channel->_volume == 0) {
-		// unk_172E5 (RSound1's dseg offset 0x47C5) is 3 zero bytes - a
-		// generic silence/no-op stream, not driver-specific sound data.
-		// Hardcoded (not read via loadData()) for the same reason as
-		// sendReverbSysEx()'s fixed address - no reason to expect the
-		// same offset holds the same bytes in every driver's own
-		// resource file.
-		static byte silenceStream[3] = { 0, 0, 0 };
+		// enable_channel_data: 2 zero bytes - a generic silence/no-op
+		// stream, not driver-specific sound data (2 bytes here, unlike
+		// Phantom's 3 - confirmed directly from this disassembly).
+		static byte silenceStream[2] = { 0, 0 };
 		channel->_pSrc = silenceStream;
 		channel->_pendingStop = 0;
 		return;
 	}
 
 	channel->_volume -= 1;
-	sendVolume(midiChannel, channel->_volume);
+	sendVolume(channel);
 }
 
 void RSound::checkFadingChannels() {
@@ -423,10 +418,6 @@ void RSound::checkFadingChannels() {
 /*-----------------------------------------------------------------------*/
 
 void RSound::resetChannelRange(int first, int last) {
-	// Matches the confirmed struct-field disassembly exactly: two
-	// word-sized writes, each zeroing a pair of adjacent byte fields -
-	// [bx+_activeCount] (covers _activeCount + _pitchBendFadeStep) and
-	// [bx+_volumeFadeStep] (covers _volumeFadeStep + _panFadeStep).
 	for (int i = first; i <= last; ++i) {
 		_channels[i]._activeCount = 0;
 		_channels[i]._pitchBendFadeStep = 0;
@@ -435,55 +426,65 @@ void RSound::resetChannelRange(int first, int last) {
 	}
 }
 
+void RSound::resetHeldNotes() {
+	// Zeroes (0xFF-fills) the logically-used region of _heldNotes; the
+	// real table has extra unused padding rows beyond channel 9 that
+	// this doesn't need to replicate - see the field comment.
+	for (int i = 0; i <= RSOUND_CHANNEL_COUNT; ++i)
+		for (int j = 0; j < 4; ++j)
+			_heldNotes[i][j] = 0xFF;
+}
+
 void RSound::resetAllChannels() {
 	bool wasDisabled = _isDisabled;
 	_isDisabled = true;
 	resetChannelRange(0, RSOUND_CHANNEL_COUNT - 1);
-	for (int i = 0; i <= RSOUND_CHANNEL_COUNT; ++i)
-		for (int j = 0; j < 4; ++j)
-			_heldNotes[i][j] = 0xFF;
+	resetHeldNotes();
 	_isDisabled = wasDisabled;
 }
 
 void RSound::resetChannels1to5() {
+	// CORRECTED: also resets channel 9 (confirmed directly from
+	// resetChannels1to5's disassembly - channels 1,2,3,4,5,9, matching
+	// command3's own 6-channel "lower" group exactly), not just 1-5.
 	_isDisabled = true;
 	resetChannelRange(0, 4);
-	for (int i = 0; i <= RSOUND_CHANNEL_COUNT; ++i)
-		for (int j = 0; j < 4; ++j)
-			_heldNotes[i][j] = 0xFF;
+	_channels[8]._activeCount = 0;
+	_channels[8]._pitchBendFadeStep = 0;
+	_channels[8]._volumeFadeStep = 0;
+	_channels[8]._panFadeStep = 0;
+	resetHeldNotes();
 	_isDisabled = false;
 }
 
-void RSound::resetChannels4to9() {
-	// CORRECTED (was wrongly named/ranged resetChannels6to9): channels
-	// 4-9, 0-based indices 3-8 - confirmed directly from disassembly.
+void RSound::resetChannels6to8() {
+	// Matches resetChannels6to8: channels 6,7,8 (0-based indices 5-7).
 	_isDisabled = true;
-	resetChannelRange(3, 8);
+	resetChannelRange(5, 7);
 	_isDisabled = false;
 }
 
 /*-----------------------------------------------------------------------*/
 
 int RSound::command0() {
-	bool wasDisabled = _isDisabled;
-	_isDisabled = true;
+	// Matches rsound_command0: clears the deferred-callback state, then
+	// falls into the shared reset() (resetAllChannels + sendGmReset(9) +
+	// sendSysEx(_sysExOffset)).
+	_callbackCounter = 0;
+	_callbackPeriod = 0;
+	_callbackFnPtr = nullptr;
 
 	resetAllChannels();
 	sendGmReset(RSOUND_CHANNEL_COUNT);
 	sendSysEx(_sysExOffset);
-
-	_isDisabled = wasDisabled;
 	return 0;
 }
 
 int RSound::command1() {
-	// IMPORTANT: falls through to the SAME tail as command5() (loc_108A9)
-	// directly and ungated - it must NOT call the virtual command5()
-	// here, since that would wrongly apply whatever driver-specific
-	// isSoundActive() gate command5() has. command1() itself is never
-	// gated in any driver confirmed so far.
+	// Matches rsound_command1: calls command3() then falls straight
+	// through into command5() - both unconditional, no gating.
 	command3();
-	enableUpperChannels();
+	command5();
 	return 0;
 }
 
@@ -494,35 +495,36 @@ int RSound::command2() {
 }
 
 int RSound::command3() {
-	// Matches rsound_command3: enables channels 1,2,3,4 AND 9 (not 5-8) -
-	// a genuine, confirmed asymmetry (channel 9 falls through into the
-	// tail-shared Channel_enable call with the others).
+	// Matches rsound_command3: enables channels 1,2,3,4,5 AND 9 (SIX
+	// channels) - this driver's "lower" group, wider than Phantom's
+	// default 1-4,9.
 	_fadeCheckPeriod = 1; // armFadeCheck
 	_channels[0].enable(0xFF);
 	_channels[1].enable(0xFF);
 	_channels[2].enable(0xFF);
 	_channels[3].enable(0xFF);
+	_channels[4].enable(0xFF);
 	_channels[8].enable(0xFF);
 	return 0;
 }
 
-void RSound::resetAndGmResetUpperChannels() {
-	// Matches loc_106DB (command4()'s shared tail in every driver
-	// confirmed so far): reset channels 4-9, then a full sendGmReset(9)
-	// (all 9 channels) - both really execute, matching the original
-	// exactly despite the apparent redundancy.
-	resetChannels4to9();
+int RSound::command4() {
+	// Matches rsound_command4: CONCRETE, no isSoundActive() gate at all
+	// (unlike Phantom's pure-virtual, always-gated command4/5) - see
+	// class comment.
+	resetChannels6to8();
 	sendGmReset(RSOUND_CHANNEL_COUNT);
+	return 0;
 }
 
-void RSound::enableUpperChannels() {
-	// Matches loc_108A9 (command1()'s and command5()'s shared tail in
-	// every driver confirmed so far): enables channels 5,6,7,8.
-	_fadeCheckPeriod = 1;
-	_channels[4].enable(0xFF);
+int RSound::command5() {
+	// Matches rsound_command5: enables channels 6,7,8 - this driver's
+	// "upper" group, narrower than Phantom's default 5-8.
+	_fadeCheckPeriod = 1; // armFadeCheck
 	_channels[5].enable(0xFF);
 	_channels[6].enable(0xFF);
 	_channels[7].enable(0xFF);
+	return 0;
 }
 
 int RSound::command6() {
@@ -559,15 +561,31 @@ uint16 RSound::readScriptWord(byte *&pSrc) {
 	return lo | (hi << 8);
 }
 
+void RSound::tickCallback() {
+	// Matches sub_122DA.
+	if (!_callbackPeriod)
+		return;
+	if (--_callbackCounter != 0)
+		return;
+
+	_callbackCounter = _callbackPeriod;
+	if (!_callbackFnPtr)
+		return;
+
+	CallbackFunction fn = _callbackFnPtr;
+	_callbackFnPtr = nullptr;
+	(this->*fn)();
+}
+
 void RSound::update() {
 	getRandomNumber();
 	if (_isDisabled)
 		return;
 
 	++_frameCounter;
-	++_tickCounter; // matches "inc word_12BE5" alongside _frameCounter
-	checkRandomAmbianceTrigger();
+	++_tickCounter;
 	pollAllChannels();
+	tickCallback();
 	checkFadingChannels();
 }
 
@@ -577,11 +595,11 @@ void RSound::pollAllChannels() {
 }
 
 /*-----------------------------------------------------------------------*/
-// Per-channel opcode interpreter. Bytes with the high bit clear are
-// two-byte [note][duration] events (or, if > 0xBD, an opcode 0xBE-0xFF).
-// Matches the sibling ASound driver's pollActiveChannel() structure: a
-// goto-based re-entrant dispatch, re-looping after every opcode that
-// doesn't consume a duration tick.
+// Per-channel opcode interpreter. Ported by structural analogy to the
+// already-confirmed Phantom RSound::pollActiveChannel() - see the class
+// comment in rsound.h for exactly which parts were independently
+// re-checked against THIS game's disassembly (the dispatch range and the
+// loop/restart/branch opcode cluster) versus carried over unchanged.
 
 void RSound::pollActiveChannel(Channel *ch) {
 	int midiChannel = ch->_midiChannel;
@@ -599,20 +617,11 @@ void RSound::pollActiveChannel(Channel *ch) {
 
 dispatch:
 	{
-		// NOTE: ch->_pSrc is left untouched by each case below until its
-		// own final "ch->_pSrc = ..." / "ch->_pSrc += N" assignment, so
-		// any earlier use of ch->_pSrc within the same case (e.g. to
-		// compute a resume/branch target) still refers to this opcode's
-		// start position - only the local pSrc advances as operand bytes
-		// are read via readScriptByte()/readScriptWord().
 		byte *pSrc = ch->_pSrc;
 		byte b = *pSrc;
 
 		if (!(b & 0x80)) {
-			// ---- Simple note event: [note][duration] (matches loc_11FCA;
-			// distinct from - and simpler than - the explicit chord opcode
-			// 0xED below, which is count-prefixed and can hold up to 4
-			// simultaneous notes) ----
+			// ---- Simple note event: [note][duration] ----
 			int note = (int8)pSrc[0] + ch->_transpose;
 			int duration = pSrc[1];
 			ch->_activeCount = duration;
@@ -641,22 +650,15 @@ dispatch:
 		}
 
 		if (b <= 0xBD)
-			goto post_keyon; // matches the disassembly's fallthrough for 0x80-0xBD
+			goto post_keyon;
 
 		switch (b) {
 		case 0xBE: {
-			// TODO: purpose unconfirmed - no reader found for
-			// _clockUnknown anywhere in the disassembly seen so far.
 			_clockUnknown = readScriptByte(pSrc);
 			ch->_pSrc += 2;
 			goto dispatch;
 		}
 		case 0xBF: {
-			// TODO: purpose unconfirmed - no reader found for
-			// _clockCoarse/_clockEnabled1/_clockEnabled2 anywhere in the
-			// disassembly seen so far. Only takes effect (via the
-			// _tickCounter==0 gate) if executed before the very first
-			// update() tick.
 			_clockCoarseTarget = readScriptWord(pSrc);
 			if (_tickCounter == 0)
 				_clockCoarse = _clockCoarseTarget;
@@ -666,9 +668,6 @@ dispatch:
 			goto dispatch;
 		}
 		case 0xC0: {
-			// TODO: purpose unconfirmed - no reader found for _clockMed
-			// anywhere in the disassembly seen so far. Same one-time-only
-			// gate as 0xBF above.
 			_clockMedTarget = readScriptByte(pSrc);
 			if (_tickCounter == 0)
 				_clockMed = _clockMedTarget;
@@ -676,10 +675,6 @@ dispatch:
 			goto dispatch;
 		}
 		case 0xC1: {
-			// TODO: purpose unconfirmed - no reader found for _clockFine
-			// anywhere in the disassembly seen so far. Unlike 0xBE/0xBF/
-			// 0xC0, this sets the value directly and unconditionally
-			// (no _tickCounter gate).
 			_clockFine = readScriptByte(pSrc);
 			ch->_pSrc += 2;
 			goto dispatch;
@@ -693,19 +688,15 @@ dispatch:
 			goto dispatch;
 		}
 		case 0xC3: {
-			int v = readScriptByte(pSrc);
-			noOpHandler(v);
+			readScriptByte(pSrc); // matches sub_108D1: reads one operand, does nothing with it
 			ch->_pSrc += 2;
 			goto dispatch;
 		}
 		case 0xC4: {
-			// TODO: NOT PORTABLE AS-IS - the disassembly calls the word
-			// operand as a raw code-address function pointer
-			// ("mov bx,ax; call bx"). There's no equivalent in a C++
-			// port without knowing what specific handful of sub_
-			// routines this is meant to invoke. error() (not warning())
-			// so this is impossible to miss if real game data ever
-			// actually triggers it, rather than silently no-opping.
+			// TODO: NOT PORTABLE AS-IS - see Phantom's identical case for
+			// rationale (raw code-address function-pointer call in the
+			// original). error() so this is impossible to miss if real
+			// game data ever actually triggers it.
 			readScriptWord(pSrc);
 			error("RSound::pollActiveChannel: opcode 0xC4 (function-pointer call) not portable as-is");
 			ch->_pSrc += 3;
@@ -713,20 +704,19 @@ dispatch:
 		}
 
 		// ---- Conditional branches, WITH resume-point bookkeeping ----
-		// (field_22/ _branchTarget), matching the call/return pair below.
 		case 0xC5: case 0xC6: case 0xC7: case 0xC8:
 		case 0xC9: case 0xCA: case 0xCB: case 0xCC:
 		// ---- Same 8 conditions, WITHOUT bookkeeping (plain goto-if) ----
 		case 0xCD: case 0xCE: case 0xCF: case 0xD0:
 		case 0xD1: case 0xD2: case 0xD3: case 0xD4: {
 			bool withSave = (b <= 0xCC);
-			bool varMode = (b <= 0xC8) || (b >= 0xCD && b <= 0xD0); // 0xC5-C8, 0xCD-D0: var vs var; 0xC9-CC, 0xD1-D4: var vs immediate
+			bool varMode = (b <= 0xC8) || (b >= 0xCD && b <= 0xD0);
 			int idx1 = readScriptByte(pSrc);
 			int idx2 = readScriptByte(pSrc);
 			int lhs = _scriptVariables[idx1 & 0xFF];
 			int rhs = varMode ? _scriptVariables[idx2 & 0xFF] : idx2;
 
-			int cond = (b - (withSave ? 0xC5 : 0xCD)) % 4; // 0:'>' 1:'<' 2:'!=' 3:'=='
+			int cond = (b - (withSave ? 0xC5 : 0xCD)) % 4;
 			bool take = false;
 			switch (cond) {
 			case 0: take = (lhs > rhs); break;
@@ -784,16 +774,8 @@ dispatch:
 			ch->_pSrc += 3; goto dispatch;
 		}
 		case 0xDC: {
-			// SUSPECTED BUG in the original (MOD, "immediate" form): the
-			// disassembly reads a second operand byte but never uses it,
-			// instead computing scriptVar[idx1] % scriptVar[idx1] (always
-			// 0 when nonzero) - unlike every other immediate-mode
-			// arithmetic opcode (0xD6/D8/DA/E0/E2/E4), which all use the
-			// operand directly. Preserved exactly rather than "fixed" to
-			// use the operand as a real divisor, since that would be
-			// guessing at intended behavior.
 			int idx1 = readScriptByte(pSrc);
-			readScriptByte(pSrc); // operand read but unused, matching the disassembly
+			readScriptByte(pSrc); // operand read but unused, matching Phantom's confirmed same-shaped bug
 			byte self = _scriptVariables[idx1 & 0xFF];
 			if (self)
 				_scriptVariables[idx1 & 0xFF] = self % self;
@@ -807,11 +789,8 @@ dispatch:
 			ch->_pSrc += 3; goto dispatch;
 		}
 		case 0xDE: {
-			// Same suspected bug shape as 0xDC (DIV "immediate" form:
-			// self-divide, operand read but unused - always yields 1
-			// when nonzero) - preserved exactly.
 			int idx1 = readScriptByte(pSrc);
-			readScriptByte(pSrc); // operand read but unused, matching the disassembly
+			readScriptByte(pSrc); // operand read but unused, matching Phantom's confirmed same-shaped bug
 			byte self = _scriptVariables[idx1 & 0xFF];
 			if (self)
 				_scriptVariables[idx1 & 0xFF] = self / self;
@@ -858,8 +837,6 @@ dispatch:
 			ch->_pSrc += 2; goto dispatch;
 		}
 		case 0xE7: {
-			// Pokes scriptVar[idx1] into the sound-data stream itself at
-			// offset (currentPos + 1 + idx2) - a self-modifying-script op.
 			int idx1 = readScriptByte(pSrc);
 			int idx2 = readScriptByte(pSrc);
 			byte v = _scriptVariables[idx1 & 0xFF];
@@ -878,10 +855,6 @@ dispatch:
 			ch->_pSrc += 3; goto dispatch;
 		}
 		case 0xEA: {
-			// TODO: low confidence - a self-modifying op that reads
-			// table1[scriptVar[idx1]], then writes it into table2 at an
-			// offset determined by table2's own leading "size" byte.
-			// Translated as literally as possible; purpose unconfirmed.
 			int idx1 = readScriptByte(pSrc);
 			int len2 = readScriptByte(pSrc);
 			byte *table1Base = pSrc + 1;
@@ -893,13 +866,6 @@ dispatch:
 			goto dispatch;
 		}
 		case 0xEB: {
-			// Picks a uniform random value in [rangeLow, rangeHigh], reads
-			// a "tableByte" positioned right after the two range operands,
-			// and writes the random value at offset (pSrc+2+tableByte)
-			// relative to pSrc's position after reading both operands
-			// (an extra "inc word_174A0" in the disassembly, beyond the
-			// two operand reads, is what puts tableByte one byte further
-			// out than the 0xEC case below).
 			int rangeLow = readScriptByte(pSrc);
 			int rangeHigh = readScriptByte(pSrc);
 			int range = rangeHigh - rangeLow + 1;
@@ -911,9 +877,6 @@ dispatch:
 			goto dispatch;
 		}
 		case 0xEC: {
-			// Same general shape as 0xEA: random-pick from a table1 of
-			// length idx1, then poke it into table2 at an offset given
-			// by table2's own leading "size" byte.
 			int len1 = readScriptByte(pSrc);
 			int r = len1 ? (getRandomNumber() % len1) : 0;
 			byte *table1 = pSrc + 1;
@@ -935,7 +898,7 @@ dispatch:
 				ch->_innerLoopPtr = ch->_soundData;
 				ch->_outerLoopPtr = ch->_soundData;
 			}
-			goto post_keyon; // matches "jmp loc_11FAB" tail used by this cluster
+			goto post_keyon;
 		}
 		case 0xFC: {
 			byte *ptr = loadData(readScriptWord(pSrc));
@@ -994,7 +957,7 @@ dispatch:
 		case 0xF4: {
 			ch->_volume = readScriptByte(pSrc);
 			ch->_pSrc += 2;
-			sendVolume(midiChannel, ch->_volume);
+			sendVolume(ch);
 			goto post_keyon;
 		}
 		case 0xF3: {
@@ -1035,10 +998,6 @@ dispatch:
 		}
 		case 0xED: {
 			// ---- Chord event: [count][note1..noteN][duration] ----
-			// Matches loc_11102 - distinct from (and richer than) the
-			// simple single-note "high bit clear" format at the top of
-			// dispatch: this one is count-prefixed and can hold up to
-			// 4 simultaneous notes (matching _heldNotes' 4 slots).
 			int count = readScriptByte(pSrc);
 			int firstNote = (int8)*(pSrc + 1) + ch->_transpose;
 			if (firstNote != _heldNotes[midiChannel][0])
@@ -1068,8 +1027,6 @@ dispatch:
 			goto post_keyon;
 		}
 		default:
-			// Unknown/unhandled opcode - matches the disassembly falling
-			// through to re-dispatch on an unrecognised value.
 			goto dispatch;
 		}
 	}
@@ -1084,7 +1041,7 @@ post_keyon:
 				ch->_volumeFadeStep = 0;
 				ch->_volume = ((byte)ch->_volume > 0xAF) ? 0 : 0x7F;
 			}
-			sendVolume(midiChannel, ch->_volume);
+			sendVolume(ch);
 		}
 	}
 
@@ -1109,5 +1066,5 @@ post_keyon:
 	}
 }
 
-} // namespace Phantom
+} // namespace Dragonsphere
 } // namespace MADS
