@@ -1182,9 +1182,6 @@ void Scene::load(bool fromSaveFile) {
 		_specialEffects.front().onSceneChange();
 	}
 
-	clearSceneData();
-	g_nancy->_graphics->suppressNextDraw();
-
 	// Scene IDs are prefixed with S inside the cif tree; e.g 100 -> S100
 	Common::Path sceneName(Common::String::format("S%u", _sceneState.nextScene.sceneID));
 	IFF *sceneIFF = g_nancy->_resource->loadIFF(sceneName);
@@ -1212,6 +1209,16 @@ void Scene::load(bool fromSaveFile) {
 	}
 
 	delete sceneSummaryChunk;
+
+	// A "NO_ART_SCENE" carries no viewport art: it keeps the previous scene's
+	// frame on screen and only overlays new logic (used, for example, by
+	// phone-call conversations). Clearing it must preserve the previous scene's
+	// ambient character videos, so the scene type has to be known before the
+	// scene data is wiped.
+	const bool nextIsNoArt = _sceneState.summary.videoFile == "NO_ART_SCENE";
+
+	clearSceneData(nextIsNoArt);
+	g_nancy->_graphics->suppressNextDraw();
 
 	debugC(0, kDebugScene, "Loading new scene %i: description \"%s\", frame %i, vertical scroll %i, %s",
 				_sceneState.nextScene.sceneID,
@@ -1391,6 +1398,7 @@ void Scene::tickSoftwareTimers(uint32 deltaMs) {
 
 		timer.currentTimeMs += deltaMs;
 
+		// Nancy 11 single-config timers fire directly from the timer state
 		if ((timer.state == TimerData::Timer::kOneShot || timer.state == TimerData::Timer::kRepeating) &&
 			timer.durationMs > 0 && !timer.hasFired && timer.currentTimeMs >= timer.durationMs) {
 			fireSoftwareTimer(timer);
@@ -1401,6 +1409,27 @@ void Scene::tickSoftwareTimers(uint32 deltaMs) {
 			} else {
 				// Repeating timers keep counting up but will not fire again
 				timer.state = TimerData::Timer::kRunning;
+			}
+		}
+
+		// Nancy 12+ running timers fire from their triggers. A one-shot trigger
+		// clears the whole timer when it fires; a repeating one leaves it running.
+		if (timer.state == TimerData::Timer::kRunning) {
+			bool clearTimer = false;
+			for (uint j = 0; j < timer.triggers.size(); ++j) {
+				TimerData::Trigger &trigger = timer.triggers[j];
+				if (!trigger.hasFired && trigger.durationMs > 0 && timer.currentTimeMs >= trigger.durationMs) {
+					trigger.hasFired = true;
+					fireTimerTrigger(trigger);
+
+					if (trigger.type == TimerData::Trigger::kOneShot) {
+						clearTimer = true;
+					}
+				}
+			}
+
+			if (clearTimer) {
+				timer.reset();
 			}
 		}
 	}
@@ -1450,6 +1479,30 @@ void Scene::fireSoftwareTimer(TimerData::Timer &timer) {
 			}
 		} else if (!timer.caption.empty()) {
 			_textbox.addTextLine(timer.caption);
+		}
+	}
+}
+
+void Scene::fireTimerTrigger(TimerData::Trigger &trigger) {
+	// Set the trigger's event flags
+	for (uint i = 0; i < ARRAYSIZE(trigger.flags); ++i) {
+		if (trigger.flags[i].label != kFlagNoLabel) {
+			setEventFlag(trigger.flags[i]);
+		}
+	}
+
+	// Play the trigger's sound
+	if (trigger.sound.name != "NO SOUND") {
+		g_nancy->_sound->loadSound(trigger.sound);
+		g_nancy->_sound->playSound(trigger.sound);
+	}
+
+	// Nancy 12+ triggers carry no inline caption; the subtitle is looked up from
+	// the played sound's name
+	if (ConfMan.getBool("subtitles", ConfMan.getActiveDomainName()) && trigger.sound.name != "NO SOUND") {
+		const CVTX *autotext = (const CVTX *)g_nancy->getEngineData("AUTOTEXT");
+		if (autotext && autotext->texts.contains(trigger.sound.name)) {
+			_textbox.addTextLine(autotext->texts[trigger.sound.name]);
 		}
 	}
 }
@@ -1775,7 +1828,7 @@ void Scene::initStaticData() {
 	_state = kLoad;
 }
 
-void Scene::clearSceneData() {
+void Scene::clearSceneData(bool nextIsNoArt) {
 	// Clear generic flags only
 	for (uint16 id : g_nancy->getStaticData().genericEventFlags) {
 		_flags.eventFlags[id] = g_nancy->_false;
@@ -1785,14 +1838,19 @@ void Scene::clearSceneData() {
 
 	// Stop a leftover random movie if the outgoing scene didn't include
 	// its own PSM(isRandom) AR (so it doesn't bleed into the next scene).
-	if (_activeMovie && _activeMovie->isPersistentAcrossScenes() && !_hadRandomMovieARThisScene) {
+	// A NO_ART_SCENE keeps the previous scene's ambient videos playing, so
+	// leave the active movie running in that case.
+	if (!nextIsNoArt && _activeMovie && _activeMovie->survivesSceneChange(false) && !_hadRandomMovieARThisScene) {
 		_activeMovie->stopRandom();
 	}
 	_hadRandomMovieARThisScene = false;
 
-	bool clearActiveMovie = _activeMovie && !_activeMovie->isPersistentAcrossScenes();
+	// The active movie is dropped unless it survives this change (a persistent
+	// ambient loop). When it survives, clearActionRecords keeps the record alive,
+	// so the pointer must be kept too; otherwise it is cleared to avoid dangling.
+	bool clearActiveMovie = _activeMovie && !_activeMovie->survivesSceneChange(nextIsNoArt);
 
-	_actionManager.clearActionRecords();
+	_actionManager.clearActionRecords(nextIsNoArt);
 
 	if (_lightning) {
 		_lightning->endLightning();

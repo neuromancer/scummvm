@@ -68,6 +68,8 @@ MODULE_OBJS := \
 	nebular/nebular.o \
 	nebular/asound.o \
 	nebular/asound_nebular.o \
+	nebular/isound.o \
+	nebular/isound_nebular.o \
 	nebular/rsound.o \
 	nebular/rsound_nebular.o \
 	nebular/console.o \
@@ -261,6 +263,8 @@ MODULE_OBJS := \
 	phantom/phantom.o \
 	phantom/asound.o \
 	phantom/asound_phantom.o \
+	phantom/rsound.o \
+	phantom/rsound_phantom.o \
 	phantom/catacombs.o \
 	phantom/global.o \
 	phantom/main_menu.o \

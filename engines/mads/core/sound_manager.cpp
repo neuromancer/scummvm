@@ -32,9 +32,19 @@ class Mixer;
 namespace MADS {
 
 SoundManager::SoundManager(Audio::Mixer *mixer, bool &soundFlag) : _mixer(mixer), _soundFlag(soundFlag) {
-	MidiDriver::DeviceHandle dev = MidiDriver::detectDevice(MDT_ADLIB | MDT_MIDI | MDT_PREFER_MT32);
+	MidiDriver::DeviceHandle dev = MidiDriver::detectDevice(MDT_PCSPK | MDT_ADLIB | MDT_MIDI | MDT_PREFER_MT32);
 	MusicType musicType = MidiDriver::getMusicType(dev);
-	_isMT32 = musicType == MT_MT32;
+	switch (musicType) {
+	case MT_MT32:
+		_driverType = SOUND_MT32;
+		break;
+	case MT_PCSPK:
+		_driverType = SOUND_PCSPEAKER;
+		break;
+	default:
+		_driverType = SOUND_ADLIB;
+		break;
+	}
 }
 
 SoundManager::~SoundManager() {

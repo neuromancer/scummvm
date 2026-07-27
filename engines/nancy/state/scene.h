@@ -273,13 +273,14 @@ private:
 	// puzzle data) and fires any whose configured duration has just elapsed.
 	void tickSoftwareTimers(uint32 deltaMs);
 	void fireSoftwareTimer(TimerData::Timer &timer);
+	void fireTimerTrigger(TimerData::Trigger &trigger);
 
 	// Rect of the open Nancy 10+ taskbar popup, or empty if none.
 	Common::Rect activePopupConfinement() const;
 
 	void initStaticData();
 
-	void clearSceneData();
+	void clearSceneData(bool nextIsNoArt = false);
 	void clearPuzzleData();
 
 	// Maps an event flag label to its index in the eventFlags array
