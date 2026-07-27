@@ -101,11 +101,11 @@ void PluginSimulateMouseClick(int pluginButtonID) {
 
 // PluginStreamWrapper adapts an internal AGS::Shared::Stream to the
 // plugin-facing IAGSStream interface
-class PluginStreamWrapper : public IAGSStream {
+class PluginStreamWrapper : public ::AGS3::IAGSStream {
 public:
 	PluginStreamWrapper(AGS::Shared::Stream *stream, bool owning)
 		: _stream(stream), _owning(owning) {}
-	~PluginStreamWrapper() override {}
+	virtual ~PluginStreamWrapper() {}
 
 	int GetMode() const override {
 		int mode = 0;
@@ -159,7 +159,7 @@ public:
 		case AGSSTREAM_SEEK_END: sOrigin = AGS::Shared::kSeekEnd; break;
 		default: return -1;
 		}
-		return _stream->Seek(static_cast<AGS::Shared::soff_t>(offset), sOrigin);
+		return _stream->Seek(offset, sOrigin);
 	}
 
 	bool Flush() override {
@@ -859,7 +859,7 @@ void IAGSEngine::NotifyFontUpdated(int fontNumber) {
 	GUI::MarkForFontUpdate(fontNumber);
 }
 
-IAGSStream *IAGSEngine::OpenFileStream(const char *script_path, int file_mode, int work_mode) {
+::AGS3::IAGSStream *IAGSEngine::OpenFileStream(const char *script_path, int file_mode, int work_mode) {
 	FileOpenMode open_mode = static_cast<FileOpenMode>(file_mode - 1);
 	FileWorkMode work = (work_mode & AGSSTREAM_MODE_WRITE) ? kFile_Write : kFile_Read;
 
@@ -875,7 +875,7 @@ IAGSStream *IAGSEngine::OpenFileStream(const char *script_path, int file_mode, i
 	return new PluginStreamWrapper(stream, true);
 }
 
-IAGSStream *IAGSEngine::GetFileStreamByHandle(int32 fhandle) {
+::AGS3::IAGSStream *IAGSEngine::GetFileStreamByHandle(int32 fhandle) {
 	Stream *stream = get_valid_file_stream_from_handle(fhandle, "IAGSEngine::GetFileStreamByHandle");
 	if (!stream)
 		return nullptr;
