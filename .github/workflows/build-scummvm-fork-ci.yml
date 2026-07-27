@@ -117,7 +117,7 @@ jobs:
         with:
           name: appimage-${{ matrix.variant }}
           path: ScummVM-*.AppImage
-          retention-days: 3
+          retention-days: 7
 
   # ---------------------------------------------------------------------
   # Pacchetto Arch/CachyOS (.pkg.tar.zst), AVX2
@@ -149,12 +149,13 @@ jobs:
           mkdir -p /build
           cp repo/packaging/arch/PKGBUILD /build/
           chown -R builder:builder /build
-          chmod -R o+rX "$GITHUB_WORKSPACE/repo"
 
       - name: Punta il PKGBUILD al mio fork già clonato (invece di riscaricarlo da GitHub)
         run: |
           sed -i "s|source=(\"scummvm::git+https://github.com/scummvm/scummvm.git#branch=master\")|source=(\"scummvm::git+file://${GITHUB_WORKSPACE}/repo#commit=${{ github.sha }}\")|" /build/PKGBUILD
           chown builder:builder /build/PKGBUILD
+          chown -R builder:builder "$GITHUB_WORKSPACE/repo"
+          su builder -c "git config --global --add safe.directory '*'"
           grep -q 'mavx2' /build/PKGBUILD || echo "ATTENZIONE: CFLAGS AVX2 non trovati nel PKGBUILD, verifica il file sorgente"
 
       - name: Build pacchetto (makepkg)
