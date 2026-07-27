@@ -1,0 +1,173 @@
+name: Build ScummVM (dal mio fork, solo CI/artifact)
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch: {}
+
+jobs:
+  # ---------------------------------------------------------------------
+  # AppImage: due varianti, generic (SSE4.2) e avx2 (AVX2+FMA)
+  # ---------------------------------------------------------------------
+  build-appimage:
+    runs-on: ubuntu-22.04
+    container:
+      image: debian:bullseye
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: generic
+            cflags: "-O3 -msse4.2 -mpopcnt"
+            configure_extra: "--enable-ext-sse2 --disable-debug"
+          - variant: avx2
+            cflags: "-O3 -msse4.2 -mpopcnt -mavx -mavx2 -mfma -mbmi -mbmi2 -mmovbe"
+            configure_extra: "--enable-ext-sse2 --enable-ext-avx2 --disable-debug"
+    steps:
+      - name: Abilita repo contrib/non-free
+        run: |
+          sed -i 's/main$/main contrib non-free/' /etc/apt/sources.list
+          apt-get update
+
+      - name: Installa dipendenze di build
+        run: |
+          apt-get install -y --no-install-recommends \
+            build-essential git ca-certificates pkg-config nasm wget curl file \
+            libsdl2-dev libsdl2-net-dev \
+            libfreetype6-dev \
+            libpng-dev libjpeg62-turbo-dev libgif-dev \
+            libtheora-dev libfaad-dev libmad0-dev \
+            libvorbis-dev libogg-dev libflac-dev \
+            libmpeg2-4-dev \
+            libfluidsynth-dev \
+            libspeex-dev libspeexdsp-dev \
+            libvpx-dev \
+            libcurl4-openssl-dev \
+            libglew-dev \
+            libgl1-mesa-dev libegl1-mesa-dev libgles2-mesa-dev libglu1-mesa-dev \
+            libgtk-3-dev libgtk-3-bin libglib2.0-bin \
+            librsvg2-common adwaita-icon-theme shared-mime-info \
+            zlib1g-dev libbz2-dev \
+            libutf8proc-dev \
+            liba52-0.7.4-dev \
+            desktop-file-utils appstream
+
+      - name: Checkout dal mio fork (master)
+        uses: actions/checkout@v4
+        with:
+          path: scummvm
+
+      - name: Configure (release, tutti i motori, CPU ${{ matrix.variant }})
+        working-directory: scummvm
+        env:
+          CFLAGS: ${{ matrix.cflags }}
+          CXXFLAGS: ${{ matrix.cflags }}
+        run: |
+          ./configure \
+            --enable-release \
+            --enable-optimizations \
+            --enable-all-engines \
+            ${{ matrix.configure_extra }} \
+            --prefix=/usr
+
+      - name: Build
+        working-directory: scummvm
+        run: make -j"$(nproc)"
+
+      - name: Install in AppDir
+        working-directory: scummvm
+        run: make install DESTDIR="$GITHUB_WORKSPACE/AppDir"
+
+      - name: Scarica linuxdeploy
+        run: |
+          curl -fL -o linuxdeploy-x86_64.AppImage https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          curl -fL -o linuxdeploy-plugin-appimage https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/releases/download/continuous/linuxdeploy-plugin-appimage-x86_64.AppImage
+          curl -fL -o linuxdeploy-plugin-gtk https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh
+          chmod +x linuxdeploy-x86_64.AppImage linuxdeploy-plugin-appimage linuxdeploy-plugin-gtk
+
+      - name: Individua .desktop e icona
+        working-directory: scummvm
+        run: |
+          if [ -f "dists/scummvm.desktop" ]; then
+            DESKTOP_FILE="dists/scummvm.desktop"
+          else
+            DESKTOP_FILE=$(find dists -maxdepth 1 -iname "*.desktop" | head -n1)
+          fi
+          ICON_FILE=$(find icons dists gui -iname "scummvm.svg" -o -iname "scummvm.png" 2>/dev/null | head -n1)
+          echo "DESKTOP_FILE=$(realpath "$DESKTOP_FILE")" >> "$GITHUB_ENV"
+          echo "ICON_FILE=$(realpath "$ICON_FILE")" >> "$GITHUB_ENV"
+
+      - name: Costruisci AppImage
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+          DEPLOY_GTK_VERSION: "3"
+        run: |
+          export PATH="$PWD:$PATH"
+          ./linuxdeploy-x86_64.AppImage \
+            --appdir AppDir \
+            -e AppDir/usr/bin/scummvm \
+            -d "$DESKTOP_FILE" \
+            -i "$ICON_FILE" \
+            --plugin gtk \
+            --output appimage
+          mv ScummVM*.AppImage "ScummVM-x86_64-${{ matrix.variant }}-${{ github.sha }}.AppImage"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: appimage-${{ matrix.variant }}
+          path: ScummVM-*.AppImage
+          retention-days: 3
+
+  # ---------------------------------------------------------------------
+  # Pacchetto Arch/CachyOS (.pkg.tar.zst), AVX2
+  # ---------------------------------------------------------------------
+  build-arch-pkg:
+    runs-on: ubuntu-22.04
+    container:
+      image: archlinux:base-devel
+    steps:
+      - name: Checkout repo (per il PKGBUILD e i sorgenti)
+        uses: actions/checkout@v4
+        with:
+          path: repo
+
+      - name: Installa dipendenze
+        run: |
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm --needed \
+            git nasm sudo \
+            sdl2 sdl2_net freetype2 libpng libjpeg-turbo giflib \
+            libtheora faad2 libmad libvorbis libogg flac libmpeg2 \
+            fluidsynth speex speexdsp libvpx curl glew mesa gtk3 \
+            zlib bzip2 libutf8proc
+
+      - name: Crea utente non privilegiato per makepkg
+        run: |
+          useradd -m builder
+          echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+          mkdir -p /build
+          cp repo/packaging/arch/PKGBUILD /build/
+          chown -R builder:builder /build
+          chmod -R o+rX "$GITHUB_WORKSPACE/repo"
+
+      - name: Punta il PKGBUILD al mio fork già clonato (invece di riscaricarlo da GitHub)
+        run: |
+          sed -i "s|source=(\"scummvm::git+https://github.com/scummvm/scummvm.git#branch=master\")|source=(\"scummvm::git+file://${GITHUB_WORKSPACE}/repo#commit=${{ github.sha }}\")|" /build/PKGBUILD
+          chown builder:builder /build/PKGBUILD
+          grep -q 'mavx2' /build/PKGBUILD || echo "ATTENZIONE: CFLAGS AVX2 non trovati nel PKGBUILD, verifica il file sorgente"
+
+      - name: Build pacchetto (makepkg)
+        run: su builder -c "cd /build && makepkg -s --noconfirm --skippgpcheck"
+
+      - name: Rinomina e prepara artifact
+        run: |
+          PKG=$(find /build -maxdepth 1 -name "*.pkg.tar.zst" | head -n1)
+          cp "$PKG" "$GITHUB_WORKSPACE/scummvm-${{ github.sha }}-x86_64.pkg.tar.zst"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: arch-package
+          path: scummvm-*.pkg.tar.zst
+          retention-days: 7
