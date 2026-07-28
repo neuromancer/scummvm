@@ -446,7 +446,7 @@ void IAGSEngine::PollSystem() {
 
 AGSCharacter *IAGSEngine::GetCharacter(int32 charnum) {
 	if (charnum >= _GP(game).numcharacters)
-		quit("!AGSAGS::Engine::GetCharacter: invalid character request");
+		quit("!AGS::AGSEngine::GetCharacter: invalid character request");
 
 	return (AGSCharacter *)&_GP(game).chars[charnum];
 }
