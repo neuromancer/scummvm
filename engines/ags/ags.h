@@ -85,7 +85,7 @@ public:
 	~AGSEngine() override;
 	void GUIError(const Common::String &msg);
 
-	void set_window_title(const char *str) {
+	void setWindowTitle(const char *str) {
 		// No implementation
 	}
 

@@ -19,6 +19,9 @@
  *
  */
 
+#ifndef AGS_DETECTION_TABLES_H
+#define AGS_DETECTION_TABLES_H
+
 namespace AGS {
 
 const PlainGameDescriptor GAME_NAMES[] = {
@@ -10513,3 +10516,5 @@ static AGSGameDescription g_fallbackDesc = {
 };
 
 } // namespace AGS
+
+#endif // AGS_DETECTION_TABLES_H
