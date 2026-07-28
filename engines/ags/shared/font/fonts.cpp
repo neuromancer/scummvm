@@ -429,7 +429,7 @@ size_t split_lines(const char *todis, SplitLines &lines, int wii, int fonnt, siz
 	return lines.Count();
 }
 
-void wouttextxy(Shared::Bitmap *ds, int xxx, int yyy, size_t fontNumber, color_t text_color, const char *texx) {
+void wouttextxy(AGS::Shared::Bitmap *ds, int xxx, int yyy, size_t fontNumber, color_t text_color, const char *texx) {
 	if (fontNumber >= _GP(fonts).size())
 		return;
 	yyy += _GP(fonts)[fontNumber].Info.YOffset;
@@ -497,7 +497,7 @@ bool load_font_size(size_t fontNumber, const FontInfo &font_info) {
 	return true;
 }
 
-void wgtprintf(Shared::Bitmap *ds, int xxx, int yyy, size_t fontNumber, color_t text_color, char *fmt, ...) {
+void wgtprintf(AGS::Shared::Bitmap *ds, int xxx, int yyy, size_t fontNumber, color_t text_color, char *fmt, ...) {
 	if (fontNumber >= _GP(fonts).size())
 		return;
 
