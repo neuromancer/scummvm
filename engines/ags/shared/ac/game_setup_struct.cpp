@@ -107,7 +107,7 @@ ScriptAudioClip *GetAudioClipForOldStyleNumber(GameSetupStruct &game, bool is_mu
 //-----------------------------------------------------------------------------
 // Reading Part 1
 
-void GameSetupStruct::read_savegame_info(Shared::Stream *in, GameDataVersion data_ver) {
+void GameSetupStruct::read_savegame_info(Stream *in, GameDataVersion data_ver) {
 	if (data_ver > kGameVersion_272) { // only 3.x
 		StrUtil::ReadCStrCount(guid, in, MAX_GUID_LENGTH);
 		StrUtil::ReadCStrCount(saveGameFileExtension, in, MAX_SG_EXT_LENGTH);
@@ -115,7 +115,7 @@ void GameSetupStruct::read_savegame_info(Shared::Stream *in, GameDataVersion dat
 	}
 }
 
-void GameSetupStruct::read_font_infos(Shared::Stream *in, GameDataVersion data_ver) {
+void GameSetupStruct::read_font_infos(Stream *in, GameDataVersion data_ver) {
 	fonts.resize(numfonts);
 	if (data_ver < kGameVersion_350) {
 		for (int i = 0; i < numfonts; ++i)
@@ -153,13 +153,13 @@ void GameSetupStruct::WriteInvInfo(Stream *out) {
 	}
 }
 
-HGameFileError GameSetupStruct::read_cursors(Shared::Stream *in) {
+HGameFileError GameSetupStruct::read_cursors(Stream *in) {
 	mcurs.resize(numcursors);
 	ReadMouseCursors(in);
 	return HGameFileError::None();
 }
 
-void GameSetupStruct::read_interaction_scripts(Shared::Stream *in, GameDataVersion data_ver) {
+void GameSetupStruct::read_interaction_scripts(Stream *in, GameDataVersion data_ver) {
 	_G(numGlobalVars) = 0;
 
 	if (data_ver > kGameVersion_272) { // 3.x
@@ -183,7 +183,7 @@ void GameSetupStruct::read_interaction_scripts(Shared::Stream *in, GameDataVersi
 	}
 }
 
-void GameSetupStruct::read_words_dictionary(Shared::Stream *in) {
+void GameSetupStruct::read_words_dictionary(Stream *in) {
 	dict.reset(new WordsDictionary());
 	read_dictionary(dict.get(), in);
 }
@@ -203,18 +203,18 @@ void GameSetupStruct::WriteMouseCursors(Stream *out) {
 //-----------------------------------------------------------------------------
 // Reading Part 2
 
-void GameSetupStruct::read_characters(Shared::Stream *in) {
+void GameSetupStruct::read_characters(Stream *in) {
 	chars.resize(numcharacters);
 	chars2.resize(numcharacters);
 	ReadCharacters(in);
 }
 
-void GameSetupStruct::read_lipsync(Shared::Stream *in, GameDataVersion data_ver) {
+void GameSetupStruct::read_lipsync(Stream *in, GameDataVersion data_ver) {
 	if (data_ver >= kGameVersion_254) // lip syncing was introduced in 2.54
 		in->ReadArray(&lipSyncFrameLetters[0][0], MAXLIPSYNCFRAMES, 50);
 }
 
-void GameSetupStruct::read_messages(Shared::Stream *in, const std::array<int32_t> &load_messages, GameDataVersion data_ver) {
+void GameSetupStruct::read_messages(Stream *in, const std::array<int32_t> &load_messages, GameDataVersion data_ver) {
 	char mbuf[GLOBALMESLENGTH];
 	for (int i = 0; i < MAXGLOBALMES; ++i) {
 		if (!load_messages[i])
@@ -251,7 +251,7 @@ void GameSetupStruct::WriteCharacters(Stream *out) {
 //-----------------------------------------------------------------------------
 // Reading Part 3
 
-HGameFileError GameSetupStruct::read_customprops(Shared::Stream *in, GameDataVersion data_ver) {
+HGameFileError GameSetupStruct::read_customprops(Stream *in, GameDataVersion data_ver) {
 	dialogScriptNames.resize(numdialog);
 	viewNames.resize(numviews);
 	if (data_ver >= kGameVersion_260) { // >= 2.60
@@ -287,7 +287,7 @@ HGameFileError GameSetupStruct::read_customprops(Shared::Stream *in, GameDataVer
 	return HGameFileError::None();
 }
 
-HGameFileError GameSetupStruct::read_audio(Shared::Stream *in, GameDataVersion data_ver) {
+HGameFileError GameSetupStruct::read_audio(Stream *in, GameDataVersion data_ver) {
 	if (data_ver >= kGameVersion_320) {
 		size_t audiotype_count = in->ReadInt32();
 		audioClipTypes.resize(audiotype_count);
@@ -322,7 +322,7 @@ void GameSetupStruct::read_room_names(Stream *in, GameDataVersion data_ver) {
 	}
 }
 
-void GameSetupStruct::ReadAudioClips(Shared::Stream *in, size_t count) {
+void GameSetupStruct::ReadAudioClips(Stream *in, size_t count) {
 	for (size_t i = 0; i < count; ++i) {
 		audioClips[i].ReadFromFile(in);
 	}
