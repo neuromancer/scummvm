@@ -32,8 +32,6 @@ class Stream;
 } // namespace Shared
 } // namespace AGS
 
-using namespace AGS; // FIXME later
-
 enum AudioFileType {
 	eAudioFileOGG = 1,
 	eAudioFileMP3 = 2,
@@ -51,8 +49,8 @@ enum AudioFileType {
 
 struct ScriptAudioClip {
 	int id = 0;
-	Shared::String scriptName;
-	Shared::String fileName;
+	AGS::Shared::String scriptName;
+	AGS::Shared::String fileName;
 	uint8_t bundlingType = AUCL_BUNDLE_EXE;
 	uint8_t type = 0;
 	AudioFileType fileType = eAudioFileOGG;
@@ -60,7 +58,7 @@ struct ScriptAudioClip {
 	short defaultPriority = 50;
 	short defaultVolume = 100;
 
-	void ReadFromFile(Shared::Stream *in);
+	void ReadFromFile(AGS::Shared::Stream *in);
 };
 
 } // namespace AGS3

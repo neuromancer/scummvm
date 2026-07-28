@@ -48,8 +48,6 @@ class Stream;
 } // namespace Shared
 } // namespace AGS
 
-using namespace AGS; // FIXME later
-
 struct CharacterInfo;
 struct ccScript;
 
@@ -59,7 +57,7 @@ struct GameSetupStructBase {
 	static const int  MAX_OPTIONS = 100;
 	static const int  NUM_INTS_RESERVED = 16;
 
-	Shared::String    gamename;
+	AGS::Shared::String    gamename;
 	int32_t           options[MAX_OPTIONS];
 	uint8_t           paluses[256];
 	RGB               defpal[256];
@@ -82,7 +80,7 @@ struct GameSetupStructBase {
 	int               default_lipsync_frame; // used for unknown chars
 	int               invhotdotsprite;
 	int32_t           reserved[NUM_INTS_RESERVED];
-	String			  messages[MAXGLOBALMES];
+	AGS::Shared::String			  messages[MAXGLOBALMES];
 	std::unique_ptr<WordsDictionary> dict;
 	std::vector<CharacterInfo> chars;
 	std::vector<CharacterInfo2> chars2; // extended character fields
@@ -112,8 +110,8 @@ struct GameSetupStructBase {
 		}
 	};
 
-	void ReadFromFile(Shared::Stream *in, GameDataVersion game_ver, SerializeInfo &info);
-	void WriteToFile(Shared::Stream *out, const SerializeInfo &info) const;
+	void ReadFromFile(AGS::Shared::Stream *in, GameDataVersion game_ver, SerializeInfo &info);
+	void WriteToFile(AGS::Shared::Stream *out, const SerializeInfo &info) const;
 
 	//
 	// ** On game resolution.

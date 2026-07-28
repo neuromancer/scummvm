@@ -40,8 +40,6 @@ namespace Shared {
 class Stream;
 }
 }
-using namespace AGS; // FIXME later
-
 class SplitLines;
 
 #define LEGACY_MAX_OBJS_ON_GUI             30

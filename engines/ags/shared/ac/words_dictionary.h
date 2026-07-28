@@ -34,8 +34,6 @@ class Stream;
 } // namespace Shared
 } // namespace AGS
 
-using namespace AGS; // FIXME later
-
 #define MAX_PARSER_WORD_LENGTH 30
 #define ANYWORD     29999
 #define RESTOFLINE  30000
@@ -56,20 +54,20 @@ struct WordsDictionary {
 // Decrypts text found in the given buffer, writes back to the same buffer
 extern void decrypt_text(char *buf, size_t buf_sz);
 // Reads an encrypted string from the stream and decrypts into the provided buffer
-extern void read_string_decrypt(Shared::Stream *in, char *buf, size_t buf_sz);
+extern void read_string_decrypt(AGS::Shared::Stream *in, char *buf, size_t buf_sz);
 // Reads an encrypted string from the stream and returns as a string;
 // uses provided vector as a temporary decryption buffer (avoid extra allocs)
-extern Shared::String read_string_decrypt(Shared::Stream *in, std::vector<char> &dec_buf);
-extern void read_dictionary(WordsDictionary *dict, Shared::Stream *in);
+extern AGS::Shared::String read_string_decrypt(AGS::Shared::Stream *in, std::vector<char> &dec_buf);
+extern void read_dictionary(WordsDictionary *dict, AGS::Shared::Stream *in);
 
 #if defined (OBSOLETE)
 // TODO: not a part of wordsdictionary, move to obsoletes
-extern void freadmissout(short *pptr, Shared::Stream *in);
+extern void freadmissout(short *pptr, AGS::Shared::Stream *in);
 #endif
 
 extern void encrypt_text(char *toenc);
-extern void write_string_encrypt(Shared::Stream *out, const char *s);
-extern void write_dictionary(WordsDictionary *dict, Shared::Stream *out);
+extern void write_string_encrypt(AGS::Shared::Stream *out, const char *s);
+extern void write_dictionary(WordsDictionary *dict, AGS::Shared::Stream *out);
 
 } // namespace AGS3
 

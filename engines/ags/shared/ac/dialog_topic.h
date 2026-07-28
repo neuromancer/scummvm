@@ -32,8 +32,6 @@ class Stream;
 } // namespace Shared
 } // namespace AGS
 
-using namespace AGS; // FIXME later
-
 // [IKM] This is *conversation* dialog, not *gui* dialog, mind you!
 
 #define MAXTOPICOPTIONS     30
@@ -75,10 +73,10 @@ struct DialogTopic {
 	std::vector<uint8_t> optionscripts;
 #endif
 
-	void ReadFromFile(Shared::Stream *in);
+	void ReadFromFile(AGS::Shared::Stream *in);
 
-	void ReadFromSavegame(Shared::Stream *in);
-	void WriteToSavegame(Shared::Stream *out) const;
+	void ReadFromSavegame(AGS::Shared::Stream *in);
+	void WriteToSavegame(AGS::Shared::Stream *out) const;
 };
 
 } // namespace AGS3

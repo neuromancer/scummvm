@@ -37,11 +37,11 @@ void DialogTopic::ReadFromFile(Stream *in) {
 	topicFlags = in->ReadInt32();
 }
 
-void DialogTopic::ReadFromSavegame(Shared::Stream *in) {
+void DialogTopic::ReadFromSavegame(AGS::Shared::Stream *in) {
 	in->ReadArrayOfInt32(optionflags, MAXTOPICOPTIONS);
 }
 
-void DialogTopic::WriteToSavegame(Shared::Stream *out) const {
+void DialogTopic::WriteToSavegame(AGS::Shared::Stream *out) const {
 	out->WriteArrayOfInt32(optionflags, MAXTOPICOPTIONS);
 }
 

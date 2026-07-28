@@ -38,8 +38,6 @@ class Stream;
 } // namespace Shared
 } // namespace AGS
 
-using namespace AGS; // FIXME later
-
 #define MAX_INV             301
 // Character flags
 #define CHF_MANUALSCALING   1
@@ -207,11 +205,11 @@ struct CharacterInfo {
 	void update_character_idle(CharacterExtras *chex, int &doing_nothing);
 	void update_character_follower(int &char_index, std::vector<int> &followingAsSheep, int &doing_nothing);
 
-	void ReadFromFile(Shared::Stream *in, CharacterInfo2 &chinfo2, GameDataVersion data_ver);
-	void WriteToFile(Shared::Stream *out) const;
+	void ReadFromFile(AGS::Shared::Stream *in, CharacterInfo2 &chinfo2, GameDataVersion data_ver);
+	void WriteToFile(AGS::Shared::Stream *out) const;
 	// TODO: move to runtime-only class (?)
-	void ReadFromSavegame(Shared::Stream *in, CharacterInfo2 &chinfo2, CharacterSvgVersion save_ver);
-	void WriteToSavegame(Shared::Stream *out, const CharacterInfo2 &chinfo2) const;
+	void ReadFromSavegame(AGS::Shared::Stream *in, CharacterInfo2 &chinfo2, CharacterSvgVersion save_ver);
+	void WriteToSavegame(AGS::Shared::Stream *out, const CharacterInfo2 &chinfo2) const;
 
 private:
 	// Fixups loop and frame values, in case any of them are set to a value out of the valid range
@@ -219,8 +217,8 @@ private:
 
 	// Helper functions that read and write first data fields,
 	// common for both game file and save.
-	void ReadBaseFields(Shared::Stream *in);
-	void WriteBaseFields(Shared::Stream *out) const;
+	void ReadBaseFields(AGS::Shared::Stream *in);
+	void WriteBaseFields(AGS::Shared::Stream *out) const;
 };
 
 

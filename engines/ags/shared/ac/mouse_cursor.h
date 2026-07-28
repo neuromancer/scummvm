@@ -33,8 +33,6 @@ class Stream;
 } // namespace Shared
 } // namespace AGS
 
-using namespace AGS; // FIXME later
-
 #define MCF_ANIMMOVE 1
 #define MCF_DISABLED 2
 #define MCF_STANDARD 4
@@ -59,16 +57,16 @@ struct MouseCursor {
 	char flags = 0;
 
 	// Following fields are not part of the plugin API
-	Shared::String name;
+	AGS::Shared::String name;
 	int animdelay = 5;
 
 	MouseCursor() {}
 
 	void clear();
-	void ReadFromFile(Shared::Stream *in);
-	void WriteToFile(Shared::Stream *out);
-	void ReadFromSavegame(Shared::Stream *in, int cmp_ver);
-	void WriteToSavegame(Shared::Stream *out) const;
+	void ReadFromFile(AGS::Shared::Stream *in);
+	void WriteToFile(AGS::Shared::Stream *out);
+	void ReadFromSavegame(AGS::Shared::Stream *in, int cmp_ver);
+	void WriteToSavegame(AGS::Shared::Stream *out) const;
 };
 
 } // namespace AGS3

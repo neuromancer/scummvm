@@ -31,8 +31,6 @@ class Stream;
 } // namespace Shared
 } // namespace AGS
 
-using namespace AGS; // FIXME later
-
 #define AUDIO_CLIP_TYPE_SOUND 1
 struct AudioClipType {
 	int id;
@@ -41,10 +39,10 @@ struct AudioClipType {
 	int crossfadeSpeed;
 	int reservedForFuture;
 
-	void ReadFromFile(Shared::Stream *in);
-	void WriteToFile(Shared::Stream *out);
-	void ReadFromSavegame(Shared::Stream *in);
-	void WriteToSavegame(Shared::Stream *out) const;
+	void ReadFromFile(AGS::Shared::Stream *in);
+	void WriteToFile(AGS::Shared::Stream *out);
+	void ReadFromSavegame(AGS::Shared::Stream *in);
+	void WriteToSavegame(AGS::Shared::Stream *out) const;
 };
 
 } // namespace AGS3
