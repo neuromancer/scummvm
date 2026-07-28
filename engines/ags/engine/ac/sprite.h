@@ -29,14 +29,14 @@ namespace AGS3 {
 
 // Converts from 32-bit RGBA image, to a 15/16/24-bit destination image,
 // replacing more than half-translucent alpha pixels with transparency mask pixels.
-Shared::Bitmap *remove_alpha_channel(Shared::Bitmap *from);
+AGS::Shared::Bitmap *remove_alpha_channel(AGS::Shared::Bitmap *from);
 Size get_new_size_for_sprite(const Size &size, const uint32_t sprite_flags);
 // Initializes a loaded sprite for use in the game, adjusts the sprite flags.
 // Returns a resulting bitmap, which may be a new or old bitmap; or null on failure.
 // Original bitmap **gets deleted** if a new bitmap had to be created,
 // or if failed to properly initialize one.
-Shared::Bitmap *initialize_sprite(Shared::sprkey_t index, Shared::Bitmap *image, uint32_t &sprite_flags);
-void post_init_sprite(Shared::sprkey_t index);
+AGS::Shared::Bitmap *initialize_sprite(AGS::Shared::sprkey_t index, AGS::Shared::Bitmap *image, uint32_t &sprite_flags);
+void post_init_sprite(AGS::Shared::sprkey_t index);
 
 } // namespace AGS3
 

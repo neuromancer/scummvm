@@ -31,7 +31,6 @@ class Stream;
 } // namespace Shared
 } // namespace AGS
 
-using namespace AGS; // FIXME later
 
 #define AMBIENCE_FULL_DIST 25
 
@@ -44,8 +43,8 @@ struct AmbientSound {
 
 	bool IsPlaying();
 
-	void ReadFromFile(Shared::Stream *in);
-	void WriteToFile(Shared::Stream *out);
+	void ReadFromFile(AGS::Shared::Stream *in);
+	void WriteToFile(AGS::Shared::Stream *out);
 };
 
 } // namespace AGS3

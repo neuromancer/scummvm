@@ -41,7 +41,6 @@ class Stream;
 } // namespace Shared
 } // namespace AGS
 
-using namespace AGS; // FIXME later
 
 #define RAGMODE_PRESERVEGLOBALINT 1
 #define RAGMODE_LOADNOW 0x8000000  // just to make sure it's non-zero
@@ -156,11 +155,11 @@ void set_game_speed(int new_fps);
 float get_game_speed();
 void setup_for_dialog();
 void restore_after_dialog();
-Shared::String get_save_game_directory();
-Shared::String get_save_game_suffix();
-void set_save_game_suffix(const Shared::String &suffix);
+AGS::Shared::String get_save_game_directory();
+AGS::Shared::String get_save_game_suffix();
+void set_save_game_suffix(const AGS::Shared::String &suffix);
 // Returns full path to the save for the given slot number
-Shared::String get_save_game_path(int slotNum);
+AGS::Shared::String get_save_game_path(int slotNum);
 // Try calling built-in restore game dialog;
 // NOTE: this is a script command; may be aborted according to the game & room settings
 void restore_game_dialog();
@@ -175,18 +174,18 @@ void free_do_once_tokens();
 // Free all the memory associated with the game
 void unload_game();
 void save_game(int slotn, const char *descript);
-bool read_savedgame_description(const Shared::String &savedgame, Shared::String &description);
-std::unique_ptr<Shared::Bitmap> read_savedgame_screenshot(const Shared::String &savedgame);
+bool read_savedgame_description(const AGS::Shared::String &savedgame, AGS::Shared::String &description);
+std::unique_ptr<AGS::Shared::Bitmap> read_savedgame_screenshot(const AGS::Shared::String &savedgame);
 // Tries to restore saved game and displays an error on failure; if the error occurred
 // too late, when the game data was already overwritten, shuts engine down.
 bool try_restore_save(int slot);
-bool try_restore_save(const Shared::String &path, int slot);
-void serialize_bitmap(const Shared::Bitmap *thispic, Shared::Stream *out);
+bool try_restore_save(const AGS::Shared::String &path, int slot);
+void serialize_bitmap(const AGS::Shared::Bitmap *thispic, AGS::Shared::Stream *out);
 // On Windows we could just use IIDFromString but this is platform-independent
 void convert_guid_from_text_to_binary(const char *guidText, unsigned char *buffer);
-Shared::Bitmap *read_serialized_bitmap(Shared::Stream *in);
-void skip_serialized_bitmap(Shared::Stream *in);
-long write_screen_shot_for_vista(Shared::Stream *out, Shared::Bitmap *screenshot);
+AGS::Shared::Bitmap *read_serialized_bitmap(AGS::Shared::Stream *in);
+void skip_serialized_bitmap(AGS::Shared::Stream *in);
+long write_screen_shot_for_vista(AGS::Shared::Stream *out, AGS::Shared::Bitmap *screenshot);
 
 bool is_in_cutscene();
 CutsceneSkipStyle get_cutscene_skipstyle();

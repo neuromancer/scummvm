@@ -32,8 +32,6 @@
 
 namespace AGS3 {
 
-using namespace AGS;
-
 #define INSTF_SHAREDATA     1
 #define INSTF_ABORTED       2
 #define INSTF_FREE          4
@@ -100,12 +98,12 @@ struct ScriptPosition {
 		: Line(0) {
 	}
 
-	ScriptPosition(const Shared::String &section, int32_t line)
+	ScriptPosition(const AGS::Shared::String &section, int32_t line)
 		: Section(section)
 		, Line(line) {
 	}
 
-	Shared::String  Section;
+	AGS::Shared::String  Section;
 	int32_t         Line;
 };
 
@@ -180,7 +178,7 @@ public:
 	int     CallScriptFunction(const char *funcname, int32_t num_params, const RuntimeScriptValue *params);
 
 	// Get the script's execution position and callstack as human-readable text
-	Shared::String GetCallStack(int max_lines = INT_MAX) const;
+	AGS::Shared::String GetCallStack(int max_lines = INT_MAX) const;
 	// Get the script's execution position
 	void    GetScriptPosition(ScriptPosition &script_pos) const;
 	// Get the address of an exported symbol (function or variable) in the script

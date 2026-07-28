@@ -74,13 +74,13 @@ namespace AGS {
 
 AGSEngine *g_vm;
 
-AGSEngine::AGSEngine(OSystem *syst, const AGSGameDescription *gameDesc) : Engine(syst),
+AGSAGS::Engine::AGSEngine(OSystem *syst, const AGSGameDescription *gameDesc) : Engine(syst),
 	_gameDescription(gameDesc), _randomSource("AGS"), _events(nullptr), _music(nullptr),
 	_gfxDriver(nullptr), _globals(nullptr), _forceTextAA(false) {
 	g_vm = this;
 
 	AGS3::script_commands_init();
-	AGS3::Engine::SavegameComponents::component_handlers_init();
+	AGS3::AGS::Engine::SavegameComponents::component_handlers_init();
 	_events = new EventsManager();
 	_globals = new ::AGS3::Globals();
 
@@ -93,7 +93,7 @@ AGSEngine::AGSEngine(OSystem *syst, const AGSGameDescription *gameDesc) : Engine
 		_forceTextAA = true;
 }
 
-AGSEngine::~AGSEngine() {
+AGSAGS::Engine::~AGSEngine() {
 	if (_globals && _G(proper_exit) == 0) {
 		_G(platform)->DisplayAlert("Error: the program has exited without requesting it.\n"
 		                           "Program pointer: %+03d  (write this number down), engine version %s\n"
@@ -105,11 +105,11 @@ AGSEngine::~AGSEngine() {
 	delete _events;
 	delete _music;
 	delete _globals;
-	AGS3::Engine::SavegameComponents::component_handlers_free();
+	AGS3::AGS::Engine::SavegameComponents::component_handlers_free();
 	AGS3::script_commands_free();
 }
 
-uint32 AGSEngine::getFeatures() const {
+uint32 AGSAGS::Engine::getFeatures() const {
 	return _gameDescription->desc.flags;
 }
 
@@ -124,7 +124,7 @@ static const PluginVersion *const PLUGIN_VERSIONS[] = {
 	AGSSPRITEFONT_CLIFFTOP
 };
 
-const PluginVersion *AGSEngine::getNeededPlugins() const {
+const PluginVersion *AGSAGS::Engine::getNeededPlugins() const {
 	uint index = (_gameDescription->features & GAMEFLAG_PLUGINS_MASK);
 
 	if (index >= ARRAYSIZE(PLUGIN_VERSIONS))
@@ -133,11 +133,11 @@ const PluginVersion *AGSEngine::getNeededPlugins() const {
 		return PLUGIN_VERSIONS[index];
 }
 
-Common::String AGSEngine::getGameId() const {
+Common::String AGSAGS::Engine::getGameId() const {
 	return _gameDescription->desc.gameId;
 }
 
-Common::Error AGSEngine::run() {
+Common::Error AGSAGS::Engine::run() {
 #ifdef DETECTION_STATIC
 	// The game scanner is not available when detection is dynamic
 	if (debugChannelSet(-1, kDebugScan)) {
@@ -248,11 +248,11 @@ Common::Error AGSEngine::run() {
 	return Common::kNoError;
 }
 
-SaveStateList AGSEngine::listSaves() const {
+SaveStateList AGSAGS::Engine::listSaves() const {
 	return getMetaEngine()->listSaves(_targetName.c_str());
 }
 
-bool AGSEngine::getPixelFormat(int depth, Graphics::PixelFormat &format) const {
+bool AGSAGS::Engine::getPixelFormat(int depth, Graphics::PixelFormat &format) const {
 	if (depth == 8) {
 		format = Graphics::PixelFormat::createFormatCLUT8();
 		return true;
@@ -303,7 +303,7 @@ bool AGSEngine::getPixelFormat(int depth, Graphics::PixelFormat &format) const {
 }
 
 
-void AGSEngine::setGraphicsMode(size_t w, size_t h, int colorDepth) {
+void AGSAGS::Engine::setGraphicsMode(size_t w, size_t h, int colorDepth) {
 	Common::List<Graphics::PixelFormat> supportedFormatsList = g_system->getSupportedFormats();
 	Graphics::PixelFormat format;
 	if (!getPixelFormat(colorDepth, format))
@@ -312,17 +312,17 @@ void AGSEngine::setGraphicsMode(size_t w, size_t h, int colorDepth) {
 	initGraphics(w, h, &format);
 }
 
-bool AGSEngine::isUnsupportedPre25() const {
+bool AGSAGS::Engine::isUnsupportedPre25() const {
 	return _gameDescription->desc.extra &&
 		   Common::String(_gameDescription->desc.extra).contains("Pre 2.5");
 }
 
-bool AGSEngine::isUnsupportedAGS4() const {
+bool AGSAGS::Engine::isUnsupportedAGS4() const {
 	return _gameDescription->desc.extra &&
 		   Common::String(_gameDescription->desc.extra).contains("AGS 4");
 }
 
-bool AGSEngine::is64BitGame() const {
+bool AGSAGS::Engine::is64BitGame() const {
 	Common::File f;
 
 	// TODO: There are no more entries in the tables with -1 filesize, so this check doesn't really do anything.
@@ -334,11 +334,11 @@ bool AGSEngine::is64BitGame() const {
 		return f.open(_gameDescription->desc.filesDescriptions[0].fileName) && f.size() == -1;
 }
 
-Common::FSNode AGSEngine::getGameFolder() {
+Common::FSNode AGSAGS::Engine::getGameFolder() {
 	return Common::FSNode(ConfMan.getPath("path"));
 }
 
-bool AGSEngine::canLoadGameStateCurrently(Common::U32String *msg) {
+bool AGSAGS::Engine::canLoadGameStateCurrently(Common::U32String *msg) {
 	if (msg) {
 		if (ConfMan.get("gameid") == "strangeland") {
 			*msg = _("This game does not support loading from the menu. Use in-game interface");
@@ -353,7 +353,7 @@ bool AGSEngine::canLoadGameStateCurrently(Common::U32String *msg) {
 		   !_G(noScummSaveLoad);
 }
 
-bool AGSEngine::canSaveGameStateCurrently(Common::U32String *msg) {
+bool AGSAGS::Engine::canSaveGameStateCurrently(Common::U32String *msg) {
 	if (msg) {
 		if (ConfMan.get("gameid") == "strangeland") {
 			*msg = _("This game does not support saving from the menu. Use in-game interface");
@@ -368,30 +368,30 @@ bool AGSEngine::canSaveGameStateCurrently(Common::U32String *msg) {
 		   !_G(noScummSaveLoad);
 }
 
-Common::Error AGSEngine::loadGameState(int slot) {
+Common::Error AGSAGS::Engine::loadGameState(int slot) {
 	(void)AGS3::try_restore_save(slot);
 	return Common::kNoError;
 }
 
-Common::Error AGSEngine::saveGameState(int slot, const Common::String &desc, bool isAutosave) {
+Common::Error AGSAGS::Engine::saveGameState(int slot, const Common::String &desc, bool isAutosave) {
 	(void)AGS3::save_game(slot, desc.c_str());
 	return Common::kNoError;
 }
 
-int AGSEngine::getAutosaveSlot() const {
+int AGSAGS::Engine::getAutosaveSlot() const {
 	if (!g_engine || !_G(noScummAutosave))
 		return 0;
 	else
 		return -1;
 }
 
-void AGSEngine::GUIError(const Common::String &msg) {
+void AGSAGS::Engine::GUIError(const Common::String &msg) {
 	GUIErrorMessage(msg);
 }
 
-void AGSEngine::syncSoundSettings() {
+void AGSAGS::Engine::syncSoundSettings() {
 	// Digital audio
-	Engine::syncSoundSettings();
+	AGS::Engine::syncSoundSettings();
 	// MIDI
 	_music->syncVolume();
 }

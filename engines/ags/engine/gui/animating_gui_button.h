@@ -36,7 +36,6 @@ namespace Shared {
 class Stream;
 }
 }
-using namespace AGS; // FIXME later
 
 struct AnimatingGUIButton {
 	// index into guibuts array, GUI, button
@@ -47,8 +46,8 @@ struct AnimatingGUIButton {
 	// relative volume of the frame sounds
 	int volume = -1;
 
-	void ReadFromSavegame(Shared::Stream *in, int cmp_ver);
-	void WriteToSavegame(Shared::Stream *out);
+	void ReadFromSavegame(AGS::Shared::Stream *in, int cmp_ver);
+	void WriteToSavegame(AGS::Shared::Stream *out);
 };
 
 } // namespace AGS3

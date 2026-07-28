@@ -43,8 +43,6 @@
 
 namespace AGS3 {
 
-using namespace AGS::Shared;
-
 class ScriptSetBase : public AGSCCDynamicObject {
 public:
 	int Dispose(void *address, bool force) override;
@@ -89,7 +87,7 @@ public:
 
 	bool Add(const char *item) override {
 		if (!item) return false;
-		return TryAddItem(String(item));
+		return TryAddItem(AGS::Shared::String(item));
 	}
 	void Clear() override {
 		for (auto it = _set.begin(); it != _set.end(); ++it)
@@ -97,10 +95,10 @@ public:
 		_set.clear();
 	}
 	bool Contains(const char *item) const override {
-		return _set.count(String::Wrapper(item)) != 0;
+		return _set.count(AGS::Shared::String::Wrapper(item)) != 0;
 	}
 	bool Remove(const char *item) override {
-		auto it = _set.find(String::Wrapper(item));
+		auto it = _set.find(AGS::Shared::String::Wrapper(item));
 		if (it == _set.end()) return false;
 		DeleteItem(it);
 		_set.erase(it);
@@ -115,7 +113,7 @@ public:
 	}
 
 private:
-	bool TryAddItem(const String &s) {
+	bool TryAddItem(const AGS::Shared::String &s) {
 		return _set.insert(s)._value;
 	}
 	void DeleteItem(ConstIterator /*it*/) { /* do nothing */ }
@@ -141,7 +139,7 @@ private:
 		size_t item_count = in->ReadInt32();
 		for (size_t i = 0; i < item_count; ++i) {
 			size_t len = in->ReadInt32();
-			String item = String::FromStreamCount(in, len);
+			AGS::Shared::String item = AGS::Shared::String::FromStreamCount(in, len);
 			TryAddItem(item);
 		}
 	}
@@ -149,10 +147,10 @@ private:
 	TSet _set;
 };
 
-typedef ScriptSetImpl< std::set<String>, true, true > ScriptSet;
-typedef ScriptSetImpl< std::set<String, IgnoreCase_LessThan>, true, false > ScriptSetCI;
-typedef ScriptSetImpl< std::unordered_set<String>, false, true > ScriptHashSet;
-typedef ScriptSetImpl< std::unordered_set<String, IgnoreCase_Hash, IgnoreCase_EqualTo>, false, false > ScriptHashSetCI;
+typedef ScriptSetImpl< std::set<AGS::Shared::String>, true, true > ScriptSet;
+typedef ScriptSetImpl< std::set<AGS::Shared::String, IgnoreCase_LessThan>, true, false > ScriptSetCI;
+typedef ScriptSetImpl< std::unordered_set<AGS::Shared::String>, false, true > ScriptHashSet;
+typedef ScriptSetImpl< std::unordered_set<AGS::Shared::String, IgnoreCase_Hash, IgnoreCase_EqualTo>, false, false > ScriptHashSetCI;
 
 } // namespace AGS3
 

@@ -29,6 +29,7 @@
 
 namespace AGS3 {
 
+using namespace AGS;
 using namespace AGS::Shared;
 
 const char *SENT_MESSAGE_FILE_NAME = "dbgrecv.tmp";

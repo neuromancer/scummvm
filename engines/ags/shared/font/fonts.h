@@ -63,8 +63,6 @@ struct Font {
 } // namespace Shared
 } // namespace AGS
 
-using namespace AGS;
-
 void init_font_renderer();
 void shutdown_font_renderer();
 void adjust_y_coordinate_for_text(int *ypos, size_t fontnum);
@@ -127,17 +125,17 @@ void set_font_outline(size_t font_number, int outline_type,
 	enum FontInfo::AutoOutlineStyle style = FontInfo::kSquared, int thickness = 1);
 bool is_font_antialiased(size_t font_number);
 // Outputs a single line of text on the defined position on bitmap, using defined font, color and parameters
-void wouttextxy(Shared::Bitmap *ds, int xxx, int yyy, size_t fontNumber, color_t text_color, const char *texx);
+void wouttextxy(AGS::Shared::Bitmap *ds, int xxx, int yyy, size_t fontNumber, color_t text_color, const char *texx);
 // Assigns FontInfo to the font
 void set_fontinfo(size_t fontNumber, const FontInfo &finfo);
 // Gets full information about the font
 FontInfo get_fontinfo(size_t font_number);
 // Loads a font from disk
-bool load_font_size(size_t fontNumber, const FontInfo &font_info); void wgtprintf(Shared::Bitmap *ds, int xxx, int yyy, size_t fontNumber, color_t text_color, char *fmt, ...);
+bool load_font_size(size_t fontNumber, const FontInfo &font_info); void wgtprintf(AGS::Shared::Bitmap *ds, int xxx, int yyy, size_t fontNumber, color_t text_color, char *fmt, ...);
 // Allocates two outline stencil buffers, or returns previously creates ones;
 // these buffers are owned by the font, they should not be deleted by the caller.
 void alloc_font_outline_buffers(size_t font_number,
-	Shared::Bitmap **text_stencil, Shared::Bitmap **outline_stencil,
+	AGS::Shared::Bitmap **text_stencil, AGS::Shared::Bitmap **outline_stencil,
 	int text_width, int text_height, int color_depth);
 // Perform necessary adjustments on all fonts in case the text render mode changed (anti-aliasing etc)
 void adjust_fonts_for_render_mode(bool aa_mode);
@@ -159,10 +157,10 @@ public:
 	inline size_t Count() const {
 		return _count;
 	}
-	inline const Shared::String &operator[](size_t i) const {
+	inline const AGS::Shared::String &operator[](size_t i) const {
 		return _pool[i];
 	}
-	inline Shared::String &operator[](size_t i) {
+	inline AGS::Shared::String &operator[](size_t i) {
 		return _pool[i];
 	}
 	inline void Clear() {
@@ -181,7 +179,7 @@ public:
 	std::vector<char> LineBuf;
 
 private:
-	std::vector<Shared::String> _pool;
+	std::vector<AGS::Shared::String> _pool;
 	size_t _count; // actual number of lines in use
 };
 

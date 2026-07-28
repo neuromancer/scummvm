@@ -33,22 +33,20 @@ class Stream;
 } // namespace Shared
 } // namespace AGS
 
-using namespace AGS::Shared;
-
 #define IFLG_STARTWITH 1
 #define LEGACY_MAX_INVENTORY_NAME_LENGTH 25
 
 struct InventoryItemInfo {
-	String name;
+	AGS::Shared::String name;
 	int  pic;
 	int  cursorPic, hotx, hoty;
 	int32_t reserved[5];
 	uint8_t flags;  // IFLG_STARTWITH
 
-	void ReadFromFile(Stream *in);
-	void WriteToFile(Stream *out);
-	void ReadFromSavegame(Stream *in);
-	void WriteToSavegame(Stream *out) const;
+	void ReadFromFile(AGS::Shared::Stream *in);
+	void WriteToFile(AGS::Shared::Stream *out);
+	void ReadFromSavegame(AGS::Shared::Stream *in);
+	void WriteToSavegame(AGS::Shared::Stream *out) const;
 };
 
 } // namespace AGS3

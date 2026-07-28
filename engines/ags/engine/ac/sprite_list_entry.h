@@ -30,7 +30,7 @@ namespace AGS3 {
 struct SpriteListEntry {
 	// Optional sprite identifier; used as a second factor when sorting
 	int id = -1;
-	Engine::IDriverDependantBitmap *ddb = nullptr;
+	AGS::Engine::IDriverDependantBitmap *ddb = nullptr;
 	AGS::Shared::Bitmap *pic = nullptr;
 	int x = 0, y = 0;
 	int zorder = 0;

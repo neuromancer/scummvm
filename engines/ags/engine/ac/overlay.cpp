@@ -47,8 +47,8 @@
 
 namespace AGS3 {
 
+using namespace AGS;
 using namespace AGS::Shared;
-using namespace AGS::Engine;
 
 void Overlay_Remove(ScriptOverlay *sco) {
 	sco->Remove();

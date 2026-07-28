@@ -36,7 +36,6 @@ class Graphics;
 } // namespace Shared
 } // namespace AGS
 
-using namespace AGS; // FIXME later
 
 int  ViewFrame_GetFlipped(ScriptViewFrame *svf);
 int  ViewFrame_GetGraphic(ScriptViewFrame *svf);
@@ -58,7 +57,7 @@ int CalcFrameSoundVolume(int obj_vol, int anim_vol, int scale = 100);
 // sound_volume is an optional *relative* factor, 100 is default (unchanged)
 void CheckViewFrame(int view, int loop, int frame, int sound_volume = 100);
 // draws a view frame, flipped if appropriate
-void DrawViewFrame(Shared::Bitmap *ds, const ViewFrame *vframe, int x, int y, bool alpha_blend = false);
+void DrawViewFrame(AGS::Shared::Bitmap *ds, const ViewFrame *vframe, int x, int y, bool alpha_blend = false);
 
 } // namespace AGS3
 

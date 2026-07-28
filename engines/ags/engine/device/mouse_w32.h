@@ -32,7 +32,6 @@ class Bitmap;
 } // namespace Shared
 } // namespace AGS
 
-using namespace AGS; // FIXME later
 
 struct Mouse {
 	// Tells whether mouse was locked to the game window

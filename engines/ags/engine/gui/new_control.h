@@ -26,13 +26,12 @@
 
 namespace AGS3 {
 
-using namespace AGS; // FIXME later
 
 struct NewControl {
 	int x, y, wid, hit, state, typeandflags, wlevel;
 	int8 visible, enabled;        // not implemented
 	int8 needredraw;
-	virtual void draw(Shared::Bitmap *ds) = 0;
+	virtual void draw(AGS::Shared::Bitmap *ds) = 0;
 	virtual int pressedon(int mx, int my) = 0;
 	virtual int processmessage(int, int, NumberPtr) = 0;
 

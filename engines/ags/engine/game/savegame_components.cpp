@@ -61,7 +61,7 @@
 
 namespace AGS3 {
 
-using namespace Shared;
+using namespace AGS::Shared;
 
 namespace AGS {
 namespace Engine {

@@ -30,7 +30,7 @@ struct MyLabel : public NewControl {
 	char text[150];
 	MyLabel(int xx, int yy, int wii, const char *tee);
 
-	void draw(Shared::Bitmap *ds) override;
+	void draw(AGS::Shared::Bitmap *ds) override;
 
 	int pressedon(int mx, int my) override;
 

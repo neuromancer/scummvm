@@ -40,7 +40,6 @@ class Stream;
 } // namespace Shared
 } // namespace AGS
 
-using namespace AGS; // FIXME later
 
 // RoomObject's internal values, packed in RoomObject::cycling
 // Animates once and stops at the *last* frame
@@ -77,7 +76,7 @@ struct RoomObject {
 	short blocking_width, blocking_height;
 	int	  anim_volume = 100;     // default animation volume (relative factor)
 	int   cur_anim_volume = 100; // current animation sound volume (relative factor)
-	Shared::String name;
+	AGS::Shared::String name;
 
 	RoomObject();
 
@@ -120,8 +119,8 @@ struct RoomObject {
 	// play linked sounds, and so forth.
 	void CheckViewFrame();
 
-	void ReadFromSavegame(Shared::Stream *in, int save_ver);
-	void WriteToSavegame(Shared::Stream *out) const;
+	void ReadFromSavegame(AGS::Shared::Stream *in, int save_ver);
+	void WriteToSavegame(AGS::Shared::Stream *out) const;
 };
 
 } // namespace AGS3

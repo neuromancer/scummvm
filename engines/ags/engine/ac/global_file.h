@@ -32,9 +32,8 @@ class Stream;
 } // namespace Shared
 } // namespace AGS
 
-using namespace AGS; // FIXME later
 
-int32_t FileOpen(const char *fnmm, Shared::FileOpenMode open_mode, Shared::FileWorkMode work_mode);
+int32_t FileOpen(const char *fnmm, AGS::Shared::FileOpenMode open_mode, AGS::Shared::FileWorkMode work_mode);
 // NOTE: FileOpenCMode is a backwards-compatible replacement for old-style global script function FileOpen
 int32_t FileOpenCMode(const char *fnmm, const char *cmode);
 void  FileClose(int32_t handle);

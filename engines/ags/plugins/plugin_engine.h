@@ -43,17 +43,16 @@ class Stream;
 } // namespace Shared
 } // namespace AGS
 
-using namespace AGS; // FIXME later
 
 
 //
 // PluginObjectReader is a managed object unserializer registered by plugin.
 //
 struct PluginObjectReader {
-	const Shared::String Type;
+	const AGS::Shared::String Type;
 	ICCObjectReader *const Reader = nullptr;
 
-	PluginObjectReader(const Shared::String &type, ICCObjectReader *reader)
+	PluginObjectReader(const AGS::Shared::String &type, ICCObjectReader *reader)
 		: Type(type), Reader(reader) {}
 };
 
@@ -66,14 +65,14 @@ int pl_run_plugin_debug_hooks(const char *scriptfile, int linenum);
 // Finds a plugin that wants this event, starting with pl_index;
 // returns TRUE on success and fills its index and name;
 // returns FALSE if no more suitable plugins found.
-bool pl_query_next_plugin_for_event(int event, uint32_t &pl_index, Shared::String &pl_name);
+bool pl_query_next_plugin_for_event(int event, uint32_t &pl_index, AGS::Shared::String &pl_name);
 // Runs event for a plugin identified by an index it was registered under.
 int pl_run_plugin_hook_by_index(uint32_t pl_index, int event, int data);
 // Runs event for a plugin identified by its name.
-int pl_run_plugin_hook_by_name(Shared::String &pl_name, int event, int data);
+int pl_run_plugin_hook_by_name(AGS::Shared::String &pl_name, int event, int data);
 
 // Tries to register plugins, either by loading dynamic libraries, or getting any kind of replacement
-Engine::GameInitError pl_register_plugins(const std::vector<Shared::PluginInfo> &infos);
+AGS::Engine::GameInitError pl_register_plugins(const std::vector<AGS::Shared::PluginInfo> &infos);
 bool pl_is_plugin_loaded(const char *pl_name);
 
 //returns whether _any_ plugins want a particular event

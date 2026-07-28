@@ -32,7 +32,6 @@ class Stream;
 } // namespace Shared
 } // namespace AGS
 
-using namespace AGS; // FIXME later
 
 struct QueuedAudioItem {
 	short audioClipIndex = 0;
@@ -40,9 +39,9 @@ struct QueuedAudioItem {
 	bool  repeat = false;
 	SOUNDCLIP *cachedClip = nullptr;
 
-	void ReadFromSavegame_v321(Shared::Stream *in);
-	void ReadFromSavegame(Shared::Stream *in);
-	void WriteToSavegame(Shared::Stream *out) const;
+	void ReadFromSavegame_v321(AGS::Shared::Stream *in);
+	void ReadFromSavegame(AGS::Shared::Stream *in);
+	void WriteToSavegame(AGS::Shared::Stream *out) const;
 };
 
 } // namespace AGS3

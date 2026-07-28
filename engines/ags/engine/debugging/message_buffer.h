@@ -37,8 +37,8 @@ namespace AGS3 {
 namespace AGS {
 namespace Engine {
 
-using Shared::String;
-using Shared::DebugMessage;
+using AGS::Shared::String;
+using AGS::Shared::DebugMessage;
 
 class MessageBuffer : public AGS::Shared::IOutputHandler {
 public:

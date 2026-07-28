@@ -446,7 +446,7 @@ void IAGSEngine::PollSystem() {
 
 AGSCharacter *IAGSEngine::GetCharacter(int32 charnum) {
 	if (charnum >= _GP(game).numcharacters)
-		quit("!AGSEngine::GetCharacter: invalid character request");
+		quit("!AGSAGS::Engine::GetCharacter: invalid character request");
 
 	return (AGSCharacter *)&_GP(game).chars[charnum];
 }
@@ -999,7 +999,7 @@ int pl_run_plugin_hook_by_index(uint32_t pl_index, int event, int data) {
 	return 0;
 }
 
-int pl_run_plugin_hook_by_name(Shared::String &pl_name, int event, int data) {
+int pl_run_plugin_hook_by_name(AGS::Shared::String &pl_name, int event, int data) {
 	for (auto &plugin : _GP(plugins)) {
 		if ((plugin.wantHook & event) && plugin.filename.CompareNoCase(pl_name) == 0) {
 			return plugin._plugin->AGS_EngineOnEvent(event, data);
@@ -1014,12 +1014,12 @@ void pl_run_plugin_init_gfx_hooks(const char *driverName, void *data) {
 	}
 }
 
-Engine::GameInitError pl_register_plugins(const std::vector<PluginInfo> &infos) {
+AGS::Engine::GameInitError pl_register_plugins(const std::vector<PluginInfo> &infos) {
 	_GP(plugins).clear();
 	_GP(plugins).reserve(MAXPLUGINS);
 
 	for (size_t inf_index = 0; inf_index < infos.size(); ++inf_index) {
-		const Shared::PluginInfo &info = infos[inf_index];
+		const AGS::Shared::PluginInfo &info = infos[inf_index];
 		String name = info.Name;
 		if (name.GetLast() == '!')
 			continue; // editor-only plugin, ignore it

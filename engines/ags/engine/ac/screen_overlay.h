@@ -54,8 +54,6 @@ class IDriverDependantBitmap;
 } // namespace Engine
 } // namespace AGS
 
-using namespace AGS; // FIXME later
-
 enum OverlayFlags {
 	kOver_AlphaChannel = 0x0001,
 	kOver_PositionAtRoomXY = 0x0002, // room-relative position, may be in ui
@@ -122,7 +120,7 @@ struct ScreenOverlay {
 			_flags &= ~(kOver_RoomLayer | kOver_PositionAtRoomXY);
 	}
 	// Gets actual overlay's image, whether owned by overlay or by a sprite reference
-	Shared::Bitmap *GetImage() const;
+	AGS::Shared::Bitmap *GetImage() const;
 	// Get sprite reference id, or 0 if none set
 	int GetSpriteNum() const {
 		return _sprnum;
@@ -130,7 +128,7 @@ struct ScreenOverlay {
 	Size GetGraphicSize() const;
 	// Assigns an exclusive image to this overlay; the image will be stored as a dynamic sprite
     // in a sprite cache, but owned by this overlay and therefore disposed at its disposal
-	void SetImage(std::unique_ptr<Shared::Bitmap> pic, bool has_alpha = false, int offx = 0, int offy = 0);
+	void SetImage(std::unique_ptr<AGS::Shared::Bitmap> pic, bool has_alpha = false, int offx = 0, int offy = 0);
 	// Assigns a shared sprite to this overlay
 	void SetSpriteNum(int sprnum, int offx = 0, int offy = 0);
 	// Tells if Overlay has graphically changed recently
@@ -146,8 +144,8 @@ struct ScreenOverlay {
 		_hasChanged = false;
 	}
 
-	void ReadFromSavegame(Shared::Stream *in, bool &has_bitmap, int32_t cmp_ver);
-	void WriteToSavegame(Shared::Stream *out) const;
+	void ReadFromSavegame(AGS::Shared::Stream *in, bool &has_bitmap, int32_t cmp_ver);
+	void WriteToSavegame(AGS::Shared::Stream *out) const;
 
 private:
 	void ResetImage();

@@ -105,6 +105,8 @@
 
 namespace AGS3 {
 
+using namespace AGS;
+
 Globals *g_globals;
 
 Globals::Globals() {

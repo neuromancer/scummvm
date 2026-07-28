@@ -37,14 +37,14 @@ namespace AGS3 {
 using namespace AGS::Shared;
 
 int32_t FileOpenCMode(const char *fnmm, const char *cmode) {
-	Shared::FileOpenMode open_mode;
-	Shared::FileWorkMode work_mode;
+	AGS::Shared::FileOpenMode open_mode;
+	AGS::Shared::FileWorkMode work_mode;
 	// NOTE: here we ignore the text-mode flag. AGS 2.62 did not let
 	// game devs to open files in text mode. The file reading and
 	// writing logic in AGS makes extra control characters added for
 	// security reasons, and FileWriteRawLine adds CR/LF to the end
 	// of string on its own.
-	if (!Shared::File::GetFileModesFromCMode(cmode, open_mode, work_mode)) {
+	if (!AGS::Shared::File::GetFileModesFromCMode(cmode, open_mode, work_mode)) {
 		return 0;
 	}
 	return FileOpen(fnmm, open_mode, work_mode);
@@ -65,7 +65,7 @@ int32_t FindFreeFileSlot() {
 	return useindx;
 }
 
-int32_t FileOpen(const char *fnmm, Shared::FileOpenMode open_mode, Shared::FileWorkMode work_mode) {
+int32_t FileOpen(const char *fnmm, AGS::Shared::FileOpenMode open_mode, AGS::Shared::FileWorkMode work_mode) {
 	debug_script_print(kDbgMsg_Debug, "FileOpen: request: %s", fnmm);
 
 	int32_t useindx = FindFreeFileSlot();

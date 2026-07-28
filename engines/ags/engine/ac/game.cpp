@@ -724,7 +724,7 @@ void Game_PrecacheView(int view, int first_loop, int last_loop) {
 
 
 
-void serialize_bitmap(const Shared::Bitmap *thispic, Stream *out) {
+void serialize_bitmap(const AGS::Shared::Bitmap *thispic, Stream *out) {
 	if (thispic != nullptr) {
 		out->WriteInt32(thispic->GetWidth());
 		out->WriteInt32(thispic->GetHeight());
@@ -923,7 +923,7 @@ bool read_savedgame_description(const String &savedgame, String &description) {
 	return true;
 }
 
-std::unique_ptr<Shared::Bitmap> read_savedgame_screenshot(const String &savedgame) {
+std::unique_ptr<AGS::Shared::Bitmap> read_savedgame_screenshot(const String &savedgame) {
 	SavegameDescription desc;
 	HSaveError err = OpenSavegame(savedgame, desc, kSvgDesc_UserImage);
 	if (!err) {
@@ -1003,7 +1003,7 @@ HSaveError load_game(const String &path, int slotNumber, bool &data_overwritten)
 			return HSaveError::None();
 		}
 		// if it does not exist, continue loading savedgame in current game, and pray for the best
-		Shared::Debug::Printf(kDbgMsg_Warn, "WARNING: the saved game '%s' references game file '%s' (title: '%s'), but it cannot be found in the current directory. Trying to restore in the running game instead.",
+		AGS::Shared::Debug::Printf(kDbgMsg_Warn, "WARNING: the saved game '%s' references game file '%s' (title: '%s'), but it cannot be found in the current directory. Trying to restore in the running game instead.",
 		                      path.GetCStr(), desc.MainDataFilename.GetCStr(), desc.GameTitle.GetCStr());
 	}
 
@@ -1026,7 +1026,7 @@ bool try_restore_save(int slot) {
 	return try_restore_save(get_save_game_path(slot), slot);
 }
 
-bool try_restore_save(const Shared::String &path, int slot) {
+bool try_restore_save(const AGS::Shared::String &path, int slot) {
 	bool data_overwritten;
 	Debug::Printf(kDbgMsg_Info, "Restoring saved game '%s'", path.GetCStr());
 	HSaveError err = load_game(path, slot, data_overwritten);

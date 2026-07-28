@@ -71,6 +71,7 @@
 namespace AGS3 {
 
 using namespace AGS::Shared;
+using namespace AGS::Engine;
 
 void Dialog_Start(ScriptDialog *sd) {
 	RunDialog(sd->id);
@@ -380,7 +381,7 @@ void draw_gui_for_dialog_options(Bitmap *ds, GUIMain *guib, int dlgxp, int dlgyp
 		ds->FillRect(Rect(dlgxp, dlgyp, dlgxp + guib->Width, dlgyp + guib->Height), draw_color);
 	}
 	if (guib->BgImage > 0)
-		GfxUtil::DrawSpriteWithTransparency(ds, _GP(spriteset)[guib->BgImage], dlgxp, dlgyp);
+		AGS::Engine::GfxUtil::DrawSpriteWithTransparency(ds, _GP(spriteset)[guib->BgImage], dlgxp, dlgyp);
 }
 
 bool get_custom_dialog_options_dimensions(int dlgnum) {
@@ -693,7 +694,7 @@ void DialogOptions::Redraw() {
 		dirtyheight = text_window_ds->GetHeight();
 		dialog_abs_x = txoffs + xspos;
 
-		GfxUtil::DrawSpriteWithTransparency(ds, text_window_ds, xspos, yspos);
+		AGS::Engine::GfxUtil::DrawSpriteWithTransparency(ds, text_window_ds, xspos, yspos);
 		// TODO: here we rely on draw_text_window always assigning new bitmap to text_window_ds;
 		// should make this more explicit
 		delete text_window_ds;

@@ -38,7 +38,7 @@ using AGS::Shared::GUIMain;
 // also accepts explicit overlay ID >= OVER_CUSTOM
 
 struct ScreenOverlay;
-Shared::Bitmap *create_textual_image(const char *text, int asspch, int isThought,
+AGS::Shared::Bitmap *create_textual_image(const char *text, int asspch, int isThought,
 									 int &xx, int &yy, int &adjustedXX, int &adjustedYY, int wii, int usingfont, int allowShrink,
 									 bool &alphaChannel);
 // Creates a textual overlay using the given parameters;
@@ -61,12 +61,12 @@ int GetTextDisplayLength(const char *text);
 // Calculates number of game loops for displaying a text on screen
 int GetTextDisplayTime(const char *text, int canberel = 0);
 // Draw an outline if requested, then draw the text on top
-void wouttext_outline(Shared::Bitmap *ds, int xxp, int yyp, int usingfont, color_t text_color, const char *texx);
-void wouttext_aligned(Shared::Bitmap *ds, int usexp, int yy, int oriwid, int usingfont, color_t text_color, const char *text, HorAlignment align);
-void do_corner(Shared::Bitmap *ds, int sprn, int xx1, int yy1, int typx, int typy);
+void wouttext_outline(AGS::Shared::Bitmap *ds, int xxp, int yyp, int usingfont, color_t text_color, const char *texx);
+void wouttext_aligned(AGS::Shared::Bitmap *ds, int usexp, int yy, int oriwid, int usingfont, color_t text_color, const char *text, HorAlignment align);
+void do_corner(AGS::Shared::Bitmap *ds, int sprn, int xx1, int yy1, int typx, int typy);
 // Returns the image of a button control on the GUI under given child index
 int get_but_pic(GUIMain *guo, int indx);
-void draw_button_background(Shared::Bitmap *ds, int xx1, int yy1, int xx2, int yy2, GUIMain *iep);
+void draw_button_background(AGS::Shared::Bitmap *ds, int xx1, int yy1, int xx2, int yy2, GUIMain *iep);
 // Calculate the width that the left and right border of the textwindow
 // GUI take up
 int get_textwindow_border_width(int twgui);
@@ -77,8 +77,8 @@ int get_textwindow_top_border_height(int twgui);
 //   point text_window_ds to it
 // returns text start x & y pos in parameters
 // Warning!: draw_text_window() and draw_text_window_and_bar() can create new text_window_ds
-void draw_text_window(Shared::Bitmap **text_window_ds, bool should_free_ds, int *xins, int *yins, int *xx, int *yy, int *wii, color_t *set_text_color, int ovrheight, int ifnum);
-void draw_text_window_and_bar(Shared::Bitmap **text_window_ds, bool should_free_ds,
+void draw_text_window(AGS::Shared::Bitmap **text_window_ds, bool should_free_ds, int *xins, int *yins, int *xx, int *yy, int *wii, color_t *set_text_color, int ovrheight, int ifnum);
+void draw_text_window_and_bar(AGS::Shared::Bitmap **text_window_ds, bool should_free_ds,
                               int *xins, int *yins, int *xx, int *yy, int *wii, color_t *set_text_color, int ovrheight = 0, int ifnum = -1);
 int get_textwindow_padding(int ifnum);
 

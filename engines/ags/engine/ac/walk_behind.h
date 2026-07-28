@@ -47,7 +47,6 @@ struct WalkBehindColumn {
 };
 
 namespace AGS { namespace Shared { class Bitmap; } }
-using namespace AGS; // FIXME later
 
 // Recalculates walk-behind positions
 void walkbehinds_recalc();
@@ -55,7 +54,7 @@ void walkbehinds_recalc();
 void walkbehinds_generate_sprites();
 // Edits the given game object's sprite, cutting out pixels covered by walk-behinds;
 // returns whether any pixels were updated
-bool walkbehinds_cropout(Shared::Bitmap *sprit, int sprx, int spry, int basel);
+bool walkbehinds_cropout(AGS::Shared::Bitmap *sprit, int sprx, int spry, int basel);
 
 } // namespace AGS3
 

@@ -50,7 +50,7 @@ enum ScriptInstType {
 };
 
 struct QueuedScript {
-	Shared::String     FnName;
+	AGS::Shared::String     FnName;
 	ScriptInstType     Instance;
 	size_t             ParamCount;
 	RuntimeScriptValue Params[MAX_QUEUED_PARAMS];

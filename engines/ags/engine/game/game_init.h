@@ -36,8 +36,6 @@ namespace AGS3 {
 namespace AGS {
 namespace Engine {
 
-using namespace Shared;
-
 // Error codes for initializing the game
 enum GameInitErrorType {
 	kGameInitErr_NoError,
@@ -50,13 +48,13 @@ enum GameInitErrorType {
 	kGameInitErr_ScriptLinkFailed
 };
 
-String GetGameInitErrorText(GameInitErrorType err);
+AGS::Shared::String GetGameInitErrorText(GameInitErrorType err);
 
-typedef TypedCodeError<GameInitErrorType, GetGameInitErrorText> GameInitError;
-typedef ErrorHandle<GameInitError> HGameInitError;
+typedef AGS::Shared::TypedCodeError<GameInitErrorType, GetGameInitErrorText> GameInitError;
+typedef AGS::Shared::ErrorHandle<GameInitError> HGameInitError;
 
 // Sets up game state for play using preloaded data
-HGameInitError  InitGameState(const LoadedGameEntities &ents, GameDataVersion data_ver);
+HGameInitError  InitGameState(const AGS::Shared::LoadedGameEntities &ents, GameDataVersion data_ver);
 
 } // namespace Engine
 } // namespace AGS

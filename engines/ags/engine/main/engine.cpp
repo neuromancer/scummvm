@@ -78,6 +78,8 @@
 
 namespace AGS3 {
 
+using namespace AGS;
+
 using namespace AGS::Shared;
 using namespace AGS::Engine;
 

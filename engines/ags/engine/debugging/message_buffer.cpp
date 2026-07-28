@@ -27,7 +27,7 @@ namespace AGS3 {
 namespace AGS {
 namespace Engine {
 
-using namespace Shared;
+using namespace AGS::Shared;
 
 MessageBuffer::MessageBuffer(size_t buffer_limit)
 	: _bufferLimit(buffer_limit)

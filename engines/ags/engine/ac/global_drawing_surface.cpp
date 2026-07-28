@@ -101,7 +101,7 @@ void RawDrawFrameTransparent(int frame, int translev) {
 		RAW_SURFACE()->Blit(bg.get(), 0, 0, 0, 0, bg->GetWidth(), bg->GetHeight());
 	} else {
 		// Draw it transparently
-		GfxUtil::DrawSpriteWithTransparency(RAW_SURFACE(), bg.get(), 0, 0,
+		AGS::Engine::GfxUtil::DrawSpriteWithTransparency(RAW_SURFACE(), bg.get(), 0, 0,
 		                                    GfxDef::Trans100ToAlpha255(translev));
 	}
 	invalidate_screen();
@@ -243,7 +243,7 @@ void RawDrawImageResized(int xx, int yy, int gotSlot, int width, int height) {
 	if (newPic->GetColorDepth() != RAW_SURFACE()->GetColorDepth())
 		quit("!RawDrawImageResized: image colour depth mismatch: the background image must have the same colour depth as the sprite being drawn");
 
-	GfxUtil::DrawSpriteWithTransparency(RAW_SURFACE(), newPic, xx, yy);
+	AGS::Engine::GfxUtil::DrawSpriteWithTransparency(RAW_SURFACE(), newPic, xx, yy);
 	delete newPic;
 	invalidate_screen();
 	mark_current_background_dirty();

@@ -35,7 +35,6 @@ class Bitmap;
 } // namespace Shared
 } // namespace AGS
 
-using namespace AGS; // FIXME later
 
 void Overlay_Remove(ScriptOverlay *sco);
 void Overlay_SetText(ScriptOverlay *scover, int width, int fontid, int text_color, const char *text);
@@ -55,8 +54,8 @@ ScreenOverlay *get_overlay(int type);
 // Calculates overlay position in its respective layer (screen or room)
 Point get_overlay_position(const ScreenOverlay &over);
 size_t add_screen_overlay(bool roomlayer, int x, int y, int type, int sprnum);
-size_t add_screen_overlay(bool roomlayer, int x, int y, int type, Shared::Bitmap *piccy, bool has_alpha);
-size_t add_screen_overlay(bool roomlayer, int x, int y, int type, Shared::Bitmap *piccy, int pic_offx, int pic_offy, bool has_alpha);
+size_t add_screen_overlay(bool roomlayer, int x, int y, int type, AGS::Shared::Bitmap *piccy, bool has_alpha);
+size_t add_screen_overlay(bool roomlayer, int x, int y, int type, AGS::Shared::Bitmap *piccy, int pic_offx, int pic_offy, bool has_alpha);
 void remove_screen_overlay(int type);
 void remove_all_overlays();
 // Creates and registers a managed script object for // Creates and registers a managed script object for existing overlay object;

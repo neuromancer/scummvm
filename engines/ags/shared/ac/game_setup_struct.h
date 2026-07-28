@@ -71,7 +71,7 @@ struct GameSetupStruct : public GameSetupStructBase {
 	// TODO: why we do not use this in the engine instead of
 	// _G(loaded_game_file_version)?
 	int               filever;  // just used by editor
-	Shared::String    compiled_with; // version of AGS this data was created by
+	AGS::Shared::String    compiled_with; // version of AGS this data was created by
 	char              lipSyncFrameLetters[MAXLIPSYNCFRAMES][50];
 	AGS::Shared::PropertySchema propSchema;
 	std::vector<AGS::Shared::StringIMap> charProps;
@@ -79,16 +79,16 @@ struct GameSetupStruct : public GameSetupStructBase {
 	// NOTE: although the view names are stored in game data, they are never
 	// used, nor registered as script exports; numeric IDs are used to
 	// reference views instead.
-	std::vector<Shared::String> viewNames;
-	Shared::String    invScriptNames[MAX_INV];
-	std::vector<Shared::String> dialogScriptNames;
+	std::vector<AGS::Shared::String> viewNames;
+	AGS::Shared::String    invScriptNames[MAX_INV];
+	std::vector<AGS::Shared::String> dialogScriptNames;
 	char              guid[MAX_GUID_LENGTH];
 	char              saveGameFileExtension[MAX_SG_EXT_LENGTH];
 	// NOTE: saveGameFolderName is generally used to create game subdirs in common user directories
-	Shared::String    saveGameFolderName;
+	AGS::Shared::String    saveGameFolderName;
 	int               roomCount;
 	std::vector<int>  roomNumbers;
-	std::vector<Shared::String> roomNames;
+	std::vector<AGS::Shared::String> roomNames;
 	std::vector<ScriptAudioClip> audioClips;
 	std::vector<AudioClipType> audioClipTypes;
 	// A clip to play when player gains score in game
@@ -141,38 +141,38 @@ struct GameSetupStruct : public GameSetupStructBase {
 	// Do not call these directly
 	//------------------------------
 	// Part 1
-	void read_savegame_info(Shared::Stream *in, GameDataVersion data_ver);
-	void read_font_infos(Shared::Stream *in, GameDataVersion data_ver);
-	HGameFileError read_cursors(Shared::Stream *in);
-	void read_interaction_scripts(Shared::Stream *in, GameDataVersion data_ver);
-	void read_words_dictionary(Shared::Stream *in);
+	void read_savegame_info(AGS::Shared::Stream *in, GameDataVersion data_ver);
+	void read_font_infos(AGS::Shared::Stream *in, GameDataVersion data_ver);
+	HGameFileError read_cursors(AGS::Shared::Stream *in);
+	void read_interaction_scripts(AGS::Shared::Stream *in, GameDataVersion data_ver);
+	void read_words_dictionary(AGS::Shared::Stream *in);
 
-	void ReadInvInfo(Shared::Stream *in);
-	void WriteInvInfo(Shared::Stream *out);
-	void ReadMouseCursors(Shared::Stream *in);
-	void WriteMouseCursors(Shared::Stream *out);
+	void ReadInvInfo(AGS::Shared::Stream *in);
+	void WriteInvInfo(AGS::Shared::Stream *out);
+	void ReadMouseCursors(AGS::Shared::Stream *in);
+	void WriteMouseCursors(AGS::Shared::Stream *out);
 	//------------------------------
 	// Part 2
-	void read_characters(Shared::Stream *in);
-	void read_lipsync(Shared::Stream *in, GameDataVersion data_ver);
-	void read_messages(Shared::Stream *in, const std::array<int32_t> &load_messages, GameDataVersion data_ver);
+	void read_characters(AGS::Shared::Stream *in);
+	void read_lipsync(AGS::Shared::Stream *in, GameDataVersion data_ver);
+	void read_messages(AGS::Shared::Stream *in, const std::array<int32_t> &load_messages, GameDataVersion data_ver);
 
-	void ReadCharacters(Shared::Stream *in);
-	void WriteCharacters(Shared::Stream *out);
+	void ReadCharacters(AGS::Shared::Stream *in);
+	void WriteCharacters(AGS::Shared::Stream *out);
 	//------------------------------
 	// Part 3
-	HGameFileError read_customprops(Shared::Stream *in, GameDataVersion data_ver);
-	HGameFileError read_audio(Shared::Stream *in, GameDataVersion data_ver);
-	void read_room_names(Shared::Stream *in, GameDataVersion data_ver);
+	HGameFileError read_customprops(AGS::Shared::Stream *in, GameDataVersion data_ver);
+	HGameFileError read_audio(AGS::Shared::Stream *in, GameDataVersion data_ver);
+	void read_room_names(AGS::Shared::Stream *in, GameDataVersion data_ver);
 
-	void ReadAudioClips(Shared::Stream *in, size_t count);
+	void ReadAudioClips(AGS::Shared::Stream *in, size_t count);
 	//--------------------------------------------------------------------
 
 	// Functions for reading and writing appropriate data from/to save game
-	void ReadFromSaveGame_v321(Shared::Stream *in);
+	void ReadFromSaveGame_v321(AGS::Shared::Stream *in);
 
-	void ReadFromSavegame(Shared::Stream *in);
-	void WriteForSavegame(Shared::Stream *out);
+	void ReadFromSavegame(AGS::Shared::Stream *in);
+	void WriteForSavegame(AGS::Shared::Stream *out);
 };
 
 //=============================================================================

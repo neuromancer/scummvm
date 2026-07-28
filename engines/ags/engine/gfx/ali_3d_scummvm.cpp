@@ -36,7 +36,7 @@ namespace AGS {
 namespace Engine {
 namespace ALSW {
 
-using namespace Shared;
+using namespace AGS::Shared;
 
 static RGB faded_out_palette[256];
 
@@ -494,7 +494,7 @@ size_t ScummVMRendererGraphicsDriver::RenderSpriteBatch(const ALSpriteBatch &bat
 			surface->TransBlendBlt(bitmap->_bmp, drawAtX, drawAtY);
 		} else {
 			// here _transparency is used as alpha (between 1 and 254), but 0 means opaque!
-			GfxUtil::DrawSpriteWithTransparency(surface, bitmap->_bmp, drawAtX, drawAtY,
+			AGS::Engine::GfxUtil::DrawSpriteWithTransparency(surface, bitmap->_bmp, drawAtX, drawAtY,
 				bitmap->_alpha);
 		}
 	}
@@ -533,9 +533,9 @@ void ScummVMRendererGraphicsDriver::copySurface(const Graphics::Surface &src, bo
 		_screen->addDirtyRect(Common::Rect(x1, y1, x2 + 1, y2 + 1));
 }
 
-void ScummVMRendererGraphicsDriver::Present(int xoff, int yoff, Shared::GraphicFlip flip) {
+void ScummVMRendererGraphicsDriver::Present(int xoff, int yoff, AGS::Shared::GraphicFlip flip) {
 	Graphics::Surface *srcTransformed = nullptr;
-	if (xoff != 0 || yoff != 0 || flip != Shared::kFlip_None) {
+	if (xoff != 0 || yoff != 0 || flip != AGS::Shared::kFlip_None) {
 		srcTransformed = new Graphics::Surface();
 		srcTransformed->copyFrom(virtualScreen->GetAllegroBitmap()->getSurface());
 		switch(flip) {

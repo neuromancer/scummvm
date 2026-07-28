@@ -48,7 +48,6 @@ struct DisplayMode;
 } // namespace Engine
 } // namespace AGS
 
-using namespace AGS; // FIXME later
 
 enum eScriptSystemOSID {
 	eOS_DOS = 1,
@@ -88,7 +87,7 @@ struct AGSPlatformDriver
 	virtual void AttachToParentConsole();
 	virtual int  GetLastSystemError();
 	// Optionally fill in config tree from the platform-specific config source
-	virtual void ReadConfiguration(Shared::ConfigTree & /*cfg*/) {}
+	virtual void ReadConfiguration(AGS::Shared::ConfigTree & /*cfg*/) {}
 	// Get root directory for storing per-game shared data
 	virtual FSLocation GetAllUsersDataDirectory() {
 		return FSLocation(".");
@@ -121,7 +120,7 @@ struct AGSPlatformDriver
 	virtual const char *GetGraphicsTroubleshootingText() {
 		return "";
 	}
-	virtual uint64_t GetDiskFreeSpaceMB(const Shared::String &path) = 0;
+	virtual uint64_t GetDiskFreeSpaceMB(const AGS::Shared::String &path) = 0;
 	virtual const char *GetNoMouseErrorString() = 0;
 	// Tells whether build is capable of controlling mouse movement properly
 	virtual bool IsMouseControlSupported(bool windowed) {
@@ -143,7 +142,7 @@ struct AGSPlatformDriver
 		return nullptr;
 	}
 	virtual void FinishedUsingGraphicsMode();
-	virtual SetupReturnValue RunSetup(const Shared::ConfigTree &cfg_in, Shared::ConfigTree &cfg_out);
+	virtual SetupReturnValue RunSetup(const AGS::Shared::ConfigTree &cfg_in, AGS::Shared::ConfigTree &cfg_out);
 	virtual void SetGameWindowIcon();
 	// Formats message and writes to standard platform's output;
 	// Always adds trailing '\n' after formatted string
@@ -165,9 +164,9 @@ struct AGSPlatformDriver
 	// Called when the application is being resumed.
 	virtual void ResumeApplication();
 	// Returns a list of supported display modes
-	virtual void GetSystemDisplayModes(std::vector<Engine::DisplayMode> &dms);
+	virtual void GetSystemDisplayModes(std::vector<AGS::Engine::DisplayMode> &dms);
 	// Switch to system fullscreen mode; store previous mode parameters
-	virtual bool EnterFullscreenMode(const Engine::DisplayMode &dm);
+	virtual bool EnterFullscreenMode(const AGS::Engine::DisplayMode &dm);
 	// Return back to the mode was before switching to fullscreen
 	virtual bool ExitFullscreenMode();
 	// Adjust application window's parameters to suit fullscreen mode

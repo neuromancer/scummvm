@@ -42,12 +42,12 @@ void AudioClipType::WriteToFile(Stream *out) {
 	out->WriteInt32(reservedForFuture);
 }
 
-void AudioClipType::ReadFromSavegame(Shared::Stream *in) {
+void AudioClipType::ReadFromSavegame(AGS::Shared::Stream *in) {
 	volume_reduction_while_speech_playing = in->ReadInt32();
 	crossfadeSpeed = in->ReadInt32();
 }
 
-void AudioClipType::WriteToSavegame(Shared::Stream *out) const {
+void AudioClipType::WriteToSavegame(AGS::Shared::Stream *out) const {
 	out->WriteInt32(volume_reduction_while_speech_playing);
 	out->WriteInt32(crossfadeSpeed);
 }

@@ -27,7 +27,6 @@
 
 namespace AGS3 {
 
-using namespace AGS; // FIXME later
 
 #define scFileRead   1
 #define scFileWrite  2
@@ -36,8 +35,8 @@ using namespace AGS; // FIXME later
 struct sc_File final : CCBasicObject {
 	int32_t             handle;
 
-	static const Shared::FileOpenMode fopenModes[];
-	static const Shared::FileWorkMode fworkModes[];
+	static const AGS::Shared::FileOpenMode fopenModes[];
+	static const AGS::Shared::FileWorkMode fworkModes[];
 
 	int Dispose(void *address, bool force) override;
 

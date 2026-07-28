@@ -44,8 +44,6 @@
 
 namespace AGS3 {
 
-using namespace AGS::Shared;
-
 class ScriptDictBase : public AGSCCDynamicObject {
 public:
 	int Dispose(void *address, bool force) override;
@@ -96,18 +94,18 @@ public:
 	}
 	bool Contains(const char *key) override {
 #ifdef AGS_PLATFORM_SCUMMVM
-		return _dic.find(String::Wrapper(key)) != _dic.end();
+		return _dic.find(AGS::Shared::String::Wrapper(key)) != _dic.end();
 #else
-		return _dic.count(String::Wrapper(key)) != 0;
+		return _dic.count(AGS::Shared::String::Wrapper(key)) != 0;
 #endif
 	}
 	const char *Get(const char *key) override {
-		auto it = _dic.find(String::Wrapper(key));
+		auto it = _dic.find(AGS::Shared::String::Wrapper(key));
 		if (it == _dic.end()) return nullptr;
 		return it->_value.GetCStr();
 	}
 	bool Remove(const char *key) override {
-		auto it = _dic.find(String::Wrapper(key));
+		auto it = _dic.find(AGS::Shared::String::Wrapper(key));
 		if (it == _dic.end()) return false;
 		DeleteItem(it);
 		_dic.erase(it);
@@ -122,7 +120,7 @@ public:
 			return true;
 		}
 
-		return TryAddItem(String(key), String(value));
+		return TryAddItem(AGS::Shared::String(key), AGS::Shared::String(value));
 	}
 	int GetItemCount() override {
 		return _dic.size();
@@ -137,7 +135,7 @@ public:
 	}
 
 private:
-	bool TryAddItem(const String &key, const String &value) {
+	bool TryAddItem(const AGS::Shared::String &key, const AGS::Shared::String &value) {
 		_dic[key] = value;
 		return true;
 	}
@@ -170,11 +168,11 @@ private:
 		size_t item_count = in->ReadInt32();
 		for (size_t i = 0; i < item_count; ++i) {
 			size_t key_len = in->ReadInt32();
-			String key = String::FromStreamCount(in, key_len);
+			AGS::Shared::String key = AGS::Shared::String::FromStreamCount(in, key_len);
 			size_t value_len = in->ReadInt32();
 			if (value_len != (size_t)-1) // do not restore keys with null value (old format)
 			{
-				String value = String::FromStreamCount(in, value_len);
+				AGS::Shared::String value = AGS::Shared::String::FromStreamCount(in, value_len);
 				TryAddItem(key, value);
 			}
 		}
@@ -183,10 +181,10 @@ private:
 	TDict _dic;
 };
 
-typedef ScriptDictImpl< std::map<String, String>, true, true > ScriptDict;
-typedef ScriptDictImpl< std::map<String, String, IgnoreCase_LessThan>, true, false > ScriptDictCI;
-typedef ScriptDictImpl< std::unordered_map<String, String>, false, true > ScriptHashDict;
-typedef ScriptDictImpl< std::unordered_map<String, String, IgnoreCase_Hash, IgnoreCase_EqualTo>, false, false > ScriptHashDictCI;
+typedef ScriptDictImpl< std::map<AGS::Shared::String, AGS::Shared::String>, true, true > ScriptDict;
+typedef ScriptDictImpl< std::map<AGS::Shared::String, AGS::Shared::String, IgnoreCase_LessThan>, true, false > ScriptDictCI;
+typedef ScriptDictImpl< std::unordered_map<AGS::Shared::String, AGS::Shared::String>, false, true > ScriptHashDict;
+typedef ScriptDictImpl< std::unordered_map<AGS::Shared::String, AGS::Shared::String, IgnoreCase_Hash, IgnoreCase_EqualTo>, false, false > ScriptHashDictCI;
 
 } // namespace AGS3
 

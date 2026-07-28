@@ -76,6 +76,7 @@
 namespace AGS3 {
 
 using namespace AGS::Shared;
+using namespace AGS::Engine;
 
 static bool ShouldStayInWaitMode();
 

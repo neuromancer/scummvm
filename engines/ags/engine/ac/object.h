@@ -41,7 +41,6 @@ class Bitmap;
 } // namespace Shared
 } // namespace AGS
 
-using namespace AGS; // FIXME later
 
 extern bool is_valid_object(int obj_id);
 // Asserts the object ID is valid in the current room,
@@ -112,7 +111,7 @@ int     isposinbox(int mmx, int mmy, int lf, int tp, int rt, int bt);
 // xx,yy is the position in room co-ordinates that we are checking
 // arx,ary,spww,sphh are the sprite's bounding box (including sprite scaling);
 // bitmap_original tells whether bitmap is an original sprite, or transformed version
-int     is_pos_in_sprite(int xx, int yy, int arx, int ary, Shared::Bitmap *sprit, int spww, int sphh, int flipped, bool bitmap_original);
+int     is_pos_in_sprite(int xx, int yy, int arx, int ary, AGS::Shared::Bitmap *sprit, int spww, int sphh, int flipped, bool bitmap_original);
 // X and Y co-ordinates must be in native format
 // X and Y are ROOM coordinates
 int     check_click_on_object(int roomx, int roomy, int mood);

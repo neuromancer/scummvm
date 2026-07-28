@@ -53,7 +53,6 @@ struct RestoredData;
 } // namespace Engine
 } // namespace AGS
 
-using namespace AGS; // FIXME later
 struct ScriptViewport;
 struct ScriptCamera;
 struct ScriptOverlay;
@@ -214,7 +213,7 @@ struct GameState {
 	char  bad_parsed_word[100]{};
 	int   raw_color = 0;
 	int32_t raw_modified[MAX_ROOM_BGFRAMES]{};
-	Shared::PBitmap raw_drawing_surface = 0;
+	AGS::Shared::PBitmap raw_drawing_surface = 0;
 	short filenumbers[MAXSAVEGAMES]{};
 	int   room_changes = 0;
 	int   mouse_cursor_hidden = 0;
@@ -421,10 +420,10 @@ struct GameState {
 	//
 	// Serialization
 	//
-	void ReadCustomProperties_v340(Shared::Stream *in, GameDataVersion data_ver);
-	void WriteCustomProperties_v340(Shared::Stream *out, GameDataVersion data_ver) const;
-	void ReadFromSavegame(Shared::Stream *in, GameDataVersion data_ver, GameStateSvgVersion svg_ver, AGS::Engine::RestoredData &r_data);
-	void WriteForSavegame(Shared::Stream *out) const;
+	void ReadCustomProperties_v340(AGS::Shared::Stream *in, GameDataVersion data_ver);
+	void WriteCustomProperties_v340(AGS::Shared::Stream *out, GameDataVersion data_ver) const;
+	void ReadFromSavegame(AGS::Shared::Stream *in, GameDataVersion data_ver, GameStateSvgVersion svg_ver, AGS::Engine::RestoredData &r_data);
+	void WriteForSavegame(AGS::Shared::Stream *out) const;
 	// This is required for freeing only particular parts when restoring the game;
 	// FIXME: investigate and refactor to be able to simply reset whole object
 	void FreeProperties();

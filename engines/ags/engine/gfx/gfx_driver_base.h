@@ -40,8 +40,8 @@ namespace AGS3 {
 namespace AGS {
 namespace Engine {
 
-using Shared::Bitmap;
-using Shared::PlaneScaling;
+using AGS::Shared::Bitmap;
+using AGS::Shared::PlaneScaling;
 
 // Sprite batch, defines viewport and an optional model transformation for the list of sprites
 struct SpriteBatchDesc {
@@ -52,7 +52,7 @@ struct SpriteBatchDesc {
 	// Optional model transformation, to be applied to each sprite
 	SpriteTransform          Transform;
 	// Optional flip, applied to the whole batch as the last transform
-	Shared::GraphicFlip      Flip = Shared::kFlip_None;
+	AGS::Shared::GraphicFlip      Flip = AGS::Shared::kFlip_None;
 	// Optional bitmap to draw sprites upon. Used exclusively by the software rendering mode.
 	PBitmap                  Surface;
 	// Optional filter flags; this lets to filter certain batches out during some operations,
@@ -61,7 +61,7 @@ struct SpriteBatchDesc {
 
 	SpriteBatchDesc() = default;
 	SpriteBatchDesc(uint32_t parent, const Rect viewport, const SpriteTransform & transform,
-		Shared::GraphicFlip flip = Shared::kFlip_None, PBitmap surface = nullptr, uint32_t filter_flags = 0)
+		AGS::Shared::GraphicFlip flip = AGS::Shared::kFlip_None, PBitmap surface = nullptr, uint32_t filter_flags = 0)
 		: Parent(parent)
 		, Viewport(viewport)
 		, Transform(transform)
@@ -109,7 +109,7 @@ public:
 	bool		GetVsync() const override;
 
 	void 		BeginSpriteBatch(const Rect &viewport, const SpriteTransform &transform,
-						 		 Shared::GraphicFlip flip = Shared::kFlip_None, PBitmap surface = nullptr,
+						 		 AGS::Shared::GraphicFlip flip = AGS::Shared::kFlip_None, PBitmap surface = nullptr,
 								 uint32_t filter_flags = 0) override;
 	void        EndSpriteBatch() override;
 	void        ClearDrawLists() override;

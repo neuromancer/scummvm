@@ -34,7 +34,6 @@ namespace Shared {
 class Stream;
 }
 }
-using namespace AGS; // FIXME later
 
 #define MAXNEEDSTAGES 256
 #define MAXNEEDSTAGES_LEGACY 40
@@ -85,9 +84,9 @@ struct MoveList {
 	// Sets a step progress to this fraction of a coordinate unit
 	void SetPixelUnitFraction(float frac);
 
-	void ReadFromSavegame_Legacy(Shared::Stream *in);
-	AGS::Engine::HSaveError ReadFromSavegame(Shared::Stream *in, int32_t cmp_ver);
-	void WriteToSavegame(Shared::Stream *out) const;
+	void ReadFromSavegame_Legacy(AGS::Shared::Stream *in);
+	AGS::Engine::HSaveError ReadFromSavegame(AGS::Shared::Stream *in, int32_t cmp_ver);
+	void WriteToSavegame(AGS::Shared::Stream *out) const;
 };
 
 } // namespace AGS3

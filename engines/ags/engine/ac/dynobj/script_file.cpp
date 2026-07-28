@@ -24,11 +24,13 @@
 
 namespace AGS3 {
 
+using namespace AGS::Shared;
+
 // CHECKME: actually NULLs here will be equal to kFile_Open & kFile_Read
-const Shared::FileOpenMode sc_File::fopenModes[] =
-{ Shared::kFile_Open/*CHECKME, was undefined*/, Shared::kFile_Open, Shared::kFile_CreateAlways, Shared::kFile_Create };
-const Shared::FileWorkMode sc_File::fworkModes[] =
-{ Shared::kFile_Read/*CHECKME, was undefined*/, Shared::kFile_Read, Shared::kFile_Write, Shared::kFile_Write };
+const FileOpenMode sc_File::fopenModes[] =
+{ kFile_Open/*CHECKME, was undefined*/, kFile_Open, kFile_CreateAlways, kFile_Create };
+const FileWorkMode sc_File::fworkModes[] =
+{ kFile_Read/*CHECKME, was undefined*/, kFile_Read, kFile_Write, kFile_Write };
 
 int sc_File::Dispose(void *address, bool force) {
 	Close();

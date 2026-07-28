@@ -46,7 +46,7 @@
 
 namespace AGS3 {
 
-using namespace Shared;
+using namespace AGS::Shared;
 using namespace Engine;
 
 // ** SCRIPT DYNAMIC SPRITE

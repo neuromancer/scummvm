@@ -42,10 +42,10 @@ using AGS::Shared::Interaction;
 
 struct HotspotState {
 	bool Enabled = false;
-	Shared::String Name;
+	AGS::Shared::String Name;
 
-	void ReadFromSavegame(Shared::Stream *in, int save_ver);
-	void WriteToSavegame(Shared::Stream *out) const;
+	void ReadFromSavegame(AGS::Shared::Stream *in, int save_ver);
+	void WriteToSavegame(AGS::Shared::Stream *out) const;
 };
 
 // Savegame data format for RoomStatus
@@ -73,9 +73,9 @@ struct RoomStatus {
 	Interaction intrRegion[MAX_ROOM_REGIONS];
 	Interaction intrRoom;
 
-	Shared::StringIMap roomProps;
-	Shared::StringIMap hsProps[MAX_ROOM_HOTSPOTS];
-	std::vector<Shared::StringIMap> objProps;
+	AGS::Shared::StringIMap roomProps;
+	AGS::Shared::StringIMap hsProps[MAX_ROOM_HOTSPOTS];
+	std::vector<AGS::Shared::StringIMap> objProps;
 	HotspotState hotspot[MAX_ROOM_HOTSPOTS];
 	int8  region_enabled[MAX_ROOM_REGIONS];
 	short walkbehind_base[MAX_WALK_BEHINDS];
@@ -102,9 +102,9 @@ struct RoomStatus {
 	void FreeScriptData();
 	void FreeProperties();
 
-	void ReadFromSavegame_v321(Shared::Stream *in, GameDataVersion data_ver);
-	void ReadFromSavegame(Shared::Stream *in, GameDataVersion data_ver, RoomStatSvgVersion save_ver);
-	void WriteToSavegame(Shared::Stream *out, GameDataVersion data_ver) const;
+	void ReadFromSavegame_v321(AGS::Shared::Stream *in, GameDataVersion data_ver);
+	void ReadFromSavegame(AGS::Shared::Stream *in, GameDataVersion data_ver, RoomStatSvgVersion save_ver);
+	void WriteToSavegame(AGS::Shared::Stream *out, GameDataVersion data_ver) const;
 };
 
 // Replaces all accesses to the roomstats array

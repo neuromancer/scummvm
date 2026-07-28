@@ -182,7 +182,6 @@ namespace Shared {
 class Bitmap;
 }
 }
-using namespace AGS; // FIXME later
 
 // Configures and starts character animation.
 void animate_character(CharacterInfo *chap, int loopn, int sppd, int rept, int direction = 0, int sframe = 0, int volume = 100);
@@ -208,7 +207,7 @@ void walk_or_move_character(CharacterInfo *chaa, int x, int y, int blocking, int
 int  wantMoveNow(CharacterInfo *chi, CharacterExtras *chex);
 void setup_player_character(int charid);
 int  GetCharacterFrameVolume(CharacterInfo *chi);
-Shared::Bitmap *GetCharacterImage(int charid, bool *is_original = nullptr);
+AGS::Shared::Bitmap *GetCharacterImage(int charid, bool *is_original = nullptr);
 CharacterInfo *GetCharacterAtScreen(int xx, int yy);
 // Deduces room object's scale, accounting for both manual scaling and the room region effects;
 // calculates resulting sprite size.
@@ -219,7 +218,7 @@ int is_pos_on_character(int xx, int yy);
 void get_char_blocking_rect(int charid, int *x1, int *y1, int *width, int *y2);
 // Check whether the source char is standing inside otherChar's blocking rectangle
 int is_char_in_blocking_rect(int sourceChar, int otherChar, int *fromxptr, int *cwidptr);
-int my_getpixel(Shared::Bitmap *blk, int x, int y);
+int my_getpixel(AGS::Shared::Bitmap *blk, int x, int y);
 int check_click_on_character(int xx, int yy, int mood);
 void _DisplaySpeechCore(int chid, const char *displbuf);
 void _DisplayThoughtCore(int chid, const char *displbuf);

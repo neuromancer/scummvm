@@ -35,4 +35,3 @@ AppImage e pacchetto Arch/CachyOS .pkg.tar.zst.
 - Non eseguire comandi bash distruttivi (rm -rf, force-push) senza
   conferma esplicita.
 - Non committare o pushare automaticamente: prepara solo le modifiche.
-EOF

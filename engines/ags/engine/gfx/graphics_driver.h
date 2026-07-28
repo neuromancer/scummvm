@@ -41,7 +41,7 @@ namespace AGS {
 
 namespace Shared {
 class Bitmap;
-typedef std::shared_ptr<Shared::Bitmap> PBitmap;
+typedef std::shared_ptr<AGS::Shared::Bitmap> PBitmap;
 } // namespace Shared
 
 namespace Engine {
@@ -50,7 +50,7 @@ namespace Engine {
 class IDriverDependantBitmap;
 class IGfxFilter;
 typedef std::shared_ptr<IGfxFilter> PGfxFilter;
-using Shared::PBitmap;
+using AGS::Shared::PBitmap;
 
 enum TintMethod {
 	TintReColourise = 0,
@@ -152,12 +152,12 @@ public:
 	// Creates a "raw" DDB, without pixel initialization
 	virtual IDriverDependantBitmap *CreateDDB(int width, int height, int color_depth, bool opaque = false) = 0;
 	// Creates DDB, initializes from the given bitmap.
-	virtual IDriverDependantBitmap *CreateDDBFromBitmap(Shared::Bitmap *bitmap, bool has_alpha, bool opaque = false) = 0;
+	virtual IDriverDependantBitmap *CreateDDBFromBitmap(AGS::Shared::Bitmap *bitmap, bool has_alpha, bool opaque = false) = 0;
 	// Creates DDB intended to be used as a render target (allow render other DDBs on it).
 	virtual IDriverDependantBitmap *CreateRenderTargetDDB(int width, int height, int color_depth, bool opaque = false) = 0;
 	// Updates DBB using the given bitmap; bitmap must have same size and format
 	// as the one that this DDB was initialized with.
-	virtual void UpdateDDBFromBitmap(IDriverDependantBitmap *bitmapToUpdate, Shared::Bitmap *bitmap, bool has_alpha) = 0;
+	virtual void UpdateDDBFromBitmap(IDriverDependantBitmap *bitmapToUpdate, AGS::Shared::Bitmap *bitmap, bool has_alpha) = 0;
 	// Destroy the DDB.
 	virtual void DestroyDDB(IDriverDependantBitmap *bitmap) = 0;
 
@@ -167,8 +167,8 @@ public:
 	// be applied to the shared texture data. Currently it's possible to share same
 	// texture data, but update it with different "opaque" values, which breaks logic.
 	virtual IDriverDependantBitmap *GetSharedDDB(uint32_t sprite_id,
-		Shared::Bitmap *bitmap = nullptr, bool has_alpha = true, bool opaque = false) = 0;
-	virtual void UpdateSharedDDB(uint32_t sprite_id, Shared::Bitmap *bitmap = nullptr, bool has_alpha = true, bool opaque = false) = 0;
+		AGS::Shared::Bitmap *bitmap = nullptr, bool has_alpha = true, bool opaque = false) = 0;
+	virtual void UpdateSharedDDB(uint32_t sprite_id, AGS::Shared::Bitmap *bitmap = nullptr, bool has_alpha = true, bool opaque = false) = 0;
 	// Removes the shared texture reference, will force the texture to recreate next time
 	virtual void ClearSharedDDB(uint32_t sprite_id) = 0;
 
@@ -180,7 +180,7 @@ public:
 	// Optionally you can assign "filter flags" to this batch; this lets to filter certain
 	// batches out during some operations, such as fading effects or making screenshots.
 	virtual void BeginSpriteBatch(const Rect &viewport, const SpriteTransform &transform = SpriteTransform(),
-		Shared::GraphicFlip flip = Shared::kFlip_None, PBitmap surface = nullptr, uint32_t filter_flags = 0) = 0;
+		AGS::Shared::GraphicFlip flip = AGS::Shared::kFlip_None, PBitmap surface = nullptr, uint32_t filter_flags = 0) = 0;
 	// Ends current sprite batch
 	virtual void EndSpriteBatch() = 0;
 	// Adds sprite to the active batch
@@ -203,11 +203,11 @@ public:
 	// Renders with additional final offset and flip
 	// TODO: leftover from old code, solely for software renderer; remove when
 	// software mode either discarded or scene node graph properly implemented.
-	virtual void Render(int xoff, int yoff, Shared::GraphicFlip flip) = 0;
+	virtual void Render(int xoff, int yoff, AGS::Shared::GraphicFlip flip) = 0;
 	// Copies contents of the game screen into bitmap using simple blit or pixel copy.
 	// Bitmap must be of supported size and pixel format. If it's not the method will
 	// fail and optionally write wanted destination format into 'want_fmt' pointer.
-	virtual bool GetCopyOfScreenIntoBitmap(Shared::Bitmap *destination, const Rect *src_rect, bool at_native_res,
+	virtual bool GetCopyOfScreenIntoBitmap(AGS::Shared::Bitmap *destination, const Rect *src_rect, bool at_native_res,
 										   GraphicResolution *want_fmt = nullptr, uint32_t batch_skip_filter = 0u) = 0;
 	// Tells if the renderer supports toggling vsync after initializing the mode.
 	virtual bool DoesSupportVsyncToggle() = 0;
@@ -238,18 +238,18 @@ public:
 	virtual void SetGamma(int newGamma) = 0;
 	// Returns the virtual screen. Will return NULL if renderer does not support memory backbuffer.
 	// In normal case you should use GetStageBackBuffer() instead.
-	virtual Shared::Bitmap *GetMemoryBackBuffer() = 0;
+	virtual AGS::Shared::Bitmap *GetMemoryBackBuffer() = 0;
 	// Sets custom backbuffer bitmap to render to.
 	// Passing NULL pointer will tell renderer to switch back to its original virtual screen.
 	// Note that only software renderer supports this.
-	virtual void SetMemoryBackBuffer(Shared::Bitmap *backBuffer) = 0;
+	virtual void SetMemoryBackBuffer(AGS::Shared::Bitmap *backBuffer) = 0;
 	// Returns memory backbuffer for the current rendering stage (or base virtual screen if called outside of render pass).
 	// All renderers should support this.
-	virtual Shared::Bitmap *GetStageBackBuffer(bool mark_dirty = false) = 0;
+	virtual AGS::Shared::Bitmap *GetStageBackBuffer(bool mark_dirty = false) = 0;
 	// Sets custom backbuffer bitmap to render current render stage to.
 	// Passing NULL pointer will tell renderer to switch back to its original stage buffer.
 	// Note that only software renderer supports this.
-	virtual void SetStageBackBuffer(Shared::Bitmap *backBuffer) = 0;
+	virtual void SetStageBackBuffer(AGS::Shared::Bitmap *backBuffer) = 0;
 	// Retrieves 3 transform matrixes for the current rendering stage: world (model), view and projection.
 	// These matrixes will be filled in accordance to the renderer's compatible format;
 	// returns false if renderer does not use matrixes (not a 3D renderer).

@@ -273,7 +273,7 @@ public:
 	 * @{
 	 */
 
-	std::unique_ptr<Shared::AssetManager> *_AssetMgr;
+	std::unique_ptr<AGS::Shared::AssetManager> *_AssetMgr;
 
 	/**@}*/
 
@@ -615,12 +615,12 @@ public:
 	AGS::Engine::IDriverDependantBitmap *_roomBackgroundBmp = nullptr;
 	// whether there are currently remnants of a DisplaySpeech
 	bool _screen_is_dirty = false;
-	std::unique_ptr<Shared::Bitmap> _raw_saved_screen;
-	std::unique_ptr<Shared::Bitmap> *_dynamicallyCreatedSurfaces;
+	std::unique_ptr<AGS::Shared::Bitmap> _raw_saved_screen;
+	std::unique_ptr<AGS::Shared::Bitmap> *_dynamicallyCreatedSurfaces;
 	color *_palette;
 	COLOR_MAP *_maincoltable;
 
-	std::vector<Engine::IDriverDependantBitmap *> *_guiobjddb;
+	std::vector<AGS::Engine::IDriverDependantBitmap *> *_guiobjddb;
 	std::vector<Point> *_guiobjoff; // because surface may be larger than logical position
 
 	DrawState _drawstate;
@@ -730,7 +730,7 @@ public:
 	WFNFontRenderer *_wfnRenderer;
 	SplitLines *_Lines;
 	const WFNChar _emptyChar; // a dummy character to substitute bad symbols
-	Shared::Bitmap _wputblock_wrapper; // [IKM] argh! :[
+	AGS::Shared::Bitmap _wputblock_wrapper; // [IKM] argh! :[
 
 	/**@}*/
 
