@@ -1,4 +1,4 @@
-'
+
 # Istruzioni per l'agente OpenCode
 
 ## Contesto del progetto
