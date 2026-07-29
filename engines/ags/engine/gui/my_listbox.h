@@ -36,7 +36,7 @@ struct MyListBox : public NewControl {
 	void clearlist();
 	~MyListBox() override;
 
-	void draw(Shared::Bitmap *ds) override;
+	void draw(AGS::Shared::Bitmap *ds) override;
 	int pressedon(int mx, int my) override;
 	void additem(char *texx);
 	int processmessage(int mcode, int wParam, NumberPtr lParam) override;

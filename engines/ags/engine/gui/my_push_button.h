@@ -29,7 +29,7 @@ namespace AGS3 {
 struct MyPushButton : public NewControl {
 	char text[50];
 	MyPushButton(int xx, int yy, int wi, int hi, const char *tex);
-	void draw(Shared::Bitmap *ds) override;
+	void draw(AGS::Shared::Bitmap *ds) override;
 	int pressedon(int mx, int my) override;
 	int processmessage(int mcode, int wParam, NumberPtr lParam) override;
 };
