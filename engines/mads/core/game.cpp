@@ -65,6 +65,7 @@
 #include "mads/forest/sound/digi.h"
 #include "mads/forest/extra.h"
 #include "mads/forest/global.h"
+#include "mads/nebular/global.h"
 
 namespace MADS {
 
@@ -1491,6 +1492,14 @@ void game_control() {
 			// Flush all EMS/XMS preloads at the room level
 			himem_flush(ROOM);
 
+			// Rex Nebular menu display
+			if (g_engine->getGameID() == GType_RexNebular && kernel.activate_menu != GAME_NO_MENU &&
+					player.commands_allowed && !global[RexNebular::kCopyProtectFailed]) {
+				player_dump_walker();
+				game_exec_function(game_menu_routine);
+				kernel.activate_menu = GAME_NO_MENU;
+			}
+
 			if (!game.going && !win_status) {
 				conv_control.running = aborted_conv;
 
@@ -1922,11 +1931,19 @@ static void game_control_loop() {
 
 		if (kernel.activate_menu) {
 			if (!kernel.trigger && player.commands_allowed) {
-				game_exec_function(game_menu_routine);
+				if (g_engine->getGameID() == GType_RexNebular) {
+					// Rex Nebular menus are their own virtual room, so the current room
+					// has to be completely unloaded before we open the menu
+					kernel.force_restart = true;
 
-				if (game_menu_routine == NULL) game.going = false;
+				} else {
+					game_exec_function(game_menu_routine);
 
-				kernel.activate_menu = GAME_NO_MENU;
+					if (game_menu_routine == NULL)
+						game.going = false;
+
+					kernel.activate_menu = GAME_NO_MENU;
+				}
 			}
 		}
 
@@ -1950,6 +1967,11 @@ void chain_execute() {
 	error("TODO: chain_execute");
 }
 
+
+char *game_menu_save_string(int id) {
+	return game_save_directory + (id * (GAME_MAX_SAVE_LENGTH + 1));
+}
+
 /**
  * Reads the list of save files.
  */
@@ -1959,7 +1981,7 @@ static void game_read_save_directory() {
 
 	for (auto it = list.begin(); it != list.end(); ++it) {
 		if (it->getSaveSlot() > 0) {
-			char *slot = game_save_directory + (it->getSaveSlot() - 1) * (GAME_MAX_SAVE_LENGTH + 1);
+			char *slot = game_menu_save_string(it->getSaveSlot() - 1);
 			Common::strcpy_s(slot, GAME_MAX_SAVE_LENGTH + 1, it->getDescription().c_str());
 		}
 	}

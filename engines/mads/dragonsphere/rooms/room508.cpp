@@ -132,7 +132,6 @@ static void handle_animation_lani() {
 		lani_reset_frame = -1;
 
 		switch (local->lani_frame) {
-
 		case 25:
 			lani_reset_frame = 24;
 			break;
@@ -146,7 +145,6 @@ static void handle_animation_lani() {
 				lani_reset_frame = 0;
 
 			} else switch (local->lani_action) {
-
 			case LANI_TALK:
 				random = imath_random(1, 2);
 				if (random == 1) {
@@ -180,7 +178,6 @@ static void handle_animation_lani() {
 				lani_reset_frame = 19;
 
 			} else switch (local->lani_action) {
-
 			case LANI_TALK:
 				lani_reset_frame = 19;
 				break;
@@ -218,7 +215,6 @@ static void handle_animation_beast() {
 		beast_reset_frame = -1;
 
 		switch (local->beast_frame) {
-
 		case 40:
 			if (local->beast_action == BEAST_INVISIBLE) {
 				beast_reset_frame = 39;
@@ -289,7 +285,6 @@ static void handle_animation_king_choice() {
 		king_reset_frame = -1;
 
 		switch (local->king_frame) {
-
 		case 21:
 			if (local->king_action == KING_INVISIBLE) {
 				king_reset_frame = 20;
@@ -338,14 +333,10 @@ static void handle_animation_king_choice() {
 }
 
 static void handle_animation_king_aside() {
-	int king_reset_frame;
-
 	if (kernel_anim[aa[3]].frame != local->king_frame_aside) {
 		local->king_frame_aside = kernel_anim[aa[3]].frame;
-		king_reset_frame = -1;
 
 		switch (local->king_frame_aside) {
-
 		case 20:
 			kernel_reset_animation(aa[0], 24);
 			kernel_synch(KERNEL_ANIM, aa[0], KERNEL_ANIM, aa[3]);
@@ -357,23 +348,14 @@ static void handle_animation_king_aside() {
 			kernel_synch(KERNEL_ANIM, aa[2], KERNEL_ANIM, aa[3]);
 			break;
 		}
-
-		if (king_reset_frame >= 0) {
-			kernel_reset_animation(aa[3], king_reset_frame);
-			local->king_frame_aside = king_reset_frame;
-		}
 	}
 }
 
 static void handle_animation_king_cliff() {
-	int king_reset_frame;
-
 	if (kernel_anim[aa[4]].frame != local->king_frame_cliff) {
 		local->king_frame_cliff = kernel_anim[aa[4]].frame;
-		king_reset_frame = -1;
 
 		switch (local->king_frame_cliff) {
-
 		case 35:
 			global_speech_go(3);
 			break;
@@ -399,11 +381,6 @@ static void handle_animation_king_cliff() {
 			local->king_action = KING_INVISIBLE;
 			kernel_synch(KERNEL_ANIM, aa[2], KERNEL_ANIM, aa[4]);
 			break;
-		}
-
-		if (king_reset_frame >= 0) {
-			kernel_reset_animation(aa[4], king_reset_frame);
-			local->king_frame_cliff = king_reset_frame;
 		}
 	}
 }

@@ -543,7 +543,7 @@ static void room_201_init() {
 		local->anim_4_running = false;
 		local->anim_5_running = false;
 		local->anim_6_running = false;
-		local->activate_timer = false;
+		local->activate_timer = 0;
 		local->left_ready_to_fall = false;
 		local->right_ready_to_fall = false;
 		local->crossed_line = false;
@@ -837,7 +837,6 @@ static void handle_anim_guard_left() {
 		guard_left_reset_frame = -1;
 
 		switch (local->guard_left_frame) {
-
 		case 18:  /* end of talk frame */
 		case 19:  /* end of talk frame */
 		case 20:  /* end of talk frame */
@@ -911,7 +910,6 @@ static void handle_anim_guard_left() {
 		case 109: /* end of take bottle          */
 
 			switch (local->guard_left_action) {
-
 			case FREEZE:
 				guard_left_reset_frame = 0;
 				break;
@@ -1043,7 +1041,6 @@ static void handle_anim_guard_right() {
 		case 80:  /* end of stand up   */
 
 			switch (local->guard_right_action) {
-
 			case HALT:
 				guard_right_reset_frame = 1;
 				local->guard_right_action = HALT_FREEZE;
@@ -1160,7 +1157,6 @@ static void handle_anim_guard_right_pid() {
 		case 82:  /* end of stand up   */
 
 			switch (local->guard_right_action) {
-
 			case HALT:
 				guard_right_reset_frame = 1;
 				local->guard_right_action = HALT_FREEZE;
@@ -1216,7 +1212,6 @@ static void handle_anim_death() {
 		death_reset_frame = -1;
 
 		switch (local->death_frame) {
-
 		case 38:
 		case 43:
 			if (speech_system_active && speech_on) {
@@ -1250,7 +1245,6 @@ static void handle_anim_pid() {
 		pid_reset_frame = -1;
 
 		switch (local->pid_frame) {
-
 		case 43:  /* almost end of take a swig (pid) */
 			conv_release();
 			break;
@@ -1284,7 +1278,6 @@ static void handle_anim_pid() {
 		case 64:  /* end of give to right   */
 
 			switch (local->pid_action) {
-
 			case FREEZE:
 				pid_reset_frame = 0;
 				break;
@@ -1368,7 +1361,6 @@ static void handle_anim_pid() {
 		case 79:  /* end of take from right */
 
 			switch (local->pid_action) {
-
 			case FREEZE:
 				pid_reset_frame = 32;
 				break;
@@ -1410,48 +1402,30 @@ static void handle_anim_pid() {
 }
 
 static void handle_anim_throw() {
-	int throw_reset_frame;
-
 	if (kernel_anim[aa[4]].frame != local->throw_frame) {
 		local->throw_frame = kernel_anim[aa[4]].frame;
-		throw_reset_frame = -1;
 
 		switch (local->throw_frame) {
-
-		case 11:  /* just threw shieldstone */
+		case 11:
+			// Just threw Shieldstone
 			inter_move_object(shieldstone, NOWHERE);
 			break;
-		}
-
-		if (throw_reset_frame >= 0) {
-			kernel_reset_animation(aa[4], throw_reset_frame);
-			local->throw_frame = throw_reset_frame;
 		}
 	}
 }
 
 static void handle_anim_take() {
-	int take_reset_frame;
-
 	if (kernel_anim[aa[5]].frame != local->take_frame) {
 		local->take_frame = kernel_anim[aa[5]].frame;
-		take_reset_frame = -1;
 
-		switch (local->take_frame) {
-
-		case 6:  /* just took tentacle parts */
+		if (local->take_frame == 6) {
+			// Just took tentacle parts
 			kernel_seq_delete(seq[fx_pair_testes]);
 			kernel_flip_hotspot(words_tentacles, false);
 			++global[player_score];
 			sound_play(N_TakeObjectSnd);
 			inter_give_to_player(tentacle_parts);
 			object_examine(tentacle_parts, 20146, 0);
-			break;
-		}
-
-		if (take_reset_frame >= 0) {
-			kernel_reset_animation(aa[5], take_reset_frame);
-			local->take_frame = take_reset_frame;
 		}
 	}
 }
@@ -1585,13 +1559,13 @@ static void room_201_daemon() {
 			} else {
 				if (local->activate_timer == 1) {
 					text_show(20157);
-					local->activate_timer = false;
+					local->activate_timer = 0;
 					local->pid_action = FALL;
 					player.commands_allowed = false;
 					kernel_set_interface_mode(INTER_LIMITED_SENTENCES);
 
 				} else {
-					local->activate_timer = false;
+					local->activate_timer = 0;
 					conv_run(CONV_54_PID);
 					conv_export_value(0);
 					conv_export_value(0);
@@ -1831,7 +1805,7 @@ static void process_conv_king_guards() {
 	if (player_verb == conv047_give_b_b) { /* first time around */
 		*conv_my_next_start = conv047_postbribe;
 		you_trig_flag = true;
-		local->activate_timer = true;
+		local->activate_timer = -1;
 		conv_abort();
 	}
 
@@ -2459,7 +2433,7 @@ static void room_201_parser() {
 		player_said_1(walk_down) ||
 		player_said_1(put) ||
 		player_said_1(throw)) {
-		if (local->activate_timer) {
+		if (local->activate_timer == -1) {
 			text_show(20113);
 			goto handled;
 
