@@ -341,6 +341,7 @@ public:
 
 	void parseAmigaAtariHeader(Common::SeekableReadStream *file);
 	Common::SeekableReadStream *decryptFileAmigaAtari(const Common::Path &packed, const Common::Path &unpacker, uint32 unpackArrayOffset);
+	Common::SeekableReadStream *decryptFileAmigaAtari(const Common::Path &packed, Common::SeekableReadStream *unpacker, uint32 unpackArrayOffset);
 	Common::SeekableReadStream *decryptFileAtariVirtualWorlds(const Common::Path &filename);
 
 	// Areas
@@ -531,7 +532,9 @@ public:
 	Sound *loadSpeakerFxZX(Common::SeekableReadStream *file, int sfxTable, int sfxData, int numberSounds);
 	Sound *loadSpeakerFxDrillerZX();
 	Sound *loadSoundsCPC(Common::SeekableReadStream *file, int offsetTone, int sizeTone, int offsetEnvelope, int sizeEnvelope, int offsetSoundDef, int sizeSoundDef);
-	Sound *loadSoundsAmigaDemo(Common::SeekableReadStream *file, int offset, int numSounds, int modOffset);
+	// sampleBank names the external PCM bank, modOffset points at the embedded
+	// module used for one extra sample; both are optional (empty path, -1)
+	Sound *loadSoundsAmiga(Common::SeekableReadStream *file, int offset, int numSounds, const Common::Path &sampleBank, int modOffset);
 
 	int _soundIndexShoot;
 	int _soundIndexCollide;

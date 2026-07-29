@@ -418,7 +418,7 @@ const ADGameDescription gameDescriptions[] = {
 		GUIO2(GUIO_NOMIDI, GUIO_RENDERATARIST)
 	},
 	{
-		// Stampede AtariST, Issue 1
+		// Stampede AtariST, Issue 1, where 0.DRK ships packed
 		"darkside",
 		"",
 		{
@@ -442,7 +442,7 @@ const ADGameDescription gameDescriptions[] = {
 		},
 		Common::EN_ANY,
 		Common::kPlatformAmiga,
-		ADGF_UNSUPPORTED,
+		ADGF_NO_FLAGS,
 		GUIO2(GUIO_NOMIDI, GUIO_RENDERAMIGA)
 	},
 	{
@@ -458,7 +458,7 @@ const ADGameDescription gameDescriptions[] = {
 		Common::EN_ANY,
 		Common::kPlatformDOS,
 		ADGF_NO_FLAGS,
-		GUIO3(GUIO_NOMIDI, GUIO_RENDEREGA, GUIO_RENDERCGA)
+		GUIO4(GUIO_NOMIDI, GUIO_RENDEREGA, GUIO_RENDERCGA, GUIO_RENDERHERCGREEN)
 	},
 	{
 		"darkside",
@@ -473,7 +473,7 @@ const ADGameDescription gameDescriptions[] = {
 		Common::EN_ANY,
 		Common::kPlatformDOS,
 		ADGF_NO_FLAGS,
-		GUIO3(GUIO_NOMIDI, GUIO_RENDEREGA, GUIO_RENDERCGA)
+		GUIO4(GUIO_NOMIDI, GUIO_RENDEREGA, GUIO_RENDERCGA, GUIO_RENDERHERCGREEN)
 	},
 	{
 		"darkside",
@@ -488,7 +488,7 @@ const ADGameDescription gameDescriptions[] = {
 		Common::EN_ANY,
 		Common::kPlatformDOS,
 		ADGF_NO_FLAGS,
-		GUIO3(GUIO_NOMIDI, GUIO_RENDEREGA, GUIO_RENDERCGA)
+		GUIO4(GUIO_NOMIDI, GUIO_RENDEREGA, GUIO_RENDERCGA, GUIO_RENDERHERCGREEN)
 	},
 	{
 		"darkside",
@@ -706,7 +706,7 @@ const ADGameDescription gameDescriptions[] = {
 		Common::EN_ANY,
 		Common::kPlatformDOS,
 		ADGF_NO_FLAGS,
-		GUIO6(GUIO_NOMIDI, GUIO_RENDEREGA, GUIO_RENDERCGA, GAMEOPTION_MODERN_MOVEMENT, GAMEOPTION_WASD_CONTROLS, GAMEOPTION_OPL_MUSIC)
+		GUIO7(GUIO_NOMIDI, GUIO_RENDEREGA, GUIO_RENDERCGA, GUIO_RENDERHERCGREEN, GAMEOPTION_MODERN_MOVEMENT, GAMEOPTION_WASD_CONTROLS, GAMEOPTION_OPL_MUSIC)
 	},
 	{
 		// Erbe Software release
@@ -723,7 +723,7 @@ const ADGameDescription gameDescriptions[] = {
 		Common::EN_ANY,
 		Common::kPlatformDOS,
 		ADGF_NO_FLAGS,
-		GUIO6(GUIO_NOMIDI, GUIO_RENDEREGA, GUIO_RENDERCGA, GAMEOPTION_MODERN_MOVEMENT, GAMEOPTION_WASD_CONTROLS, GAMEOPTION_OPL_MUSIC)
+		GUIO7(GUIO_NOMIDI, GUIO_RENDEREGA, GUIO_RENDERCGA, GUIO_RENDERHERCGREEN, GAMEOPTION_MODERN_MOVEMENT, GAMEOPTION_WASD_CONTROLS, GAMEOPTION_OPL_MUSIC)
 	},
 	{
 		"totaleclipse", // Tape relese
@@ -899,10 +899,73 @@ const ADGameDescription gameDescriptions[] = {
 		ADGF_UNSTABLE,
 		GUIO4(GUIO_NOMIDI, GAMEOPTION_TRAVEL_ROCK, GUIO_RENDERAMIGA, GAMEOPTION_WASD_CONTROLS)
 	},
-	// Full Castle Master, Atari ST.
-	// The player must provide the Copylock-decrypted game executable as "M.PRG"
-	// and the intro program as "J.PRG" (both Huffman-packed; the engine
-	// decompresses them at load time).
+	// Full Castle Master, Amiga, by Domark: another build of the same game, with
+	// its data at different offsets
+	{
+		"castlemaster",
+		"",
+		{
+			{"cm", 0, "cbfc54c0e79c30dd64a0b2d72236d56c", 1184},
+			{"w", 0, "63c770f1008a641c5fd5d0b9df2bcbb6", 32000},
+			{"x", 0, "bdf95c6c97dfc35f3d7b07d7f66fc417", 353774},
+			AD_LISTEND
+		},
+		Common::EN_ANY,
+		Common::kPlatformAmiga,
+		ADGF_UNSTABLE,
+		GUIO4(GUIO_NOMIDI, GAMEOPTION_TRAVEL_ROCK, GUIO_RENDERAMIGA, GAMEOPTION_WASD_CONTROLS)
+	},
+	// Full Castle Master, Amiga, from "Castle Master & The Crypt" by Incentive,
+	// where the game is packed into "cmstr.com"
+	{
+		"castlemaster",
+		"",
+		{
+			{"cm", 0, "07d6cabd9d2acdc762956eb3e189cde3", 1188},
+			{"w", 0, "63c770f1008a641c5fd5d0b9df2bcbb6", 32000},
+			{"cmstr.com", 0, "ad4cf87a37561b8f08d888b7a82d6c82", 216950},
+			AD_LISTEND
+		},
+		Common::EN_ANY,
+		Common::kPlatformAmiga,
+		ADGF_UNSTABLE,
+		GUIO4(GUIO_NOMIDI, GAMEOPTION_TRAVEL_ROCK, GUIO_RENDERAMIGA, GAMEOPTION_WASD_CONTROLS)
+	},
+	// Full Castle Master, Atari ST, as found on the original disk: "M.PRG" is
+	// wrapped in a Copylock protection, which the engine removes at load time,
+	// and both it and the intro program "J.PRG" are Huffman-packed.
+	{
+		"castlemaster",
+		"",
+		{
+			{"M.PRG", 0, "6e6e1b68b311a60e7885377fc67b1a93", 269432},
+			{"J.PRG", 0, "4934cf2f304b8ae5327e92b773acd35c", 58514},
+			AD_LISTEND
+		},
+		Common::EN_ANY,
+		Common::kPlatformAtariST,
+		ADGF_UNSTABLE,
+		GUIO4(GUIO_NOMIDI, GAMEOPTION_TRAVEL_ROCK, GUIO_RENDERATARIST, GAMEOPTION_WASD_CONTROLS)
+	},
+	// Full Castle Master, Atari ST, from the "Castle Master & The Crypt"
+	// release by Incentive. Same game program, wrapped with another Copylock
+	// key and cipher.
+	{
+		"castlemaster",
+		"",
+		{
+			{"M.PRG", 0, "ced428ad4c59ebdeb778fcd4bed4be08", 269478},
+			{"J.PRG", 0, "fd61e4eed3b1a965fa53f5560eb066c0", 58430},
+			AD_LISTEND
+		},
+		Common::EN_ANY,
+		Common::kPlatformAtariST,
+		ADGF_UNSTABLE,
+		GUIO4(GUIO_NOMIDI, GAMEOPTION_TRAVEL_ROCK, GUIO_RENDERATARIST, GAMEOPTION_WASD_CONTROLS)
+	},
+	// The same, with "M.PRG" already decrypted by hand (dec0de and a real or
+	// emulated Atari ST), as was required before the protection was removable
+	// from the engine.
 	{
 		"castlemaster",
 		"",
@@ -1045,6 +1108,21 @@ const ADGameDescription gameDescriptions[] = {
 		Common::kPlatformZX,
 		ADGF_NO_FLAGS,
 		GUIO3(GUIO_NOMIDI, GUIO_RENDERZX, GAMEOPTION_WASD_CONTROLS)
+	},
+	{
+		// Only an EGA executable is shipped, unlike Castle Master
+		"castlemaster2",
+		"",
+		{
+			{"CRYPT.EXE", 0, "c1fdbb7cfbb4cb35fe9ccebf9883d8b8", 2582},
+			{"CRE.EXE", 0, "91838da45e67a0362a0658038a5f125f", 76878},
+			{"CREDF", 0, "cab9a101a8632927a96a635d796edffe", 17279},
+			AD_LISTEND
+		},
+		Common::EN_ANY,
+		Common::kPlatformDOS,
+		ADGF_NO_FLAGS,
+		GUIO3(GUIO_NOMIDI, GUIO_RENDEREGA, GAMEOPTION_WASD_CONTROLS)
 	},
 	// 3D Construction Kit games
 	{

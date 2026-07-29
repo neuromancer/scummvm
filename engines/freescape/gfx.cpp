@@ -323,7 +323,10 @@ void Renderer::setColorMap(ColorMap *colorMap_) {
 		}
 	} else if (_renderMode == Common::kRenderCGA) {
 		fillColorPairArray();
-		for (int i = 4; i < 15; i++) {
+		// As with CPC above, Castle Master uses color-map entry 3 as a genuine
+		// checker, so all 15 entries need a stipple. Harmless for the other
+		// games, since getRGBAtCGA() drops it whenever both colors are equal
+		for (int i = 0; i < 15; i++) {
 			byte pair = _colorPair[i];
 			byte c1 = pair & 0xf;
 			byte c2 = (pair >> 4) & 0xf;
@@ -1306,16 +1309,20 @@ void Renderer::drawBackground(uint8 color) {
 
 	if (_colorRemaps && _colorRemaps->contains(color)) {
 		int mappedColor = (*_colorRemaps)[color];
-		if (_renderMode == Common::kRenderAmiga || _renderMode == Common::kRenderAtariST)
-			_texturePixelFormat.colorToRGB(mappedColor, r1, g1, b1);
-		else {
+		if (_renderMode == Common::kRenderHercG) {
 			color = mappedColor;
-			if (_renderMode == Common::kRenderCPC && isEncodedCPCDirectColor(color))
-				color = decodeCPCDirectColor(color);
-			readFromPalette(color, r1, g1, b1);
+		} else {
+			if (_renderMode == Common::kRenderAmiga || _renderMode == Common::kRenderAtariST)
+				_texturePixelFormat.colorToRGB(mappedColor, r1, g1, b1);
+			else {
+				color = mappedColor;
+				if (_renderMode == Common::kRenderCPC && isEncodedCPCDirectColor(color))
+					color = decodeCPCDirectColor(color);
+				readFromPalette(color, r1, g1, b1);
+			}
+			clear(r1, g1, b1);
+			return;
 		}
-		clear(r1, g1, b1);
-		return;
 	}
 
 	if (color == 0) {
@@ -1327,6 +1334,9 @@ void Renderer::drawBackground(uint8 color) {
 
 	getRGBAt(color, 0, r1, g1, b1, r2, g2, b2, stipple);
 	clear(r1, g1, b1);
+	// Skies are often a dither of two colors, which clear() cannot express
+	if (stipple && (r1 != r2 || g1 != g2 || b1 != b2))
+		fillViewportStippled(r1, g1, b1, r2, g2, b2, stipple);
 }
 
 void Renderer::drawEclipse(byte color1, byte color2, float progress) {

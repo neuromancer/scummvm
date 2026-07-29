@@ -54,6 +54,8 @@ const WBTableOffsets kEclipseAmigaMusicOffsets = {
 };
 
 EclipseEngine::EclipseEngine(OSystem *syst, const ADGameDescription *gd) : FreescapeEngine(syst, gd) {
+	_ankhIndicatorMask = nullptr;
+	_ankhCollectedMask = nullptr;
 	_playerC64Sfx = nullptr;
 	_playerMusic = nullptr;
 	_c64UseSFX = false;
@@ -454,6 +456,10 @@ void EclipseEngine::gotoArea(uint16 areaID, int entranceID) {
 	swapPalette(areaID);
 	if (isCPC())
 		updateHeartFramesCPC();
+	else if (isDOS() && _renderMode == Common::kRenderCGA) {
+		updateHeartFrames(_gfx->_palette);
+		updateAnkhIndicator(_gfx->_palette);
+	}
 	if (isAmiga() || isAtariST())
 		_currentArea->_skyColor = 15;
 
@@ -516,6 +522,10 @@ void EclipseEngine::drawBackground() {
 		} else if (isDOS() && _renderMode == Common::kRenderCGA) {
 			color1 = 2;
 			color2 = 8;
+		} else if (isDOS() && _renderMode == Common::kRenderHercG) {
+			// A solid sun and a 50% moon, against the 75% sky
+			color1 = 2;
+			color2 = 12;
 		}
 
 		_gfx->drawEclipse(color1, color2, progress);
@@ -843,37 +853,44 @@ void EclipseEngine::releasedKey(const int keycode) {
 }
 
 void EclipseEngine::drawAnalogClock(Graphics::Surface *surface, int x, int y, uint32 colorHand1, uint32 colorHand2, uint32 colorBack) {
+	// The Hercules border draws everything at twice the width
+	int scale = _renderMode == Common::kRenderHercG ? 2 : 1;
+
 	// These calls will cover the pixels of the hardcoded clock image
-	drawAnalogClockHand(surface, x, y, 6 * 6 - 90, 12, colorBack);
-	drawAnalogClockHand(surface, x, y, 7 * 6 - 90, 12, colorBack);
-	drawAnalogClockHand(surface, x, y, 41 * 6 - 90, 11, colorBack);
-	drawAnalogClockHand(surface, x, y, 42 * 6 - 90, 11, colorBack);
-	drawAnalogClockHand(surface, x, y, 0 * 6 - 90, 11, colorBack);
+	drawAnalogClockHand(surface, x, y, 6 * 6 - 90, 12 * scale, colorBack);
+	drawAnalogClockHand(surface, x, y, 7 * 6 - 90, 12 * scale, colorBack);
+	drawAnalogClockHand(surface, x, y, 41 * 6 - 90, 11 * scale, colorBack);
+	drawAnalogClockHand(surface, x, y, 42 * 6 - 90, 11 * scale, colorBack);
+	drawAnalogClockHand(surface, x, y, 0 * 6 - 90, 11 * scale, colorBack);
 
 	int seconds, minutes, hours;
 	getTimeFromCountdown(seconds, minutes, hours);
 	hours = 7 + 2 - hours; // It's 7 o-clock when the game starts
 	minutes = 59 - minutes;
 	seconds = 59 - seconds;
-	drawAnalogClockHand(surface, x, y, hours * 30 - 90, 11, colorHand1);
-	drawAnalogClockHand(surface, x, y, minutes * 6 - 90, 11, colorHand1);
-	drawAnalogClockHand(surface, x, y, seconds * 6 - 90, 11, colorHand2);
+	drawAnalogClockHand(surface, x, y, hours * 30 - 90, 11 * scale, colorHand1);
+	drawAnalogClockHand(surface, x, y, minutes * 6 - 90, 11 * scale, colorHand1);
+	drawAnalogClockHand(surface, x, y, seconds * 6 - 90, 11 * scale, colorHand2);
 }
 
 void EclipseEngine::drawAnalogClockHand(Graphics::Surface *surface, int x, int y, double degrees, double magnitude, uint32 color) {
 	const double degtorad = (M_PI * 2) / 360;
+	// Hercules panels are twice as wide but barely taller
+	double aspect = _renderMode == Common::kRenderHercG ? 0.63 : 1.0;
 	double w = magnitude * cos(degrees * degtorad);
-	double h = magnitude * sin(degrees * degtorad);
+	double h = magnitude * sin(degrees * degtorad) * aspect;
 	surface->drawLine(x, y, x+(int)w, y+(int)h, color);
-	if (isC64()) {
+	if (isC64() || _renderMode == Common::kRenderHercG) {
 		surface->drawLine(x+1, y, x+1+(int)w, y+(int)h, color);
 	}
 }
 
 void EclipseEngine::drawCompass(Graphics::Surface *surface, int x, int y, double degrees, double magnitude, uint32 color) {
 	const double degtorad = (M_PI * 2) / 360;
+	// The needle keeps its height while the Hercules panel doubles in width
+	double aspect = _renderMode == Common::kRenderHercG ? 0.5 : 1.0;
 	double w = magnitude * cos(-degrees * degtorad);
-	double h = magnitude * sin(-degrees * degtorad);
+	double h = magnitude * sin(-degrees * degtorad) * aspect;
 
 	int dx = 0;
 	int dy = 0;
@@ -911,6 +928,16 @@ void EclipseEngine::drawCompass(Graphics::Surface *surface, int x, int y, double
 
 	surface->drawLine(x - dx, y - dy, x+(int)-w, y+(int)-h, color);
 	surface->drawLine(x + dx, y + dy, x+(int)-w, y+(int)-h, color);
+}
+
+// A circle sampled every `squash` rows, to keep the eclipse discs round on
+// Hercules where the pixels are much narrower than they are tall
+void fillSquashedCircle(Graphics::Surface *surface, int x, int y, int radius, int squash, int color) {
+	int rows = radius / squash;
+	for (int dy = -rows; dy <= rows; dy++) {
+		int span = (int)sqrt(double(radius * radius - squash * squash * dy * dy));
+		surface->hLine(x - span, y + dy, x + span, color);
+	}
 }
 
 // Copied from BITMAP::circlefill in engines/ags/lib/allegro/surface.cpp
@@ -952,24 +979,32 @@ void fillCircle(Graphics::Surface *surface, int x, int y, int radius, int color)
 
 void EclipseEngine::drawEclipseIndicator(Graphics::Surface *surface, int x, int y, uint32 color1, uint32 color2, uint32 color3) {
 	uint32 black = _gfx->_texturePixelFormat.ARGBToColor(0xFF, 0x00, 0x00, 0x00);
-	surface->fillRect(Common::Rect(x, y, x + 50, y + 20), black);
+	bool isHercules = _renderMode == Common::kRenderHercG;
+	// Measured from the original: the moon is a bit smaller than the sun
+	int radius = isHercules ? 15 : 7;
+	int moonRadius = isHercules ? 13 : radius;
+	int squash = isHercules ? 2 : 1;
+	int spread = isHercules ? 28 : 14;
+
+	surface->fillRect(Common::Rect(x, y, x + (isHercules ? 100 : 50), y + 20), black);
 	float progress = 0;
 	if (_countdown >= 0)
 		progress = float(_countdown) / _initialCountdown;
-	int difference = 14 * progress;
-	int radius = 7;
-	int sunX = x + 7;
+	int difference = spread * progress;
+	int sunX = x + (isHercules ? 29 : 7);
 	int sunY = y + 10;
-	int moonX = x + 7 + difference;
-	int moonY = y + 10;
-	fillCircle(surface, sunX, sunY, radius, color1);
+	int moonX = sunX + difference;
+	int moonY = sunY;
+	fillSquashedCircle(surface, sunX, sunY, radius, squash, color1);
 	if (color3 != 0) {
-		for (int dy = -radius; dy <= radius; ++dy) {
-			for (int dx = -radius; dx <= radius; ++dx) {
-				if (dx * dx + dy * dy <= radius * radius) {
+		int rows = moonRadius / squash;
+		for (int dy = -rows; dy <= rows; ++dy) {
+			for (int dx = -moonRadius; dx <= moonRadius; ++dx) {
+				if (dx * dx + squash * squash * dy * dy <= moonRadius * moonRadius) {
 					int px = moonX + dx;
 					int py = moonY + dy;
-					if ((px + py) % 2 == 0) {
+					// The checker follows unsquashed pixel pairs
+					if (((px + squash - 1) / squash + py) % 2 == 0) {
 						surface->setPixel(px, py, color2);
 					} else {
 						surface->setPixel(px, py, color3);
@@ -978,7 +1013,7 @@ void EclipseEngine::drawEclipseIndicator(Graphics::Surface *surface, int x, int 
 			}
 		}
 	} else {
-		fillCircle(surface, moonX, moonY, radius, color2);
+		fillSquashedCircle(surface, moonX, moonY, moonRadius, squash, color2);
 	}
 }
 
@@ -987,12 +1022,17 @@ void EclipseEngine::drawIndicator(Graphics::Surface *surface, int xPosition, int
 		return;
 
 	for (int i = 0; i < 5; i++) {
+		int frame = 0;
 		if (isSpectrum() || isC64()) {
 			if (_gameStateVars[kVariableEclipseAnkhs] <= i)
 				continue;
-		} else if (_gameStateVars[kVariableEclipseAnkhs] > i)
-			continue;
-		surface->copyRectToSurface(*_indicators[0], xPosition + separation * i, yPosition, Common::Rect(_indicators[0]->w, _indicators[0]->h));
+		} else if (_gameStateVars[kVariableEclipseAnkhs] > i) {
+			// DOS repaints these too: the border ankhs use another color
+			if (_indicators.size() < 2)
+				continue;
+			frame = 1;
+		}
+		surface->copyRectToSurface(*_indicators[frame], xPosition + separation * i, yPosition, Common::Rect(_indicators[frame]->w, _indicators[frame]->h));
 	}
 }
 
@@ -1129,8 +1169,9 @@ void EclipseEngine::drawScoreString(int score, int x, int y, uint32 front, uint3
 	}
 
 	// Start in x,y and draw each digit, from left to right, adding a gap every 3 digits
-	int gapSize = isC64() ? 8 : 4;
-	int charStep = 8;
+	bool isHercules = _renderMode == Common::kRenderHercG;
+	int gapSize = isC64() ? 8 : (isHercules ? 8 : 4);
+	int charStep = isHercules ? 16 : 8;
 
 	Font *scoreFont = &_font;
 	scoreFont->setBackground(back);

@@ -148,6 +148,7 @@ ColonyEngine::ColonyEngine(OSystem *syst, const ADGameDescription *gd) : Engine(
 	_unlocked = false;
 	_weapons = 0;
 	_widescreen = ConfMan.getBool("widescreen_mod");
+	_invertY = ConfMan.getBool("invert_y");
 
 	// Render mode: EGA (DOS wireframe default) or Macintosh (filled polygons)
 	if (!ConfMan.hasKey("render_mode") || ConfMan.get("render_mode").empty())
@@ -304,23 +305,18 @@ ColonyEngine::~ColonyEngine() {
 }
 
 Common::Point ColonyEngine::eventMouseToLogical(const Common::Point &p) const {
-	const int sysW = _system->getWidth();
-	const int sysH = _system->getHeight();
-	if (sysW <= 0 || sysH <= 0 || (sysW == _width && sysH == _height))
+	if (!_gfx)
 		return p;
-	return Common::Point((int)((int64)p.x * _width / sysW),
-		(int)((int64)p.y * _height / sysH));
+	return windowToCanvas(_gfx->screenViewport(), p, _width, _height);
 }
 
 void ColonyEngine::warpMouseLogical(int x, int y) {
-	const int sysW = _system->getWidth();
-	const int sysH = _system->getHeight();
-	if (sysW <= 0 || sysH <= 0 || (sysW == _width && sysH == _height)) {
+	if (!_gfx) {
 		_system->warpMouse(x, y);
 		return;
 	}
-	_system->warpMouse((int)((int64)x * sysW / _width),
-		(int)((int64)y * sysH / _height));
+	const Common::Point p = canvasToWindow(_gfx->screenViewport(), Common::Point(x, y), _width, _height);
+	_system->warpMouse(p.x, p.y);
 }
 
 void ColonyEngine::pauseEngineIntern(bool pause) {
@@ -336,6 +332,11 @@ void ColonyEngine::pauseEngineIntern(bool pause) {
 
 	if (_frameLimiter)
 		_frameLimiter->pause(pause);
+}
+
+void ColonyEngine::applyGameSettings() {
+	// Not _widescreen: the canvas size is fixed at renderer creation.
+	_invertY = ConfMan.getBool("invert_y");
 }
 
 void ColonyEngine::loadMacColors() {
@@ -790,7 +791,10 @@ Common::Error ColonyEngine::run() {
 	}
 
 	if (_widescreen) {
-		_width = _height * 16 / 9;
+		// (16/9)/(4/3) = 4/3: widen the canvas rather than stretch it. Holds
+		// for the Mac's square pixels and for DOS EGA's 0.73-wide ones, since
+		// there the shorter canvas cancels out. Both land on 853.
+		_width = _width * 4 / 3;
 	}
 
 	_gfx = createRenderer(_system, _width, _height);
@@ -1086,7 +1090,7 @@ Common::Error ColonyEngine::run() {
 					// relMouse stays in window-pixel deltas regardless of
 					// resolution mode — keep raw for mouselook feel.
 					mouseDX += event.relMouse.x;
-					mouseDY += event.relMouse.y;
+					mouseDY += _invertY ? -event.relMouse.y : event.relMouse.y;
 					mouseMoved = true;
 				}
 			}

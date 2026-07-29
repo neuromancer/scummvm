@@ -81,7 +81,9 @@ public:
 	void loadAssetsDOSDemo() override;
 	void loadAssetsC64FullGame() override;
 	void loadAssetsAmigaFullGame() override;
+	Common::SeekableReadStream *openAmigaExecutable();
 	void loadAssetsAtariFullGame() override;
+	Common::SeekableReadStream *openAtariExecutable();
 
 	void loadAssetsCPCFullGame() override;
 
@@ -95,6 +97,10 @@ public:
 
 	void drawBinaryClock(Graphics::Surface *surface, int xPosition, int yPosition, uint32 front, uint32 back);
 	void drawIndicator(Graphics::Surface *surface, int xPosition, int yPosition);
+
+	Common::Array<Graphics::ManagedSurface *> _indicatorsIndexed;
+	void loadIndicatorsDOS(Common::SeekableReadStream *file);
+	void updateIndicatorsDOS(const byte *palette);
 
 	void drawSensorShoot(Sensor *sensor) override;
 	void drawDOSUI(Graphics::Surface *surface) override;

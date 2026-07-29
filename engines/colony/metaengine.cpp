@@ -45,6 +45,17 @@ const ADExtraGuiOptionsMap optionsList[] = {
 			_s("Widescreen mod"),
 			_s("Enable widescreen rendering in fullscreen mode."),
 			"widescreen_mod",
+			true,
+			0,
+			0
+		}
+	},
+	{
+		GAMEOPTION_INVERT_Y,
+		{
+			_s("Invert Y-axis on mouse"),
+			_s("Use alternative camera controls"),
+			"invert_y",
 			false,
 			0,
 			0

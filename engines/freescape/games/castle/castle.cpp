@@ -93,6 +93,8 @@ CastleEngine::CastleEngine(OSystem *syst, const ADGameDescription *gd) : Freesca
 	_spiritsMeterBgCLUT8 = nullptr;
 	_spiritsMeterIndCLUT8 = nullptr;
 	_keysBorderCLUT8 = nullptr;
+	_spiritsMeterSideCLUT8 = nullptr;
+	_backgroundCLUT8 = nullptr;
 	_menu = nullptr;
 	_menuButtons = nullptr;
 	_cursorData = nullptr;
@@ -189,6 +191,13 @@ CastleEngine::~CastleEngine() {
 		if (_thunderFrames[i]) {
 			_thunderFrames[i]->free();
 			delete _thunderFrames[i];
+		}
+	}
+
+	for (int i = 0; i < int(_thunderCLUT8Frames.size()); i++) {
+		if (_thunderCLUT8Frames[i]) {
+			_thunderCLUT8Frames[i]->free();
+			delete _thunderCLUT8Frames[i];
 		}
 	}
 
@@ -412,6 +421,43 @@ void CastleEngine::updateCPCSpritesPalette() {
 		palette[c * 3 + 2] = b;
 	}
 
+	updateFourColorSpritesPalette(palette);
+}
+
+void CastleEngine::updateCGASpritesPalette() {
+	// swapPalette() already picked the palette for the current area
+	if (_gfx->_palette)
+		updateCGAPalette(_gfx->_palette);
+}
+
+void CastleEngine::updateCGAPalette(const byte *palette) {
+	updateFourColorSpritesPalette(palette);
+
+	// The CGA glyphs use color 2 for their body and 3 for the highlights, which
+	// Font::drawChar() maps to the secondary and tertiary colors
+	uint32 secondary = _gfx->_texturePixelFormat.ARGBToColor(0xFF, palette[6], palette[7], palette[8]);
+	uint32 tertiary = _gfx->_texturePixelFormat.ARGBToColor(0xFF, palette[9], palette[10], palette[11]);
+
+	_font.setSecondaryColor(secondary);
+	_font.setTertiaryColor(tertiary);
+	_fontRiddle.setSecondaryColor(secondary);
+	_fontRiddle.setTertiaryColor(tertiary);
+}
+
+void CastleEngine::updateFourColorSpritesPalette(const byte *palette) {
+	// convertCPCSprite() writes through a reference, so the destinations must be
+	// as long as the indexed arrays. This also covers the conversion after loading
+	while (_keysBorderCLUT8 && _keysBorderFrames.empty())
+		_keysBorderFrames.push_back(nullptr);
+	while (_strenghtWeightsFrames.size() < _strenghtWeightsCLUT8.size())
+		_strenghtWeightsFrames.push_back(nullptr);
+	while (_flagFrames.size() < _flagCLUT8.size())
+		_flagFrames.push_back(nullptr);
+	while (_keysBorderFrames.size() < _keysBorderCLUT8Frames.size())
+		_keysBorderFrames.push_back(nullptr);
+	while (_keysMenuFrames.size() < _keysMenuCLUT8Frames.size())
+		_keysMenuFrames.push_back(nullptr);
+
 	if (_keysBorderCLUT8) {
 		_keysBorderCLUT8->setPalette(palette, 0, 4);
 		convertCPCSprite(_keysBorderCLUT8, _keysBorderFrames[0], true);
@@ -423,6 +469,25 @@ void CastleEngine::updateCPCSpritesPalette() {
 	if (_spiritsMeterIndCLUT8) {
 		_spiritsMeterIndCLUT8->setPalette(palette, 0, 4);
 		convertCPCSprite(_spiritsMeterIndCLUT8, _spiritsMeterIndicatorFrame, true);
+	}
+	for (int f = 0; f < (int)_keysBorderCLUT8Frames.size(); f++) {
+		_keysBorderCLUT8Frames[f]->setPalette(palette, 0, 4);
+		convertCPCSprite(_keysBorderCLUT8Frames[f], _keysBorderFrames[f], true);
+	}
+	for (int f = 0; f < (int)_keysMenuCLUT8Frames.size(); f++) {
+		_keysMenuCLUT8Frames[f]->setPalette(palette, 0, 4);
+		convertCPCSprite(_keysMenuCLUT8Frames[f], _keysMenuFrames[f], true);
+	}
+	if (_spiritsMeterSideCLUT8) {
+		_spiritsMeterSideCLUT8->setPalette(palette, 0, 4);
+		convertCPCSprite(_spiritsMeterSideCLUT8, _spiritsMeterIndicatorSideFrame);
+	}
+	if (_backgroundCLUT8) {
+		// Uploaded once as a texture, so drop it to have it rebuilt recolored
+		_backgroundCLUT8->setPalette(palette, 0, 4);
+		convertCPCSprite(_backgroundCLUT8, _background);
+		delete _skyTexture;
+		_skyTexture = nullptr;
 	}
 	if (_strenghtBackgroundCLUT8) {
 		_strenghtBackgroundCLUT8->setPalette(palette, 0, 4);
@@ -608,7 +673,8 @@ void CastleEngine::gotoArea(uint16 areaID, int entranceID) {
 	// Ignore sky/ground fields
 	_gfx->_keyColor = 0;
 	_gfx->clearColorPairArray();
-	if (isCPC() || isC64())
+	// CGA takes its color pairs from the area color map, like CPC and C64 do
+	if (isCPC() || isC64() || _renderMode == Common::kRenderCGA)
 		_gfx->fillColorPairArray();
 
 	swapPalette(areaID);
@@ -619,8 +685,11 @@ void CastleEngine::gotoArea(uint16 areaID, int entranceID) {
 
 	if (isCPC())
 		updateCPCSpritesPalette();
+	else if (isDOS() && _renderMode == Common::kRenderCGA)
+		updateCGASpritesPalette();
 
-	if (isDOS()) {
+	// The per area extra colors are pairs of EGA indexes, useless in CGA
+	if (isDOS() && _renderMode != Common::kRenderCGA) {
 		_gfx->_colorPair[_currentArea->_underFireBackgroundColor] = _currentArea->_extraColor[1];
 		_gfx->_colorPair[_currentArea->_usualBackgroundColor] = _currentArea->_extraColor[0];
 		_gfx->_colorPair[_currentArea->_paperColor] = _currentArea->_extraColor[2];
@@ -645,6 +714,8 @@ void CastleEngine::gotoArea(uint16 areaID, int entranceID) {
 		(*palette)[5][0] = 0xcc;
 		(*palette)[5][1] = 0xcc;
 		(*palette)[5][2] = 0xcc;
+
+		updateThunderFramesPalette();
 	}
 
 	if (isSpectrum())
@@ -698,7 +769,8 @@ void CastleEngine::initGameState() {
 		}
 	}
 
-	_gameStateVars[k8bitVariableShield] = 16;
+	// The Amiga and Atari ST releases start with three weights per side
+	_gameStateVars[k8bitVariableShield] = (isAmiga() || isAtariST()) ? 12 : 16;
 	_gameStateVars[k8bitVariableEnergy] = 1;
 	_gameStateVars[8] = 128; // -1
 	_countdown = INT_MAX - 8;
@@ -973,7 +1045,7 @@ void CastleEngine::drawInfoMenu() {
 		CursorMan.showMouse(true);
 		surface->copyRectToSurface(*_menu, 47, 35, Common::Rect(0, 0, _menu->w, _menu->h));
 
-		_gfx->readFromPalette(10, r, g, b);
+		_gfx->readFromPalette(_renderMode == Common::kRenderCGA ? 3 : 10, r, g, b);
 		front = _gfx->_texturePixelFormat.ARGBToColor(0xFF, r, g, b);
 		drawStringInSurface(Common::String::format("%07d", score), 166, 71, front, black, surface);
 		drawStringInSurface(centerAndPadString(Common::String::format("%s", _messagesList[135 + shield / 6].c_str()), 10), 151, 102,  front, black, surface);
@@ -1562,7 +1634,8 @@ void CastleEngine::loadAssets() {
 
 		it._value->addStructure(_areaMap[255]);
 
-		if (isDOS() || isAmiga() || isAtariST()) {
+		// CM2 reuses these object IDs for unrelated geometry, not spirit groups
+		if ((isDOS() || isAmiga() || isAtariST()) && !isCastleMaster2()) {
 			if (it._value->objectWithID(125)) {
 				_areaMap[it._key]->addGroupFromArea(195, _areaMap[255]);
 				//group = (Group *)_areaMap[it._key]->objectWithID(195);
@@ -1596,6 +1669,23 @@ void CastleEngine::loadAssets() {
 	_areaMap[1]->addFloor();
 	_areaMap[2]->addFloor();
 
+}
+
+void CastleEngine::loadMessagesCastleMaster2(Common::SeekableReadStream *file, int offset, int number) {
+	// Game text (L6cb9_game_text) and area names (L6f49_area_names) form a single
+	// table of 16-byte entries: an indent flag, then 15 characters. A zero flag
+	// would terminate the string, so loadMessagesFixedSize() cannot be used.
+	file->seek(offset);
+	debugC(1, kFreescapeDebugParser, "String table:");
+
+	for (int i = 0; i < number; i++) {
+		file->readByte(); // skip indent flag
+		char buf[16];
+		file->read(buf, 15);
+		buf[15] = '\0';
+		_messagesList.push_back(Common::String(buf));
+		debugC(1, kFreescapeDebugParser, "%d: '%s'", i, buf);
+	}
 }
 
 void CastleEngine::loadRiddles(Common::SeekableReadStream *file, int offset, int number) {
@@ -1685,6 +1775,9 @@ void CastleEngine::drawFullscreenRiddleAndWait(uint16 riddle) {
 	switch (_renderMode) {
 		case Common::kRenderZX:
 			frontColor = 7;
+			break;
+		case Common::kRenderCGA:
+			frontColor = 3;
 			break;
 		case Common::kRenderCPC:
 			frontColor = _gfx->_inkColor;
@@ -1849,15 +1942,26 @@ void CastleEngine::drawRiddleStringInSurface(const Common::String &str, int x, i
 	}
 }
 
+void CastleEngine::drawStrengthWeight(Graphics::Surface *surface, int frameIdx, const Common::Point &position, int width, uint32 back) {
+	Graphics::ManagedSurface *frame = _strenghtWeightsFrames[frameIdx];
+	Common::Rect src(0, 0, width, frame->h);
+
+	// A Spectrum disc is drawn opaquely, so the shaft stays hidden in the gap
+	// it leaves; the other versions key out the black around theirs
+	if (isSpectrum())
+		surface->copyRectToSurface((const Graphics::Surface)*frame, position.x, position.y, src);
+	else
+		surface->copyRectToSurfaceWithKey((const Graphics::Surface)*frame, position.x, position.y, src, back);
+}
+
 void CastleEngine::drawEnergyMeter(Graphics::Surface *surface, Common::Point origin) {
 	if (_strenghtBackgroundFrame)
 		surface->copyRectToSurface((const Graphics::Surface)*_strenghtBackgroundFrame, origin.x, origin.y, Common::Rect(0, 0, _strenghtBackgroundFrame->w, _strenghtBackgroundFrame->h));
 
 	uint32 black = _gfx->_texturePixelFormat.ARGBToColor(0xFF, 0x00, 0x00, 0x00);
-	uint32 back = 0;
-
-	if (isDOS() || isAmiga() || isAtariST())
-		back = _gfx->_texturePixelFormat.ARGBToColor(0xFF, 0x00, 0x00, 0x00);
+	// The CPC weights are converted with transparency, the others keep the
+	// black they were loaded with and rely on it being the key colour
+	uint32 back = isCPC() ? 0 : black;
 
 	int strength = _gameStateVars[k8bitVariableShield];
 
@@ -1873,6 +1977,9 @@ void CastleEngine::drawEnergyMeter(Graphics::Surface *surface, Common::Point ori
 			barFrameOrigin += Common::Point(0, 6 + extraYOffset);
 		else if (isCPC())
 			barFrameOrigin += Common::Point(0, 6 + extraYOffset);
+		else if (isAmiga() || isAtariST())
+			// The shaft is 80 pixels wide and starts left of the discs
+			barFrameOrigin += Common::Point(-8, 6 + extraYOffset);
 
 		surface->copyRectToSurfaceWithKey((const Graphics::Surface)*_strenghtBarFrame, barFrameOrigin.x, barFrameOrigin.y, Common::Rect(0, 0, _strenghtBarFrame->w, _strenghtBarFrame->h), black);
 	}
@@ -1884,6 +1991,8 @@ void CastleEngine::drawEnergyMeter(Graphics::Surface *surface, Common::Point ori
 		return;
 
 	int weightWidth = _strenghtWeightsFrames[0]->w;
+	if (isSpectrum())
+		weightWidth = 4; // The disc only fills the half of its sprite the frame header masks in
 
 	// Weight discs overlap: step is smaller than sprite width (3 pixels in original ZX assembly).
 	// Each disc is drawn at pixel-level precision, converging from outside toward center.
@@ -1901,8 +2010,13 @@ void CastleEngine::drawEnergyMeter(Graphics::Surface *surface, Common::Point ori
 		rightWeightPos = 63;
 	} else if (isAmiga() || isAtariST()) {
 		weightStep = 3;
-		weightOffset = 10;
-		rightWeightPos = 62;
+		weightOffset = 8;
+		rightWeightPos = 64;
+	} else if (_renderMode == Common::kRenderCGA) {
+		// The CGA discs are 4 pixels wide instead of 8
+		weightStep = 3;
+		weightOffset = 9;
+		rightWeightPos = 67;
 	} else { // DOS
 		weightStep = 3;
 		weightOffset = 10;
@@ -1918,18 +2032,12 @@ void CastleEngine::drawEnergyMeter(Graphics::Surface *surface, Common::Point ori
 
 	if (frameIdx != 0) {
 		frameIdx = 4 - frameIdx;
-		if (isSpectrum())
-			surface->copyRectToSurface((const Graphics::Surface)*_strenghtWeightsFrames[frameIdx], weightPoint.x, weightPoint.y, Common::Rect(0, 0, weightWidth, _strenghtWeightsFrames[frameIdx]->h));
-		else
-			surface->copyRectToSurfaceWithKey((const Graphics::Surface)*_strenghtWeightsFrames[frameIdx], weightPoint.x, weightPoint.y, Common::Rect(0, 0, weightWidth, _strenghtWeightsFrames[frameIdx]->h), back);
+		drawStrengthWeight(surface, frameIdx, weightPoint, weightWidth, back);
 		weightPoint += Common::Point(weightStep, 0);
 	}
 
 	for (int i = 0; i < strength / 4; i++) {
-		if (isSpectrum())
-			surface->copyRectToSurface((const Graphics::Surface)*_strenghtWeightsFrames[0], weightPoint.x, weightPoint.y, Common::Rect(0, 0, weightWidth, _strenghtWeightsFrames[0]->h));
-		else
-			surface->copyRectToSurfaceWithKey((const Graphics::Surface)*_strenghtWeightsFrames[0], weightPoint.x, weightPoint.y, Common::Rect(0, 0, weightWidth, _strenghtWeightsFrames[0]->h), back);
+		drawStrengthWeight(surface, 0, weightPoint, weightWidth, back);
 		weightPoint += Common::Point(weightStep, 0);
 	}
 
@@ -1943,19 +2051,13 @@ void CastleEngine::drawEnergyMeter(Graphics::Surface *surface, Common::Point ori
 	weightPoint = Common::Point(origin.x + rightWeightPos - (totalRight - 1) * weightStep, weightY);
 
 	for (int i = 0; i < numFullRight; i++) {
-		if (isSpectrum())
-			surface->copyRectToSurface((const Graphics::Surface)*_strenghtWeightsFrames[0], weightPoint.x, weightPoint.y, Common::Rect(0, 0, weightWidth, _strenghtWeightsFrames[0]->h));
-		else
-			surface->copyRectToSurfaceWithKey((const Graphics::Surface)*_strenghtWeightsFrames[0], weightPoint.x, weightPoint.y, Common::Rect(0, 0, weightWidth, _strenghtWeightsFrames[0]->h), back);
+		drawStrengthWeight(surface, 0, weightPoint, weightWidth, back);
 		weightPoint += Common::Point(weightStep, 0);
 	}
 
 	if (hasPartial) {
 		frameIdx = 4 - (strength % 4);
-		if (isSpectrum())
-			surface->copyRectToSurface((const Graphics::Surface)*_strenghtWeightsFrames[frameIdx], weightPoint.x, weightPoint.y, Common::Rect(0, 0, weightWidth, _strenghtWeightsFrames[frameIdx]->h));
-		else
-			surface->copyRectToSurfaceWithKey((const Graphics::Surface)*_strenghtWeightsFrames[frameIdx], weightPoint.x, weightPoint.y, Common::Rect(0, 0, weightWidth, _strenghtWeightsFrames[frameIdx]->h), back);
+		drawStrengthWeight(surface, frameIdx, weightPoint, weightWidth, back);
 	}
 }
 
@@ -2073,7 +2175,8 @@ void CastleEngine::borderScreen() {
 		return;
 	}
 
-	if (isSpectrum() || isCPC() || isC64())
+	// CM2 has no character selection, so it uses the plain configuration menu
+	if (isSpectrum() || isCPC() || isC64() || isCastleMaster2())
 		FreescapeEngine::borderScreen();
 	else {
 		uint32 color = _gfx->_texturePixelFormat.ARGBToColor(0x00, 0x00, 0x00, 0x00);
@@ -2484,9 +2587,13 @@ void CastleEngine::updateThunder() {
 		if (_thunderFrameDuration == 5)
 			_gfx->clear(255, 255, 255);
 
-		if (_thunderFrameDuration == 0)
-			if (isSpectrum() || isCPC() || isDOS())
+		if (_thunderFrameDuration == 0) {
+			// The Amiga and Atari ST end the strike with sound 7
+			if (isAmiga() || isAtariST())
+				playSound(7, false);
+			else if (isSpectrum() || isCPC() || isDOS())
 				playSound(8, false);
+		}
 		return;
 	}
 
@@ -2494,7 +2601,7 @@ void CastleEngine::updateThunder() {
 		//debug("Thunder ticks: %d", _thunderTicks);
 		_thunderTicks--;
 		if (_thunderTicks <= 0) {
-			if (isDOS())
+			if (isDOS() || isAmiga() || isAtariST())
 				_thunderFrameIndex = int(_rnd->getRandomNumber(_thunderTextures.size() - 1));
 			_thunderFrameDuration = 10;
 			_thunderOffset = Math::Vector3d();

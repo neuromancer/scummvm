@@ -22,6 +22,7 @@
 #include "common/memstream.h"
 #include "common/endian.h"
 
+#include "freescape/copylock.h"
 #include "freescape/freescape.h"
 #include "freescape/games/castle/castle.h"
 #include "freescape/language/8bitDetokeniser.h"
@@ -50,8 +51,7 @@ static void emitByteAtari(Common::MemoryWriteStreamDynamic &out, int &rep, int &
 
 // Decompress a Castle Master (Atari ST) self-extracting GEMDOS executable.
 //
-// The player is expected to provide the Copylock-decrypted file (named
-// "M.PRG"): a GEMDOS executable (magic 0x601A) whose DATA segment holds a
+// M.PRG is a GEMDOS executable (magic 0x601A) whose DATA segment holds a
 // Huffman-tree + RLE packed stream that, when expanded, yields the actual
 // Castle Master game executable (also a GEMDOS PRG).
 //
@@ -66,23 +66,12 @@ static void emitByteAtari(Common::MemoryWriteStreamDynamic &out, int &rep, int &
 // child word `v`: 0 <= v <= 0x201 is an internal node (continue at node v);
 // otherwise it is a leaf whose high byte (unless 0xFF) and low byte are fed to
 // the RLE stage, after which the walk resets to the root.
-Common::SeekableReadStream *CastleEngine::decompressAtari(const Common::Path &filename) {
-	Common::File file;
-	if (!file.open(filename))
-		error("Failed to open '%s'", filename.toString().c_str());
-
-	int fileSize = file.size();
+// The Atari ST release wraps the packed stream in a GEMDOS executable, while the
+// Amiga compilation stores it on its own, hence the offset.
+Common::SeekableReadStream *CastleEngine::decompressCastle(Common::SeekableReadStream *source, uint32 packedOffset) {
+	int fileSize = source->size();
 	byte *buffer = (byte *)malloc(fileSize);
-	file.read(buffer, fileSize);
-	file.close();
-
-	if (READ_BE_UINT16(buffer) != 0x601a) {
-		free(buffer);
-		error("'%s' is not a GEMDOS executable (expected Copylock-decrypted M.PRG)", filename.toString().c_str());
-	}
-
-	uint32 textSize = READ_BE_UINT32(buffer + 2);
-	uint32 packedOffset = 0x1c + textSize; // start of the DATA segment
+	source->read(buffer, fileSize);
 
 	uint32 count = READ_BE_UINT32(buffer + packedOffset);
 	uint16 nodeTableSize = READ_BE_UINT16(buffer + packedOffset + 4);
@@ -122,6 +111,28 @@ Common::SeekableReadStream *CastleEngine::decompressAtari(const Common::Path &fi
 
 	debugC(1, kFreescapeDebugParser, "Castle Master (Atari ST): decompressed %d bytes", (int)out.size());
 	return new Common::MemoryReadStream(out.getData(), out.size(), DisposeAfterUse::YES);
+}
+
+Common::SeekableReadStream *CastleEngine::decompressAtari(const Common::Path &filename) {
+	Common::File file;
+	if (!file.open(filename))
+		error("Failed to open '%s'", filename.toString().c_str());
+
+	// The original file is wrapped in a Copylock protection, which is removed
+	// here; a file that was already decrypted by hand is taken as it is
+	Common::SeekableReadStream *unwrapped = Copylock::unwrap(&file);
+	Common::SeekableReadStream *source = unwrapped ? unwrapped : (Common::SeekableReadStream *)&file;
+
+	byte header[6];
+	source->read(header, sizeof(header));
+	source->seek(0);
+	if (READ_BE_UINT16(header) != 0x601a)
+		error("'%s' is not a GEMDOS executable", filename.toString().c_str());
+
+	// the packed stream follows the TEXT segment, i.e. it is the DATA segment
+	Common::SeekableReadStream *result = decompressCastle(source, 0x1c + READ_BE_UINT32(header + 2));
+	delete unwrapped;
+	return result;
 }
 
 static uint32 getProTrackerModuleSize(Common::SeekableReadStream *file, uint32 offset) {
@@ -248,12 +259,20 @@ void CastleEngine::loadAssetsAtariFullGame() {
 	_spiritsMeterIndicatorFrame = loadFrameFromPlanesInterleaved(file, 1, 10);
 	_spiritsMeterIndicatorFrame->convertToInPlace(_gfx->_texturePixelFormat, (byte *)kAmigaCastlePalette, 16);
 
-	file->seek(0x569e0);
+	// Weight discs of the strength barbell: 4 frames of 1 word x 15 rows,
+	// followed by the 5 word x 3 row shaft.
+	file->seek(0x569d0);
 	for (int i = 0; i < 4; i++) {
-		Graphics::ManagedSurface *frame = loadFrameFromPlanesInterleaved(file, 1, 14);
+		Graphics::ManagedSurface *frame = loadFrameFromPlanesInterleaved(file, 1, 15);
 		frame->convertToInPlace(_gfx->_texturePixelFormat, (byte *)kAmigaCastlePalette, 16);
 		_strenghtWeightsFrames.push_back(frame);
 	}
+
+	file->seek(0x56bb0);
+	_strenghtBarFrame = loadFrameFromPlanesInterleaved(file, 5, 3);
+	_strenghtBarFrame->convertToInPlace(_gfx->_texturePixelFormat, (byte *)kAmigaCastlePalette, 16);
+
+	loadThunderFramesAmiga(file, 0x55f20);
 
 	file->seek(0x594a0);
 	for (int i = 0; i < 12; i++) {
