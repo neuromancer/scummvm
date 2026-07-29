@@ -781,17 +781,17 @@ HError GameDataExtReader::ReadBlock(int /*block_id*/, const String &ext_id,
 		}
 	} else if (ext_id.CompareNoCase("v362_interevents") == 0) {
 		// Characters' InteractionEvents with ScriptModule
-		size_t num_chars = _in->ReadInt32();
+		_in->ReadInt32();
 		for (size_t i = 0; i < (size_t)_ents.Game.numcharacters; ++i) {
 			_ents.Game.charScripts[i].reset(InteractionEvents::CreateFromStream_v362(_in));
 		}
 		// Inventory items' InteractionEvents with ScriptModule
-		uint32_t num_invitems = _in->ReadInt32();
+		_in->ReadInt32();
 		for (size_t i = 0; i < (size_t)_ents.Game.numinvitems; ++i) {
 			_ents.Game.invScripts[i].reset(InteractionEvents::CreateFromStream_v362(_in));
 		}
 		// GUIs' ScriptModule names (skip for now, GUIs are stored differently in ScummVM)
-		uint32_t num_gui = _in->ReadInt32();
+		_in->ReadInt32();
 		for (size_t i = 0; i < (size_t)_ents.Game.numgui; ++i) {
 			StrUtil::ReadString(_in); // Skip GUI ScriptModule name
 		}
@@ -804,15 +804,15 @@ HError GameDataExtReader::ReadBlock(int /*block_id*/, const String &ext_id,
 		StrUtil::ReadString(_in); // Skip global script name
 		StrUtil::ReadString(_in); // Skip dialog script name
 		// Then read interaction events with ScriptModule (same format as v362_interevents)
-		size_t num_chars = _in->ReadInt32();
+		_in->ReadInt32();
 		for (size_t i = 0; i < (size_t)_ents.Game.numcharacters; ++i) {
 			_ents.Game.charScripts[i].reset(InteractionEvents::CreateFromStream_v362(_in));
 		}
-		uint32_t num_invitems = _in->ReadInt32();
+		_in->ReadInt32();
 		for (size_t i = 0; i < (size_t)_ents.Game.numinvitems; ++i) {
 			_ents.Game.invScripts[i].reset(InteractionEvents::CreateFromStream_v362(_in));
 		}
-		uint32_t num_gui = _in->ReadInt32();
+		_in->ReadInt32();
 		for (size_t i = 0; i < (size_t)_ents.Game.numgui; ++i) {
 			StrUtil::ReadString(_in); // Skip GUI ScriptModule name
 		}
