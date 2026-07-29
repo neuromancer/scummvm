@@ -233,7 +233,7 @@ void CCScriptGame::WriteInt32(void *address, intptr_t offset, int32_t val) {
 		break;
 	case 57:
 		_GP(play).inv_top = val;
-		GUI::MarkInventoryForUpdate(_GP(game).playercharacter, true);
+		AGS::Shared::GUI::MarkInventoryForUpdate(_GP(game).playercharacter, true);
 		break;
 	case 58: // play.inv_numdisp
 	case 59: // play.inv_numorder
