@@ -23,14 +23,32 @@
 #define AGS_PLUGINS_AGS_FIRE_AGS_FIRE_H
 
 #include "ags/plugins/ags_plugin.h"
+#include "common/array.h"
 
 namespace AGS3 {
 namespace Plugins {
 namespace AGSFire {
 
+struct FireObject {
+	int objIdx;
+	int dynSlot;
+	int seedSlot;
+	int palSlot;
+	int width;
+	int height;
+	bool seeding;
+	int cooling;
+	Common::Array<uint8> heat;
+};
+
 class AGSFire : public PluginBase {
 	SCRIPT_HASH(AGSFire)
 private:
+	Common::Array<FireObject> _fires;
+
+	FireObject *FindObject(int objIdx);
+	void RemoveObject(int objIdx);
+
 	void FireAddObject(ScriptMethodParams &params);
 	void FirePreHeat(ScriptMethodParams &params);
 	void FireDisableSeeding(ScriptMethodParams &params);
