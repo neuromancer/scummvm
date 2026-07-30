@@ -150,7 +150,7 @@ Plugins::PluginBase *pluginOpen(const char *filename) {
 	if (fname.equalsIgnoreCase("AGSSnowRain") || fname.equalsIgnoreCase("ags_snowrain"))
 		return new AGSSnowRain::AGSSnowRain();
 
-	if (fname.equalsIgnoreCase("AGSSock"))
+	if (fname.equalsIgnoreCase("AGSSock") || fname.equalsIgnoreCase("ags_sockets"))
 		return new AGSSock::AGSSock();
 
 	if (fname.equalsIgnoreCase("AGSSpriteFont") || fname.equalsIgnoreCase("agsplugin.spritefont")) {

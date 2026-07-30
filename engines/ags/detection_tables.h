@@ -4382,12 +4382,12 @@ const AGSGameDescription GAME_DESCRIPTIONS[] = {
 	GAME_ENTRY_EN("razorsinthenight", "Razors.exe", "0500aacb6c176d47ac0f8158f055db83", 25439808),  //v1.0
 	GAME_ENTRY_EN("razorsinthenight", "Razors.exe", "0500aacb6c176d47ac0f8158f055db83", 25442827),  //v2.0
 
-	// using ags_Maya plugin, partially implemented
-	UNSUPPORTED_GAME_ENTRY_LANG("officeolympics", "Oo.exe", "465f972675db2da6040518221af5b0ba", 30378663, Common::IT_ITA),
+	// using ags_Maya plugin
+	GAME_ENTRY_LANG("officeolympics", "Oo.exe", "465f972675db2da6040518221af5b0ba", 30378663, Common::IT_ITA),
 
-	// using unsupported ags_sockets plugin
-	UNSUPPORTED_GAME_ENTRY_EN("starshiplight", "strship1.exe", "7971a7c02d414dc8cb33b6ec36080b91", 32805168),  // Beta
-	UNSUPPORTED_GAME_ENTRY_EN("starshiplight", "strship1.ags", "9dca4b575740e300af265aa9ec234f71", 30308128),
+	// using ags_sockets plugin
+	GAME_ENTRY_EN("starshiplight", "strship1.exe", "7971a7c02d414dc8cb33b6ec36080b91", 32805168),  // Beta
+	GAME_ENTRY_EN("starshiplight", "strship1.ags", "9dca4b575740e300af265aa9ec234f71", 30308128),
 
 	// using unsupported Theora plugin
 	UNSUPPORTED_GAME_ENTRY_EN("fengshuitv", "Feng Shui And The Art Of TV Reception.exe", "c1b88c284a3d821f93d78a2e88487932", 22687931),
