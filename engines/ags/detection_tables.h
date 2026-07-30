@@ -4359,28 +4359,28 @@ const AGSGameDescription GAME_DESCRIPTIONS[] = {
 	UNSUPPORTED_GAME_ENTRY_EN("barelyfloating", "Barely Floating.exe", "60fbd60394e3616920325eab6eef567c", 1283262682),
 	UNSUPPORTED_GAME_ENTRY("salt", "salt.exe", "652b25e0a5017c737382b7ebb9edad4e", 10247572),
 
-	// using unsupported OtherRoom plugin. Some of the games are partially playable
-	UNSUPPORTED_GAME_ENTRY_EN("barnrunner5p1", "barn runner 5-1.exe", "6cddccb3744ec5c6af7c398fb7b3b11c", 104073543),
-	UNSUPPORTED_GAME_ENTRY_EN("barnrunner5p1", "barn runner 5-1.exe", "6cddccb3744ec5c6af7c398fb7b3b11c", 104071015),  // v1.1
-	UNSUPPORTED_GAME_ENTRY_EN("barnrunner5p2", "barn runner 5-2.exe", "6cddccb3744ec5c6af7c398fb7b3b11c", 200879890),
-	UNSUPPORTED_GAME_ENTRY_EN("barnrunner5p2", "barn runner 5-2.exe", "6cddccb3744ec5c6af7c398fb7b3b11c", 200696384),  // v1.2
-	UNSUPPORTED_GAME_ENTRY_EN("barnrunner5p3", "Barn Runner 5-3.exe", "6cddccb3744ec5c6af7c398fb7b3b11c", 236158866),
-	UNSUPPORTED_GAME_ENTRY_EN("barnrunner5p3", "Barn Runner 5-3.exe", "6cddccb3744ec5c6af7c398fb7b3b11c", 236159803),  // v1.2
-	UNSUPPORTED_GAME_ENTRY_EN("barnrunnerxmas2", "xmas 2.exe", "6cddccb3744ec5c6af7c398fb7b3b11c", 31770973),
-	UNSUPPORTED_GAME_ENTRY_EN("beyondterror", "beyondterror.exe", "3b7cceb3e4bdb031dc5d8f290936e94b", 8219797),
-	UNSUPPORTED_GAME_ENTRY_EN("escapetheship", "Escape.exe", "3b7cceb3e4bdb031dc5d8f290936e94b", 1063503),
-	UNSUPPORTED_GAME_ENTRY_EN("fortressofwonders", "Fortress.exe", "465f972675db2da6040518221af5b0ba", 4474304),
-	UNSUPPORTED_GAME_ENTRY_EN("medicaltheoriesofdrkur", "dfg.exe", "465f972675db2da6040518221af5b0ba", 3140527),
-	UNSUPPORTED_GAME_ENTRY_LANG("tesororey", "Tesoro.exe", "cf37c293d5c3167e13aed1b620131271", 648497485, Common::ES_ESP),
+	// using OtherRoom plugin
+	GAME_ENTRY_EN("barnrunner5p1", "barn runner 5-1.exe", "6cddccb3744ec5c6af7c398fb7b3b11c", 104073543),
+	GAME_ENTRY_EN("barnrunner5p1", "barn runner 5-1.exe", "6cddccb3744ec5c6af7c398fb7b3b11c", 104071015),  // v1.1
+	GAME_ENTRY_EN("barnrunner5p2", "barn runner 5-2.exe", "6cddccb3744ec5c6af7c398fb7b3b11c", 200879890),
+	GAME_ENTRY_EN("barnrunner5p2", "barn runner 5-2.exe", "6cddccb3744ec5c6af7c398fb7b3b11c", 200696384),  // v1.2
+	GAME_ENTRY_EN("barnrunner5p3", "Barn Runner 5-3.exe", "6cddccb3744ec5c6af7c398fb7b3b11c", 236158866),
+	GAME_ENTRY_EN("barnrunner5p3", "Barn Runner 5-3.exe", "6cddccb3744ec5c6af7c398fb7b3b11c", 236159803),  // v1.2
+	GAME_ENTRY_EN("barnrunnerxmas2", "xmas 2.exe", "6cddccb3744ec5c6af7c398fb7b3b11c", 31770973),
+	GAME_ENTRY_EN("beyondterror", "beyondterror.exe", "3b7cceb3e4bdb031dc5d8f290936e94b", 8219797),
+	GAME_ENTRY_EN("escapetheship", "Escape.exe", "3b7cceb3e4bdb031dc5d8f290936e94b", 1063503),
+	GAME_ENTRY_EN("fortressofwonders", "Fortress.exe", "465f972675db2da6040518221af5b0ba", 4474304),
+	GAME_ENTRY_EN("medicaltheoriesofdrkur", "dfg.exe", "465f972675db2da6040518221af5b0ba", 3140527),
+	GAME_ENTRY_LANG("tesororey", "Tesoro.exe", "cf37c293d5c3167e13aed1b620131271", 648497485, Common::ES_ESP),
 
-	// using unsupported ags_CCS plugin
-	UNSUPPORTED_GAME_ENTRY_EN("jamesbond", "platform2.exe", "949f7440e3692b7366c2029979dee9a0", 4467701),
-	UNSUPPORTED_GAME_ENTRY_EN("keptosh1", "Keptosh.exe", "95b7dd55f6e15c8a2118856ed9fe8ff9", 2904848),
-	UNSUPPORTED_GAME_ENTRY_EN("missinginaction", "teamwork.exe", "96f83f7decb523d0c621646828cad249", 3741039),
-	UNSUPPORTED_GAME_ENTRY_EN("raybexter", "Ray Bexter.exe", "d3bc2cf3a0f72f0fbe37d9edbd5ebec3", 5680319),  //v1.0
-	UNSUPPORTED_GAME_ENTRY_EN("raybexter", "Ray Bexter.exe", "3e8667bab45f2e5d7237db53ab376400", 5930752),  //v1.3
-	UNSUPPORTED_GAME_ENTRY_EN("razorsinthenight", "Razors.exe", "0500aacb6c176d47ac0f8158f055db83", 25439808),  //v1.0
-	UNSUPPORTED_GAME_ENTRY_EN("razorsinthenight", "Razors.exe", "0500aacb6c176d47ac0f8158f055db83", 25442827),  //v2.0
+	// using ags_CCS plugin
+	GAME_ENTRY_EN("jamesbond", "platform2.exe", "949f7440e3692b7366c2029979dee9a0", 4467701),
+	GAME_ENTRY_EN("keptosh1", "Keptosh.exe", "95b7dd55f6e15c8a2118856ed9fe8ff9", 2904848),
+	GAME_ENTRY_EN("missinginaction", "teamwork.exe", "96f83f7decb523d0c621646828cad249", 3741039),
+	GAME_ENTRY_EN("raybexter", "Ray Bexter.exe", "d3bc2cf3a0f72f0fbe37d9edbd5ebec3", 5680319),  //v1.0
+	GAME_ENTRY_EN("raybexter", "Ray Bexter.exe", "3e8667bab45f2e5d7237db53ab376400", 5930752),  //v1.3
+	GAME_ENTRY_EN("razorsinthenight", "Razors.exe", "0500aacb6c176d47ac0f8158f055db83", 25439808),  //v1.0
+	GAME_ENTRY_EN("razorsinthenight", "Razors.exe", "0500aacb6c176d47ac0f8158f055db83", 25442827),  //v2.0
 
 	// using ags_Maya plugin, partially implemented
 	UNSUPPORTED_GAME_ENTRY_LANG("officeolympics", "Oo.exe", "465f972675db2da6040518221af5b0ba", 30378663, Common::IT_ITA),
