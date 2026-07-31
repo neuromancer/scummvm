@@ -107,6 +107,7 @@ jobs:
             --enable-release \
             --enable-optimizations \
             --enable-all-engines \
+            --disable-debug \
             ${{ matrix.configure_extra }} \
             --prefix=/usr
 
