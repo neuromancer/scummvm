@@ -170,10 +170,6 @@ int kernel_load_vocab() {
 	int error_flag;
 	int count;
 	int count2;
-#ifdef log_vocab
-	FILE *handle;
-	long before, after;
-#endif
 
 	// Load all main command verbs
 	for (count = 0; count < INTER_COMMANDS; count++) {
@@ -197,21 +193,7 @@ int kernel_load_vocab() {
 		}
 	}
 
-#ifdef log_vocab
-	before = mem_get_avail();
-#endif
-
 	error_flag = vocab_load_active();
-
-#ifdef log_vocab
-	after = mem_get_avail();
-	if (fileio_exist("vocab.log")) {
-		handle = fopen("vocab.log", "wt");
-		fprintf(handle, "Room %d   Vocab words: %d    Memory: %ld\n",
-			room_id, vocab_active, before - after);
-		fclose(handle);
-	}
-#endif
 
 	return error_flag;
 }
@@ -295,10 +277,6 @@ int kernel_game_startup(int game_video_mode, int load_flag,
 	int reserve[EMS_PAGING_CLASSES];
 	byte *interrupt_stack;
 
-#ifndef disable_error_check
-	int error_code = 0;
-#endif
-
 	// Set up EMS/XMS paging system, if any
 	himem_startup();
 
@@ -366,9 +344,6 @@ int kernel_game_startup(int game_video_mode, int load_flag,
 		buffer_init_name(&scr_main, video_x, video_y, "$scrmain");
 	}
 	if (scr_main.data == NULL) {
-#ifndef disable_error_check
-		error_code = ERROR_NO_MORE_MEMORY;
-#endif
 		goto done;
 	}
 
@@ -401,12 +376,9 @@ int kernel_game_startup(int game_video_mode, int load_flag,
 		}
 
 		if ((font_main == NULL) || (font_inter == NULL) || (font_conv == NULL) ||
-			(!isRexDemo && font_misc == NULL) ||
-			(g_engine->getGameID() != GType_RexNebular && font_menu == NULL) ||
-			(g_engine->getGameID() == GType_RexNebular && !isRexDemo && font_tele == NULL)) {
-#ifndef disable_error_check
-			error_code = ERROR_KERNEL_NO_FONTS;
-#endif
+				(!isRexDemo && font_misc == NULL) ||
+				(g_engine->getGameID() != GType_RexNebular && font_menu == NULL) ||
+				(g_engine->getGameID() == GType_RexNebular && !isRexDemo && font_tele == NULL)) {
 			goto done;
 		}
 	}
@@ -424,9 +396,6 @@ int kernel_game_startup(int game_video_mode, int load_flag,
 	// Load the objects list
 	if (load_flag & KERNEL_STARTUP_OBJECTS) {
 		if (object_load()) {
-#ifndef disable_error_check
-			error_code = ERROR_KERNEL_NO_OBJECTS;
-#endif
 			goto done;
 		}
 		if (inven_num_objects > 0) {
@@ -457,9 +426,6 @@ int kernel_game_startup(int game_video_mode, int load_flag,
 		// Load cursor sprite series
 		cursor = sprite_series_load("*CURSOR.SS", PAL_MAP_RESERVED);
 		if (cursor == NULL) {
-#ifndef disable_error_check
-			error_code = ERROR_KERNEL_NO_CURSOR;
-#endif
 			goto done;
 		}
 
@@ -474,7 +440,6 @@ int kernel_game_startup(int game_video_mode, int load_flag,
 
 	if (load_flag & KERNEL_STARTUP_POPUP && g_engine->getGameID() != GType_RexNebular) {
 		if (popup_box_load()) {
-			error_code = ERROR_KERNEL_NO_POPUP;
 			goto done;
 		}
 	}
@@ -489,10 +454,6 @@ done:
 		mouse_show();
 
 	if (error_flag) {
-#ifndef disable_error_check
-		error_check_memory();
-		error_report(error_code, ERROR, MODULE_KERNEL, 0, 0);
-#endif
 		kernel_game_shutdown();
 	}
 
@@ -520,7 +481,6 @@ void kernel_room_shutdown() {
 	if (inter_anim) {
 		anim_unload((AnimPtr)inter_anim);
 		buffer_free(&scr_inter_orig);
-		mem_free(inter_anim);
 		inter_anim = nullptr;
 	} else if (scr_inter_orig.data) {
 		buffer_free(&scr_inter_orig);
@@ -552,10 +512,6 @@ int kernel_room_startup(int newRoom, int initial_variant, const char *interface,
 		bool new_palette, bool barebones) {
 	int error_flag = true;
 	int load_flags;
-#ifndef disable_error_check
-	int error_code = 0;
-	int error_data = 0;
-#endif
 
 	// Make a note of the new room number & variant
 	previous_room = room_id;
@@ -572,7 +528,6 @@ int kernel_room_startup(int newRoom, int initial_variant, const char *interface,
 
 	// Load up popup box frame
 	if (g_engine->getGameID() == GType_Phantom && popup_box_load()) {
-		error_code = ERROR_KERNEL_NO_POPUP;
 		goto done;
 	}
 
@@ -603,10 +558,6 @@ int kernel_room_startup(int newRoom, int initial_variant, const char *interface,
 		-1,
 		load_flags);
 	if (room == NULL) {
-#ifndef disable_error_check
-		error_data = room_load_error;
-		error_code = ERROR_KERNEL_NO_ROOM;
-#endif
 		goto done;
 	}
 
@@ -646,9 +597,6 @@ int kernel_room_startup(int newRoom, int initial_variant, const char *interface,
 	// Load up the room's hotspot table
 	room_spots = room_load_hotspots(room_id, &room_num_spots);
 	if (room_spots == NULL) {
-#ifndef disable_error_check
-		error_code = ERROR_KERNEL_NO_HOTSPOTS;
-#endif
 		goto done;
 	}
 
@@ -669,7 +617,7 @@ int kernel_room_startup(int newRoom, int initial_variant, const char *interface,
 
 		pal_activate_shadow(&kernel_shadow_main);
 
-		if (!inter_anim->font) {
+		if (g_engine->getGameID() == GType_Phantom && !inter_anim->font) {
 			mem_free(inter_anim);
 			inter_anim = nullptr;
 		}
@@ -688,10 +636,6 @@ finish:
 
 done:
 	if (error_flag) {
-#ifndef disable_error_check
-		error_check_memory();
-		error_report(error_code, ERROR, MODULE_KERNEL, room_id, error_data);
-#endif
 		kernel_room_shutdown();
 	}
 	return error_flag;
@@ -713,13 +657,6 @@ int kernel_load_series(const char *name, int load_flags) {
 	if (kernel.translating) load_flags |= SPRITE_LOAD_TRANSLATE;
 
 	handle = matte_load_series(name, load_flags, 0);
-
-	if ((handle < 0) && !kernel_ok_to_fail_load) {
-#ifndef disable_error_check
-		Common::strcpy_s(error_string, name);
-		error_report(ERROR_SERIES_LOAD_FAILED, WARNING, MODULE_KERNEL, handle, sprite_error);
-#endif
-	}
 
 	return handle;
 }
@@ -775,9 +712,6 @@ int kernel_seq_add(int series_id, int mirror, int initial_sprite,
 	}
 
 	if (!found) {
-#if !defined(disable_error_check)
-		error_report(ERROR_SEQUENCE_LIST_FULL, WARNING, MODULE_KERNEL, KERNEL_MAX_SEQUENCES, 0);
-#endif
 		goto done;
 	}
 
@@ -1078,9 +1012,6 @@ int kernel_timing_trigger(int ticks, int trigger_code) {
 	}
 
 	if (!found) {
-#if !defined(disable_error_check)
-		error_report(ERROR_SEQUENCE_LIST_FULL, WARNING, MODULE_KERNEL, KERNEL_MAX_SEQUENCES, 0);
-#endif
 		goto done;
 	}
 
@@ -1518,11 +1449,8 @@ int kernel_run_animation(const char *name, int trigger_code) {
 
 done:
 	if (error_flag) {
-		if (found >= 0) kernel_abort_animation(found);
-#ifndef disable_error_check
-		Common::strcpy_s(error_string, name);
-		error_report(ERROR_KERNEL_NO_ANIMATION, WARNING, MODULE_KERNEL, trigger_code, anim_error);
-#endif
+		if (found >= 0)
+			kernel_abort_animation(found);
 	}
 
 	anim_error = 0;

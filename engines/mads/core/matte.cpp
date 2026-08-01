@@ -39,13 +39,8 @@
 #include "mads/core/video.h"
 #include "mads/core/anim.h"
 #include "mads/core/matte.h"
-#ifndef disable_error_check
-#include "mads/core/error.h"
-#endif
 
 namespace MADS {
-
-#define word_align_mattes
 
 /* Global data structures */
 
@@ -139,11 +134,6 @@ int matte_allocate_series(SeriesPtr series, int bonus_series_number) {
 			series_list[handle] = series;
 		}
 	}
-#ifndef disable_error_check
-	if (handle < 0) {
-		error_report(ERROR_SERIES_LIST_FULL, ERROR, MODULE_MATTE, SERIES_LIST_SIZE, 0);
-	}
-#endif
 
 	return handle;
 }
@@ -221,13 +211,8 @@ void matte_deallocate_series(int id, int free_memory) {
 
 	// Protect against memory fragmentation
 	if (id < SERIES_LIST_SIZE) {
-		if (id == series_list_marker - 1) {
+		if (id == series_list_marker - 1)
 			series_list_marker--;
-		} else {
-#ifndef disable_error_check
-			error_report(ERROR_WRONG_SERIES_UNLOAD_ORDER, WARNING, MODULE_MATTE, id, series_list_marker);
-#endif
-		}
 	}
 
 done:
@@ -254,9 +239,6 @@ int matte_allocate_image() {
 	int result;
 
 	if (image_marker >= IMAGE_LIST_SIZE) {
-#if !defined(disable_error_check)
-		error_report(ERROR_IMAGE_LIST_FULL, ERROR, MODULE_MATTE, IMAGE_LIST_SIZE, image_marker);
-#endif
 		result = -1;
 	} else {
 		result = image_marker++;
@@ -293,13 +275,7 @@ int matte_add_message(FontPtr font, char *text, int x, int y, int message_color,
 			message_list[message_handle].active = true;
 		}
 	}
-#ifndef disable_error_check
-#ifndef disable_minor_error
-	if (message_handle < 0) {
-		error_report(ERROR_MESSAGE_LIST_FULL, ERROR, MODULE_MATTE, MESSAGE_LIST_SIZE, 0);
-	}
-#endif
-#endif
+
 	return message_handle;
 }
 
@@ -310,7 +286,6 @@ void matte_clear_message(int handle) {
 void bound_matte(MattePtr matte, int xs, int ys, int maxx, int maxy) {
 	int x2, y2;
 
-#if defined(word_align_mattes)
 	if (matte->x & 1) {
 		matte->x -= 1;
 		xs++;
@@ -318,7 +293,6 @@ void bound_matte(MattePtr matte, int xs, int ys, int maxx, int maxy) {
 	if (xs & 1) {
 		xs++;
 	}
-#endif
 
 	x2 = matte->x + xs - 1;  // Determine right most point
 	matte->x = MAX(0, matte->x);  // Scale coordinates to work
@@ -983,9 +957,6 @@ int matte_allocate_inter_image() {
 	int result;
 
 	if (image_inter_marker >= IMAGE_INTER_LIST_SIZE) {
-#if !defined(disable_error_check)
-		error_report(ERROR_IMAGE_INTER_LIST_FULL, ERROR, MODULE_MATTE, IMAGE_INTER_LIST_SIZE, image_inter_marker);
-#endif
 		result = -1;
 	} else {
 		result = image_inter_marker++;
@@ -1152,7 +1123,7 @@ void matte_inter_frame(int update_live, int clear_chaff) {
 					x = image->x - (series->index[which - 1].xs >> 1);
 					y = image->y - (series->index[which - 1].ys - 1);
 					sprite_draw_interface(series,
-						which | mirror,
+						static_cast<int16>(which | mirror),
 						&scr_inter,
 						x, y);
 				}
