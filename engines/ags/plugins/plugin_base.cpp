@@ -42,6 +42,7 @@
 #include "ags/plugins/ags_joy/ags_joy.h"
 #include "ags/plugins/ags_maya/ags_maya.h"
 #include "ags/plugins/ags_nickenstien_gfx/ags_nickenstien_gfx.h"
+#include "ags/plugins/ags_lua/ags_lua.h"
 #include "ags/plugins/ags_otherroom/ags_otherroom.h"
 #include "ags/plugins/ags_pal_render/ags_pal_render.h"
 #include "ags/plugins/ags_parallax/ags_parallax.h"
@@ -133,6 +134,9 @@ Plugins::PluginBase *pluginOpen(const char *filename) {
 
 	if (fname.equalsIgnoreCase("AGSJoy"))
 		return new AGSJoy::AGSJoy();
+
+	if (fname.equalsIgnoreCase("agslua"))
+		return new AGSLua::AGSLua();
 
 	if (fname.equalsIgnoreCase("AGS_Maya"))
 		return new AGSMaya::AGSMaya();

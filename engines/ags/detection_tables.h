@@ -4354,10 +4354,10 @@ const AGSGameDescription GAME_DESCRIPTIONS[] = {
 
 	// Post 2.5 games that aren't fully supported
 
-	// using unsupported agslua plugin
-	UNSUPPORTED_GAME_ENTRY_EN("allthewaydown", "deepuns3.exe", "6c0b5468657c22d62201e3769cd8d2b3", 29830067),
-	UNSUPPORTED_GAME_ENTRY_EN("barelyfloating", "Barely Floating.exe", "60fbd60394e3616920325eab6eef567c", 1283262682),
-	UNSUPPORTED_GAME_ENTRY("salt", "salt.exe", "652b25e0a5017c737382b7ebb9edad4e", 10247572),
+	// using agslua plugin
+	GAME_ENTRY_EN("allthewaydown", "deepuns3.exe", "6c0b5468657c22d62201e3769cd8d2b3", 29830067),
+	GAME_ENTRY_EN("barelyfloating", "Barely Floating.exe", "60fbd60394e3616920325eab6eef567c", 1283262682),
+	GAME_ENTRY("salt", "salt.exe", "652b25e0a5017c737382b7ebb9edad4e", 10247572),
 
 	// using OtherRoom plugin
 	GAME_ENTRY_EN("barnrunner5p1", "barn runner 5-1.exe", "6cddccb3744ec5c6af7c398fb7b3b11c", 104073543),

@@ -334,6 +334,7 @@ MODULE_OBJS = \
 	plugins/ags_galaxy_steam/ags_wadjeteye_steam.o \
 	plugins/ags_galaxy_steam/ags_galaxy_steam.o \
 	plugins/ags_joy/ags_joy.o \
+	plugins/ags_lua/ags_lua.o \
 	plugins/ags_maya/ags_maya.o \
 	plugins/ags_nickenstien_gfx/ags_nickenstien_gfx.o \
 	plugins/ags_otherroom/ags_otherroom.o \
