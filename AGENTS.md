@@ -1,14 +1,21 @@
 
 # Istruzioni per l'agente OpenCode
 
+## Lingua
+- L'utente parla italiano come lingua madre: rispondi e commenta in italiano
+  salvo diversa richiesta esplicita.
+
 ## Contesto del progetto
-Fork personale di ScummVM. Focus attuale: porting incrementale dei plugin
-del motore AGS embedded verso l'upstream v3.6.2.10, su master. Completati
-finora i plugin ags_fire, OtherRoom, ags_CCS e agslua (che sblocca 3 giochi:
-allthewaydown, barelyfloating, salt). Il plugin agslua è verificato solo a
-livello di compilazione/link: la validazione runtime contro i file di gioco
-reali è ancora da fare. C'è anche una pipeline GitHub Actions per generare
-AppImage e pacchetto Arch/CachyOS .pkg.tar.zst.
+Fork personale di ScummVM. Focus attuale: porting di ulteriori plugin del
+motore AGS embedded (verso l'upstream v3.6.2.10, su master) per sbloccare i
+giochi ancora elencati come UNSUPPORTED. Completati finora i plugin ags_fire,
+OtherRoom, ags_CCS e agslua (che sblocca 3 giochi: allthewaydown,
+barelyfloating, salt); il plugin agslua è verificato solo a livello di
+compilazione/link, la validazione runtime contro i file di gioco reali è
+ancora da fare. Restano 14 voci UNSUPPORTED: 8 usano plugin vecchi builtin, 2
+usano il plugin Theora, più i limiti del motore (zak2 per le room animations,
+kq1agdi per il formato 4.2). C'è anche una pipeline GitHub Actions per
+generare AppImage e pacchetto Arch/CachyOS .pkg.tar.zst.
 
 ## Convenzioni di stile
 - Segui lo stile di codice esistente di ScummVM (indentazione, naming,
