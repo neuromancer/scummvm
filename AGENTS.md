@@ -2,9 +2,12 @@
 # Istruzioni per l'agente OpenCode
 
 ## Contesto del progetto
-Fork personale di ScummVM. Focus attuale: porting incrementale del motore
-AGS embedded verso il tag upstream v3.6.2.10 (branch
-ags-sync-3.6.2.10-savegame), e pipeline GitHub Actions per generare
+Fork personale di ScummVM. Focus attuale: porting incrementale dei plugin
+del motore AGS embedded verso l'upstream v3.6.2.10, su master. Completati
+finora i plugin ags_fire, OtherRoom, ags_CCS e agslua (che sblocca 3 giochi:
+allthewaydown, barelyfloating, salt). Il plugin agslua è verificato solo a
+livello di compilazione/link: la validazione runtime contro i file di gioco
+reali è ancora da fare. C'è anche una pipeline GitHub Actions per generare
 AppImage e pacchetto Arch/CachyOS .pkg.tar.zst.
 
 ## Convenzioni di stile
