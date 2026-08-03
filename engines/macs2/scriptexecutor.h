@@ -67,12 +67,19 @@ enum class ExecutorState {
 	WaitingForCallback
 };
 
-enum class ExecutionResult {
-	// We have finished executing the script
-	ScriptFinished,
-
-	// We are now waiting for a callback
-	WaitingForCallback
+/** Result of a script opcode handler / executeOpcodes(). */
+enum class OpcodeResult {
+	/** Continue with the next opcode in the current script. */
+	Continue,
+	/** Break the opcode loop, then finish (clears running flag). */
+	FinishScript,
+	/** Pause execution and wait for an external callback (leaves running flag set). */
+	WaitForCallback,
+	/**
+	 * Finish immediately (leaves running flag set).
+	 * Used by changeScene / waitForWalk / showDialogueChoice / dismissPanel.
+	 */
+	ReturnFinished
 };
 
 enum class ScriptExecutionState {
@@ -97,88 +104,105 @@ enum class ScriptExecutionState {
  *
  */
 class ScriptExecutor {
+public:
+	typedef OpcodeResult (ScriptExecutor::*OpcodeHandler)();
+
+	struct OpcodeEntry {
+		const char *name;
+		OpcodeHandler handler;
+	};
+
+	/** Install the active opcode table (use when a platform/version remaps opcodes). */
+	void setOpcodeTable(const OpcodeEntry *table, uint size);
+	/** Name for opcode, or "?" if unset/out of range. */
+	const char *opcodeName(uint8 opcode) const;
+
+	/** Script dialect v1 opcode table (MCS / Amiga demo bytecode). */
+	static const OpcodeEntry kV1OpcodeTable[];
+	static const uint kV1OpcodeTableSize;
+
 private:
 #ifdef DEMACS2
 public:
 #endif
-	void scriptSetVar();
-	void scriptSetVarOr();
-	void scriptIfTrue();
-	void scriptIfFalse();
-	bool scriptCompare();
-	void scriptIfInteraction();
-	void scriptEndIf();
-	void scriptElse();
-	void scriptNop09();
-	void scriptPrintStringLeft();
-	void scriptMoveObject();
-	ExecutionResult scriptChangeScene();
-	ExecutionResult scriptShowDialogue();
-	void scriptWalkToPosition();
-	ExecutionResult scriptWaitForWalk();
-	void scriptSkipWord();
-	void scriptClearDialogueChoices();
-	void scriptAddDialogueChoice();
-	ExecutionResult scriptShowDialogueChoice();
-	ExecutionResult scriptDismissPanel();
-	void scriptWalkToAndPickup();
-	bool scriptSetPickupFrames();
-	void scriptSetupObject();
-	void scriptSetSkippable();
-	void scriptClearSkippable();
-	void scriptPlayAnimation();
-	void scriptTestPathfinding();
-	void scriptSetYOffset();
-	void scriptSetMotion();
-	bool scriptSetOrientation();
-	void scriptMoveToPosition();
-	void scriptAddValues();
-	void scriptSubValues();
-	void scriptLoadSpecialAnim();
-	void scriptSetDirection();
-	void scriptStopAnimation();
-	void scriptOpenInventory();
-	void scriptLoadObjectAnim();
-	void scriptCheckObjectData();
-	void scriptCheckInventory();
-	void scriptSetSnapToTarget();
-	void scriptTestObjectAnimFrame();
-	void scriptPrintStringRight();
-	void scriptSetPaletteDarkness();
-	void scriptSetObjectShading();
-	void scriptSetObjectScaling();
-	void scriptSetHotspotOverride();
-	void scriptSetObjectBounds();
-	void scriptDismissAllPanels();
-	void scriptResetToSceneScript();
-	void scriptLoadOverlayFont();
-	void scriptAddOverlayTextEntry();
-	void scriptClearOverlayText();
-	void scriptFadeToBlack();
-	void scriptLoadPcmSound();
-	void scriptPlayPcmSound();
-	bool scriptWaitForSound();
-	void scriptStopPcmSound();
-	void scriptLoadMusicSlot();
-	void scriptPlayMusicSlot();
-	void scriptStopMusicSlot();
-	bool scriptWaitForMusic();
-	void scriptFreeMusicSlot();
-	void scriptGetObjectX();
-	void scriptGetObjectY();
-	void scriptGetObjectField8();
-	void scriptGetObjectOrientation();
-	void scriptClearActorInventory();
-	void scriptSetPathfindingRemap();
-	bool scriptWaitForAdlib();
-	void scriptSkipUntil14();
-	void scriptChangeAnimation();
-	void scriptFrameWait();
-	void scriptSetPathfinding();
-	void scriptTestSceneAnimFrame();
-	void scriptEndOverlayText();
-	void scriptFadeFromBlack();
-	void scriptFreePcmSound();
+	OpcodeResult scriptSetVar();
+	OpcodeResult scriptSetVarOr();
+	OpcodeResult scriptIfTrue();
+	OpcodeResult scriptIfFalse();
+	OpcodeResult scriptCompare();
+	OpcodeResult scriptIfInteraction();
+	OpcodeResult scriptEndIf();
+	OpcodeResult scriptElse();
+	OpcodeResult scriptNop09();
+	OpcodeResult scriptPrintStringLeft();
+	OpcodeResult scriptMoveObject();
+	OpcodeResult scriptChangeScene();
+	OpcodeResult scriptShowDialogue();
+	OpcodeResult scriptWalkToPosition();
+	OpcodeResult scriptWaitForWalk();
+	OpcodeResult scriptSkipWord();
+	OpcodeResult scriptClearDialogueChoices();
+	OpcodeResult scriptAddDialogueChoice();
+	OpcodeResult scriptShowDialogueChoice();
+	OpcodeResult scriptDismissPanel();
+	OpcodeResult scriptWalkToAndPickup();
+	OpcodeResult scriptSetPickupFrames();
+	OpcodeResult scriptSetupObject();
+	OpcodeResult scriptSetSkippable();
+	OpcodeResult scriptClearSkippable();
+	OpcodeResult scriptPlayAnimation();
+	OpcodeResult scriptTestPathfinding();
+	OpcodeResult scriptSetYOffset();
+	OpcodeResult scriptSetMotion();
+	OpcodeResult scriptSetOrientation();
+	OpcodeResult scriptMoveToPosition();
+	OpcodeResult scriptAddValues();
+	OpcodeResult scriptSubValues();
+	OpcodeResult scriptLoadSpecialAnim();
+	OpcodeResult scriptSetDirection();
+	OpcodeResult scriptStopAnimation();
+	OpcodeResult scriptOpenInventory();
+	OpcodeResult scriptLoadObjectAnim();
+	OpcodeResult scriptCheckObjectData();
+	OpcodeResult scriptCheckInventory();
+	OpcodeResult scriptSetSnapToTarget();
+	OpcodeResult scriptTestObjectAnimFrame();
+	OpcodeResult scriptPrintStringRight();
+	OpcodeResult scriptSetPaletteDarkness();
+	OpcodeResult scriptSetObjectShading();
+	OpcodeResult scriptSetObjectScaling();
+	OpcodeResult scriptSetHotspotOverride();
+	OpcodeResult scriptSetObjectBounds();
+	OpcodeResult scriptDismissAllPanels();
+	OpcodeResult scriptResetToSceneScript();
+	OpcodeResult scriptLoadOverlayFont();
+	OpcodeResult scriptAddOverlayTextEntry();
+	OpcodeResult scriptClearOverlayText();
+	OpcodeResult scriptFadeToBlack();
+	OpcodeResult scriptLoadPcmSound();
+	OpcodeResult scriptPlayPcmSound();
+	OpcodeResult scriptWaitForSound();
+	OpcodeResult scriptStopPcmSound();
+	OpcodeResult scriptLoadMusicSlot();
+	OpcodeResult scriptPlayMusicSlot();
+	OpcodeResult scriptStopMusicSlot();
+	OpcodeResult scriptWaitForMusic();
+	OpcodeResult scriptFreeMusicSlot();
+	OpcodeResult scriptGetObjectX();
+	OpcodeResult scriptGetObjectY();
+	OpcodeResult scriptGetObjectField8();
+	OpcodeResult scriptGetObjectOrientation();
+	OpcodeResult scriptClearActorInventory();
+	OpcodeResult scriptSetPathfindingRemap();
+	OpcodeResult scriptWaitForAdlib();
+	OpcodeResult scriptSkipUntil14();
+	OpcodeResult scriptChangeAnimation();
+	OpcodeResult scriptFrameWait();
+	OpcodeResult scriptSetPathfinding();
+	OpcodeResult scriptTestSceneAnimFrame();
+	OpcodeResult scriptEndOverlayText();
+	OpcodeResult scriptFadeFromBlack();
+	OpcodeResult scriptFreePcmSound();
 
 	inline void scriptUnimplementedOpcode(const char *source, uint16 opcode) {
 		debug("Unimplemented opcode (%s): %.2x.", source, opcode);
@@ -186,6 +210,10 @@ public:
 #ifdef DEMACS2
 private:
 #endif
+
+	// Active opcode table
+	const OpcodeEntry *_opcodeTable = nullptr;
+	uint _opcodeTableSize = 0;
 
 	// State variables from here
 
@@ -253,7 +281,13 @@ private:
 	void scriptSkipAlternate();
 
 	bool loadIndexedResource(Common::Array<uint8> &outData, uint8 resourceIndex, uint16 objectTableOffset = 0x189);
-	bool loadSoundResource(Common::Array<uint8> &outData, uint8 resourceIndex);
+	/**
+	 * Load PCM for opcode 0x3E.
+	 * DOS: indexed MCS resource (2-byte header). Amiga: OS_/MXOS from DataA (raw PCM).
+	 * On success, rateHz/headerSkip describe how playSample should consume the buffer.
+	 */
+	bool loadSoundResource(Common::Array<uint8> &outData, uint8 resourceIndex,
+						   int &rateHz, int &headerSkip);
 	bool loadMusicResource(Common::Array<uint8> &outData, uint8 resourceIndex);
 
 	// scriptReadValue: reads a typed value from the script stream
@@ -264,6 +298,12 @@ private:
 
 	// Returns only the first of the two 16 bit values
 	uint16 scriptReadValue16();
+
+	/** Read a script value and convert to screen/runtime coordinates. */
+	int16 scriptReadCoord16();
+
+	/** Skip optional padding word after a script variable index when required. */
+	void skipOptionalVarIndexPadding();
 
 	// Saves the given value in a script variable
 	void scriptSaveVariableHelper(uint32 value);
@@ -389,7 +429,7 @@ public:
 	Common::Point getCharPosition();
 
 	// executeOpcodes (1008:db56): the opcode dispatch loop for the current script.
-	ExecutionResult executeOpcodes();
+	OpcodeResult executeOpcodes();
 
 	// Will execute the script and any object scripts until execution should be stopped
 	// TODO: Consider if we should let the executor also figure out where to get the

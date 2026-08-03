@@ -38,6 +38,7 @@
 #include "common/text-to-speech.h"
 #include "common/util.h"
 #include "engines/engine.h"
+#include "macs2/amiga_archive.h"
 #include "macs2/events.h"
 #include "macs2/macs2_constants.h"
 #include "macs2/scriptexecutor.h"
@@ -47,7 +48,9 @@ namespace Macs2 {
 class MacsAudioStream : public Audio::SeekableAudioStream {
 public:
 	Common::Array<byte> _data;
-	int64 _pos;
+	int64 _pos = 0;
+	/** Playback rate in Hz (DOS SB samples are 8000; Amiga MXOS uses Paula period). */
+	int _rate = 0x1F40;
 
 	virtual ~MacsAudioStream() {}
 
@@ -236,7 +239,7 @@ class Macs2Engine : public Engine, public Events {
 private:
 	const ADGameDescription *_gameDescription;
 
-	Music *_adlib = nullptr;
+	Music *_music = nullptr;
 
 protected:
 	// Engine APIs
@@ -252,7 +255,45 @@ protected:
 public:
 	Graphics::ManagedSurface readRLEImage(int64 offs, Common::MemoryReadStream *stream);
 
+	/** Open RESOURCE.MCS, check magic, dispatch to loadResourceFileV1. */
 	void readResourceFile();
+	/** MCS dialect from the 12-byte file magic. */
+	enum class McsFileVersion {
+		Unknown = 0,
+		V1 // AHFFMACS0100
+	};
+	McsFileVersion detectMcsFileVersion(Common::SeekableReadStream &stream) const;
+	/** Load AHFFMACS0100 layout (loadResourceFile @ 1008:2e8d). */
+	void loadResourceFileV1();
+	/** Amiga: open DataA/Mdir, load OO objects as GameObjects, cursors, and scene stubs. */
+	void readAmigaResources();
+	void applyAmigaUiPalette();
+	/**
+	 * Ensure Amiga dialogue portraits can use playfield COLOR17..31.
+	 * After native MM copper load those slots are already correct; otherwise
+	 * seed them from MXIN chrome (copper base16 layout).
+	 */
+	void installAmigaPortraitPalette(bool copyFromPlayfield);
+	/**
+	 * Build _panelRemapTable from luminance buckets (Ghidra fill_ui_panel_darken_remap
+	 * @ 002221fe). Outputs into private UI bank 0xF0.. so playfield/intro colors
+	 * at MXIN darken indices are never overwritten.
+	 */
+	void buildAmigaPanelRemapTable();
+	bool loadAmigaCursorResource(uint16 resourceId, AnimFrame &out);
+	/** Load FF_0000 MXFF into `_glyphs` (Ghidra drawText / g_pFont1Data). */
+	bool loadAmigaMxffFont();
+	/** Opcode 0x38 overlay font: FF_* from DataA, else copy the main MXFF glyphs. */
+	bool loadAmigaOverlayFont(uint8 resourceIndex);
+	/** Load one FF_* MXFF into `_overlayGlyphs`. Returns false if missing/undecodable. */
+	bool loadAmigaOverlayFontResource(uint16 ffId);
+	/**
+	 * Amiga: load native MM_* MXMM package by resource id (not script scene id).
+	 * Script-visible scene ids are resourceId+1 (Ghidra FUN_002215fa / load_scene_mxmm).
+	 * Also extracts trailer script/strings into _amigaPendingScene* for changeScene.
+	 * Palette indices 0..31 stay Amiga COLOR registers for OO sprite compatibility.
+	 */
+	bool loadAmigaSceneBackground(uint32 sceneResourceId);
 
 	// We also need some data from the executable, specifically embedded
 	// Adlib data
@@ -332,6 +373,8 @@ public:
 	int computeMinCostToReachable(int nodeIndex, int prevNode, uint16 actorIndex, const bool *reachable, int nodeCount, const Common::Point &finalDest);
 
 	// This is the override list living at [5BD1]
+	// Savegames sync 16 words into indices 1..16 (array size 0x11 during sync).
+	// Runtime capacity is 0x21 for later growth after load.
 	Common::Array<uint16> _hotspotOverrides;
 
 	Common::Array<Macs2::AnimFrame> _imageResources;
@@ -366,7 +409,18 @@ public:
 	Common::Array<BackgroundAnimation> _backgroundAnimations;
 	Common::Array<BackgroundAnimationBlob> _backgroundAnimationsBlobs;
 
-	Common::MemoryReadStream *_fileStream;
+	Common::MemoryReadStream *_fileStream = nullptr;
+	McsFileVersion _mcsFileVersion = McsFileVersion::Unknown;
+
+	/** Amiga MXFF line pitch: measureTextWidth @ 00224420 uses (font[+8] - 1). */
+	uint16 amigaTextLinePitch = 0;
+	/** True after loadAmigaSceneBackground installed copper colors in 0..31. */
+	bool _amigaNativePlayfieldPalette = false;
+	/** Amiga DataA/Mdir archive (owned). Null on DOS. */
+	Macs2AmigaArchive *_amigaArchive = nullptr;
+	/** Filled by loadAmigaSceneBackground; consumed by Amiga changeScene. */
+	Common::Array<byte> _amigaPendingSceneScript;
+	Common::Array<byte> _amigaPendingSceneStrings;
 
 	void setCursorMode(Script::MouseMode newMode);
 	void nextCursorMode();
@@ -412,16 +466,21 @@ public:
 	// sortObjectsByDepth @ 1008:0d79 - inventory cursor reset + free object runtime blobs.
 	void sortObjectsByDepth(uint16 objectIndex);
 
-	void loadSongFromSceneData(uint8 dataIndex);
-	Music *getAdlib() const { return _adlib; }
+	Music *getMusic() const { return _music; }
 	// Returns the Music volume (0-63) scaled by the user's music_volume setting
 	uint16 scaledMusicVolume(uint16 gameAttenuation) const;
-	void setCurrentSoundData(const Common::Array<uint8> &data);
+	/**
+	 * Install PCM for opcode 0x3E / playSample.
+	 * @param rateHz sample rate (DOS Sound Blaster path uses 8000)
+	 * @param headerSkip bytes to skip at start of buffer (DOS resources have a 2-byte size header;
+	 *                   Amiga MXOS extract is raw PCM and uses 0)
+	 */
+	void setCurrentSoundData(const Common::Array<uint8> &data, int rateHz = 0x1F40, int headerSkip = 2);
 	void clearCurrentSoundData();
-	void playCurrentSound();
-	void stopCurrentSound();
-	bool hasCurrentSound() const { return !_currentSoundData.empty(); }
-	bool isCurrentSoundPlaying() const;
+	bool hasCurrentSoundData() const { return !_currentSoundData.empty(); }
+	void playSample();
+	void stopSample();
+	bool isSamplePlaying() const;
 
 	// Offset 50D3h - This is used in 0037:10C4 to terminate the loop
 	uint16 _numHotspots;
@@ -476,6 +535,8 @@ public:
 	bool readInputFrame(uint16 &mouseX, uint16 &mouseY, uint16 &buttons);
 
 	Common::Array<uint8> _currentSoundData;
+	int _currentSoundRate = 0x1F40;
+	int _currentSoundHeaderSkip = 2;
 	Audio::SoundHandle _currentSoundHandle;
 
 	// Schedules a run of the script the next time the executor is ticked
@@ -503,8 +564,76 @@ public:
 	int computeStringIndex(Common::MemoryReadStream *stream, int targetOffset);
 
 	uint32 getFeatures() const;
+	Common::Platform getPlatform() const { return _gameDescription->platform; }
+	bool isAmiga() const { return getPlatform() == Common::kPlatformAmiga; }
+	Macs2AmigaArchive *getAmigaArchive() const { return _amigaArchive; }
 
 	bool isDemo() const { return getFeatures() & ADGF_DEMO; }
+
+	/** MCS directory base (v1: file+0x10 after magic + actor/scene words). */
+	uint32 getMcsDirectoryOffset() const { return kMcsV1DirectoryOffset; }
+	McsFileVersion getMcsFileVersion() const { return _mcsFileVersion; }
+	int screenWidth() const { return kScreenWidth; }
+	int screenWidthLast() const { return screenWidth() - 1; }
+	int gameHeight() const { return kGameHeight; }
+	int gameHeightLast() const { return gameHeight() - 1; }
+
+	// --- Layout / dialect facades (DOS defaults; other platforms override later) ---
+
+	/** Game-loop timer quantum in milliseconds. */
+	uint32 timerTickMs() const { return 46; }
+	/** Normal-speed: game frames per that many timer ticks. */
+	uint16 ticksPerGameFrame() const { return 2; }
+
+	/** ReadyObject anim slots (1-based inclusive max). */
+	uint16 maxAnimSlots() const { return 0x15; }
+	/** Orientations that map to anim slots 1..N (inclusive). */
+	uint16 maxOrientations() const { return 0x14; }
+	/** Overload / special-anim slot index (DOS ReadyObject slot 0x15). */
+	uint16 overloadAnimSlot() const { return 0x15; }
+	/** Scene hotspot override table entries (1-based inclusive max). */
+	uint16 maxHotspots() const { return 0x10; }
+	/** Per-object resource offset table entries. */
+	uint maxObjectResources() const { return 32; }
+	/** Anim slot used for the current orientation (DOS overload-direction rule). */
+	uint16 resolveAnimSlotIndex(const GameObject *obj) const;
+
+	/** Script stream: literals carry an extra high word after the value word. */
+	bool scriptValuesHaveHighWord() const { return false; }
+	/** Script stream: variable index is followed by a padding word. */
+	bool scriptVarIndexHasPaddingWord() const { return false; }
+	/** Script coordinates -> screen/runtime coordinates (identity on DOS). */
+	int16 scaleScriptCoord(int16 coord) const { return coord; }
+
+	/** Dialogue / text-box chrome (DOS l0037_B368 / B462). */
+	int dialogPadW() const { return isAmiga() ? 0x08 : 0x12; }
+	int dialogPadH() const { return isAmiga() ? 0x08 : 0x10; }
+	int dialogTextInset() const { return isAmiga() ? 0x04 : 0x09; }
+	int dialogLineGap() const { return 2; }
+	int portraitBorderPad() const { return isAmiga() ? 2 : 0x0D; }
+	int portraitContentInset() const { return isAmiga() ? 1 : 7; }
+	int portraitTextGap() const { return isAmiga() ? 0x0A : 0x12; }
+	/**
+	 * Per-line step for dialogue layout.
+	 * DOS: maxGlyphHeight + dialogLineGap(). Amiga: absolute MXFF pitch
+	 * (amigaTextLinePitch) or maxGlyphHeight when pitch is unset.
+	 */
+	int dialogLineHeight() const {
+		if (isAmiga())
+			return amigaTextLinePitch ? (int)amigaTextLinePitch : (int)maxGlyphHeight;
+		return (int)maxGlyphHeight + dialogLineGap();
+	}
+
+	/** Depth-map compare Y for sprite occlusion (full Y on DOS). */
+	uint8 depthThresholdForY(int16 charY) const { return (uint8)charY; }
+
+	/** Resource bootstrap (DOS MCS or Amiga DataA/Mdir). */
+	void loadBootstrapResources();
+	/**
+	 * Load scene background, maps, pathfinding, and related scene tables.
+	 * Called from changeScene; Amiga uses native MXMM from DataA.
+	 */
+	bool loadSceneGraphics(uint32 sceneIndex);
 
 	/**
 	 * Returns the game Id

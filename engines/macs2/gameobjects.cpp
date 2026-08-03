@@ -30,25 +30,19 @@ DECLARE_SINGLETON(Macs2::Scenes);
 
 } // namespace Common
 
-Common::MemoryReadStream *Macs2::Scenes::readSceneScript(uint16 sceneIndex, Common::MemoryReadStream *fileStream) {
-	// Calculate the offset of the script data offset
-	// This addressing can be found in the l0037_2856 code block
-
-	uint16 sceneDataOffset = sceneIndex * 0xC;
-	// Offset of the data in [0752h] global
-	constexpr uint16 globalDataOffset = 0xC + 0x4;
-	sceneDataOffset += globalDataOffset;
-	fileStream->seek(sceneDataOffset - 0x8);
+Common::MemoryReadStream *Macs2::Scenes::readSceneScript(uint16 sceneIndex, Common::SeekableReadStream *fileStream) {
+	// Directory entry for sceneIndex: absolute seek uses
+	//   directoryOffset + sceneIndex * 0xC - 8  (second dword of entry sceneIndex-1).
+	const uint32 directoryOffset = g_engine->getMcsDirectoryOffset();
+	fileStream->seek(directoryOffset + sceneIndex * 0xC - 0x8);
 	uint32 sceneDataOffset2 = fileStream->readUint32LE();
 	fileStream->seek(sceneDataOffset2, SEEK_SET);
 
-	// Read the script from there
-	// We read 80h bytes
+	// DOS: skip 0x80 resource offsets, then script size + bytecode.
 	fileStream->seek(0x80, SEEK_CUR);
 	uint16 scriptSize = fileStream->readUint16LE();
 	if (scriptSize == 0) {
 		warning("Macs2::Scenes::ReadSceneScript: scene %u has empty script", sceneIndex);
-		// Return a valid but empty stream
 		return new Common::MemoryReadStream(nullptr, 0);
 	}
 	byte *scriptData = (byte *)malloc(scriptSize);
@@ -56,56 +50,45 @@ Common::MemoryReadStream *Macs2::Scenes::readSceneScript(uint16 sceneIndex, Comm
 	return new Common::MemoryReadStream(scriptData, scriptSize, DisposeAfterUse::YES);
 }
 
-Common::Array<uint32> Macs2::Scenes::readSpecialAnimsOffsets(uint16 sceneIndex, Common::MemoryReadStream *fileStream) {
+Common::Array<uint32> Macs2::Scenes::readSpecialAnimsOffsets(uint16 sceneIndex, Common::SeekableReadStream *fileStream) {
 	Common::Array<uint32> result;
 	result.resize(0x80 / 4);
 
-	// Calculate the offset of the script data offset
-	// This addressing can be found in the l0037_2856 code block
-	// TODO: This part is copy-pasted and could be refactored into one proper loading function
-
-	uint16 sceneDataOffset = sceneIndex * 0xC;
-	// Offset of the data in [0752h] global
-	constexpr uint16 globalDataOffset = 0xC + 0x4;
-	sceneDataOffset += globalDataOffset;
-	fileStream->seek(sceneDataOffset - 0x8);
+	const uint32 directoryOffset = g_engine->getMcsDirectoryOffset();
+	fileStream->seek(directoryOffset + sceneIndex * 0xC - 0x8);
 	uint32 sceneDataOffset2 = fileStream->readUint32LE();
 	fileStream->seek(sceneDataOffset2, SEEK_SET);
 
-	// Read the script from there
-	// We read 80h bytes for the special animations offsets
 	fileStream->read(result.data(), 0x80);
 
 	return result;
 }
 
-Common::MemoryReadStream *Macs2::Scenes::readSceneStrings(uint16 sceneIndex, Common::MemoryReadStream *fileStream) {
-	// Calculate the offset of the script data offset
-	// This addressing can be found in the l0037_2856 code block
-
-	uint16 sceneDataOffset = sceneIndex * 0xC;
-	// Offset of the data in [0752h] global
-	constexpr uint16 globalDataOffset = 0xC + 0x4;
-	sceneDataOffset += globalDataOffset;
-	fileStream->seek(sceneDataOffset - 0x4);
+Common::MemoryReadStream *Macs2::Scenes::readSceneStrings(uint16 sceneIndex, Common::SeekableReadStream *fileStream) {
+	const uint32 directoryOffset = g_engine->getMcsDirectoryOffset();
+	// Third dword of entry (sceneIndex-1) / strings blob - DOS formula directory+scene*0xC-4.
+	fileStream->seek(directoryOffset + sceneIndex * 0xC - 0x4);
 	uint32 sceneDataOffset2 = fileStream->readUint32LE();
 	fileStream->seek(sceneDataOffset2, SEEK_SET);
 
-	// This lives in l0037_A4FC:
-
-	// Read the script from there
-	// Size - lives in global [0F84h]
 	uint16 size = fileStream->readUint16LE();
 
-	// Stringdata lives in the pointer [0F80h]
 	byte *stringData = (byte *)malloc(size);
 	fileStream->read(stringData, size);
 	return new Common::MemoryReadStream(stringData, size, DisposeAfterUse::YES);
-	// Note: We save the current scene number to [0F86h] - maybe "scene we have strings loaded for"?
 }
 
-Common::Array<uint8> Macs2::Scenes::readSpecialAnimBlob(uint16 index, Common::MemoryReadStream *fileStream) {
+Common::Array<uint8> Macs2::Scenes::readSpecialAnimBlob(uint16 index, Common::SeekableReadStream *fileStream) {
+	if (index == 0 || index > _currentSceneSpecialAnimOffsets.size()) {
+		warning("readSpecialAnimBlob: index %u out of range (table size %u)",
+				index, _currentSceneSpecialAnimOffsets.size());
+		return Common::Array<uint8>();
+	}
 	uint32 offset = _currentSceneSpecialAnimOffsets[index - 1];
+	if (offset == 0 || fileStream == nullptr) {
+		warning("readSpecialAnimBlob: null offset for index %u", index);
+		return Common::Array<uint8>();
+	}
 	fileStream->seek(offset, SEEK_SET);
 	uint32 length = fileStream->readUint32LE();
 	// Skip a string - note the original code adds 0x4 for the previously read size since
@@ -401,41 +384,40 @@ Macs2::GameObject *Macs2::GameObjects::getObjectByIndex(uint16 index) {
 	return instance()._objects[index - 1];
 }
 
-Common::MemoryReadStream *Macs2::GameObjects::readGameObjectStrings(uint16 index, Common::MemoryReadStream *fileStream) {
-	// TODO: The original binary caches the last loaded object's string data in memory
-	// (g_wStringDecodeCacheObjectId at DS:0f86 / g_pSavedScriptState). It skips the file
-	// read if the same object is requested again. We re-read from file every time.
-	// TODO: Copy&Pasted code from ReadSceneStrings
-	// Calculate the offset of the script data offset
-	// This addressing can be found in the l0037_2856 code block
+Common::MemoryReadStream *Macs2::GameObjects::readGameObjectStrings(uint16 index, Common::SeekableReadStream *fileStream) {
+	// Amiga: strings live on the GameObject itself (plaintext, u16BE lengths).
+	if (g_engine->isAmiga()) {
+		GameObject *obj = getObjectByIndex(index);
+		if (obj == nullptr)
+			return new Common::MemoryReadStream(nullptr, 0);
+		byte *copy = (byte *)malloc(obj->_stringData.size());
+		if (!obj->_stringData.empty())
+			memcpy(copy, obj->_stringData.data(), obj->_stringData.size());
+		return new Common::MemoryReadStream(copy, obj->_stringData.size(), DisposeAfterUse::YES);
+	}
 
-	uint16 gameObjectDataOffset = index * 0xC;
-	// Offset of the data in [0752h] global
-	constexpr uint16 globalDataOffset = 0xC + 0x4;
-	gameObjectDataOffset += globalDataOffset;
-	fileStream->seek(gameObjectDataOffset + 0x17FC);
+	const uint32 directoryOffset = g_engine->getMcsDirectoryOffset();
+	// Object string table pointer at directory + index*0xC + 0x17FC.
+	fileStream->seek(directoryOffset + index * 0xC + 0x17FC);
 	uint32 sceneDataOffset2 = fileStream->readUint32LE();
 	fileStream->seek(sceneDataOffset2, SEEK_SET);
 
-	// This lives in l0037_A4FC:
-
-	// Read the script from there
-	// Size - lives in global [0F84h]
 	uint16 size = fileStream->readUint16LE();
 
-	// Stringdata lives in the pointer [0F80h]
 	byte *stringData = (byte *)malloc(size);
 	fileStream->read(stringData, size);
 	return new Common::MemoryReadStream(stringData, size, DisposeAfterUse::YES);
-	// Note: We save the current scene number to [0F86h] - maybe "scene we have strings loaded for"?
 }
 
 Common::Array<uint8> *Macs2::GameObject::getAnimSlotBlob(uint16 slot) {
-	if (slot < 1 || slot > 0x15)
+	const uint16 maxSlots = g_engine->maxAnimSlots();
+	const uint16 overloadSlot = g_engine->overloadAnimSlot();
+	if (slot < 1 || slot > maxSlots)
 		return nullptr;
-	if (slot == 0x15) {
-		if (_blobs.size() > 20 && !_blobs[20].empty())
-			return &_blobs[20];
+	if (slot == overloadSlot) {
+		const uint overloadIndex = overloadSlot - 1;
+		if (_blobs.size() > overloadIndex && !_blobs[overloadIndex].empty())
+			return &_blobs[overloadIndex];
 		return &_overloadAnimation;
 	}
 	const uint index = slot - 1;
@@ -449,17 +431,19 @@ const Common::Array<uint8> *Macs2::GameObject::getAnimSlotBlob(uint16 slot) cons
 }
 
 bool Macs2::GameObject::isAnimSlotLoaded(uint16 orient) const {
+	const uint16 overloadSlot = g_engine->overloadAnimSlot();
+	const uint16 maxOrient = g_engine->maxOrientations();
 	if (_overloadAnimTriggerDirection != 0x7FFF &&
 		(int16)_overloadAnimTriggerDirection >= 0 &&
 		_overloadAnimTriggerDirection == orient) {
-		const Common::Array<uint8> *blob = getAnimSlotBlob(0x15);
+		const Common::Array<uint8> *blob = getAnimSlotBlob(overloadSlot);
 		return blob != nullptr && !blob->empty();
 	}
-	if (orient == 0x15) {
-		const Common::Array<uint8> *blob = getAnimSlotBlob(0x15);
+	if (orient == overloadSlot) {
+		const Common::Array<uint8> *blob = getAnimSlotBlob(overloadSlot);
 		return blob != nullptr && !blob->empty();
 	}
-	if (orient < 1 || orient > 0x14)
+	if (orient < 1 || orient > maxOrient)
 		return false;
 	const uint slot = orient - 1;
 	if (slot < _blobs.size() && !_blobs[slot].empty())

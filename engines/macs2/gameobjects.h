@@ -29,6 +29,7 @@
 namespace Common {
 class MemoryReadStream;
 class MemoryReadStreamEndian;
+class SeekableReadStream;
 } // namespace Common
 
 namespace Macs2 {
@@ -60,10 +61,10 @@ public:
 	class Common::MemoryReadStream *_currentSceneStrings;
 	Common::Array<uint32> _currentSceneSpecialAnimOffsets;
 
-	class Common::MemoryReadStream *readSceneScript(uint16 sceneIndex, Common::MemoryReadStream *fileStream);
-	Common::Array<uint32> readSpecialAnimsOffsets(uint16 sceneIndex, Common::MemoryReadStream *fileStream);
-	class Common::MemoryReadStream *readSceneStrings(uint16 sceneIndex, Common::MemoryReadStream *fileStream);
-	Common::Array<uint8> readSpecialAnimBlob(uint16 index, Common::MemoryReadStream *fileStream);
+	class Common::MemoryReadStream *readSceneScript(uint16 sceneIndex, Common::SeekableReadStream *fileStream);
+	Common::Array<uint32> readSpecialAnimsOffsets(uint16 sceneIndex, Common::SeekableReadStream *fileStream);
+	class Common::MemoryReadStream *readSceneStrings(uint16 sceneIndex, Common::SeekableReadStream *fileStream);
+	Common::Array<uint8> readSpecialAnimBlob(uint16 index, Common::SeekableReadStream *fileStream);
 };
 
 class AnimationReader {
@@ -175,6 +176,10 @@ public:
 	// The object-specific script
 	Common::Array<uint8> _script;
 
+	// Amiga: plaintext string entries for this object (script offsets are relative to this).
+	// Empty on DOS; DOS strings are read from RESOURCE.MCS via the scene/object tables.
+	Common::Array<uint8> _stringData;
+
 	// Per-object resource offset table (runtime +0x18D, 128 bytes = 32 dword file offsets).
 	// Loaded from file during loadObjectData. Used by scriptLoadObjectAnim/scriptLoadSpecialAnim
 	// to look up animation resource file addresses for this object.
@@ -201,8 +206,8 @@ public:
 
 	Common::MemoryReadStream *getScriptStream();
 
-	// Binary pAnimSlots[1..0x15] at runtime+slot*0x10. Slot 0x15 may be in _blobs[20]
-	// (loadObjectData) or overloadAnimation (script load / savegame).
+	// Binary pAnimSlots[1..maxAnimSlots] at runtime+slot*0x10. Overload slot may be in
+	// _blobs[overload-1] (loadObjectData) or _overloadAnimation (script load / savegame).
 	Common::Array<uint8> *getAnimSlotBlob(uint16 slot);
 	const Common::Array<uint8> *getAnimSlotBlob(uint16 slot) const;
 
@@ -230,7 +235,7 @@ public:
 
 	static GameObject *getObjectByIndex(uint16 index);
 
-	static class Common::MemoryReadStream *readGameObjectStrings(uint16 index, Common::MemoryReadStream *fileStream);
+	static class Common::MemoryReadStream *readGameObjectStrings(uint16 index, Common::SeekableReadStream *fileStream);
 };
 
 } // namespace Macs2

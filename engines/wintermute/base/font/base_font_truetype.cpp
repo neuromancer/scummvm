@@ -587,6 +587,9 @@ bool BaseFontTT::initFont() {
 		// The game 'Nose Bound Episode 1' is points to 'fonts\Andes.ttf',
 		// however there is in game root data directory.
 		file = BaseFileManager::getEngineInstance()->openFile("bettynoir.ttf", true, false);
+	} else if (BaseEngine::instance().getGameId() == "todaymama") {
+		// Fonts from the game 'Today, Mama!' are not working. Using fallback.
+		file = nullptr;
 	} else {
 		// Load a file, but avoid having the File-manager handle the disposal of it.
 		file = BaseFileManager::getEngineInstance()->openFile(_fontFile, true, false);
@@ -662,6 +665,14 @@ bool BaseFontTT::initFont() {
 				} else {
 					fallbackFilename = "LiberationSans-Regular.ttf";
 				}
+			} else if (Common::String(_fontFile).contains("BREEZE.TTF") ||
+				   Common::String(_fontFile).contains("PRN55__C.TTF")) {
+				// Fonts from the game 'Today, Mama!' are not working.
+				if (_isBold) {
+					fallbackFilename = "LiberationSans-Bold.ttf";
+				} else {
+					fallbackFilename = "LiberationSans-Regular.ttf";
+				}
 			} else if (Common::String(_fontFile).contains("ITCBLKAD.ttf")) {
 				// 'The Trader of Stories' game has missing 'ITCBLKAD' font
 				fallbackFilename = "NotoSerif-Italic.ttf";
@@ -691,13 +702,19 @@ bool BaseFontTT::initFont() {
 		_font = _fallbackFont = FontMan.getFontByUsage(Graphics::FontManager::kBigGUIFont);
 		warning("BaseFontTT::InitFont - Couldn't load font: %s", _fontFile);
 	}
+
 	auto box = _font->getBoundingBox("Ay");
 	_lineHeight = box.bottom - box.top;
+
+	// based on WME lite code:
+	_lineHeight += 2;
+
 #ifdef ENABLE_FOXTAIL
 	if (BaseEngine::instance().isFoxTail(FOXTAIL_1_2_896, FOXTAIL_LATEST_VERSION)) {
 		_lineHeight -= 1;
 	}
 #endif
+
 	return STATUS_OK;
 }
 

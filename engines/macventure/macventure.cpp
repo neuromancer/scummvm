@@ -171,6 +171,10 @@ Common::Error MacVentureEngine::run() {
 			if (_prepared) {
 				_prepared = false;
 
+				bool busy = _cmdReady || _halted;
+				if (busy)
+					_gui->setWaitCursor(true);
+
 				if (!_halted)
 					updateState(false);
 
@@ -190,6 +194,9 @@ Common::Error MacVentureEngine::run() {
 				if (_gameState == kGameStateLosing) {
 					endGame();
 				}
+
+				if (busy)
+					_gui->setWaitCursor(false);
 			}
 		}
 		refreshScreen();
@@ -694,7 +701,8 @@ Item MacVentureEngine::removeOutlier(Layout &layout, bool flag, Common::Rect rec
 
 void MacVentureEngine::cleanUp(WindowReference reference) {
 	const WindowData &data = _gui->getWindowData(reference);
-	Common::Rect windowBounds = _gui->findWindow(reference)->getInnerDimensions();
+	Common::Rect innerDims = _gui->findWindow(reference)->getInnerDimensions();
+	Common::Rect windowBounds(0, 0, innerDims.width(), innerDims.height());
 	Common::Array<Item> items;
 
 	Layout onScreen, offScreen;

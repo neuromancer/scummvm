@@ -41,6 +41,7 @@
 #include "graphics/pixelformat.h"
 #include "graphics/surface.h"
 #include "gui/debugger.h"
+#include "macs2/amiga_decode.h"
 #include "macs2/debugtools.h"
 #include "macs2/detection.h"
 #include "macs2/hotspot_names.h"
@@ -112,6 +113,24 @@ Graphics::ManagedSurface Macs2Engine::readRLEImage(int64 offs, Common::MemoryRea
 	return result;
 }
 
+Macs2Engine::McsFileVersion Macs2Engine::detectMcsFileVersion(Common::SeekableReadStream &stream) const {
+	if (stream.size() < (int64)kMcsMagicSize)
+		return McsFileVersion::Unknown;
+
+	const int64 pos = stream.pos();
+	byte magic[kMcsMagicSize];
+	stream.seek(0, SEEK_SET);
+	if (stream.read(magic, kMcsMagicSize) != kMcsMagicSize) {
+		stream.seek(pos, SEEK_SET);
+		return McsFileVersion::Unknown;
+	}
+	stream.seek(pos, SEEK_SET);
+
+	if (memcmp(magic, kMcsMagicV1, kMcsMagicSize) == 0)
+		return McsFileVersion::V1;
+	return McsFileVersion::Unknown;
+}
+
 void Macs2Engine::readResourceFile() {
 	{
 		// Extra scope in order to make sure no code tries to read from the file directly.
@@ -126,23 +145,25 @@ void Macs2Engine::readResourceFile() {
 		_fileStream = new Common::MemoryReadStream(fileData, size, DisposeAfterUse::YES);
 	}
 
-	// Full implementation here
+	_mcsFileVersion = detectMcsFileVersion(*_fileStream);
+	if (_mcsFileVersion != McsFileVersion::V1)
+		error("readResourceFile(): unrecognized MCS magic (expected %s)", kMcsMagicV1);
 
-	// File layout (from loadResourceFile at 1008:2e8d):
-	//   0x00: 12-byte magic header "AHFFMCSR0100"
-	//   0x0C: 2 bytes actor index + 2 bytes initial scene index (loaded below)
-	//   0x10: 0x3000 bytes scene table (512 entries * 12 bytes, accessed via seek per scene)
-	//   0x3010: 0x300 bytes vanilla palette (global default, overwritten per-scene by changeScene)
-	//   0x3310: 0x800 bytes shading table -> sceneData+0x53D3 (64 palette entries x 32 levels)
-	//   0x3B10: 33 cursor/icon image entries (4-byte size + blob data each)
-	//   Then: Font 1 (4-byte size + glyph data)
-	//   Then: Font 2 (4-byte size + glyph data)
-	//   Then: 0x400 bytes map scene offsets -> sceneData+0x5DDB
-	// We skip to the cursor images; palette/shading are loaded per-scene in changeScene.
-	_fileStream->seek(0xC + 0x4 + 0x3000 + 0x300);
-	_shadingTable.resize(0x800);
-	_fileStream->read(_shadingTable.data(), 0x800);
-	_fileStream->seek(0xC + 0x4 + 0x3000 + 0x300 + 0x800);
+	loadResourceFileV1();
+}
+
+void Macs2Engine::loadResourceFileV1() {
+	// File layout (loadResourceFile @ 1008:2e8d, magic AHFFMACS0100):
+	//   +0x00  12-byte magic
+	//   +0x0C  actor index, +0x0E initial scene index
+	//   +0x10  directory 0x3000 (512 x 12); object DATA/SCRIPT ptrs at +0x17F4/+0x17F8
+	//   +0x3010 vanilla palette 0x300
+	//   +0x3310 shading table 0x800 -> scene+0x53D3
+	//   then 0x21 cursor/icon images, Font1, Font2, 0x400 map scene offsets -> scene+0x5DDB
+	// Global vanilla palette is overwritten per-scene in changeScene; skip to shading.
+	_fileStream->seek(kMcsV1ShadingTableOffset, SEEK_SET);
+	_shadingTable.resize(kMcsV1ShadingTableSize);
+	_fileStream->read(_shadingTable.data(), kMcsV1ShadingTableSize);
 	readImageResources(_fileStream);
 	// Font 1 follows immediately after the 33 image resource entries.
 	// Original: 4-byte size field (skipped) + 2-byte glyph count + glyph data.
@@ -167,13 +188,12 @@ void Macs2Engine::readResourceFile() {
 	}
 	numPanelGlyphs = font2GlyphCount;
 
-	// Map scene offsets: 0x400 bytes (256 entries x 4 bytes) -> scene+0x5DDB
-	// First entry is the help screen image offset.
-	for (int i = 0; i < 256; i++) {
+	// Map scene offsets -> scene+0x5DDB. First entry is the help screen image offset.
+	for (uint i = 0; i < kMcsV1MapSceneOffsetCount; i++) {
 		_mapSceneOffsets[i] = _fileStream->readUint32LE();
 	}
 
-	_fileStream->seek(0xC, SEEK_SET);
+	_fileStream->seek(kMcsV1ActorIndexOffset, SEEK_SET);
 	Scenes::instance()._currentActorIndex = _fileStream->readUint16LE();
 	uint16 firstSceneIndex = _fileStream->readUint16LE();
 	Scenes::instance()._currentSceneIndex = firstSceneIndex;
@@ -186,10 +206,8 @@ void Macs2Engine::readResourceFile() {
 	// Original allocates all 512 slots, then frees unused ones. We pre-fill with nullptr.
 	GameObjects::instance()._objects.resize(0x200, nullptr);
 	for (int i = 1; i <= 0x200; i++) {
-		// The formula for the seek lives at l0037_0936
-		// The global [0752h] is loaded with 3000h bytes read from offset Ch + 4h in the file
-		// Regarding the 4h offset: Before the 3000h bytes, we have the values of the two globals 0776 and 077C
-		uint32 addressOffset = 0x17F4 + (0xC + 0x04) + i * 0xC;
+		// Directory object DATA dword: file+kMcsV1DirectoryOffset+kMcsV1ObjectDataPtrRel+i*12
+		const uint32 addressOffset = kMcsV1DirectoryOffset + kMcsV1ObjectDataPtrRel + (uint32)i * 0xC;
 		_fileStream->seek(addressOffset, SEEK_SET);
 		uint32 objectOffset = _fileStream->readUint32LE();
 		if (objectOffset == 0) {
@@ -201,7 +219,7 @@ void Macs2Engine::readResourceFile() {
 		gameObject->_index = i;
 		gameObject->_dataOffset = objectOffset;
 
-		// This loading happens around the l0037_082D: mark
+		// Object header (ReadyObject / initGameObject): x, y, scene, orientation, vertical scale
 		uint16 x = _fileStream->readUint16LE();
 		uint16 y = _fileStream->readUint16LE();
 		gameObject->_position = Common::Point(x, y);
@@ -209,9 +227,10 @@ void Macs2Engine::readResourceFile() {
 		gameObject->_orientation = _fileStream->readUint16LE();
 		gameObject->_verticalOffsetScale = _fileStream->readUint16LE();
 
-		for (int j = 1; j <= 0x15; j++) {
-			// Per-slot data in file: 2 bytes animID, 2 bytes sourceKey, 4 bytes dataSize, data, 2 bytes speed, 1 byte mirrorFlag, 1 byte (discarded)
-			_fileStream->readUint16LE(); // runtime+0x24: animation slot ID (not used at runtime, editor metadata)
+		const uint16 animSlotCount = maxAnimSlots();
+		for (int j = 1; j <= (int)animSlotCount; j++) {
+			// Per-slot: animID, sourceKey, dataSize, data, speed, mirrorFlag, discarded byte
+			_fileStream->readUint16LE(); // runtime+0x24: animation slot ID (editor metadata)
 			uint16 blobSourceKey = _fileStream->readUint16LE();
 			uint32 dataSize = _fileStream->readUint32LE();
 			uint8 *data = new uint8[dataSize];
@@ -219,19 +238,12 @@ void Macs2Engine::readResourceFile() {
 			gameObject->_blobs.push_back(Common::Array<uint8>(data, dataSize));
 			delete[] data;
 			gameObject->_blobSourceKeys.push_back(blobSourceKey);
-			// Per-slot wAnimSpeed (slot+0x0C in runtime, walk speed used by walkAlongPath)
 			uint16 blobSpeed = _fileStream->readUint16LE();
 			gameObject->_blobWalkSpeeds.push_back(blobSpeed);
-			// Mirror flag (+0x32 in runtime)
 			uint16 blobMirrorFlag = _fileStream->readByte();
 			_fileStream->readByte(); // slot loaded flag (runtime-only, discarded from file)
 			gameObject->_blobMirrorFlags.push_back(blobMirrorFlag != 0);
 
-			// In order to get to l0037_0BBA: where the blob will be mirrored,
-			// the bytes at +Eh and +Fh must be != 0
-			// +Fh is set related to the inner loop - I think it means that
-			// the blob is empty
-			// +Eh is read here
 			if (blobMirrorFlag != 0) {
 				debugC(kDebugScript, "Object %.4x need to mirror blob %4.x", i, j);
 				if (dataSize > 0) {
@@ -239,16 +251,14 @@ void Macs2Engine::readResourceFile() {
 				}
 			}
 		}
-		// Per-object rendering flags (after all 21 animation slots):
-		// Binary loadObjectData reads these into runtime+0x184, +0x185, +0x186
-		_fileStream->readByte();                                // runtime+0x184: hasInventoryIcon (container flag) - derived dynamically from _blobs[0x13] presence
-		gameObject->_hasShading = _fileStream->readByte() != 0; // runtime+0x185: shading enabled
-		gameObject->_hasScaling = _fileStream->readByte() != 0; // runtime+0x186: scaling enabled
+		// Per-object flags after anim slots (loadObjectData -> runtime+0x184..+0x186)
+		_fileStream->readByte();                                // hasInventoryIcon (derived from slot 0x13)
+		gameObject->_hasShading = _fileStream->readByte() != 0; // runtime+0x185
+		gameObject->_hasScaling = _fileStream->readByte() != 0; // runtime+0x186
 
-		// Read the object script (resource offset table + script bytecode)
-		// Binary: scene table at +0x17F8 holds the script data file offset for each object
-		addressOffset = 0x17F8 + (0xC + 0x04) + i * 0xC;
-		_fileStream->seek(addressOffset, SEEK_SET);
+		// Object SCRIPT ptr in directory (+0x17F8). Zero SCRIPT keeps the object (no script table).
+		const uint32 scriptPtrOffset = kMcsV1DirectoryOffset + kMcsV1ObjectScriptPtrRel + (uint32)i * 0xC;
+		_fileStream->seek(scriptPtrOffset, SEEK_SET);
 
 		objectOffset = _fileStream->readUint32LE();
 		// Binary loadResourceFile prunes an object slot ONLY when its DATA offset
@@ -264,9 +274,9 @@ void Macs2Engine::readResourceFile() {
 			continue;
 		}
 		_fileStream->seek(objectOffset, SEEK_SET);
-		// Resource offset table at +0x18D equivalent in file (128 bytes = 32 dword offsets).
-		// Binary loadObjectData reads this into runtime+0x18D.
-		for (int r = 0; r < 32; r++) {
+		// Resource offset table (32 dwords).
+		const uint maxObjRes = maxObjectResources();
+		for (uint r = 0; r < maxObjRes; r++) {
 			gameObject->_resourceOffsets[r] = _fileStream->readUint32LE();
 		}
 		uint16 scriptLength = _fileStream->readUint16LE();
@@ -291,6 +301,17 @@ void Macs2Engine::readResourceFile() {
 }
 
 void Macs2Engine::readExecutable() {
+	inventoryIconIndices.resize(6);
+	containerInventoryIconIndices.resize(6);
+
+	if (isAmiga()) {
+		for (uint i = 0; i < 6; i++) {
+			inventoryIconIndices[i] = (uint16)(i + 1);
+			containerInventoryIconIndices[i] = (uint16)(i + 1);
+		}
+		return;
+	}
+
 	Common::ScopedPtr<Common::MemoryReadStream> exeFileStream;
 	{
 		// Extra scope in order to make sure no code tries to read from the file directly.
@@ -305,15 +326,24 @@ void Macs2Engine::readExecutable() {
 		exeFileStream.reset(new Common::MemoryReadStream(fileData, size, DisposeAfterUse::YES));
 	}
 
-	_adlib->readDataFromExecutable(exeFileStream.get());
+	// Full MCSEXEC.EXE and demo MCSEXEC.EXE are different binaries (different MD5, ~12k differing bytes),
+	// but the whole Data5 segment is identical (1020:0000...1020:3787)
+	// TODO: if there are ever other games using different versions of MCSEXEC.EXE, we should check the checksum here
+
+	_music->readDataFromExecutable(exeFileStream.get());
 
 	exeFileStream->seek(0x0001B610, SEEK_SET);
-	inventoryIconIndices.resize(6);
 	exeFileStream->read(inventoryIconIndices.data(), 12);
 
 	exeFileStream->seek(0x0001B61C, SEEK_SET);
-	containerInventoryIconIndices.resize(6);
 	exeFileStream->read(containerInventoryIconIndices.data(), 12);
+}
+
+void Macs2Engine::loadBootstrapResources() {
+	if (isAmiga())
+		readAmigaResources();
+	else
+		readResourceFile();
 }
 
 void Macs2Engine::readBackgroundAnimations(Common::MemoryReadStream *stream) {
@@ -396,10 +426,9 @@ Macs2Engine::Macs2Engine(OSystem *syst, const ADGameDescription *gameDesc) : Eng
 	g_engine = this;
 	_scriptExecutor = new Script::ScriptExecutor();
 	_scriptExecutor->_engine = this;
-	_adlib = new Music();
+	_music = new Music();
 
-	// We have a fixed 0x10 number of entries
-	_hotspotOverrides.resize(0x11);
+	_hotspotOverrides.resize(0x21);
 	for (uint i = 0; i < _hotspotOverrides.size(); i++) {
 		_hotspotOverrides[i] = 0xFFFF;
 	}
@@ -411,9 +440,15 @@ Macs2Engine::~Macs2Engine() {
 #endif
 	stopInputRecording();
 	clearCurrentSoundData();
-	_adlib->deinit();
-	delete _adlib;
+	_music->deinit();
+	delete _music;
+	if (_amigaArchive) {
+		SearchMan.remove("macs2amiga");
+		delete _amigaArchive;
+		_amigaArchive = nullptr;
+	}
 	delete _fileStream;
+	_fileStream = nullptr;
 	delete _scriptExecutor;
 	for (uint i = 0; i < GameObjects::instance()._objects.size(); i++) {
 		delete GameObjects::instance()._objects[i];
@@ -437,13 +472,13 @@ void Macs2Engine::sayText(const Common::String &text, Common::TextToSpeechManage
 void Macs2Engine::syncSoundSettings() {
 	Engine::syncSoundSettings();
 
-	if (_adlib && _scriptExecutor) {
+	if (_music && _scriptExecutor) {
 		int musicVolume = ConfMan.getInt("music_volume");
 		// OPL emulator is registered as kPlainSoundType; mute it at mixer level
 		// when user sets music volume to 0 (OPL attenuation 0x3F is not true silence).
 		_mixer->muteSoundType(Audio::Mixer::kPlainSoundType,
 							  (musicVolume == 0) || (ConfMan.hasKey("mute") && ConfMan.getBool("mute")));
-		_adlib->setVolume(scaledMusicVolume(_scriptExecutor->_musicControlVolume));
+		_music->setVolume(scaledMusicVolume(_scriptExecutor->_musicControlVolume));
 	}
 }
 
@@ -460,11 +495,34 @@ uint16 Macs2Engine::scaledMusicVolume(uint16 gameAttenuation) const {
 	return (total > 0x3F) ? 0x3F : total;
 }
 
-void Macs2Engine::changeScene(uint32 newSceneIndex, bool executeScript) {
-	// Release old scene resources
-	_backgroundAnimations.clear();
-	_backgroundAnimationsBlobs.clear();
-	memset(_areaOverrides, 0, sizeof(_areaOverrides));
+bool Macs2Engine::loadSceneGraphics(uint32 sceneIndex) {
+	if (isAmiga()) {
+		uint32 sceneResourceId = 0;
+		if (sceneIndex > 0)
+			sceneResourceId = sceneIndex - 1;
+
+		if (sceneResourceId != 0 && loadAmigaSceneBackground(sceneResourceId))
+			return true;
+
+		_sceneBackground.fillRect(Common::Rect(0, 0, kScreenWidth, kGameHeight), 0);
+		_depthMap.fillRect(Common::Rect(0, 0, kScreenWidth, kGameHeight), 0);
+		_pathfindingMap.fillRect(Common::Rect(0, 0, kScreenWidth, kGameHeight), 0);
+		_shadowMap.fillRect(Common::Rect(0, 0, kScreenWidth, kGameHeight), 0);
+		_hotspotMap.fillRect(Common::Rect(0, 0, kScreenWidth, kGameHeight), 0);
+		_numHotspots = 0;
+		_numPathfindingPoints = 0;
+		_walkDepthThresholdY = 100;
+		_walkDepthScaleFactor = 100;
+		_walkBaseSpeedPct = 100;
+		_scenePaletteMode = 1;
+		_paletteDarkenPercent = 0;
+		applyAmigaUiPalette();
+		warning("Amiga: no MM_%04u in DataA (script scene %u)",
+				(uint)sceneResourceId, (uint)sceneIndex);
+		return true;
+	}
+
+	const uint32 newSceneIndex = sceneIndex;
 
 	// Background image
 	// [0752h] is pointing to 3000h bytes data starting at Ch + 4h in the file
@@ -497,11 +555,11 @@ void Macs2Engine::changeScene(uint32 newSceneIndex, bool executeScript) {
 
 	uint8 data[0x320];
 
-	for (int y = 0; y < kGameHeight; y++) {
+	for (int y = 0; y < gameHeight(); y++) {
 		// TODO: Use the proper read function, it seems to be available
 		uint16 length = _fileStream->readUint16LE();
 		_fileStream->read(data, length);
-		int16 remainingPixels = kScreenWidth; // signed: see readRLEImage (matches decodeRLERows 1008:0666)
+		int16 remainingPixels = screenWidth(); // signed: see readRLEImage (matches decodeRLERows 1008:0666)
 		uint8 *dataPointer = data;
 		uint16 x = 0;
 		while (remainingPixels > 0) {
@@ -517,7 +575,7 @@ void Macs2Engine::changeScene(uint32 newSceneIndex, bool executeScript) {
 				dataPointer++;
 				const uint8 &encodedValue = dataPointer[0];
 				dataPointer++;
-				for (int i = 0; i < runlength && x < kScreenWidth; i++) {
+				for (int i = 0; i < runlength && x < screenWidth(); i++) {
 					_sceneBackground.setPixel(x++, y, encodedValue);
 				}
 				remainingPixels -= runlength;
@@ -631,6 +689,146 @@ void Macs2Engine::changeScene(uint32 newSceneIndex, bool executeScript) {
 	// Apply palette darkening if this scene has it (binary: sceneData+0x5203 != 1)
 	applyPaletteDarkening();
 
+	return true;
+}
+
+void Macs2Engine::changeScene(uint32 newSceneIndex, bool executeScript) {
+	// Release old scene resources
+	_backgroundAnimations.clear();
+	_backgroundAnimationsBlobs.clear();
+	memset(_areaOverrides, 0, sizeof(_areaOverrides));
+
+	if (isAmiga()) {
+		// Amiga scripts use scene ids = MM_resource_id + 1 (Ghidra FUN_002215fa
+		// subtracts 1 before load_scene_mxmm; load_scene sets curScene = mmId+1).
+		_amigaPendingSceneScript.clear();
+		_amigaPendingSceneStrings.clear();
+
+		if (!loadSceneGraphics(newSceneIndex))
+			error("changeScene(): Failed to load scene graphics for scene %u", newSceneIndex);
+
+		View1 *currentView = (View1 *)findView("View1");
+		if (currentView != nullptr) {
+			// Do not push _pal here: scriptChangeScene fades the previous
+			// palette to black, then fades the new scene in.
+			for (auto currentCharacter : currentView->_characters) {
+				if (currentCharacter->_gameObject != nullptr)
+					_scriptExecutor->saveWalkRuntime(currentCharacter, currentCharacter->_gameObject);
+				delete currentCharacter;
+			}
+			currentView->_characters.clear();
+			currentView->flushPendingCharacterDeletes();
+
+			GameObject *actorObject = GameObjects::getObjectByIndex(Scenes::instance()._currentActorIndex);
+			if (actorObject != nullptr && actorObject->_sceneIndex == newSceneIndex) {
+				Character *actorChar = new Character();
+				actorChar->_gameObject = actorObject;
+				currentView->_characters.push_back(actorChar);
+				_scriptExecutor->restoreWalkRuntime(actorChar, actorObject);
+				resetCharacterWalkPath(actorChar);
+				_scriptExecutor->saveWalkRuntime(actorChar, actorObject);
+			}
+			for (auto currentObject : GameObjects::instance()._objects) {
+				if (currentObject == nullptr)
+					continue;
+				if (currentObject->_sceneIndex == newSceneIndex &&
+					currentObject->_index != Scenes::instance()._currentActorIndex &&
+					currentObject->_dataOffset != 0) {
+					Character *c = new Character();
+					c->_gameObject = currentObject;
+					currentView->_characters.push_back(c);
+					_scriptExecutor->restoreWalkRuntime(c, currentObject);
+					resetCharacterWalkPath(c);
+					_scriptExecutor->saveWalkRuntime(c, currentObject);
+				}
+			}
+			currentView->rebuildCharacterLookupTable();
+			currentView->_backgroundSurface.copyFrom(_sceneBackground);
+			if (executeScript)
+				currentView->_paletteDirty = true;
+		}
+
+		Scenes::instance()._lastSceneIndex = Scenes::instance()._currentSceneIndex;
+		Scenes::instance()._currentSceneIndex = newSceneIndex;
+		_scriptExecutor->releaseObjectStream();
+		delete Scenes::instance()._currentSceneScript;
+		delete Scenes::instance()._currentSceneStrings;
+
+		byte *scriptCopy = nullptr;
+		uint32 scriptSize = 0;
+		byte *stringCopy = nullptr;
+		uint32 stringSize = 0;
+
+		if (!_amigaPendingSceneScript.empty()) {
+			scriptSize = _amigaPendingSceneScript.size();
+			scriptCopy = (byte *)malloc(scriptSize);
+			if (scriptCopy)
+				memcpy(scriptCopy, _amigaPendingSceneScript.data(), scriptSize);
+			else
+				scriptSize = 0;
+		}
+		if (!_amigaPendingSceneStrings.empty()) {
+			stringSize = _amigaPendingSceneStrings.size();
+			stringCopy = (byte *)malloc(stringSize);
+			if (stringCopy)
+				memcpy(stringCopy, _amigaPendingSceneStrings.data(), stringSize);
+			else
+				stringSize = 0;
+		}
+		_amigaPendingSceneScript.clear();
+		_amigaPendingSceneStrings.clear();
+
+		// Fallback: global scene_table MXOO stub (usually just opcode 0x18 in the demo).
+		if (scriptSize == 0 && _fileStream != nullptr) {
+			AmigaMxooInfo sceneInfo;
+			const uint32 tableSize = (uint32)_fileStream->size();
+			Common::Array<byte> table;
+			table.resize(tableSize);
+			_fileStream->seek(0);
+			if (_fileStream->read(table.data(), tableSize) == tableSize &&
+				parseAmigaMxoo(table.data(), tableSize, sceneInfo)) {
+				Common::Array<byte> script;
+				Common::Array<byte> strings;
+				if (extractAmigaScript(table.data(), tableSize, script) && !script.empty()) {
+					scriptSize = script.size();
+					scriptCopy = (byte *)malloc(scriptSize);
+					if (scriptCopy)
+						memcpy(scriptCopy, script.data(), scriptSize);
+					else
+						scriptSize = 0;
+				}
+				if (stringSize == 0 && extractAmigaStringBlock(table.data(), tableSize, strings)) {
+					stringSize = strings.size();
+					stringCopy = (byte *)malloc(stringSize);
+					if (stringCopy && stringSize)
+						memcpy(stringCopy, strings.data(), stringSize);
+					else
+						stringSize = 0;
+				}
+			}
+		}
+
+		Scenes::instance()._currentSceneScript = new Common::MemoryReadStream(scriptCopy, scriptSize, DisposeAfterUse::YES);
+		Scenes::instance()._currentSceneStrings = new Common::MemoryReadStream(stringCopy, stringSize, DisposeAfterUse::YES);
+		Scenes::instance()._currentSceneSpecialAnimOffsets.clear();
+		_scriptExecutor->setScript(Scenes::instance()._currentSceneScript);
+
+		_pathfindingOverrides.clear();
+		for (uint i = 0; i < _hotspotOverrides.size(); i++)
+			_hotspotOverrides[i] = 0xFFFF;
+
+		// Match DOS changeScene: when View1 is not up yet (first call from
+		// readAmigaResources), only load scene data. Entry init/repeat - including
+		// intro frameWait/changeScene - must run from View1::tick so waits can
+		// complete in the game loop.
+		if (executeScript && currentView != nullptr)
+			_scriptExecutor->runSceneEntryScriptPasses();
+		return;
+	}
+
+	if (!loadSceneGraphics(newSceneIndex))
+		error("changeScene(): Failed to load scene graphics for scene %u", newSceneIndex);
+
 	// Refresh characters
 	View1 *currentView = (View1 *)findView("View1");
 	if (!currentView) {
@@ -720,6 +918,9 @@ void Macs2Engine::changeScene(uint32 newSceneIndex, bool executeScript) {
 }
 
 bool Macs2Engine::loadOverlayFont(uint8 resourceIndex, uint16 executingObjectID) {
+	if (isAmiga())
+		return loadAmigaOverlayFont(resourceIndex);
+
 	// Original (1008:d749): looks up file offset from scene/object resource table
 	// at scene+0x5209+index*4 (same table as loadIndexedResource/_sceneResourceOffsets),
 	// seeks to offset+0x10, then calls loadFontData.
@@ -752,7 +953,7 @@ bool Macs2Engine::loadOverlayFont(uint8 resourceIndex, uint16 executingObjectID)
 
 	// Seek to address + 0x10 (original skips 16-byte resource header)
 	_fileStream->seek(address + 0x10, SEEK_SET);
-	uint16 glyphCount = _fileStream->readUint16LE();
+	const uint16 glyphCount = _fileStream->readUint16LE();
 	if (glyphCount == 0 || glyphCount > 256) {
 		_fileStream->seek(oldPos, SEEK_SET);
 		return false;
@@ -1021,7 +1222,7 @@ int Macs2Engine::walkableDistance(int nodeA, int nodeB) {
 	const Common::Point &b = pathfindingPoints[nodeB - 1]._position;
 	if (!isPathWalkable(a.y, a.x, b.y, b.x))
 		return 0x500;
-	// Binary search for integer sqrt(dx² + dy²), matching binary at 1008:1293
+	// Binary search for integer sqrt(dx^2 + dy^2), matching binary at 1008:1293
 	int32 dx = abs((int)(b.x - a.x));
 	int32 dy = abs((int)(b.y - a.y));
 	int32 distSq = dx * dx + dy * dy;
@@ -1167,7 +1368,7 @@ void Macs2Engine::setCursorMode(Script::MouseMode newMode) {
 	cursorHalfSize(oldMode, oldHalfW, oldHalfH);
 
 	Common::Point mouse = g_system->getEventManager()->getMousePos();
-	const bool mouseInUiPanel = scummVerbUI && mouse.y >= kGameHeight;
+	const bool mouseInUiPanel = scummVerbUI && mouse.y >= gameHeight();
 
 	_scriptExecutor->_cursorMode = newMode;
 
@@ -1182,8 +1383,8 @@ void Macs2Engine::setCursorMode(Script::MouseMode newMode) {
 		mouse.y -= newHalfH;
 
 		const int maxY = scummVerbUI ? (kScreenHeightLast - (int)newHalfH)
-									: (kGameHeightLast - (int)newHalfH);
-		mouse.x = CLIP<int>(mouse.x, (int)newHalfW, kScreenWidthLast - (int)newHalfW);
+									: (gameHeightLast() - (int)newHalfH);
+		mouse.x = CLIP<int>(mouse.x, (int)newHalfW, screenWidthLast() - (int)newHalfW);
 		mouse.y = CLIP<int>(mouse.y, (int)newHalfH, maxY);
 		g_system->warpMouse(mouse.x, mouse.y);
 	}
@@ -1209,8 +1410,7 @@ void Macs2Engine::setCursorMode(Script::MouseMode newMode) {
 
 uint16 Macs2Engine::getHotspotAtPoint(const Common::Point &p) {
 	uint16 result = 0;
-	// TODO: Abstract the screen sizes
-	if (p.x < 0 || p.x >= kScreenWidth || p.y < 0 || p.y >= kGameHeight || _hotspotMap.w == 0) {
+	if (p.x < 0 || p.x >= screenWidth() || p.y < 0 || p.y >= gameHeight() || _hotspotMap.w == 0) {
 		return result;
 	}
 
@@ -1530,8 +1730,8 @@ int Macs2Engine::measureString(const Common::String &s) {
 }
 
 int Macs2Engine::measureStringsVertically(const Common::StringArray &sa) {
-	// This is implemented around l0037_B318:
-	return sa.size() * (maxGlyphHeight + 2);
+	// DOS l0037_B318: maxGlyphHeight + 2. Amiga uses absolute MXFF line pitch.
+	return (int)sa.size() * dialogLineHeight();
 }
 
 int Macs2Engine::measureStrings(const Common::StringArray &sa) {
@@ -1546,7 +1746,8 @@ int Macs2Engine::computeStringIndex(Common::MemoryReadStream *stream, int target
 	stream->seek(0);
 	int index = 0;
 	while (stream->pos() < targetOffset && !stream->eos()) {
-		uint16 len = stream->readUint16LE();
+		// DOS: u16LE + XOR ciphertext. Amiga: u16BE + plaintext.
+		const uint16 len = isAmiga() ? stream->readUint16BE() : stream->readUint16LE();
 		if (len == 0)
 			break;
 		stream->skip(len);
@@ -1671,22 +1872,28 @@ Common::StringArray Macs2Engine::decodeStrings(Common::MemoryReadStream *stream,
 	Common::StringArray result(numStrings);
 	stream->seek(offset);
 
-	byte x;
-	byte y;
-	byte r;
-
-	for (int i = 0; i < numStrings; i++) {
-		Common::String currentLine;
-		uint16 length = stream->readUint16LE();
-		byte currentByte;
-		for (int index = 1; index < length + 1; index++) {
-			currentByte = stream->readByte();
-			x = (byte)(index * index * 0x0c);
-			y = (byte)(currentByte ^ index);
-			r = (byte)(x ^ y);
-			currentLine += (char)r;
+	if (isAmiga()) {
+		// Amiga strings: u16BE length + plaintext (Latin-1), no XOR cipher.
+		for (int i = 0; i < numStrings; i++) {
+			Common::String currentLine;
+			const uint16 length = stream->readUint16BE();
+			for (uint16 index = 0; index < length; index++)
+				currentLine += (char)stream->readByte();
+			result[i] = currentLine;
 		}
-		result[i] = currentLine;
+	} else {
+		for (int i = 0; i < numStrings; i++) {
+			Common::String currentLine;
+			uint16 length = stream->readUint16LE();
+			for (int index = 1; index < length + 1; index++) {
+				const byte currentByte = stream->readByte();
+				const byte x = (byte)(index * index * 0x0c);
+				const byte y = (byte)(currentByte ^ index);
+				const byte r = (byte)(x ^ y);
+				currentLine += (char)r;
+			}
+			result[i] = currentLine;
+		}
 	}
 
 	// Apply translation if available
@@ -1731,7 +1938,7 @@ bool Macs2Engine::loadAnimationFromSceneData(uint16 objectIndex, uint16 slotInde
 		address = _sceneResourceOffsets[arrayIndex - 1];
 	} else {
 		GameObject *execObj = GameObjects::getObjectByIndex(executingScriptObjectId);
-		if (execObj == nullptr || arrayIndex == 0 || arrayIndex > 32) {
+		if (execObj == nullptr || arrayIndex == 0 || arrayIndex > maxObjectResources()) {
 			_scriptExecutor->setScriptError(1);
 			return false;
 		}
@@ -1749,18 +1956,20 @@ bool Macs2Engine::loadAnimationFromSceneData(uint16 objectIndex, uint16 slotInde
 	data.resize(size);
 	_fileStream->read(data.data(), size);
 
-	while (go->_blobs.size() < 0x15)
+	const uint16 minSlots = maxAnimSlots();
+	const uint16 overloadSlot = overloadAnimSlot();
+	while (go->_blobs.size() < minSlots)
 		go->_blobs.push_back(Common::Array<uint8>());
-	while (go->_blobSourceKeys.size() < 0x15)
+	while (go->_blobSourceKeys.size() < minSlots)
 		go->_blobSourceKeys.push_back(0);
-	while (go->_blobMirrorFlags.size() < 0x15)
+	while (go->_blobMirrorFlags.size() < minSlots)
 		go->_blobMirrorFlags.push_back(false);
 
 	Common::Array<uint8> *targetBlob = nullptr;
-	if (slotIndex == 0x15) {
-		while (go->_blobs.size() <= 20)
+	if (slotIndex == overloadSlot) {
+		while (go->_blobs.size() <= (uint)(overloadSlot - 1))
 			go->_blobs.push_back(Common::Array<uint8>());
-		targetBlob = &go->_blobs[20];
+		targetBlob = &go->_blobs[overloadSlot - 1];
 		go->_overloadAnimationSourceKey = static_cast<uint16>(address >> 16);
 		go->_overloadAnimationMirrored = shouldMirror;
 	} else {
@@ -1772,7 +1981,7 @@ bool Macs2Engine::loadAnimationFromSceneData(uint16 objectIndex, uint16 slotInde
 
 	// Binary: memFree old blob if bSlotLoaded, then alloc + read; sets slot+0x33 = 1.
 	*targetBlob = data;
-	if (slotIndex == 0x15)
+	if (slotIndex == overloadSlot)
 		go->_overloadAnimation = data;
 	if (shouldMirror) {
 		BackgroundAnimationBlob::mirrorAnimBlob(*targetBlob);
@@ -1829,6 +2038,17 @@ bool Macs2Engine::loadObjectData(GameObject *obj) {
 		_scriptExecutor->setScriptError(0x19);
 		return false;
 	}
+	// Amiga: OO_* animation/script payloads stay resident after readAmigaResources().
+	// _dataOffset is a non-zero sentinel (not an MCS file offset). Opcode 0x0b
+	// (moveObject) and checkObjectData call this when an object enters the scene;
+	// seeking into RESOURCE.MCS would set script error 0x01.
+	if (isAmiga()) {
+		if (obj->_dataOffset == 0) {
+			_scriptExecutor->setScriptError(0x19);
+			return false;
+		}
+		return true;
+	}
 	if (obj->_dataOffset == 0) {
 		_scriptExecutor->setScriptError(0x19);
 		return false;
@@ -1853,7 +2073,8 @@ bool Macs2Engine::loadObjectData(GameObject *obj) {
 		obj->_blobMirrorFlags = mirrorsBackup;
 	};
 
-	for (int j = 0; j < 0x15; j++) {
+	const uint16 animSlotCount = maxAnimSlots();
+	for (int j = 0; j < (int)animSlotCount; j++) {
 		_fileStream->readUint16LE(); // animID (editor metadata, unused at runtime)
 		uint16 blobSourceKey = _fileStream->readUint16LE();
 		uint32 dataSize = _fileStream->readUint32LE();
@@ -1942,7 +2163,8 @@ bool Macs2Engine::loadObjectData(GameObject *obj) {
 	const uint32 scriptOffset = _fileStream->readUint32LE();
 	if (scriptOffset != 0) {
 		_fileStream->seek(scriptOffset, SEEK_SET);
-		for (int r = 0; r < 32; r++) {
+		const uint maxObjRes = maxObjectResources();
+		for (uint r = 0; r < maxObjRes; r++) {
 			obj->_resourceOffsets[r] = _fileStream->readUint32LE();
 		}
 		const uint16 scriptLength = _fileStream->readUint16LE();
@@ -1954,49 +2176,57 @@ bool Macs2Engine::loadObjectData(GameObject *obj) {
 	return true;
 }
 
-void Macs2Engine::loadSongFromSceneData(uint8 dataIndex) {
-	uint32 address = _sceneResourceOffsets[dataIndex - 1];
-	_fileStream->seek(address);
-	uint32 size = _fileStream->readUint32LE();
-	Common::Array<uint8> data;
-	data.resize(size);
-	_fileStream->read(data.data(), size);
-	_adlib->playSongData(data);
-}
-
-void Macs2Engine::setCurrentSoundData(const Common::Array<uint8> &data) {
-	stopCurrentSound();
+void Macs2Engine::setCurrentSoundData(const Common::Array<uint8> &data, int rateHz, int headerSkip) {
+	stopSample();
 	_currentSoundData = data;
+	_currentSoundRate = rateHz > 0 ? rateHz : 0x1F40;
+	_currentSoundHeaderSkip = headerSkip >= 0 ? headerSkip : 0;
 }
 
 void Macs2Engine::clearCurrentSoundData() {
-	stopCurrentSound();
+	stopSample();
 	_currentSoundData.clear();
+	_currentSoundRate = 0x1F40;
+	_currentSoundHeaderSkip = 2;
 }
 
-void Macs2Engine::playCurrentSound() {
+void Macs2Engine::playSample() {
 	if (_currentSoundData.empty())
 		return;
 
-	stopCurrentSound();
+	stopSample();
 	MacsAudioStream *audioStream = new MacsAudioStream();
-	audioStream->_pos = 2; // Skip 2-byte header (original: size = stored_size - 2)
+	audioStream->_rate = _currentSoundRate;
+	// DOS: skip 2-byte size header. Amiga MXOS extract is raw PCM (skip 0).
+	audioStream->_pos = _currentSoundHeaderSkip;
+	if (audioStream->_pos > (int64)_currentSoundData.size())
+		audioStream->_pos = (int64)_currentSoundData.size();
 	audioStream->_data = _currentSoundData;
 	g_system->getMixer()->playStream(Audio::Mixer::kSFXSoundType, &_currentSoundHandle, audioStream);
 }
 
-void Macs2Engine::stopCurrentSound() {
+void Macs2Engine::stopSample() {
 	Audio::Mixer *mixer = g_system->getMixer();
 	if (mixer->isSoundHandleActive(_currentSoundHandle))
 		mixer->stopHandle(_currentSoundHandle);
 }
 
-bool Macs2Engine::isCurrentSoundPlaying() const {
+bool Macs2Engine::isSamplePlaying() const {
 	return g_system->getMixer()->isSoundHandleActive(_currentSoundHandle);
 }
 
 Common::String Macs2Engine::getGameId() const {
 	return _gameDescription->gameId;
+}
+
+uint16 Macs2Engine::resolveAnimSlotIndex(const GameObject *obj) const {
+	if (obj == nullptr)
+		return 0;
+	if ((int16)obj->_overloadAnimTriggerDirection < 0 ||
+		obj->_overloadAnimTriggerDirection != obj->_orientation) {
+		return obj->_orientation;
+	}
+	return overloadAnimSlot();
 }
 
 void Macs2Engine::setGameSpeedMode(uint16 mode) {
@@ -2007,7 +2237,7 @@ void Macs2Engine::setGameSpeedMode(uint16 mode) {
 Common::Error Macs2Engine::run() {
 	GameObjects::instance().init();
 	setGameSpeedMode(ConfMan.getInt(kGameSpeedModeConfigKey));
-	readResourceFile();
+	loadBootstrapResources();
 	readExecutable();
 
 	// Load translation data if available
@@ -2020,11 +2250,8 @@ Common::Error Macs2Engine::run() {
 
 	CursorMan.showMouse(false);
 
-	// Initialize Adlib
-	_adlib->init();
+	_music->init();
 	syncSoundSettings();
-
-	// Set the engine's debugger console
 	setDebugger(new GUI::Debugger());
 
 #ifdef USE_IMGUI
@@ -2326,7 +2553,7 @@ bool MacsAudioStream::isStereo() const {
 }
 
 int MacsAudioStream::getRate() const {
-	return 0x1F40;
+	return _rate > 0 ? _rate : 0x1F40;
 }
 
 bool MacsAudioStream::endOfData() const {

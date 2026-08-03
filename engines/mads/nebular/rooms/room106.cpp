@@ -90,11 +90,12 @@ static void room_106_init() {
 	local._shadowFl = false;
 	local._firstEmergingFl = false;
 
-	kernel.quotes = quote_load(0x31, 0x32, 0x34, 0x4D, 0x4E, 0x4F, 0x50, 0x51, 0);
+	kernel.quotes = quote_load(49, 50, 52, 77, 78, 79, 80, 81, 0);
 	section_1_music();
 }
 
 static void room_106_daemon() {
+	if (kernel.trigger != 0) warning("%d", kernel.trigger);
 	if (kernel.trigger == 70) {
 		g_sequence_ids[0] = kernel_seq_forward(g_sprite_ids[0], false, 6, 0, 0, 0);
 		kernel_seq_range(g_sequence_ids[0], -2, -2);
@@ -122,6 +123,10 @@ static void room_106_daemon() {
 			player.prepare_walk_facing = FACING_SOUTHWEST;
 			local._firstEmergingFl = true;
 			kernel_run_animation(kernel_full_name(106, 'B', -1, "", KERNEL_AA), 80);
+
+			// FIXME: trigger 80 isn't happening for demo
+			if (g_engine->isDemo())
+				kernel_timing_trigger(100, 87);
 		}
 	}
 
@@ -189,9 +194,14 @@ static void room_106_daemon() {
 
 static void room_106_pre_parser() {
 	if (player_said_2(swim_towards, sea_cliff) || player_said_2(swim_towards, seaweed_bank)) {
-		player.commands_allowed = false;
-		series_list[player.series_base + 1]->walker->velocity = 24;
-		player.walk_off_edge_to_room = 104;
+		if (g_engine->isDemo()) {
+			text_show(99);
+			player.command_ready = false;
+		} else {
+			player.commands_allowed = false;
+			series_list[player.series_base + 1]->walker->velocity = 24;
+			player.walk_off_edge_to_room = 104;
+		}
 	}
 
 	if (player_said_2(swim_towards, open_area_to_east))

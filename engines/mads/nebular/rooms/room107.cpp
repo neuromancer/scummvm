@@ -80,7 +80,7 @@ static void room_107_init() {
 		kernel_add_dynamic(words_manta_ray, words_swim_to, 0, g_sequence_ids[0], 0, 0, 0, 0);
 	}
 
-	kernel.quotes = quote_load(0x4A, 0x4B, 0x4C, 0x35, 0x34, 0);
+	kernel.quotes = quote_load(74, 75, 76, 53, 52, 0);
 	local._shootingFl = false;
 
 	if (g_engine->getRandomNumber(1, 3) == 1) {
@@ -102,8 +102,14 @@ static void room_107_pre_parser() {
 	if (player_said_2(swim_towards, open_area_to_west))
 		player.walk_off_edge_to_room = 106;
 
-	if (player_said_2(swim_towards, open_area_to_south))
-		player.walk_off_edge_to_room = 108;
+	if (player_said_2(swim_towards, open_area_to_south)) {
+		if (g_engine->isDemo()) {
+			text_show(99);
+			player.command_ready = false;
+		} else {
+			player.walk_off_edge_to_room = 108;
+		}
+	}
 }
 
 static void room_107_parser() {
@@ -121,7 +127,10 @@ static void room_107_parser() {
 			object_examine(OBJ_DEAD_FISH, 802, 0);
 		}
 	} else if (player_said_2(swim_towards, northern_sea_cliff))
-		new_room = 105;
+		if (g_engine->isDemo())
+			text_show(99);
+		else
+			new_room = 105;
 	else if (player_said_2(look, northern_sea_cliff))
 		text_show(10701);
 	else if (player_said_2(look, dead_fish) && (player.main_object_source == STROKE_INTERFACE))
