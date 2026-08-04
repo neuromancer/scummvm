@@ -704,10 +704,7 @@ bool BaseFontTT::initFont() {
 	}
 
 	auto box = _font->getBoundingBox("Ay");
-	_lineHeight = box.bottom - box.top;
-
-	// based on WME lite code:
-	_lineHeight += 2;
+	_lineHeight = MAX(box.bottom - box.top, _font->getFontHeight());
 
 #ifdef ENABLE_FOXTAIL
 	if (BaseEngine::instance().isFoxTail(FOXTAIL_1_2_896, FOXTAIL_LATEST_VERSION)) {
@@ -794,7 +791,9 @@ int32 BaseFontTT::wrapText(const WideString &text, int32 maxWidth, int32 maxHeig
 			 * i.e. do not add it to the text line list, return immediately
 			 */
 			if (maxHeight >= 0 && ((int32)lines.size() + 1) * getLineHeight() > maxHeight) {
-				break;
+				// W/A,FIXME: font height can be bigger, do not exit if one line
+				if (lines.size() != 0)
+					break;
 			}
 
 			WideString line = text.substr(lineStartIndex, breakPoint - lineStartIndex);
@@ -825,17 +824,17 @@ int32 BaseFontTT::wrapText(const WideString &text, int32 maxWidth, int32 maxHeig
 }
 
 //////////////////////////////////////////////////////////////////////////
-void BaseFontTT::measureText(const WideString &text, int32 maxWidth, int32 maxHeight, int32 &textWidth, int32 &textHeight) {
+void BaseFontTT::measureText(const WideString &text, int maxWidth, int maxHeight, int &textWidth, int &textHeight) {
 	TextLineList lines;
 	wrapText(text, maxWidth, maxHeight, lines);
 
-	textHeight = (int32)(lines.size() * getLineHeight());
+	textHeight = lines.size() * getLineHeight();
 	textWidth = 0;
 
 	TextLineList::iterator it;
 	for (it = lines.begin(); it != lines.end(); ++it) {
 		TextLine *line = (*it);
-		textWidth = MAX(textWidth, line->getWidth());
+		textWidth = MAX<int>(textWidth, line->getWidth());
 		SAFE_DELETE(line);
 	}
 }

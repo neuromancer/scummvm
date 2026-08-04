@@ -134,6 +134,9 @@ public:
 	DirectorEngine *getVM() const { return _vm; }
 	Graphics::MacWindow *getMacWindow() const { return _window; }
 	Movie *getCurrentMovie() const { return _currentMovie; }
+	// Temporarily retarget the current movie when stepping an embedded movie
+	// so getCurrentMovie()-based context (go, globals, events) points at it.
+	void setCurrentMovie(Movie *movie) { _currentMovie = movie; }
 	Common::String getCurrentPath() const { return _currentPath; }
 	DirectorSound *getSoundManager() const { return _soundManager; }
 
@@ -181,6 +184,14 @@ public:
 	bool requeueLingoPlayState();
 	LingoState *getLastFrozenLingoState() { return _frozenLingoStates.empty() ? nullptr : _frozenLingoStates[_frozenLingoStates.size() - 1]; }
 	void moveLingoState(Window *target);
+
+	// Swap the window's Lingo state (current + frozen stack) with an external
+	// one, so an embedded movie runs isolated and its go()/freeze does not
+	// block the host's scripts.
+	void swapLingoState(LingoState *&state, Common::Array<LingoState *> &frozen) {
+		SWAP(_lingoState, state);
+		SWAP(_frozenLingoStates, frozen);
+	}
 
 	Common::String formatWindowInfo();
 

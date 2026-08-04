@@ -49,17 +49,18 @@ FilmLoopCastMember::FilmLoopCastMember(Cast *cast, uint16 castId, Common::Seekab
 	_center = false;
 	_index = -1;
 	_score = nullptr;
+	_flags = 0;
 
 	if (cast->_version >= kFileVer400) {
 		_initialRect = Movie::readRect(stream);
-		uint32 flags = stream.readUint32BE();
+		_flags = stream.readUint32BE();
 		uint16 unk1 = stream.readUint16BE();
-		_looping = flags & 32 ? 0 : 1;
-		_enableSound = flags & 8 ? 1 : 0;
-		_crop = flags & 2 ? 0 : 1;
-		_center = flags & 1 ? 1 : 0;
+		_looping = _flags & 32 ? 0 : 1;
+		_enableSound = _flags & 8 ? 1 : 0;
+		_crop = _flags & 2 ? 0 : 1;
+		_center = _flags & 1 ? 1 : 0;
 
-		debugC(5, kDebugLoading, "FilmLoopCastMember::FilmLoopCastMember(): flags: %d, unk1: %d, looping: %d, enableSound: %d, crop: %d, center: %d", flags, unk1, _looping, _enableSound, _crop, _center);
+		debugC(5, kDebugLoading, "FilmLoopCastMember::FilmLoopCastMember(): flags: %d, unk1: %d, looping: %d, enableSound: %d, crop: %d, center: %d", _flags, unk1, _looping, _enableSound, _crop, _center);
 	}
 }
 
@@ -75,6 +76,7 @@ FilmLoopCastMember::FilmLoopCastMember(Cast *cast, uint16 castId, FilmLoopCastMe
 	if (cast == source._cast)
 		_children = source._children;
 
+	_flags = source._flags;
 	_enableSound = source._enableSound;
 	_crop = source._crop;
 	_center = source._center;

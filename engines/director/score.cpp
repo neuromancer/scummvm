@@ -48,6 +48,7 @@
 #include "director/window.h"
 #include "director/castmember/castmember.h"
 #include "director/castmember/filmloop.h"
+#include "director/castmember/movie.h"
 #include "director/castmember/transition.h"
 #include "director/debugger/debugtools.h"
 
@@ -451,6 +452,10 @@ void Score::updateCurrentFrame() {
 			nextFrameNumberToLoad = (_curFrameNumber+1);
 	}
 
+	// whether this frame is held by an explicit jump (go the frame), which
+	// film loops treat differently from a natural single-frame loop
+	_frameHeldByJump = (_nextFrame != 0);
+
 	_nextFrame = 0;
 	_window->_skipFrameAdvance = false;
 
@@ -849,6 +854,13 @@ void Score::update() {
 }
 
 void Score::renderFrame(uint16 frameId, RenderMode mode, bool sound1Changed, bool sound2Changed) {
+	// An embedded movie only refreshes its own channels for the host to
+	// composite via getSubChannels(); it must never touch the shared window.
+	if (_movie->_isEmbedded) {
+		updateSprites(mode);
+		return;
+	}
+
 	uint32 start = g_system->getMillis(false);
 	// Force cursor update if a new movie's started.
 	if (_window->_newMovieStarted)
@@ -911,19 +923,29 @@ bool Score::renderTransition(uint16 frameId, RenderMode mode) {
 	return false;
 }
 
+// increment filmloops or movie cast members
 void Score::incrementFilmLoops() {
 	// Film loops do not advance while the movie is paused
 	if (_window->_playbackPaused)
 		return;
 
-	// In D4, film loops also freeze while the playhead loops in a single
-	// frame, e.g. via go the frame. D5 and later animate in that case
-	if (_vm->getVersion() < 500 && _curFrameNumber == _filmLoopsLastFrame)
-		return;
-	_filmLoopsLastFrame = _curFrameNumber;
+	// In D4, film loops freeze while an explicit jump holds the playhead on
+	// one frame (a natural single-frame loop still advances them); D5+ always
+	// animate. Movie cast members are independent and always keep running.
+	bool filmLoopsFrozen = (_vm->getVersion() < 500 && _curFrameNumber == _filmLoopsLastFrame && _frameHeldByJump);
+	if (!filmLoopsFrozen)
+		_filmLoopsLastFrame = _curFrameNumber;
 
 	for (auto &it : _channels) {
-		if (it->_sprite->_cast && (it->_sprite->_cast->_type == kCastFilmLoop || it->_sprite->_cast->_type == kCastMovie)) {
+		if (!it->_sprite->_cast)
+			continue;
+		CastType type = it->_sprite->_cast->_type;
+
+		if (type == kCastMovie) {
+			// A movie cast member steps its own embedded score like a normal
+			// movie, not the film loop flipbook.
+			((MovieCastMember *)it->_sprite->_cast)->update();
+		} else if (type == kCastFilmLoop && !filmLoopsFrozen) {
 			FilmLoopCastMember *fl = ((FilmLoopCastMember *)it->_sprite->_cast);
 			if (fl->_score && !fl->_score->_scoreCache.empty()) {
 				if (fl->_looping) {

@@ -23,13 +23,18 @@
 #define DIRECTOR_CASTMEMBER_MOVIE_H
 
 #include "director/castmember/filmloop.h"
+#include "director/movie.h"
 
 namespace Director {
+
+struct LingoState;
 
 class MovieCastMember : public FilmLoopCastMember {
 public:
 	MovieCastMember(Cast *cast, uint16 castId, Common::SeekableReadStreamEndian &stream, uint16 version);
 	MovieCastMember(Cast *cast, uint16 castId, MovieCastMember &source);
+
+	~MovieCastMember();
 
 	CastMember *duplicate(Cast *cast, uint16 castId) override { return (CastMember *)(new MovieCastMember(cast, castId, *this)); }
 
@@ -40,10 +45,21 @@ public:
 	Datum getField(int field) override;
 	void setField(int field, const Datum &value) override;
 
+	void update();
+
+	// Map a host-stage mouse position into the linked movie's space and
+	// queue the event for its scripts to handle on the next step.
+	void routeInputEvent(LEvent event, Common::Point hostPos, const Common::Rect &bbox);
+
 	Common::String formatInfo() override;
 
-	uint32 _flags;
 	bool _enableScripts;
+	Movie *_linkedMovie;
+
+	// The linked movie's own Lingo state, swapped onto the shared window
+	// while it steps to isolate its go()/freeze from the host.
+	LingoState *_embeddedLingoState = nullptr;
+	Common::Array<LingoState *> _embeddedFrozenStates;
 };
 
 } // End of namespace Director

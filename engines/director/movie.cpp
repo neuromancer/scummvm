@@ -289,14 +289,16 @@ bool Movie::loadArchive() {
 	} else {
 		_defaultPalette = CastMemberID(kClutSystemMac, -1);
 	}
-	g_director->_lastPalette = CastMemberID();
+	if (!_isEmbedded)
+		g_director->_lastPalette = CastMemberID();
 
 	bool recenter = false;
 	// For the stage, always resize to the movie rect.
 	// For MIAWs, only resize if the window hasn't been explicitly sized by Lingo
 	// (i.e. still at the 1x1 default from createWindow).
+	// An embedded movie borrows the host's window and must never resize it.
 	bool windowSizeIsDefault = (_window->getSurface()->w <= 1 && _window->getSurface()->h <= 1);
-	if (_window == _vm->getStage() || windowSizeIsDefault) {
+	if (!_isEmbedded && (_window == _vm->getStage() || windowSizeIsDefault)) {
 		if (_window->getSurface()->w != _movieRect.width() || _window->getSurface()->h != _movieRect.height()) {
 			_window->resizeInner(_movieRect.width(), _movieRect.height());
 			recenter = true;
@@ -304,7 +306,7 @@ bool Movie::loadArchive() {
 	}
 
 	// TODO: Add more options for desktop dimensions
-	if (_window == _vm->getStage()) {
+	if (!_isEmbedded && _window == _vm->getStage()) {
 		uint16 windowWidth = g_director->desktopEnabled() ? g_director->_wmWidth : _movieRect.width();
 		uint16 windowHeight = g_director->desktopEnabled() ? g_director->_wmHeight : _movieRect.height();
 		if (_vm->_wm->_screenDims.width() != windowWidth || _vm->_wm->_screenDims.height() != windowHeight) {
@@ -318,7 +320,8 @@ bool Movie::loadArchive() {
 	if (recenter && g_director->desktopEnabled())
 		_window->center(g_director->_centerStage);
 
-	_window->setStageColor(_stageColor, true);
+	if (!_isEmbedded)
+		_window->setStageColor(_stageColor, true);
 
 	// Score
 	if (!(r = _movieArchive->getMovieResourceIfPresent(MKTAG('V', 'W', 'S', 'C')))) {
@@ -744,6 +747,11 @@ CastMemberID Movie::getCastMemberIDByNameAndType(const Common::String &name, int
 	} else {
 		warning("Movie::getCastMemberIDByNameAndType: Unknown castLib %d", castLib);
 	}
+	// An embedded movie shares its host's cast, so a member it lacks may
+	// live in the host movie.
+	if (result.member == -1 && _parentMovie)
+		return _parentMovie->getCastMemberIDByNameAndType(name, castLib, type);
+
 	if (result.member == -1) {
 		warning("Movie::getCastMemberIDByNameAndType: No match found for member name %s and lib %d", name.c_str(), castLib);
 	}
@@ -827,6 +835,11 @@ Symbol Movie::getHandler(const Common::String &name, uint16 castLibHint) {
 
 	if (_sharedCast && _sharedCast->_lingoArchive->functionHandlers.contains(name))
 		return _sharedCast->_lingoArchive->functionHandlers[name];
+
+	// An embedded movie shares its host's handler scope, so a handler it
+	// lacks may live in the host movie.
+	if (_parentMovie)
+		return _parentMovie->getHandler(name, castLibHint);
 
 	return Symbol();
 }

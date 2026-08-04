@@ -45,15 +45,15 @@ static int palIndex1, palIndex2;
 static int matteId;
 static int normalTimer1, imageCount;
 static int messageCount;
-static int frameViewX, frameViewY;
+static int16 panningX, panningY;
 
 void anim_timer_init() {
 	paletteHandle = 0;
 	palIndex1 = palIndex2 = 0;
 	matteId = 0;
 	normalTimer1 = messageCount = 0;
-	frameViewX = frameViewY = 0;
 	currentViewX = currentViewY = 0;
+	panningX = panningY = 0;
 	normalTimer1 = imageCount = 0;
 }
 
@@ -159,20 +159,35 @@ block1:
 	}
 
 block2:
-	frameViewX = current_anim->frame[currentFrame].view_x;
-	frameViewY = current_anim->frame[currentFrame].view_y;
+	panningX = current_anim->frame[currentFrame].view_x;
+	panningY = current_anim->frame[currentFrame].view_y;
 
-	if (frameViewX != currentViewX || frameViewY != currentViewY) {
+	if (panningX != currentViewX || panningY != currentViewY) {
+		currentViewX = panningX;
+		currentViewY = panningY;
+
 		if (g_engine->getGameID() != GType_RexNebular && !picture_map.one_to_one) {
-			tile_pan(&picture_map, frameViewX, frameViewY);
-			tile_pan(&depth_map, frameViewX, frameViewY);
+			// Handle panning the background, which also sets the pan_offset_x/y
+			tile_pan(&picture_map, panningX, panningY);
+			tile_pan(&depth_map, panningX, panningY);
+		} else if (g_engine->getGameID() == GType_RexNebular) {
+			// Set the panning position
+			picture_map.pan_x = panningX;
+			picture_map.pan_y = panningY;
+			picture_map.pan_offset_x = panningX;
+			picture_map.pan_offset_y = panningY;
+
+			for (count = 0; count < image_marker; ++count) {
+				Image &img = image_list[count];
+				if (img.flags != IMAGE_REFRESH)
+					img.flags = IMAGE_ERASE;
+			}
 		}
 
 		image_marker = 1;
 		image_list[0].flags = IMAGE_REFRESH;
 		image_list[0].segment_id = 0xff;
-		currentViewX = frameViewX;
-		currentViewY = frameViewY;
+
 	} else {
 		for (count = 0; count < image_marker; ++count) {
 			if (image_list[count].flags != IMAGE_REFRESH)

@@ -32,6 +32,7 @@
 #include "director/movie.h"
 #include "director/score.h"
 #include "director/sprite.h"
+#include "director/castmember/movie.h"
 #include "director/types.h"
 #include "director/window.h"
 
@@ -672,6 +673,17 @@ void Movie::queueInputEvent(LEvent event, int targetId, Common::Point pos) {
 
 
 bool Movie::processInputEvent(LEvent event, int targetId, Common::Point pos) {
+	// Route a mouse event on a movie cast member into its linked movie so that
+	// movie's own scripts (mouseUp, the clickOn) handle it.
+	if (event >= kEventMouseUp && event <= kEventMouseWithin) {
+		uint16 spriteId = _score->getMouseSpriteIDFromPos(pos);
+		if (spriteId) {
+			Channel *ch = _score->getChannelById(spriteId);
+			if (ch && ch->_sprite->_cast && ch->_sprite->_cast->_type == kCastMovie)
+				((MovieCastMember *)ch->_sprite->_cast)->routeInputEvent(event, pos, ch->getBbox());
+		}
+	}
+
 	queueInputEvent(event, targetId, pos);
 	if ((!_lingo->_state->callstack.empty()) || (_lingo->_currentInputEvent.type != VOIDSYM)) {
 		// We're in the middle of executing something else, queue input event for later

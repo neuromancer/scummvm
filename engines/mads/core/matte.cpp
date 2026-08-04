@@ -175,7 +175,6 @@ int matte_load_series(const char *name, int load_flags, int bonus_series_number)
 	}
 
 	if (!found) {
-
 		series = sprite_series_load(name, load_flags);
 		if (series == NULL) {
 			goto done;
@@ -662,7 +661,18 @@ void matte_frame(int special_effect, int full_screen) {
 					y -= (sprite->ys - 1);
 				}
 
-				if ((image->depth <= 1) && !matte_guard_depth_0) {
+				if (g_engine->getGameID() == GType_RexNebular) {
+					if (image->depth <= 1)
+						sprite_draw(series_list[image->series_id], image->sprite_id,
+							&scr_orig, x, y);
+					else if (!matte_guard_depth_0)
+						sprite_draw_3d_x16(series_list[image->series_id],
+							image->sprite_id, &scr_orig, &scr_depth, x, y, image->depth);
+					else
+						sprite_draw_3d_big(series_list[image->series_id], image->sprite_id,
+							&scr_orig, &scr_depth, x, y, image->depth, 0, 0);
+
+				} else if ((image->depth <= 1) && !matte_guard_depth_0) {
 					sprite_draw(series_list[image->series_id], image->sprite_id,
 						&scr_orig,
 						x - picture_map.pan_base_x,
@@ -805,6 +815,12 @@ void matte_frame(int special_effect, int full_screen) {
 		if (image_list[id2].series_id == (byte)-1)
 			continue;
 
+		// WORKAROUND: Only allow sprites within limits, avoiding crash in Dragonsphere
+		// Hightower cutscene when attacking monster, and Rex intro
+		const SeriesPtr s = series_list[image_list[id2].series_id];
+		if (image_list[id2].sprite_id > s->num_sprites)
+			continue;
+
 		// Draw the sprite into the work buffer at the appropriate depth
 		if (image_list[id2].scale >= 100) {
 			if (image_list[id2].scale == IMAGE_UNSCALED) {
@@ -816,13 +832,9 @@ void matte_frame(int special_effect, int full_screen) {
 				y = image_list[id2].y - picture_map.pan_y - (sprite->ys - 1);
 			}
 			if ((image_list[id2].depth <= 1) && !matte_guard_depth_0) {
-				// WORKAROUND: Only allow sprites within limits, avoiding crash in Dragonsphere
-				// Hightower cutscene when attacking monster
-				SeriesPtr s = series_list[image_list[id2].series_id];
-				if (image_list[id2].sprite_id <= s->num_sprites)
-					sprite_draw(series_list[image_list[id2].series_id],
-						image_list[id2].sprite_id,
-						&scr_work, x, y);
+				sprite_draw(series_list[image_list[id2].series_id],
+					image_list[id2].sprite_id,
+					&scr_work, x, y);
 			} else {
 				sprite_draw_3d_big(series_list[image_list[id2].series_id],
 					image_list[id2].sprite_id,
