@@ -316,3 +316,6 @@ __pycache__/
 #Ignore Claude instruction files
 CLAUDE.md
 .claude
+
+#Ignore LSP/clangd compilation database (generated, not committed)
+/compile_commands.json
