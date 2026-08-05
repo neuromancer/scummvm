@@ -31,7 +31,6 @@
 #include "mads/core/kernel.h"
 #include "mads/core/matte.h"
 #include "mads/core/object.h"
-#include "mads/core/pal.h"
 #include "mads/core/rail.h"
 #include "mads/core/screen.h"
 #include "mads/core/sound.h"
@@ -63,9 +62,22 @@ RexNebularEngine::RexNebularEngine(OSystem *syst, const MADSGameDescription *gam
 	RexNebular::popup_init();
 }
 
+RexNebularEngine::~RexNebularEngine() {
+	shutdownMacintoshResources();
+}
+
 Common::Error RexNebularEngine::run() {
-	initGraphics(320, 200);
-	_screen = new Graphics::Screen();
+	const bool isMacintosh = getPlatform() == Common::kPlatformMacintosh;
+	if (isMacintosh)
+		initMacintoshGraphics();
+	else
+		initGraphics(320, 200);
+	applyGameSettings();
+
+	// The shared engine always renders into its original 320x200 work screen.
+	// Macintosh presentation expands the scene and supplies its independent
+	// native interface panel when the frame is sent to the backend.
+	_screen = new Graphics::Screen(320, 200);
 	scr_live.data = (byte *)_screen->getPixels();
 
 	// Create a debugger console
@@ -78,8 +90,14 @@ Common::Error RexNebularEngine::run() {
 			SearchMan.add("mpslabs", arch);
 	}
 
-	// Set up sound manager
-	_soundManager = new Sound::RexSoundManager(_mixer, _soundFlag, isDemo());
+	// Set up the platform resource and sound providers
+	if (isMacintosh) {
+		if (!initMacintoshResources())
+			return Common::Error(Common::kNoGameDataFoundError,
+				"Could not open the Macintosh Rex resource files");
+	} else {
+		_soundManager = new Sound::RexSoundManager(_mixer, _soundFlag, isDemo());
+	}
 	_soundManager->validate();
 
 	// Run the game

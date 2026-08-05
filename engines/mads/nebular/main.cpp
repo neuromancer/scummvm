@@ -20,10 +20,10 @@
  */
 
 #include "common/config-manager.h"
-#include "gui/saveload.h"
 #include "mads/nebular/main.h"
 #include "mads/animview/animview.h"
 #include "mads/textview/textview.h"
+#include "mads/core/config.h"
 #include "mads/core/env.h"
 #include "mads/core/error.h"
 #include "mads/core/fileio.h"
@@ -45,6 +45,7 @@
 #include "mads/core/timer.h"
 #include "mads/core/video.h"
 #include "mads/nebular/main_menu.h"
+#include "mads/nebular/mac_menus.h"
 #include "mads/nebular/menus.h"
 #include "mads/mads.h"
 
@@ -255,6 +256,9 @@ static void game_main(int argc, const char **argv) {
 
 	game_cold_data_init();
 	main_cold_data_init();
+	if (g_engine->getPlatform() == Common::kPlatformMacintosh &&
+			!ConfMan.hasKey("save_slot"))
+		selectMacintoshDifficulty();
 	global_load_config_parameters();
 
 	if (argc >= 2) {
@@ -318,7 +322,12 @@ void nebular_main() {
 
 	g_engine->readConfigFile();
 
-	if (ConfMan.getBool("start_game") || ConfMan.hasKey("save_slot"))
+	if (g_engine->getPlatform() == Common::kPlatformMacintosh)
+		// FIXME: The Macintosh application has a native resource-based
+		// outer menu, not the DOS MADS menu and playlist files used below.
+		// The ScummVM launcher provides that outer-menu boundary.
+		selected_item = 0;
+	else if (ConfMan.getBool("start_game") || ConfMan.hasKey("save_slot"))
 		selected_item = 0;
 	else if (g_engine->isDemo())
 		selected_item = 9;

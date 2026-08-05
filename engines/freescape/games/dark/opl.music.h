@@ -19,8 +19,8 @@
  *
  */
 
-#ifndef FREESCAPE_ECLIPSE_OPL_MUSIC_H
-#define FREESCAPE_ECLIPSE_OPL_MUSIC_H
+#ifndef FREESCAPE_DARK_OPL_MUSIC_H
+#define FREESCAPE_DARK_OPL_MUSIC_H
 
 #include "audio/fmopl.h"
 #include "freescape/music.h"
@@ -28,18 +28,17 @@
 namespace Freescape {
 
 /**
- * OPL2/AdLib music player for Total Eclipse DOS.
+ * OPL2/AdLib rendition of the Dark Side theme.
  *
- * Ports the Wally Beben C64 SID music to the OPL2 FM chip by:
- * - Reusing the same sequencer (order lists, patterns, instruments)
- * - Converting SID note numbers to OPL F-number/block pairs
- * - Mapping SID waveforms to OPL FM patches, and noise to rhythm mode
- * - Driving the OPL envelope generator from the SID ADSR
+ * Runs the C64 sequencer over the song data in dark.musicdata.h and voices it
+ * on the OPL2: SID note numbers become F-number/block pairs, the SID ADSR
+ * drives the chip's own envelope generator, and the noise waveform is played
+ * on the rhythm-mode hi-hat.
  */
-class EclipseOPLMusicPlayer : public MusicPlayer {
+class DarkSideOPLMusicPlayer : public MusicPlayer {
 public:
-	EclipseOPLMusicPlayer();
-	~EclipseOPLMusicPlayer();
+	DarkSideOPLMusicPlayer();
+	~DarkSideOPLMusicPlayer();
 
 	void startMusic() override;
 	void stopMusic() override;
@@ -54,9 +53,8 @@ private:
 	struct ChannelState {
 		const byte *orderList;
 		byte orderPos;
-
-		uint16 patternDataOffset;
-		uint16 patternOffset;
+		const byte *pattern;
+		uint16 patternPos;
 
 		byte instrumentOffset;
 		byte currentNote;
@@ -69,9 +67,9 @@ private:
 
 		byte effectMode;
 		byte effectParam;
-		byte arpeggioTarget;
-		byte arpeggioParam;
-		byte arpeggioSequencePos;
+		byte slideTarget;
+		byte slideParam;
+		byte arpeggioPos;
 		byte arpeggioSequence[9];
 		byte arpeggioSequenceLen;
 
@@ -86,6 +84,9 @@ private:
 
 		byte waveform;
 		byte instrumentFlags;
+		bool specialAttack;
+		bool attackDone;
+		byte envCounter;
 		bool gateOffDisabled;
 		bool keyOn;
 		uint16 pulseWidth;
@@ -95,7 +96,7 @@ private:
 		byte carBaseLevel;
 		byte modLevel;
 		byte carLevel;
-		bool rhythmVoice; // routed to the rhythm-mode hi-hat instead of an FM channel
+		bool rhythmVoice;
 
 		void reset();
 	};
@@ -104,9 +105,8 @@ private:
 	bool _musicActive;
 	byte _speedDivider;
 	byte _speedCounter;
-	byte _rhythmReg; // shadow of register 0xBD
+	byte _rhythmReg;
 	ChannelState _channels[kChannelCount];
-	byte _arpeggioIntervals[8];
 
 	void onTimer();
 	void setupSong();
@@ -119,6 +119,7 @@ private:
 	void parseCommands(int channel);
 	void applyNote(int channel, byte note);
 	void applyFrameEffects(int channel);
+	bool applySpecialAttack(int channel);
 	bool applyInstrumentVibrato(int channel);
 	void applyEffectArpeggio(int channel);
 	void applyTimedSlide(int channel);
@@ -129,14 +130,14 @@ private:
 	void setOPLInstrument(int channel, byte instrumentOffset);
 	void noteOn(int channel);
 	void noteOff(int channel);
-	void setFrequency(int channel, uint16 fnum, byte block);
 	void writeFrequency(int channel, uint16 fnum, byte block);
+	void setFrequency(int channel, uint16 fnum, byte block);
 	void noteToFnumBlock(byte note, uint16 &fnum, byte &block) const;
 
 	byte readPatternByte(int channel);
-	byte clampNote(byte note) const;
+	byte clampNote(int note) const;
 };
 
-} // namespace Freescape
+} // End of namespace Freescape
 
 #endif

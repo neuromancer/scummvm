@@ -19,20 +19,13 @@
  *
  */
 
-#ifndef MADS_NEBULAR_POPUP_H
-#define MADS_NEBULAR_POPUP_H
-
-#include "mads/core/font.h"
-#include "mads/core/popup.h"
+#ifndef MADS_NEBULAR_MAC_MENUS_H
+#define MADS_NEBULAR_MAC_MENUS_H
 
 namespace MADS {
 namespace RexNebular {
 
-extern void popup_init();
-extern void popup_draw();
-extern void popup_close();
-extern void popup_setup_cycle();
-extern void popup_update_ask(const char *string, int maxlen);
+void selectMacintoshDifficulty();
 
 } // namespace RexNebular
 } // namespace MADS
