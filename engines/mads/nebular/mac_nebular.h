@@ -19,19 +19,42 @@
  *
  */
 
-#ifndef MADS_NEBULAR_POPUP_H
-#define MADS_NEBULAR_POPUP_H
+#ifndef MADS_NEBULAR_MAC_NEBULAR_H
+#define MADS_NEBULAR_MAC_NEBULAR_H
 
-#include "mads/core/font.h"
-#include "mads/core/popup.h"
+#include "common/array.h"
+#include "common/rect.h"
+#include "graphics/managed_surface.h"
 
 namespace MADS {
 namespace RexNebular {
 
-extern void popup_init();
-extern void popup_draw();
-extern void popup_setup_cycle();
-extern void popup_update_ask(const char *string, int maxlen);
+class MacResourceProvider;
+class RexNebularEngine;
+
+class MacNebular {
+private:
+	RexNebularEngine &_engine;
+	MacResourceProvider *_resources = nullptr;
+	Common::Array<byte> _output;
+	Graphics::ManagedSurface _popup;
+	Common::Rect _popupRect;
+	bool _popupActive = false;
+	bool _layoutLogged = false;
+
+public:
+	explicit MacNebular(RexNebularEngine &engine);
+	~MacNebular();
+
+	void initGraphics();
+	bool initResources();
+	void applyGameSettings();
+	Common::Point screenToGame(const Common::Point &point) const;
+	Common::Point gameToScreen(const Common::Point &point) const;
+	void presentScreen(int shakeOffset);
+	void showPopup();
+	void hidePopup();
+};
 
 } // namespace RexNebular
 } // namespace MADS

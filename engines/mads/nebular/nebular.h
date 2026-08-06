@@ -22,15 +22,12 @@
 #ifndef MADS_NEBULAR_H
 #define MADS_NEBULAR_H
 
-#include "common/array.h"
-#include "common/rect.h"
-#include "graphics/managed_surface.h"
 #include "mads/mads.h"
 
 namespace MADS {
 namespace RexNebular {
 
-class MacResourceProvider;
+class MacNebular;
 
 struct MADSSavegameHeader {
 	uint8 _version;
@@ -46,16 +43,9 @@ struct MADSSavegameHeader {
 
 class RexNebularEngine : public MADSEngine {
 private:
-	MacResourceProvider *_macResources = nullptr;
-	Common::Array<byte> _macOutput;
-	Graphics::ManagedSurface _macPopup;
-	Common::Rect _macPopupRect;
-	bool _macPopupActive = false;
-	bool _macLayoutLogged = false;
+	friend class MacNebular;
+	MacNebular *_macNebular = nullptr;
 
-	void initMacintoshGraphics();
-	bool initMacintoshResources();
-	void shutdownMacintoshResources();
 	void showRecipe();
 
 protected:
@@ -69,12 +59,7 @@ public:
 	~RexNebularEngine() override;
 
 	Common::Error run() override;
-	bool usesScummVMMenu() const override {
-		return getPlatform() == Common::kPlatformMacintosh;
-	}
 	void syncRoom(Common::Serializer &s) override;
-	void showMacPopup();
-	void hideMacPopup();
 
 	int main_copy_verify() override;
 	void global_init_code() override;
@@ -87,6 +72,10 @@ public:
 	void global_error_code() override;
 	void global_room_init() override {}
 	void global_sound_driver() override;
+	bool hasInterfaceAnimations() const override;
+	bool drawPopup() override;
+	void onPopupDestroyed() override;
+	bool getInterfaceSentenceColors(byte &foreground, byte &shadow) const override;
 };
 
 } // namespace RexNebular
