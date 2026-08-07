@@ -27,6 +27,8 @@
 namespace MADS {
 namespace RexNebular {
 
+class MacNebular;
+
 struct MADSSavegameHeader {
 	uint8 _version;
 	Common::String _saveName;
@@ -41,11 +43,20 @@ struct MADSSavegameHeader {
 
 class RexNebularEngine : public MADSEngine {
 private:
+	friend class MacNebular;
+	MacNebular *_macNebular = nullptr;
+
 	void showRecipe();
+
+protected:
+	void applyGameSettings() override;
+	Common::Point screenToGame(const Common::Point &point) const override;
+	Common::Point gameToScreen(const Common::Point &point) const override;
+	void presentScreen(int shakeOffset) override;
 
 public:
 	RexNebularEngine(OSystem *syst, const MADSGameDescription *gameDesc);
-	~RexNebularEngine() override {}
+	~RexNebularEngine() override;
 
 	Common::Error run() override;
 	void syncRoom(Common::Serializer &s) override;
@@ -61,6 +72,10 @@ public:
 	void global_error_code() override;
 	void global_room_init() override {}
 	void global_sound_driver() override;
+	bool hasInterfaceAnimations() const override;
+	bool drawPopup() override;
+	void onPopupDestroyed() override;
+	bool getInterfaceSentenceColors(byte &foreground, byte &shadow) const override;
 };
 
 } // namespace RexNebular

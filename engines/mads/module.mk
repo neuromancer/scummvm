@@ -73,6 +73,9 @@ MODULE_OBJS := \
 	nebular/global.o \
 	nebular/main.o \
 	nebular/main_menu.o \
+	nebular/mac_menus.o \
+	nebular/mac_nebular.o \
+	nebular/mac_resources.o \
 	nebular/menus.o \
 	nebular/popup.o \
 	nebular/mads/mads.o \
@@ -203,6 +206,7 @@ MODULE_OBJS := \
 	nebular/sound/asound_nebular.o \
 	nebular/sound/isound.o \
 	nebular/sound/isound_nebular.o \
+	nebular/sound/mac_sound.o \
 	nebular/sound/rsound.o \
 	nebular/sound/rsound_nebular.o \
 	nebular/sound/sound.o \

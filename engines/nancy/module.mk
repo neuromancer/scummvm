@@ -34,6 +34,7 @@ MODULE_OBJS = \
   action/puzzle/dropsortpuzzle.o \
   action/puzzle/gridmappuzzle.o \
   action/puzzle/hamradiopuzzle.o \
+  action/puzzle/hangmanpuzzle.o \
   action/puzzle/leverpuzzle.o \
   action/puzzle/magnetmazepuzzle.o \
   action/puzzle/mazechasepuzzle.o \
@@ -48,6 +49,7 @@ MODULE_OBJS = \
   action/puzzle/orderingpuzzle.o \
   action/puzzle/overridelockpuzzle.o \
   action/puzzle/pachinkopuzzle.o \
+  action/puzzle/paintpuzzle.o \
   action/puzzle/passwordpuzzle.o \
   action/puzzle/peepholepuzzle.o \
   action/puzzle/pegspuzzle.o \

@@ -490,11 +490,21 @@ WindowReference Gui::createInventoryWindow(ObjID objRef) {
 	WindowData newData;
 	GlobalSettings settings = _engine->getGlobalSettings();
 	if (!_objToInvRef.contains(objRef)) {
-		_objToInvRef[objRef] = (WindowReference)(_inventoryWindows.size() + kInventoryStart); // This is a HACK
-		newData.refcon = _objToInvRef[objRef];
-	} else {
-		newData.refcon = _objToInvRef[objRef];
+		WindowReference newRef = kInventoryStart;
+		bool taken = true;
+		while (taken) {
+			taken = false;
+			for (auto &invWindowData : _inventoryWindows) {
+				if (invWindowData.ref == newRef) {
+					taken = true;
+					newRef = (WindowReference)(newRef + 1);
+					break;
+				}
+			}
+		}
+		_objToInvRef[objRef] = newRef;
 	}
+	newData.refcon = _objToInvRef[objRef];
 
 	if (_windowData->back().refcon < 0x80) { // There is already another inventory window
 		newData.bounds = _windowData->back().bounds; // Inventory windows are always last
@@ -519,10 +529,11 @@ WindowReference Gui::createInventoryWindow(ObjID objRef) {
 	loadBorders(newWindow, newData.type);
 	newWindow->resizeInner(newData.bounds.width(), newData.bounds.height() - bbs.bottomScrollbarHeight);
 	newWindow->move(newData.bounds.left - bbs.leftOffset, newData.bounds.top - bbs.topOffset);
-	newWindow->setCallback(inventoryWindowCallback, new InventoryCallbackStruct{this, newData.refcon});
+	InventoryCallbackStruct *callbackData = new InventoryCallbackStruct{this, newData.refcon};
+	newWindow->setCallback(inventoryWindowCallback, callbackData);
 	//newWindow->setCloseable(true);
 
-	_inventoryWindows.push_back(InventoryWindowData{newWindow, newData.refcon});
+	_inventoryWindows.push_back(InventoryWindowData{newWindow, newData.refcon, callbackData});
 
 	debugC(1, kMVDebugGUI, "Create new inventory window. Reference: %d", newData.refcon);
 	return newData.refcon;
@@ -956,15 +967,19 @@ void Gui::drawDraggedObjects() {
 			ImageAsset *asset = _assets[_draggedObjects[i].id];
 
 			// In case of overflow from the right/top
-			uint w = asset->getWidth() + MIN((int16)0, _draggedObjects[i].pos.x);
-			uint h = asset->getHeight() + MIN((int16)0, _draggedObjects[i].pos.y);
+			int w = asset->getWidth() + MIN((int16)0, _draggedObjects[i].pos.x);
+			int h = asset->getHeight() + MIN((int16)0, _draggedObjects[i].pos.y);
 
 			// In case of overflow from the bottom/left
 			if (_draggedObjects[i].pos.x > 0 && _draggedObjects[i].pos.x + w > kScreenWidth) {
-				w = kScreenWidth - _draggedObjects[i].pos.x;
+				w = MAX(0, kScreenWidth - _draggedObjects[i].pos.x);
 			}
 			if (_draggedObjects[i].pos.y > 0 && _draggedObjects[i].pos.y + h > kScreenHeight) {
-				h = kScreenHeight - _draggedObjects[i].pos.y;
+				h = MAX(0, kScreenHeight - _draggedObjects[i].pos.y);
+			}
+
+			if (w <= 0 || h <= 0) {
+				continue;
 			}
 
 			Common::Point target = _draggedObjects[i].pos;
@@ -1231,11 +1246,11 @@ WindowData &Gui::findWindowData(WindowReference reference) {
 	assert(_windowData);
 
 	Common::List<WindowData>::iterator iter = _windowData->begin();
-	while (iter->refcon != reference && iter != _windowData->end()) {
+	while (iter != _windowData->end() && iter->refcon != reference) {
 		iter++;
 	}
 
-	if (iter->refcon == reference)
+	if (iter != _windowData->end())
 		return *iter;
 
 	error("GUI: Could not locate the desired window data");
@@ -1295,8 +1310,8 @@ WindowReference Gui::findObjWindow(ObjID objID) {
 		}
 	}
 
-	for (uint i = kInventoryStart; i < _inventoryWindows.size() + kInventoryStart; i++) {
-		const WindowData &data = getWindowData((WindowReference)i);
+	for (auto &invWindowData : _inventoryWindows) {
+		const WindowData &data = getWindowData(invWindowData.ref);
 		if (data.objRef == objID) {
 			return data.refcon;
 		}
@@ -1432,6 +1447,8 @@ Common::Point Gui::localizeTravelledDistance(Common::Point point, WindowReferenc
 void Gui::removeInventoryWindow(WindowReference ref) {
 	for (auto &invWinData: _inventoryWindows) {
 		if (invWinData.ref == ref) {
+			invWinData.win->setCallback(nullptr, nullptr);
+			delete invWinData.callbackData;
 			_inventoryWindows.erase(&invWinData);
 			break;
 		}
@@ -1441,6 +1458,14 @@ void Gui::removeInventoryWindow(WindowReference ref) {
 	for (it = _windowData->begin(); it != _windowData->end(); it++) {
 		if (it->refcon == ref) {
 			_windowData->erase(it);
+			break;
+		}
+	}
+
+	Common::HashMap<ObjID, WindowReference>::iterator objIt;
+	for (objIt = _objToInvRef.begin(); objIt != _objToInvRef.end(); ++objIt) {
+		if (objIt->_value == ref) {
+			_objToInvRef.erase(objIt);
 			break;
 		}
 	}
@@ -1534,12 +1559,8 @@ bool diplomaWindowCallback(Graphics::WindowClick click, Common::Event &event, vo
 
 bool inventoryWindowCallback(Graphics::WindowClick click, Common::Event &event, void *data) {
 	InventoryCallbackStruct *g = (InventoryCallbackStruct *)data;
-	bool res = g->gui->processInventoryEvents(g->ref, click, event);
 
-	if (event.type == Common::EVENT_LBUTTONUP && click == Graphics::kBorderCloseButton)
-		delete g;
-
-	return res;
+	return g->gui->processInventoryEvents(g->ref, click, event);
 }
 
 void menuCommandsCallback(int action, Common::String &text, void *data) {

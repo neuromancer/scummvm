@@ -458,7 +458,7 @@ const ADGameDescription gameDescriptions[] = {
 		Common::EN_ANY,
 		Common::kPlatformDOS,
 		ADGF_NO_FLAGS,
-		GUIO4(GUIO_NOMIDI, GUIO_RENDEREGA, GUIO_RENDERCGA, GUIO_RENDERHERCGREEN)
+		GUIO5(GUIO_NOMIDI, GUIO_RENDEREGA, GUIO_RENDERCGA, GUIO_RENDERHERCGREEN, GAMEOPTION_OPL_MUSIC)
 	},
 	{
 		"darkside",
@@ -473,7 +473,7 @@ const ADGameDescription gameDescriptions[] = {
 		Common::EN_ANY,
 		Common::kPlatformDOS,
 		ADGF_NO_FLAGS,
-		GUIO4(GUIO_NOMIDI, GUIO_RENDEREGA, GUIO_RENDERCGA, GUIO_RENDERHERCGREEN)
+		GUIO5(GUIO_NOMIDI, GUIO_RENDEREGA, GUIO_RENDERCGA, GUIO_RENDERHERCGREEN, GAMEOPTION_OPL_MUSIC)
 	},
 	{
 		"darkside",
@@ -488,7 +488,7 @@ const ADGameDescription gameDescriptions[] = {
 		Common::EN_ANY,
 		Common::kPlatformDOS,
 		ADGF_NO_FLAGS,
-		GUIO4(GUIO_NOMIDI, GUIO_RENDEREGA, GUIO_RENDERCGA, GUIO_RENDERHERCGREEN)
+		GUIO5(GUIO_NOMIDI, GUIO_RENDEREGA, GUIO_RENDERCGA, GUIO_RENDERHERCGREEN, GAMEOPTION_OPL_MUSIC)
 	},
 	{
 		"darkside",
@@ -870,10 +870,11 @@ const ADGameDescription gameDescriptions[] = {
 		ADGF_DEMO,
 		GUIO4(GUIO_NOMIDI, GAMEOPTION_TRAVEL_ROCK, GUIO_RENDERAMIGA, GAMEOPTION_WASD_CONTROLS)
 	},
-	// Stampede Amiga, Issue 1, July 1990
+	// Stampede Amiga, Issue 1, July 1990: the same demo as above, only its
+	// AmigaDOS loader differs
 	{
 		"castlemaster",
-		"",
+		"Demo",
 		{
 			{"cm", 0, "b7e713a0742fa09aa81c9606bbbba4af", 4068},
 			{"x", 0, "c8c811439da0cf8a193e35feb5b5c6dc", 353388},
@@ -896,7 +897,7 @@ const ADGameDescription gameDescriptions[] = {
 		},
 		Common::EN_ANY,
 		Common::kPlatformAmiga,
-		ADGF_UNSTABLE,
+		ADGF_TESTING,
 		GUIO4(GUIO_NOMIDI, GAMEOPTION_TRAVEL_ROCK, GUIO_RENDERAMIGA, GAMEOPTION_WASD_CONTROLS)
 	},
 	// Full Castle Master, Amiga, by Domark: another build of the same game, with
@@ -912,7 +913,7 @@ const ADGameDescription gameDescriptions[] = {
 		},
 		Common::EN_ANY,
 		Common::kPlatformAmiga,
-		ADGF_UNSTABLE,
+		ADGF_TESTING,
 		GUIO4(GUIO_NOMIDI, GAMEOPTION_TRAVEL_ROCK, GUIO_RENDERAMIGA, GAMEOPTION_WASD_CONTROLS)
 	},
 	// Full Castle Master, Amiga, from "Castle Master & The Crypt" by Incentive,
@@ -928,7 +929,7 @@ const ADGameDescription gameDescriptions[] = {
 		},
 		Common::EN_ANY,
 		Common::kPlatformAmiga,
-		ADGF_UNSTABLE,
+		ADGF_TESTING,
 		GUIO4(GUIO_NOMIDI, GAMEOPTION_TRAVEL_ROCK, GUIO_RENDERAMIGA, GAMEOPTION_WASD_CONTROLS)
 	},
 	// Full Castle Master, Atari ST, as found on the original disk: "M.PRG" is
@@ -944,7 +945,7 @@ const ADGameDescription gameDescriptions[] = {
 		},
 		Common::EN_ANY,
 		Common::kPlatformAtariST,
-		ADGF_UNSTABLE,
+		ADGF_TESTING,
 		GUIO4(GUIO_NOMIDI, GAMEOPTION_TRAVEL_ROCK, GUIO_RENDERATARIST, GAMEOPTION_WASD_CONTROLS)
 	},
 	// Full Castle Master, Atari ST, from the "Castle Master & The Crypt"
@@ -960,7 +961,7 @@ const ADGameDescription gameDescriptions[] = {
 		},
 		Common::EN_ANY,
 		Common::kPlatformAtariST,
-		ADGF_UNSTABLE,
+		ADGF_TESTING,
 		GUIO4(GUIO_NOMIDI, GAMEOPTION_TRAVEL_ROCK, GUIO_RENDERATARIST, GAMEOPTION_WASD_CONTROLS)
 	},
 	// The same, with "M.PRG" already decrypted by hand (dec0de and a real or
@@ -976,7 +977,7 @@ const ADGameDescription gameDescriptions[] = {
 		},
 		Common::EN_ANY,
 		Common::kPlatformAtariST,
-		ADGF_UNSTABLE,
+		ADGF_TESTING,
 		GUIO4(GUIO_NOMIDI, GAMEOPTION_TRAVEL_ROCK, GUIO_RENDERATARIST, GAMEOPTION_WASD_CONTROLS)
 	},
 	{
@@ -1108,6 +1109,36 @@ const ADGameDescription gameDescriptions[] = {
 		Common::kPlatformZX,
 		ADGF_NO_FLAGS,
 		GUIO3(GUIO_NOMIDI, GUIO_RENDERZX, GAMEOPTION_WASD_CONTROLS)
+	},
+	// Castle Master 2, Amiga, the other game on the "Castle Master & The Crypt"
+	// disc by Incentive, packed into "crypt.com" like its companion.
+	{
+		"castlemaster2",
+		"",
+		{
+			{"crypt.com", 0, "6b56e849a9487a3c46e2ff9bbaf1f351", 177218},
+			{"thecrypt.neo", 0, "358873947261352242c75788066dfbc9", 32000},
+			AD_LISTEND
+		},
+		Common::EN_ANY,
+		Common::kPlatformAmiga,
+		ADGF_TESTING,
+		GUIO3(GUIO_NOMIDI, GUIO_RENDERAMIGA, GAMEOPTION_WASD_CONTROLS)
+	},
+	// Castle Master 2, Atari ST, the second disc of "Castle Master & The Crypt"
+	// by Incentive. C.PRG carries no Copylock, unlike the Castle Master disc.
+	{
+		"castlemaster2",
+		"",
+		{
+			{"C.PRG", 0, "0953c495ea8fd11adf25c98885f1fa60", 225666},
+			{"L.PRG", 0, "9526c32330ae9b2b046f29ed95864a8b", 33946},
+			AD_LISTEND
+		},
+		Common::EN_ANY,
+		Common::kPlatformAtariST,
+		ADGF_TESTING,
+		GUIO3(GUIO_NOMIDI, GUIO_RENDERATARIST, GAMEOPTION_WASD_CONTROLS)
 	},
 	{
 		// Only an EGA executable is shipped, unlike Castle Master

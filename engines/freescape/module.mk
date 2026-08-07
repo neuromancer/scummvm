@@ -29,6 +29,7 @@ MODULE_OBJS := \
 	games/dark/cpc.o \
 	games/dark/dark.o \
 	games/dark/dos.o \
+	games/dark/opl.music.o \
 	games/dark/zx.o \
 	games/driller/amiga.o \
 	games/driller/atari.o \
@@ -42,7 +43,6 @@ MODULE_OBJS := \
 	games/driller/zx.o \
 	games/eclipse/amiga.o \
 	games/eclipse/atari.o \
-	games/eclipse/atari.music.o \
 	games/eclipse/c64.o \
 	games/eclipse/c64.music.o \
 	games/eclipse/ay.music.o \
@@ -66,6 +66,7 @@ MODULE_OBJS := \
 	objects/sensor.o \
 	sweepAABB.o \
 	sound/amiga.o \
+	sound/atari.o \
 	sound/common.o \
 	sound/cpc.o \
 	sound/dos.o \
@@ -75,6 +76,7 @@ MODULE_OBJS := \
 	ui.o \
 	unpack.o \
 	wb.o \
+	wb_atari.o \
 	zx_tape.o
 
 ifdef USE_TINYGL

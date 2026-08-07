@@ -1403,6 +1403,7 @@ const PlainGameDescriptor GAME_NAMES[] = {
 	{ "explorationa", "Exploration A" },
 	{ "exposedreality", "Exposed Reality" },
 	{ "everythingm", "Everything that Begins with an M" },
+	{ "eyetempest", "Eye of the Tempest" },
 	{ "fadingshades", "Fading Shades" },
 	{ "fakethemoonlanding", "Fake the moon landing" },
 	{ "falcolightning", "Falco - Lightning strike in town festival" },
@@ -2965,6 +2966,7 @@ const PlainGameDescriptor GAME_NAMES[] = {
 	{ "secretorbs", "The Second Secret of the Orbs" },
 	{ "secretquestremake", "Secret Quest Remake" },
 	{ "secrets", "Secrets" },
+	{ "sedetta", "Sedetta" },
 	{ "seed", "Seed" },
 	{ "seekye", "Seek, and ye shall find" },
 	{ "self", "Self" },
@@ -3825,7 +3827,9 @@ const PlainGameDescriptor GAME_NAMES[] = {
 	{ "mallicious", "Mallicious" },
 	{ "manster", "MANSTER: the man-monster" },
 	{ "metcego", "How I met Cego" },
+	{ "milestogo", "Miles To Go Before I Sleep" },
 	{ "moribundgold", "Moribund Gold: A pirate Adventure" },
+	{ "notanotherpirate", "Not Another Pirate Adventure" },
 	{ "pqpn1", "Police Quest: Panama Nights - Part 1" },
 	{ "principessasangue", "Principessa della magia del sangue" },
 	{ "psico", "PsiCo Delivery" },
@@ -3836,9 +3840,12 @@ const PlainGameDescriptor GAME_NAMES[] = {
 	{ "sinkholesy", "Sinkhole Sy" },
 	{ "smokeymike", "Smokey Mike" },
 	{ "snarl", "Snarl" },
+	{ "startrekgenerator", "Star Trek Story Generator" },
 	{ "startrekxeno", "Star Trek - Xenomorph Alert" },
+	{ "talesmiddleearth", "Tales of Middle-Earth" },
 	{ "thedissident", "The Dissident" },
 	{ "theescapeags", "The Escape" },
+	{ "theboard", "The Board / El Consorcio" },
 	{ "thepromise", "The Promise" },
 	{ "theriftags", "The Rift" },
 	{ "ultrasecreto", "Ultrasecreto - Prólogo" },
@@ -4459,8 +4466,10 @@ const AGSGameDescription GAME_DESCRIPTIONS[] = {
 	GAME_ENTRY_362_EN("mallicious", "MalliciousAdventure.ags", "9bd8c917a39028ada9640967d1f59fac", 8723957),  // v1.03
 	DEMO_ENTRY_362_EN("manster", "Manster.ags", "c7e58a20aaf9ff6118f407973deff37d", 4487886),
 	GAME_ENTRY_362("metcego", "When_I_met_Cego.ags", "4206351a92dfb0bb056bccf87bc690ff", 468059342),  // Eng-Esp
+	UNSUPPORTED_GAME_ENTRY_EN("milestogo", "Miles to go before I sleep.ags", "0fea1d5f502f9804f9134bac1edc7f96", 1988434),
 	GAME_ENTRY_362_LANG("mmm61", "BernardsRoom.ags", "2023239ae99f2cebbc4d457fa4d14784", 4656127, Common::DE_DEU),  // Talkie
 	GAME_ENTRY_362_EN("moribundgold", "A Pirate Adventure.exe", "e4a1fe064099ee464e4680ebbda82e05", 21047188),
+	UNSUPPORTED_DEMO_ENTRY("notanotherpirate", "NAPS.ags", "928b631eb87e53aad39bbd4d3211bf28", 135612634),  // Eng-Esp
 	GAME_ENTRY_362_EN("perfecttidess2s", "s2s.exe", "fa6ce74d091e1bf012a2b7a667276f97", 1570235856),
 	GAME_ENTRY_362_EN("perfecttidess2s", "s2s.exe", "fa6ce74d091e1bf012a2b7a667276f97", 1568442721),  // v1.12
 	GAME_ENTRY_362_EN("pqpn1", "PQPN.ags", "a48d4e2cb25c1fd8c8d48a2832120801", 3266124),
@@ -4482,7 +4491,11 @@ const AGSGameDescription GAME_DESCRIPTIONS[] = {
 	GAME_ENTRY_362_EN("snarl", "Snarl.exe", "7b206bbaec47b9e30d7c41212e3f9a31", 75841814),  // TRAC #16236
 	GAME_ENTRY_362_EN("snarl", "Snarl.exe", "7b206bbaec47b9e30d7c41212e3f9a31", 75845392),  // v1.0.3
 	DEMO_ENTRY_362_EN("starfall", "Starfall.exe", "e046d316d8c791e787a86deece6e8638", 26605793),
+	UNSUPPORTED_GAME_ENTRY_EN("startrekgenerator", "Star Trek Story Generator.ags", "f1d4f2445f505cfda30be6281299e2fd", 22432216),
 	GAME_ENTRY_362("startrekxeno", "Star Trek Xenomorph Alert V2.ags", "1422a3b5a3870def6ef910774a0242be", AD_NO_SIZE),  // En-Fr
+	UNSUPPORTED_GAME_ENTRY_EN("talesmiddleearth", "Tales of Middle-Earth.ags", "a63fcb122b931dc3cccee6a924215e32", 28132480),
+	UNSUPPORTED_GAME_ENTRY("theboard", "El consorcio.exe", "d22f4d939acf6e59d578a95c30a883d0", 219712274),  // Win Multilang
+	UNSUPPORTED_GAME_ENTRY("theboard", "El consorcio.ags", "3e4bd7d003a3f35cf439795bbc764c9c", 216573694),  // Linux Multilang
 	GAME_ENTRY_362_EN("thedissident", "Dissident.ags", "2fb5af288fe73751d51635d1576c42ca", 11952309),
 	GAME_ENTRY_362_EN("theescapeags", "escape.exe", "6dc8f0aedfd55a47f81323f0a412bc15", 19623142),
 	GAME_ENTRY_362_EN("theescapeags", "escape.ags", "e5e26631bf6a375ab722f9588e2f82a1", 16513746),
@@ -4976,6 +4989,7 @@ const AGSGameDescription GAME_DESCRIPTIONS[] = {
 	GAME_ENTRY_PLUGIN_STEAM_NOAUTOSAVE("englishhaunting", "An English Haunting.exe", "de2b4205a56fce1b199a692a8b65e161", 987492292, 0),
 	DETECTION_ENTRY_GUIO("excavationhb", "TEOHB.exe", "f176b46bc89e227f745dae9878171676", 566323169, Common::EN_ANY, "Steam", GUIO3(GUIO_NOLANG, GUIO_NOLAUNCHLOAD, GAMEOPTION_NO_AUTOSAVE), ADGF_NO_FLAGS, 0), // Win
 	DETECTION_ENTRY_GUIO("excavationhb", "TEOHB.exe", "58e50b15d39bd15dc6eaf3dfff3936ab", 431438957, Common::EN_ANY, "Steam", GUIO3(GUIO_NOLANG, GUIO_NOLAUNCHLOAD, GAMEOPTION_NO_AUTOSAVE), ADGF_NO_FLAGS, 0), // Win
+	DETECTION_ENTRY_GUIO("excavationhb", "TEOHB.exe", "58e50b15d39bd15dc6eaf3dfff3936ab", 431439093, Common::EN_ANY, "Steam", GUIO3(GUIO_NOLANG, GUIO_NOLAUNCHLOAD, GAMEOPTION_NO_AUTOSAVE), ADGF_NO_FLAGS, 0), // Win
 	DETECTION_ENTRY_GUIO("excavationhb", "ac2game.dat", "e5553f7c45d26d5fbc8b376a859bb87c", 563281442, Common::EN_ANY, "Steam", GUIO3(GUIO_NOLANG, GUIO_NOLAUNCHLOAD, GAMEOPTION_NO_AUTOSAVE), ADGF_NO_FLAGS, GAMEFLAG_PLUGINS_AGSSPRITEFONT_CLIFFTOP), // Mac
 	DETECTION_ENTRY_GUIO("excavationhb", "ac2game.dat", "e5553f7c45d26d5fbc8b376a859bb87c", 563283917, Common::EN_ANY, "Steam", GUIO3(GUIO_NOLANG, GUIO_NOLAUNCHLOAD, GAMEOPTION_NO_AUTOSAVE), ADGF_NO_FLAGS, GAMEFLAG_PLUGINS_AGSSPRITEFONT_CLIFFTOP), // Mac
 	DETECTION_ENTRY_GUIO("excavationhb", "TEOHB.exe", "f176b46bc89e227f745dae9878171676", 566320586, Common::EN_ANY, "GOG.com", GUIO3(GUIO_NOLANG, GUIO_NOLAUNCHLOAD, GAMEOPTION_NO_AUTOSAVE), ADGF_NO_FLAGS, GAMEFLAG_PLUGINS_AGSSPRITEFONT_CLIFFTOP),
@@ -5908,6 +5922,7 @@ const AGSGameDescription GAME_DESCRIPTIONS[] = {
 	DEMO_ENTRY_EN("forge", "Theforge.exe", "a01a9639ce30bdcd5bf82e528b51fa06", 11424539),
 	DEMO_ENTRY_LANG("forgettendeath", "ForgettenDeath.exe", "06a03fe35791b0578068ab1873455463", 19427130, Common::TR_TUR),  // Turkish
 	DETECTION_ENTRY("fountainofyouth", "FOY.exe", "06a03fe35791b0578068ab1873455463", 4137644, Common::EN_ANY, "Intro 2003", ADGF_DEMO, 0),
+	DETECTION_ENTRY("fountainofyouth", "FountainOfYouth.ags", "06a03fe35791b0578068ab1873455463", 5451260, Common::EN_ANY, "Unreleased demo?", ADGF_DEMO, 0), // TRAC #16987
 	DEMO_ENTRY_EN("fountainofyouth", "foydemo.exe", "f120690b506dd63cd7d1112ea6af2f77", 14372003),  // v1.0
 	DEMO_ENTRY_EN("fountainofyouth", "foydemo1.1.exe", "f120690b506dd63cd7d1112ea6af2f77", 14372003),  // v1.0 (misnamed file)
 	DEMO_ENTRY_EN("fountainofyouth", "foydemo.exe", "f120690b506dd63cd7d1112ea6af2f77", 14371419),  // v1.1
@@ -5918,6 +5933,7 @@ const AGSGameDescription GAME_DESCRIPTIONS[] = {
 	DEMO_ENTRY_LANG("fountainofyouth", "FOYDemoDutch.exe", "f25752043e2a77ec07bca0c6818af701", 20666760, Common::NL_NLD),  // v1.2 r1
 	DEMO_ENTRY_LANG("fountainofyouth", "FOYDemoDutch.exe", "f25752043e2a77ec07bca0c6818af701", 20737160, Common::NL_NLD),  // v1.2 r2-r3
 	DEMO_ENTRY_EN("foyfighter", "Arcade_Fighting_Demo.exe", "6a55492a65c52cf323dd5324749e46de", 14647406),
+	DEMO_ENTRY_EN("foyfighter", "Arcade_Fighting_Demo.exe", "491ec87fc7272093106309725626bc79", 14648475),  // TRAC #16988
 	DEMO_ENTRY_EN("frankmalone", "Malone.exe", "3b7cceb3e4bdb031dc5d8f290936e94b", 4237095),
 	DEMO_ENTRY_EN("franticfranko", "steelh1.exe", "2cb9c81a20282b55f69343ef95cbb63d", 37086267),
 	DEMO_ENTRY_EN("funnyboneyard", "the_funny_boneyard.exe", "78dd4ca028ee0156b6a093d6d780aa65", 63460160),
@@ -7525,6 +7541,7 @@ const AGSGameDescription GAME_DESCRIPTIONS[] = {
 	GAME_ENTRY_EN("exmachina", "machina.exe", "a01a9639ce30bdcd5bf82e528b51fa06", 5545266),  //v1.2
 	GAME_ENTRY_EN("explorationa", "ExplorationA.exe", "615e73fc1874e92d60a1996c2330ea36", 8536746),
 	GAME_ENTRY_EN("exposedreality", "HORON.exe", "bb59de174d70797d774dec76a171352d", 4847902),
+	GAME_ENTRY_EN("eyetempest", "Tempest.ags", "510be04e5eec2aa92bb78b060f138d64", 37752575),
 	GAME_ENTRY_EN("fadingshades", "FadingShades.exe", "f120690b506dd63cd7d1112ea6af2f77", 20166198),
 	GAME_ENTRY_EN("fakethemoonlanding", "OperationStarman.exe", "495d45fb8adfd49690ae3b97921feec6", 56805472),
 	GAME_ENTRY("falcolightning", "falcoLightningStrike.exe", "438ff7d3ddf7a9727024229cfb1d0274", 82035336),  // Eng-Ita
@@ -9431,6 +9448,7 @@ const AGSGameDescription GAME_DESCRIPTIONS[] = {
 	GAME_ENTRY_EN("secretorbs", "SecondOrbSecret.ags", "81a8cc458ae984d3fd02283597735b8d", 2728010),
 	GAME_ENTRY_EN("secretquestremake", "secretquest.exe", "f120690b506dd63cd7d1112ea6af2f77", 2121159),
 	GAME_ENTRY_EN("secrets", "Secrets.exe", "06a03fe35791b0578068ab1873455463", 36176884),
+	GAME_ENTRY_EN("sedetta", "Sedetta.ags", "b39b7a128951ba15803ca657b1533749", 45750123),
 	GAME_ENTRY_EN("seed", "Seed.exe", "089fab88e6e1075a2f5b271f6f5b3c57", 67903775),
 	GAME_ENTRY_EN("seekye", "GGJ21.exe", "0564de07d3fd5c16e6947a647061913c", 5997590),  // GameJam
 	GAME_ENTRY_EN("seekye", "GGJ21.exe", "0564de07d3fd5c16e6947a647061913c", 6448377),  // itch.io

@@ -1497,7 +1497,10 @@ void game_control() {
 			if (g_engine->getGameID() == GType_RexNebular && kernel.activate_menu != GAME_NO_MENU &&
 					player.commands_allowed && !global[RexNebular::kCopyProtectFailed]) {
 				player_dump_walker();
+
+				g_engine->setSavegameThumbnail();
 				game_exec_function(game_menu_routine);
+				g_engine->clearSavegameThumbnail();
 				kernel.activate_menu = GAME_NO_MENU;
 			}
 
@@ -1927,18 +1930,20 @@ static void game_control_loop() {
 	if (debugger) game_exec_function(debugger_reset);
 
 	while ((new_room == room_id) && game.going && !kernel.force_restart) {
-
 		game_main_loop();
 
 		if (kernel.activate_menu) {
 			if (!kernel.trigger && player.commands_allowed) {
 				if (g_engine->getGameID() == GType_RexNebular) {
-					// Rex Nebular menus are their own virtual room, so the current room
-					// has to be completely unloaded before we open the menu
+					// Rex handles menus after completely unloading the current room.
+					// DOS uses virtual menu rooms; for now, Macintosh dispatches to
+					// its own ScummVM-dialog adapter through the same game callback.
 					kernel.force_restart = true;
 
 				} else {
+					g_engine->setSavegameThumbnail();
 					game_exec_function(game_menu_routine);
+					g_engine->clearSavegameThumbnail();
 
 					if (game_menu_routine == NULL)
 						game.going = false;

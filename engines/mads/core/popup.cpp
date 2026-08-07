@@ -780,6 +780,8 @@ void popup_destroy() {
 	int x, y;
 	int xs, ys;
 
+	g_engine->onPopupDestroyed();
+
 	if (box->active && box->screen_saved) {
 		// Always restore the screen from scr_main — it spans both the game
 		// area and the interface strip, so no buffer split is required.
