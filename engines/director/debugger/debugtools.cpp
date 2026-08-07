@@ -339,6 +339,20 @@ Director::Breakpoint *getBreakpoint(const Common::String &handlerName, uint16 sc
 	return nullptr;
 }
 
+// Return the member's cached texture, dropping it first if the member changed
+// (isModified) so the caller regenerates it. Keeps thumbnails in sync with edits.
+static bool tryGetCachedTexture(CastMember *key, ImGuiImage &out) {
+	if (!_state->_cast._textures.contains(key))
+		return false;
+	if (key->isModified()) {
+		g_system->freeImGuiTexture((void *)(intptr_t)_state->_cast._textures[key].id);
+		_state->_cast._textures.erase(key);
+		return false;
+	}
+	out = _state->_cast._textures[key];
+	return true;
+}
+
 ImGuiImage getImageID(CastMember *castMember) {
 	if (castMember->_type != CastType::kCastBitmap) {
 		return {};
@@ -346,9 +360,9 @@ ImGuiImage getImageID(CastMember *castMember) {
 
 	BitmapCastMember *bmpMember = (BitmapCastMember *)castMember;
 
-	if (_state->_cast._textures.contains(bmpMember)) {
-		return _state->_cast._textures[bmpMember];
-	}
+	ImGuiImage cached;
+	if (tryGetCachedTexture(bmpMember, cached))
+		return cached;
 
 	bmpMember->load();
 	Picture *pic = bmpMember->_picture;
@@ -419,9 +433,9 @@ ImGuiImage getShapeID(CastMember *castMember) {
 		return {};
 	}
 
-	if (_state->_cast._textures.contains(castMember)) {
-		return _state->_cast._textures[castMember];
-	}
+	ImGuiImage cached;
+	if (tryGetCachedTexture(castMember, cached))
+		return cached;
 
 	ShapeCastMember *shapeMember = (ShapeCastMember *)castMember;
 
@@ -477,9 +491,9 @@ ImGuiImage getTextID(CastMember *castMember) {
 		return {};
 	}
 
-	if (_state->_cast._textures.contains(castMember)) {
-		return _state->_cast._textures[castMember];
-	}
+	ImGuiImage cached;
+	if (tryGetCachedTexture(castMember, cached))
+		return cached;
 
 	Common::Rect bbox(castMember->getBbox());
 
@@ -674,15 +688,29 @@ ImColor brightenColor(const ImColor& color, float factor) {
 	return ImColor(col);
 }
 
+// Identity for a window's movie: the archive path, which is stable even when
+// two movies share a Mac name. Falls back to the Mac name if there's no archive.
+Common::String movieId(const Movie *m) {
+	if (!m)
+		return Common::String();
+	return m->getArchive() ? m->getArchive()->getPathName().toString() : m->getMacName();
+}
+
+// Human-readable label for the window selector (the movie's Mac name).
+static Common::String movieLabel(Window *w) {
+	Movie *m = w ? w->getCurrentMovie() : nullptr;
+	return m ? m->getMacName() : Common::String("(no movie)");
+}
+
 Window *findWindowByName(const Common::String &name) {
 	if (name.empty())
 		return nullptr;
 	Movie *stageMovie = g_director->getStage()->getCurrentMovie();
-	if (stageMovie && stageMovie->getMacName() == name)
+	if (stageMovie && movieId(stageMovie) == name)
 		return g_director->getStage();
 	for (auto window : *g_director->getWindowList()) {
 		Movie *movie = window->getCurrentMovie();
-		if (movie && movie->getMacName() == name)
+		if (movie && movieId(movie) == name)
 			return window;
 	}
 	return nullptr;
@@ -690,18 +718,16 @@ Window *findWindowByName(const Common::String &name) {
 
 Window *windowListCombo(Common::String *target) {
 	const Common::Array<Window *> *windowList = g_director->getWindowList();
-	const Common::String selWin = *target;
 	Window *res = nullptr;
 
-	// windows may not have a movie loaded yet
-	Movie *stageMovie = g_director->getStage()->getCurrentMovie();
-	Common::String stage = stageMovie ? stageMovie->getMacName() : Common::String();
+	Window *stage = g_director->getStage();
+	Common::String stageId = movieId(stage->getCurrentMovie());
 
 	// Check if the relevant window is gone
 	bool found = false;
 	for (auto window : (*windowList)) {
-		if (window->getCurrentMovie() && window->getCurrentMovie()->getMacName() == selWin) {
-			// Found the selected window
+		Movie *m = window->getCurrentMovie();
+		if (m && movieId(m) == *target) {
 			found = true;
 			res = window;
 			break;
@@ -709,39 +735,41 @@ Window *windowListCombo(Common::String *target) {
 	}
 
 	// Our default is Stage
-	if (selWin.empty() || windowList->empty() || !found) {
-		*target = stage;
-		res = g_director->getStage();
+	if (target->empty() || windowList->empty() || !found) {
+		*target = stageId;
+		res = stage;
 	}
 
 	ImGui::Text("Window:");
 	ImGui::SameLine();
 
-	if (ImGui::BeginCombo("##window", selWin.c_str())) {
-		bool selected = (*target == stage);
-		if (ImGui::Selectable(stage.c_str(), selected))
-			*target = stage;
-
-		if (selected) {
-			ImGui::SetItemDefaultFocus();
-			res = g_director->getStage();
+	if (ImGui::BeginCombo("##window", movieLabel(res).c_str())) {
+		bool selected = (*target == stageId);
+		if (ImGui::Selectable(movieLabel(stage).c_str(), selected)) {
+			*target = stageId;
+			res = stage;
 		}
+		if (selected)
+			ImGui::SetItemDefaultFocus();
 
 		for (auto window : (*windowList)) {
-			if (!window->getCurrentMovie())
+			Movie *m = window->getCurrentMovie();
+			if (!m)
 				continue;
-			Common::String winName = window->getCurrentMovie()->getMacName();
-			selected = (*target == winName);
-			if (ImGui::Selectable(winName.c_str(), selected)) {
-				*target = winName;
+			Common::String id = movieId(m);
+			// scope the ID by the (unique) path so windows that share a Mac
+			// name are still selectable independently
+			ImGui::PushID(id.c_str());
+			selected = (*target == id);
+			if (ImGui::Selectable(m->getMacName().c_str(), selected)) {
+				*target = id;
 				res = window;
 			}
-
 			if (selected) {
 				ImGui::SetItemDefaultFocus();
 				res = window;
 			}
-
+			ImGui::PopID();
 		}
 		ImGui::EndCombo();
 	}
@@ -978,6 +1006,7 @@ void onImGuiInit() {
 	_state->_logger = new ImGuiEx::ImGuiLogger;
 
 	setTheme(_state->_activeThemeID);
+	initShortcuts();
 
 	Common::setLogWatcher(onLog);
 }
@@ -1006,6 +1035,46 @@ static void invalidateStaleCaches() {
 	_state->_castDetails._filmLoopCurrentFrame.clear();
 }
 
+// Pick-from-stage: when armed, the next click on the stage (outside any DT
+// window) selects the sprite under the cursor and opens it in Cast Details.
+static void handlePickFromStage() {
+	if (!_state->_pickMode)
+		return;
+
+	ImGui::SetTooltip("Pick: click a sprite on the stage  (Esc to cancel)");
+
+	if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+		_state->_pickMode = false;
+		return;
+	}
+
+	// Select on button-down but stay armed until release, so isMouseInputIgnored()
+	// swallows both mouseDown and mouseUp instead of leaking the release to the game.
+	bool released = ImGui::IsMouseReleased(ImGuiMouseButton_Left);
+
+	if (!ImGui::GetIO().WantCaptureMouse && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+		Window *stage = g_director->getStage();
+		Movie *movie = stage ? stage->getCurrentMovie() : nullptr;
+		if (movie) {
+			Score *score = movie->getScore();
+			uint16 id = score->getSpriteIDFromPos(stage->getMousePos());
+			Channel *ch = id ? score->getChannelById(id) : nullptr;
+			if (ch && ch->_sprite && !ch->_sprite->_castId.isNull()) {
+				_state->_castDetails._castMemberID = ch->_sprite->_castId;
+				_state->_castDetails._window = movieId(movie);
+				_state->_w.castDetails = true;
+				_state->_scoreWindow = movieId(movie);
+				_state->_selectedScoreCast.frame = MAX(0, (int)score->getCurrentFrameNum() - 1);
+				_state->_selectedScoreCast.channel = id;
+				_state->_scrollToChannel = true;
+			}
+		}
+	}
+
+	if (released)
+		_state->_pickMode = false;
+}
+
 void onImGuiRender() {
 	if (!debugChannelSet(-1, kDebugImGui)) {
 		ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange | ImGuiConfigFlags_NoMouse;
@@ -1020,7 +1089,8 @@ void onImGuiRender() {
 	ImGuiIO &io = ImGui::GetIO();
 	io.ConfigFlags &= ~(ImGuiConfigFlags_NoMouseCursorChange | ImGuiConfigFlags_NoMouse);
 
-	if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F1)) {
+	if (_state->_shortcutCapture < 0 && _state->_shortcuts[kActToggleMouseIgnore] != ImGuiKey_None
+			&& ImGui::IsKeyChordPressed(_state->_shortcuts[kActToggleMouseIgnore])) {
 		_state->_ignoreMouse = !_state->_ignoreMouse;
 
 		Common::String msg = Common::String::format("Debug Mouse Ignore: %s", _state->_ignoreMouse ? "ON" : "OFF");
@@ -1029,12 +1099,27 @@ void onImGuiRender() {
 
 	ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
 
+	handleDebuggerShortcuts();
+
+	if (actionTriggered(kActQuickOpen)) {
+		_state->_quickOpen = true;
+		_state->_quickOpenInput[0] = '\0';
+	}
+
+	if (actionTriggered(kActPickFromStage)) {
+		_state->_pickMode = !_state->_pickMode;
+		if (_state->_pickMode)
+			g_system->displayMessageOnOSD(Common::U32String("Pick: click a sprite on the stage"));
+	}
+
+	handlePickFromStage();
+
 	if (ImGui::BeginMainMenuBar()) {
-		if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_2, ImGuiInputFlags_RouteGlobal | ImGuiInputFlags_RouteOverFocused))
+		if (actionTriggered(kActToggleControlPanel))
 			_state->_w.controlPanel = !_state->_w.controlPanel;
-		if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_3, ImGuiInputFlags_RouteGlobal | ImGuiInputFlags_RouteOverFocused))
+		if (actionTriggered(kActToggleCast))
 			_state->_w.cast = !_state->_w.cast;
-		if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_4, ImGuiInputFlags_RouteGlobal | ImGuiInputFlags_RouteOverFocused))
+		if (actionTriggered(kActToggleScore))
 			_state->_w.score = !_state->_w.score;
 		if (ImGui::BeginMenu("View")) {
 			ImGui::SeparatorText("Windows");
@@ -1070,6 +1155,13 @@ void onImGuiRender() {
 			ImGui::MenuItem("Windows", NULL, &_state->_w.windows);
 			ImGui::MenuItem("Execution Context", NULL, &_state->_w.executionContext);
 
+			ImGui::Separator();
+			if (ImGui::MenuItem("Pick from stage", NULL, _state->_pickMode)) {
+				_state->_pickMode = !_state->_pickMode;
+				if (_state->_pickMode)
+					g_system->displayMessageOnOSD(Common::U32String("Pick: click a sprite on the stage"));
+			}
+
 			ImGui::SeparatorText("Misc");
 			if (ImGui::MenuItem("Save state")) {
 				saveCurrentState();
@@ -1082,11 +1174,17 @@ void onImGuiRender() {
 
 			ImGui::EndMenu();
 		}
+		if (ImGui::BeginMenu("Help")) {
+			ImGui::MenuItem("Shortcuts & Tips", NULL, &_state->_w.help);
+			ImGui::EndMenu();
+		}
 		ImGui::EndMainMenuBar();
 	}
 
 	showExecutionContext();
 	showScriptsWindow();
+	showQuickOpen();
+	showHelp();
 
 	showControlPanel();
 	showVars();
@@ -1144,7 +1242,15 @@ void setSelectedChannel(int channel) {
 }
 
 bool isMouseInputIgnored() {
-	if (!_state || !_state->_ignoreMouse)
+	if (!_state)
+		return false;
+
+	// While arming a stage pick, keep the selecting click out of the game so it
+	// only selects the sprite and does not fire its mouseDown/mouseUp handlers.
+	if (_state->_pickMode)
+		return true;
+
+	if (!_state->_ignoreMouse)
 		return false;
 
 	// Holding Shift temporarily allows mouse events to pass to the engine

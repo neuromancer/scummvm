@@ -209,6 +209,7 @@ public:
 	void entranceDrawCredits();
 	void fuseSequence(); // @ F0446_STARTEND_FuseSequence
 	Common::Language getGameLanguage();
+	Common::Platform getPlatform() const { return _gameVersion->_desc.platform; }
 
 	Direction turnDirRight(int16 dir); // @ M17_NEXT
 	Direction turnDirLeft(int16 dir); // @ M19_PREVIOUS
@@ -226,7 +227,6 @@ public:
 
 private:
 	uint16 _dungeonId; // @ G0526_ui_DungeonID
-	byte *_entranceDoorAnimSteps[10]; // @ G0562_apuc_Bitmap_EntranceDoorAnimationSteps
 	byte *_interfaceCredits; // @ G0564_puc_Graphic5_InterfaceCredits
 	Common::RandomSource *_rnd;
 
@@ -234,6 +234,7 @@ private:
 	const DMADGameDescription *_gameVersion;
 	bool _canLoadFromGMM;
 public:
+	byte *_entranceDoorAnimSteps[10]; // @ G0562_apuc_Bitmap_EntranceDoorAnimationSteps
 	Console *_console;
 	DisplayMan *_displayMan;
 	DungeonMan *_dungeonMan;

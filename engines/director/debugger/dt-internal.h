@@ -103,7 +103,30 @@ typedef struct ImGuiWindows {
 	bool search = false;
 	bool imageViewer = false;
 	bool windows = false;
+	bool help = false;
 } ImGuiWindows;
+
+// Rebindable debugger actions. Keep in sync with kShortcutDefs (dt-help.cpp).
+enum DebuggerAction {
+	kActContinue = 0,
+	kActStepOver,
+	kActStepInto,
+	kActStepOut,
+	kActQuickOpen,
+	kActPickFromStage,
+	kActToggleControlPanel,
+	kActToggleCast,
+	kActToggleScore,
+	kActToggleMouseIgnore,
+	kActCount
+};
+
+typedef struct ShortcutDef {
+	const char *id;    // stable key for save/load
+	const char *label; // display name
+	const char *help;  // what it does
+	ImGuiKeyChord defaultChord;
+} ShortcutDef;
 
 
 enum SearchMode {
@@ -188,6 +211,22 @@ struct DebuggerTheme {
 	ImVec4 logger_debug;
 };
 
+struct QuickOpenItem {
+	Common::String label;
+	bool isHandler = false;
+	CastMemberID id;
+	ScriptType scriptType = kScoreScript;
+	Common::String handlerId;
+	Common::String handlerName;
+};
+
+struct CastRowEntry {
+	const Cast *cast = nullptr;
+	CastMember *member = nullptr;
+	int id = 0;
+	Common::String name;
+};
+
 typedef struct ImGuiState {
 
 	struct WatchLogEntry {
@@ -263,6 +302,7 @@ typedef struct ImGuiState {
 		DatumHash _prevGlobals;
 
 		uint32 _lastTimeRefreshed = 0;
+		ImGuiTextFilter _nameFilter;
 	} _vars;
 
 	struct {
@@ -286,6 +326,18 @@ typedef struct ImGuiState {
 
 	ScriptData _openScripts;
 	bool _showCompleteScript = true;
+
+	// Quick-open (command palette): jump to a cast member or handler by name.
+	bool _quickOpen = false;
+	char _quickOpenInput[256] = {};
+
+	// Pick-from-stage: next stage click selects the sprite under the cursor.
+	bool _pickMode = false;
+
+	// Rebindable shortcut chords, indexed by DebuggerAction; -1 = not capturing.
+	ImGuiKeyChord _shortcuts[kActCount] = {};
+	int _shortcutCapture = -1;
+	ImGuiKeyChord _shortcutPending = ImGuiKey_None; // chord being held during a rebind
 
 	Common::HashMap<Common::String, bool, Common::IgnoreCase_Hash, Common::IgnoreCase_EqualTo> _variables;
 	int _prevFrame = -1;
@@ -340,6 +392,13 @@ typedef struct ImGuiState {
 	bool _enableMultiViewport = true;
 
 	Window *_windowToRedraw = nullptr;
+
+	// Cached UI lists. Kept in the state (not file-static) so their Common::Strings
+	// free in onImGuiCleanup while g_system is alive, not at process exit.
+	Common::Array<CastRowEntry> _castRows;
+	Common::String _castRowsKey;
+	Common::Array<QuickOpenItem> _quickOpenItems;
+	bool _quickOpenGathered = false;
 } ImGuiState;
 
 // debugtools.cpp
@@ -365,6 +424,7 @@ ImVec4 convertColor(uint32 color);
 void displayVariable(const Common::String &name, bool changed, bool outOfScope = false);
 ImColor brightenColor(const ImColor &color, float factor);
 Window *windowListCombo(Common::String *target);
+Common::String movieId(const Movie *m);
 Window *findWindowByName(const Common::String &name);
 bool selectableViewButton(const char *label, bool selected);
 Common::String formatHandlerName(int scriptId, int castId, Common::String handlerName, ScriptType scriptType, bool childScript);
@@ -383,6 +443,14 @@ void showCast();		// dt-cast.cpp
 void showImageViewer();	// dt-castdetails.cpp
 void showCastDetails();	// dt-castdetails.cpp
 void showControlPanel();// dt-controlpanel.cpp
+void handleDebuggerShortcuts();	// dt-controlpanel.cpp
+
+// dt-help.cpp
+extern const ShortcutDef kShortcutDefs[kActCount];
+void initShortcuts();       // load defaults into _state->_shortcuts
+void resetShortcuts();      // restore defaults
+void showHelp();            // the Help window (shortcuts + tips)
+bool actionTriggered(DebuggerAction act);   // Shortcut() honouring the current binding
 
 // dt-lists.cpp
 void showVars();
@@ -402,6 +470,7 @@ void renderScriptAST(ImGuiScript &script, bool showByteCode, bool scrollTo);	   
 void showFuncList();
 void showExecutionContext();
 void showScriptsWindow();
+void showQuickOpen();
 
 // dt-save-state.cpp
 void saveCurrentState();

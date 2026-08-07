@@ -24,6 +24,7 @@
 #include "director/director.h"
 #include "director/debugger/dt-internal.h"
 
+#include "director/archive.h"
 #include "director/cast.h"
 #include "director/castmember/bitmap.h"
 #include "director/castmember/text.h"
@@ -67,10 +68,11 @@ static const char *toIcon(CastType castType) {
 		ICON_MS_MOVIE,                // Movie
 		ICON_MS_ANIMATED_IMAGES,      // DigitalVideo
 		ICON_MS_FORMS_APPS_SCRIPT,    // Script
-		ICON_MS_BRAND_FAMILY,         // RTE
-		"?",                          // ???
-		ICON_MS_TRANSITION_FADE};     // Transition
-	if (castType < 0 || castType > kCastTransition)
+		ICON_MS_BRAND_FAMILY,         // RichText
+		"?",                          // OLE
+		ICON_MS_TRANSITION_FADE,      // Transition
+		""};                          // Xtra
+	if (castType < 0 || castType > kCastXtra)
 		return "";
 	return castTypes[(int)castType];
 }
@@ -111,13 +113,6 @@ Common::String getDisplayName(CastMember *castMember) {
 	return Common::String::format("%u", castMember->getID());
 }
 
-struct CastRowEntry {
-	const Cast *cast = nullptr;
-	CastMember *member = nullptr;
-	int id = 0;
-	Common::String name;
-};
-
 // Collects the cast's members that pass the filters, sorted by member number.
 static void gatherCastMembers(const Cast *cast, Common::Array<CastRowEntry> &rows) {
 	if (!cast || !cast->_loadedCast)
@@ -146,6 +141,21 @@ static void gatherCastMembers(const Cast *cast, Common::Array<CastRowEntry> &row
 		entry.name = name;
 		rows.push_back(entry);
 	}
+}
+
+static void sortCastRows(Common::Array<CastRowEntry> &rows, int col, bool asc) {
+	Common::sort(rows.begin(), rows.end(), [col, asc](const CastRowEntry &a, const CastRowEntry &b) {
+		int c;
+		switch (col) {
+		case 1: c = a.name.compareToIgnoreCase(b.name); break;          // Name
+		case 4: c = (int)a.member->_type - (int)b.member->_type; break; // Type
+		case 2: // ID
+		default:
+			c = a.id - b.id;
+			break;
+		}
+		return asc ? (c < 0) : (c > 0);
+	});
 }
 
 static ImGuiImage getThumbnail(CastMember *member) {
@@ -318,16 +328,29 @@ void showCast() {
 		}
 		_state->_cast._nameFilter.Draw();
 
-		Common::Array<CastRowEntry> rows;
+		// Gathering rows (load, name formatting, filtering) is costly for big
+		// casts, so cache them and rebuild only when movie/filters/size change.
+		Common::Array<CastRowEntry> &rows = _state->_castRows;
+		Common::String &rowsKey = _state->_castRowsKey;
+
 		int total = 0;
-		for (auto it : *movie->getCasts()) {
-			gatherCastMembers(it._value, rows);
+		for (auto it : *movie->getCasts())
 			if (it._value->_loadedCast)
 				total += it._value->_loadedCast->size();
-		}
-		gatherCastMembers(movie->getSharedCast(), rows);
 		if (movie->getSharedCast() && movie->getSharedCast()->_loadedCast)
 			total += movie->getSharedCast()->_loadedCast->size();
+
+		Common::String moviePath = movie->getArchive() ? movie->getArchive()->getPathName().toString() : movie->getMacName();
+		Common::String key = Common::String::format("%s|%s|%d|%d", moviePath.c_str(),
+			_state->_cast._nameFilter.InputBuf, _state->_cast._typeFilter, total);
+		const bool rowsRebuilt = (key != rowsKey);
+		if (rowsRebuilt) {
+			rowsKey = key;
+			rows.clear();
+			for (auto it : *movie->getCasts())
+				gatherCastMembers(it._value, rows);
+			gatherCastMembers(movie->getSharedCast(), rows);
+		}
 
 		ImGui::SameLine();
 		if ((int)rows.size() == total)
@@ -342,14 +365,23 @@ void showCast() {
 		ImGui::BeginChild("##cast", ImVec2(childsize.x, childsize.y - sliderHeight));
 
 		if (_state->_cast._listView) {
-			if (ImGui::BeginTable("Resources", 6, ImGuiTableFlags_Borders | ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg)) {
-				ImGui::TableSetupColumn("No.", 0, 30.f);
+			if (ImGui::BeginTable("Resources", 6, ImGuiTableFlags_Borders | ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg | ImGuiTableFlags_Sortable)) {
+				ImGui::TableSetupColumn("No.", ImGuiTableColumnFlags_NoSort, 30.f);
 				ImGui::TableSetupColumn("Name", 0, 120.f);
-				ImGui::TableSetupColumn("ID", 0, 20.f);
-				ImGui::TableSetupColumn("Script", 0, 80.f);
+				ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_DefaultSort, 20.f);
+				ImGui::TableSetupColumn("Script", ImGuiTableColumnFlags_NoSort, 80.f);
 				ImGui::TableSetupColumn("Type", 0, 80.f);
-				ImGui::TableSetupColumn("Preview", ImGuiTableColumnFlags_WidthStretch, 50.f);
+				ImGui::TableSetupColumn("Preview", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_NoSort, 50.f);
 				ImGui::TableHeadersRow();
+
+				// re-sort on a header click, or after the row cache was rebuilt
+				if (ImGuiTableSortSpecs *ss = ImGui::TableGetSortSpecs()) {
+					if ((ss->SpecsDirty || rowsRebuilt) && ss->SpecsCount > 0) {
+						sortCastRows(rows, ss->Specs[0].ColumnIndex,
+							ss->Specs[0].SortDirection == ImGuiSortDirection_Ascending);
+						ss->SpecsDirty = false;
+					}
+				}
 
 				// only submit the visible rows, not the whole cast, each frame
 				ImGuiListClipper clipper;
