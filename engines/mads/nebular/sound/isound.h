@@ -24,6 +24,7 @@
 
 #include "audio/audiostream.h"
 #include "audio/mixer.h"
+#include "mads/core/pcspk_pit.h"
 #include "mads/core/sound_manager.h"
 
 namespace MADS {
@@ -43,11 +44,14 @@ class ISound : public SoundDriver, public Audio::AudioStream {
 public:
 	enum {
 		kPitClockHz = 1193182,
-		kSequenceRateHz = 100,
-		kNoiseRateHz = 60,
+		kHostTimerDivisor = 0x07a8,
+		kHostServiceDivider = 2,
+		kSequenceServiceDivider = 5,
+		// Match the fixed 48-kHz rate used by DOSBox Staging's post-0.82.2
+		// impulse model (b53ac15). Audio::Mixer handles device conversion.
+		kPCSpeakerSampleRate = 48000,
 		kDefaultOutputVolume = 20,
 		kFrequencyTableOffset = 0x0114,
-		kFrequencyTableEntries = 90,
 		kInitialNullSequenceOffset = 0x00f0,
 		kMaxOperationsPerTick = 1024
 	};
@@ -60,14 +64,13 @@ protected:
 	};
 
 	Audio::SoundHandle _speakerHandle;
-	bool _speakerGate;
 	bool _noiseEnabled;
 	bool _updatesEnabled;
 	int _masterVolume;
 	int _outputRate;
-	uint32 _sequenceAccumulator;
-	uint32 _noiseAccumulator;
-	uint64 _oscillatorPhase;
+	uint64 _hostTimerAccumulator;
+	byte _sequenceServiceCountdown;
+	PCSpeakerPITRenderer _pitRenderer;
 
 	uint16 _frameCounter;
 	uint16 _randomSeed;
@@ -93,10 +96,6 @@ protected:
 
 	uint16 _noiseMask;
 	uint16 _currentDivisor;
-	uint16 _lastOutputDivisor;
-	uint16 _pendingDivisor;
-	bool _hasPendingDivisor;
-	bool _speakerHigh;
 	uint16 _pitchStep;
 	uint16 _directDivisor;
 
@@ -114,7 +113,7 @@ protected:
 
 	static OverlayLayout readOverlayLayout(const Common::Path &filename);
 
-	ISound(Audio::Mixer *mixer,const Common::Path &filename, const OverlayLayout &layout);
+	ISound(Audio::Mixer *mixer, const Common::Path &filename, const OverlayLayout &layout);
 
 	byte readSequenceByte(uint16 offset) const;
 	uint16 readSequenceUint16(uint16 offset) const;

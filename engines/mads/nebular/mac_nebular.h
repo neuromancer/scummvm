@@ -22,23 +22,29 @@
 #ifndef MADS_NEBULAR_MAC_NEBULAR_H
 #define MADS_NEBULAR_MAC_NEBULAR_H
 
-#include "common/array.h"
 #include "common/rect.h"
 #include "graphics/managed_surface.h"
+
+namespace Common {
+struct Event;
+}
 
 namespace MADS {
 namespace RexNebular {
 
 class MacResourceProvider;
+class MacNebularMenu;
 class RexNebularEngine;
 
 class MacNebular {
 private:
 	RexNebularEngine &_engine;
 	MacResourceProvider *_resources = nullptr;
-	Common::Array<byte> _output;
+	MacNebularMenu *_menus = nullptr;
+	Graphics::ManagedSurface _output;
 	Graphics::ManagedSurface _popup;
 	Common::Rect _popupRect;
+	bool _useOriginalMenus;
 	bool _popupActive = false;
 	bool _layoutLogged = false;
 
@@ -51,6 +57,7 @@ public:
 	void applyGameSettings();
 	Common::Point screenToGame(const Common::Point &point) const;
 	Common::Point gameToScreen(const Common::Point &point) const;
+	bool handleMacEvent(Common::Event &event);
 	void presentScreen(int shakeOffset);
 	void showPopup();
 	void hidePopup();

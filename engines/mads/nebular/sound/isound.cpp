@@ -31,9 +31,10 @@ namespace Sound {
 
 namespace {
 
+const uint32 kNominalFrequencyTableEntries = 90;
 const uint32 kMinimumDataSegmentSize =
-ISound::kFrequencyTableOffset +
-ISound::kFrequencyTableEntries * 2;
+	ISound::kFrequencyTableOffset +
+	kNominalFrequencyTableEntries * 2;
 
 } // namespace
 
@@ -87,6 +88,9 @@ ISound::OverlayLayout ISound::readOverlayLayout(
 	result.initializedDataSize = (uint32)(fileSize - dataOffset);
 	result.dataSegmentSize = dataSegmentSize;
 
+	// The descriptor's nominal 100 Hz value identifies the expected overlay
+	// ABI. The native host supplies its actual callbacks from a separate PIT
+	// cascade reconstructed in readBuffer().
 	if (result.dataSegmentSize < result.initializedDataSize ||
 		result.dataSegmentSize < kMinimumDataSegmentSize ||
 		timerHz != 100 || exportCount != 11)
@@ -102,14 +106,13 @@ ISound::ISound(Audio::Mixer *mixer, const Common::Path &filename) :
 
 ISound::ISound(Audio::Mixer *mixer, const Common::Path &filename, const OverlayLayout &layout) :
 		SoundDriver(mixer, filename, (int)layout.dataOffset, (int)layout.initializedDataSize),
-	_speakerGate(false),
 	_noiseEnabled(false),
 	_updatesEnabled(false),
 	_masterVolume(255),
-	_outputRate(mixer->getOutputRate()),
-	_sequenceAccumulator(0),
-	_noiseAccumulator(0),
-	_oscillatorPhase(0),
+	_outputRate(kPCSpeakerSampleRate),
+	_hostTimerAccumulator(0),
+	_sequenceServiceCountdown(1),
+	_pitRenderer(_outputRate, kPitClockHz),
 	_frameCounter(0),
 	_randomSeed(0),
 	_commandParam(0),
@@ -131,10 +134,6 @@ ISound::ISound(Audio::Mixer *mixer, const Common::Path &filename, const OverlayL
 	_fineOffset(0),
 	_noiseMask(0),
 	_currentDivisor(0),
-	_lastOutputDivisor(0),
-	_pendingDivisor(0),
-	_hasPendingDivisor(false),
-	_speakerHigh(true),
 	_pitchStep(0),
 	_directDivisor(0),
 	_alternationReload(0),
@@ -195,8 +194,6 @@ void ISound::resetDriver() {
 	_outerLoopCount = 0;
 	_noiseMask = 0;
 	_currentDivisor = 0;
-	_pendingDivisor = 0;
-	_hasPendingDivisor = false;
 	_pitchStep = 0;
 	_gateOffset = 0;
 	_fineOffset = 0;
@@ -365,12 +362,12 @@ void ISound::processRandomMutation() {
 
 uint16 ISound::calculateNoteDivisor(byte note) const {
 	const byte tableIndex = (byte)(note + _transpose);
-	if (tableIndex >= kFrequencyTableEntries)
-		error("ISOUND note-table index %u is out of range", tableIndex);
 
-	const uint32 tableOffset =
-		kFrequencyTableOffset + (uint32)tableIndex * 2;
-	const uint16 divisor = READ_LE_UINT16(&_soundData[tableOffset]);
+	// The native driver uses an unrestricted byte index here. Some original
+	// sequences deliberately read words beyond the nominal 90-entry table.
+	const uint16 tableOffset =
+		kFrequencyTableOffset + (uint16)tableIndex * 2;
+	const uint16 divisor = readSequenceUint16(tableOffset);
 	return (uint16)(divisor + _fineOffset);
 }
 
@@ -379,20 +376,7 @@ byte ISound::outputVolume() const {
 }
 
 void ISound::outputDivisor(uint16 divisor) {
-	// Reprogramming an 8254 counter in mode 3 does not restart the current
-	// half-cycle. The new count is loaded at the next output transition.
-	// This is especially important while the noise service rewrites the
-	// divisor: restarting the waveform on every write creates false tones.
-	if (_speakerGate && _lastOutputDivisor) {
-		_pendingDivisor = divisor;
-		_hasPendingDivisor = true;
-	} else {
-		_lastOutputDivisor = divisor;
-		_pendingDivisor = 0;
-		_hasPendingDivisor = false;
-		_oscillatorPhase = 0;
-		_speakerHigh = true;
-	}
+	_pitRenderer.writeMode3Count(divisor);
 }
 
 void ISound::startSpeaker() {
@@ -403,15 +387,12 @@ void ISound::startSpeaker() {
 	_sweepInitialized = false;
 	_alternationToggle = false;
 	outputDivisor(_currentDivisor);
-	_speakerGate = true;
+	_pitRenderer.setControl(true, true);
 }
 
 void ISound::stopSpeaker() {
-	_speakerGate = false;
+	_pitRenderer.setControl(false, false);
 	_sweepInitialized = false;
-	_hasPendingDivisor = false;
-	_oscillatorPhase = 0;
-	_speakerHigh = true;
 }
 
 void ISound::processOrdinaryEvent() {
@@ -533,16 +514,8 @@ void ISound::updateAlternation() {
 		_alternationToggle = false;
 	}
 
-	const byte tableIndex = (byte)(
-		_note + _transpose + alternatingOffset);
-	if (tableIndex >= kFrequencyTableEntries)
-		error("ISOUND alternating note-table index %u is out of range",
-			tableIndex);
-
-	const uint32 tableOffset =
-		kFrequencyTableOffset + (uint32)tableIndex * 2;
-	_currentDivisor = (uint16)(
-		READ_LE_UINT16(&_soundData[tableOffset]) + _fineOffset);
+	_currentDivisor = calculateNoteDivisor(
+		(byte)(_note + alternatingOffset));
 }
 
 void ISound::updatePitch() {
@@ -615,7 +588,7 @@ void ISound::noiseTick() {
 }
 
 int ISound::poll() {
-	// Playback advances from the audio stream at the overlay's 100 Hz rate.
+	// Playback advances from the audio stream at the native host cadence.
 	return 0;
 }
 
@@ -639,58 +612,40 @@ void ISound::setVolume(int volume) {
 }
 
 int16 ISound::generateSample() {
-	if (!_speakerGate)
-		return 0;
-
-	// A PIT divisor of zero represents 65536.
-	_oscillatorPhase += kPitClockHz;
-
-	for (;;) {
-		const uint32 effectiveDivisor =
-			_lastOutputDivisor ? _lastOutputDivisor : 0x10000;
-		const uint32 halfCount = _speakerHigh ?
-			(effectiveDivisor + 1) / 2 : effectiveDivisor / 2;
-		const uint64 halfPeriod = (uint64)MAX<uint32>(halfCount, 1) *
-			_outputRate;
-		if (_oscillatorPhase < halfPeriod)
-			break;
-
-		_oscillatorPhase -= halfPeriod;
-		_speakerHigh = !_speakerHigh;
-		if (_hasPendingDivisor) {
-			_lastOutputDivisor = _pendingDivisor;
-			_pendingDivisor = 0;
-			_hasPendingDivisor = false;
-		}
-	}
-
-	if (!_masterVolume)
-		return 0;
-
-	const int amplitude = 127 * outputVolume();
-	return _speakerHigh ? amplitude : -amplitude;
+	return _pitRenderer.generateSample(outputVolume());
 }
 
 int ISound::readBuffer(int16 *buffer, int numSamples) {
 	Common::StackLock lock(_driverMutex);
 
+	const uint64 serviceThreshold = (uint64)_outputRate *
+		kHostTimerDivisor * kHostServiceDivider;
+	assert(serviceThreshold > kPitClockHz);
+
 	for (int sample = 0; sample < numSamples; ++sample) {
-		_sequenceAccumulator += kSequenceRateHz;
-		if (_sequenceAccumulator >= (uint32)_outputRate) {
-			_sequenceAccumulator -= _outputRate;
-			timerTick();
-		}
+		const uint64 previousHostTimerAccumulator = _hostTimerAccumulator;
+		_hostTimerAccumulator += kPitClockHz;
+		if (_hostTimerAccumulator >= serviceThreshold) {
+			// The accumulator crossing identifies the service interrupt's exact
+			// position inside this output sample. Advance the PIT there before
+			// applying the native count and control writes.
+			const uint64 servicePosition = serviceThreshold -
+				previousHostTimerAccumulator;
+			assert(servicePosition <= kPitClockHz);
+			_pitRenderer.advanceToSampleFraction(
+				(uint32)servicePosition, kPitClockHz);
+			_hostTimerAccumulator -= serviceThreshold;
 
-		_noiseAccumulator += kNoiseRateHz;
-		if (_noiseAccumulator >= (uint32)_outputRate) {
-			_noiseAccumulator -= _outputRate;
-
-			// The overlay proves that noise is serviced independently from
-			// its 100 Hz sequencer, but not the host interval. The original
-			// capture is consistent with the surviving MADS 60 Hz service
-			// cadence; the 600 Hz counter is a timing clock.
+			// The host calls export 4 before export 3 when both are due.
+			// Consequently, a poll result changes noise on the next service
+			// tick rather than the current one.
 			if (_noiseEnabled)
 				noiseTick();
+
+			if (!--_sequenceServiceCountdown) {
+				_sequenceServiceCountdown = kSequenceServiceDivider;
+				timerTick();
+			}
 		}
 
 		buffer[sample] = generateSample();
