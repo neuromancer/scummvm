@@ -64,7 +64,7 @@ void anim_timer() {
 	Frame *frame;
 	int sound, count;
 
-	if (current_error_code || speechStream)
+	if (current_error_code || speechResourceId != -1)
 		goto done;
 	if (currentFrame < 0 || currentFrame >= maxFrame)
 		goto done;
@@ -113,9 +113,11 @@ void anim_timer() {
 		goto block2;
 
 	speech = &current_anim->speech[speechIndex];
-	flag = speech->display_condition != 0x4000 &&
-		speech->display_condition != 0x800 &&
-		speech->resource_id >= 0;
+	if (hasSpeechAudio) {
+		flag = speech->display_condition != 0x4000 &&
+			speech->display_condition != 0x800 &&
+			speech->resource_id >= 0;
+	}
 
 	if (g_engine->getGameID() != GType_RexNebular) {
 		// In Phantom sound_dma is one of the sound card params which can be configurable via flags.
@@ -127,7 +129,7 @@ void anim_timer() {
 	}
 
 	if (flag) {
-		speechStream = speech->speech;
+		speechResourceId = speech->resource_id;
 		speechFlags = speech->flags;
 		goto done;
 	}
@@ -201,7 +203,7 @@ block2:
 
 	imageCount = image_marker;
 	for (; imageFrame < current_anim->num_images; ++imageFrame) {
-		Image *img = &current_anim->image[imageFrame];
+		const Image *img = &current_anim->image[imageFrame];
 
 		if (img->flags > currentFrame)
 			break;
@@ -212,7 +214,8 @@ block2:
 		for (count = 0; !found && count < imageCount; ++count) {
 			Image *img2 = &image_list[count];
 
-			found = img->series_id == img2->series_id &&
+			found = img->segment_id == img2->segment_id &&
+				img->series_id == img2->series_id &&
 				img->sprite_id == img2->sprite_id &&
 				img->x == img2->x &&
 				img->y == img2->y &&

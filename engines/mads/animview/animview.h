@@ -30,7 +30,6 @@ namespace MADS {
 namespace AnimView {
 
 // Variables shared with other AnimView namespace files
-extern Audio::AudioStream *speechStream;
 extern int speechFlags;
 extern int current_error_code;
 extern int currentFrame, minFrame, maxFrame;
@@ -54,6 +53,8 @@ extern int currentViewX, currentViewY;
 extern int concat_mode;
 extern bool wait_for_music_at_end;
 extern bool stop_music_at_end;
+extern bool hasSpeechAudio;
+extern int speechResourceId;
 
 // Main animview function
 extern void animview_main(const char *resName);
