@@ -164,7 +164,7 @@ private:
 
 	/**
 	 * Zeroes _activeCount and the three fade-step fields for channels in
-	 * [first, last) - matches the shared shape of sub_10132/sub_101A0/sub_101EA.
+	 * [first, last).
 	 */
 	void resetChannelRange(int first, int last);
 
@@ -174,7 +174,7 @@ private:
 	void resetHeldNotes();
 
 	/**
-	 * Matches sub_10132: resets all 9 channels and the held-notes table.
+	 * Resets all 9 channels and the held-notes table.
 	 */
 	void resetAllChannels();
 
@@ -243,8 +243,6 @@ protected:
 	// ---- Low-level MIDI send helpers -------------------------------
 	// All funnel through sendMidiByte(), the single hook point for
 	// wiring up real MT-32/MIDI output.
-	//void sendMidiByte(byte value);
-	//void sendStatus(int midiChannel, byte statusNibble);
 	void sendNoteOn(int midiChannel, int note, int velocity);
 	void sendProgramChange(int midiChannel, int program);
 	void sendVolume(int midiChannel, int volume);
