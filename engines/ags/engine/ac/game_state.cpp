@@ -385,6 +385,10 @@ bool GameState::ShouldPlayVoiceSpeech() const {
 		(_GP(play).speech_mode != kSpeech_TextOnly) && (_GP(play).voice_avail);
 }
 
+bool GameState::ShouldSmoothWalk() const {
+	return _G(loaded_game_file_version) >= kGameVersion_361;
+}
+
 void GameState::ReadFromSavegame(Stream *in, GameDataVersion data_ver, GameStateSvgVersion svg_ver, RestoredData &r_data) {
 	const bool old_save = svg_ver < kGSSvgVersion_Initial;
 	const bool extended_old_save = old_save && (data_ver >= kGameVersion_340_4);

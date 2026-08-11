@@ -35,6 +35,16 @@ Supporto dei giochi compilati con ags 3.6.2.
 - Non fare refactor speculativi oltre lo scope del commit che si sta
   portando.
 
+## Compilazione per test
+- Esegui sempre `make -j1` (single core), senza parallelismo, per avere
+  log di errore lineari e non intrecciati.
+- Compila solo il motore AGS: esegui la configure con
+  `--disable-all-engines --enable-engine=ags` prima del make.
+- Sequenza tipica:
+  `./configure --disable-all-engines --enable-engine=ags && make -j1`
+- Se la build directory ha già una configurazione diversa, ri-esegui
+  `make clean` o cancella la build dir e riconfigura da zero.
+
 ## CI/CD (GitHub Actions)
 - Quando modifichi i workflow, spiega il motivo del cambiamento (es. nome
   pacchetto, flag di configure, conflitto plugin linuxdeploy) in un

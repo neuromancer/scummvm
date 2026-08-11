@@ -698,7 +698,28 @@ ScriptCamera *Game_GetAnyCamera(int index) {
 }
 
 void Game_SimulateKeyPress(int key) {
-	ags_simulate_keypress(static_cast<eAGSKeyCode>(key), (_GP(game).options[OPT_KEYHANDLEAPI] == 0));
+	const bool old_key_mode = _GP(game).options[OPT_KEYHANDLEAPI] == 0;
+	eAGSKeyCode modkey = eAGSKeyCodeNone;
+	eAGSKeyMod mod = eAGSModNone;
+	// Support combo-keys, split them into key + mod and pass as separate events.
+	// If game is running in the old-key mode, then they will become re-combined again on receival.
+	if (key >= eAGSKeyCodeCtrlA && key <= eAGSKeyCodeCtrlZ) {
+		key = key - eAGSKeyCodeCtrlA + eAGSKeyCodeA;
+		modkey = eAGSKeyCodeLCtrl;
+		mod = eAGSModCtrl;
+	} else if (key >= eAGSKeyCodeAltA && key <= eAGSKeyCodeAltZ) {
+		key = AGS_EXT_KEY_TOALPHA(key);
+		modkey = eAGSKeyCodeLAlt;
+		mod = eAGSModAlt;
+	}
+
+	if (modkey > 0) {
+		ags_simulate_keydown(modkey);
+		ags_simulate_keypress(static_cast<eAGSKeyCode>(key), mod, old_key_mode);
+		ags_simulate_keyup(modkey);
+	} else {
+		ags_simulate_keypress(static_cast<eAGSKeyCode>(key), eAGSModNone, old_key_mode);
+	}
 }
 
 int Game_BlockingWaitSkipped() {

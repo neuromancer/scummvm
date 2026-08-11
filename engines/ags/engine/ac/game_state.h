@@ -417,6 +417,9 @@ struct GameState {
 	// Speech helpers
 	bool ShouldPlayVoiceSpeech() const;
 
+	// Tells whether smooth walk transition should be used
+	bool ShouldSmoothWalk() const;
+
 	//
 	// Serialization
 	//

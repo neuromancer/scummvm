@@ -20,6 +20,7 @@
  */
 
 #include "common/events.h"
+#include "common/keyboard.h"
 #include "ags/engine/ac/sys_events.h"
 #include "ags/shared/core/platform.h"
 #include "ags/shared/ac/common.h"
@@ -88,20 +89,52 @@ int ags_iskeydown(eAGSKeyCode ags_key) {
 	return ::AGS::g_events->isKeyPressed(ags_key, _GP(game).options[OPT_KEYHANDLEAPI] == 0);
 }
 
-void ags_simulate_keypress(eAGSKeyCode ags_key, bool old_keyhandle) {
+static byte ags_mod_to_kbd_flags(eAGSKeyMod mod) {
+	byte flags = 0;
+	if (mod & eAGSModLShift) flags |= Common::KBD_SHIFT;
+	if (mod & eAGSModRShift) flags |= Common::KBD_SHIFT;
+	if (mod & eAGSModLCtrl)  flags |= Common::KBD_CTRL;
+	if (mod & eAGSModRCtrl)  flags |= Common::KBD_CTRL;
+	if (mod & eAGSModLAlt)   flags |= Common::KBD_ALT;
+	if (mod & eAGSModRAlt)   flags |= Common::KBD_ALT;
+	return flags;
+}
+
+static void push_key_event(eAGSKeyCode ags_key, uint32 event_type) {
 	Common::KeyCode keycode[3];
 	if (!::AGS::EventsManager::ags_key_to_scancode(ags_key, keycode))
 		return;
 
-	// Push a key event to the event queue; note that this won't affect the key states array
+	Common::Event e;
+	e.type = (Common::EventType)event_type;
+	e.kbd.keycode = keycode[0];
+	e.kbd.flags = ::AGS::g_events->getModifierFlags();
+	::AGS::g_events->pushKeyboardEvent(e);
+}
+
+void ags_simulate_keypress(eAGSKeyCode ags_key, eAGSKeyMod mod, bool old_keyhandle) {
+	Common::KeyCode keycode[3];
+	if (!::AGS::EventsManager::ags_key_to_scancode(ags_key, keycode))
+		return;
+
+	// Push a key down event to the event queue; note that this won't affect the key states array
 	Common::Event e;
 	e.type = Common::EVENT_KEYDOWN;
 	e.kbd.keycode = keycode[0];
 	e.kbd.ascii = (e.kbd.keycode >= 32 && e.kbd.keycode <= 127) ? e.kbd.keycode : 0;
+	e.kbd.flags = ags_mod_to_kbd_flags(mod) | ::AGS::g_events->getModifierFlags();
 
 	::AGS::g_events->pushKeyboardEvent(e);
 	e.type = Common::EVENT_KEYUP;
 	::AGS::g_events->pushKeyboardEvent(e);
+}
+
+void ags_simulate_keydown(eAGSKeyCode ags_key) {
+	push_key_event(ags_key, Common::EVENT_KEYDOWN);
+}
+
+void ags_simulate_keyup(eAGSKeyCode ags_key) {
+	push_key_event(ags_key, Common::EVENT_KEYUP);
 }
 
 // ----------------------------------------------------------------------------

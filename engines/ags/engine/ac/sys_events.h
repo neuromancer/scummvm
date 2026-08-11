@@ -62,8 +62,12 @@ extern Common::Event ags_get_next_keyevent();
 // Tells if the key is currently down, provided AGS key.
 // NOTE: for particular script codes this function returns positive if either of two keys are down.
 extern int ags_iskeydown(eAGSKeyCode ags_key);
-// Simulates key press with the given AGS key
-extern void ags_simulate_keypress(eAGSKeyCode ags_key, bool old_keyhandle);
+// Simulates key press with the given AGS key (sends key down, then key up event)
+extern void ags_simulate_keypress(eAGSKeyCode ags_key, eAGSKeyMod mod, bool old_keyhandle);
+// Simulates key down event with the given AGS key
+extern void ags_simulate_keydown(eAGSKeyCode ags_key);
+// Simulates key up event with the given AGS key
+extern void ags_simulate_keyup(eAGSKeyCode ags_key);
 
 
 // Mouse input handling

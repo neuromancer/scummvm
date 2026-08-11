@@ -76,7 +76,16 @@ int RoomObject::get_baseline() const {
 void RoomObject::UpdateCyclingView(int ref_id) {
 	if (on != 1) return;
 	if (moving > 0) {
-		do_movelist_move(moving, x, y);
+		// If we support smooth walk, then keep moving even across multiple stages,
+		// until all the "current move" is not depleted OR until we have to turn.
+		// NOTE: due to how this function acts, the movelist progress will only increment
+		// by +1.0 once here, either if we did not reach next stage yet, or if we did and
+		// then depleted all the move remainer. This +1.0 progress update will *not*
+		// be synced with the object position right away, but is scheduled for the next
+		// move update.
+		MoveResult last_move_result;
+		while (((last_move_result = do_movelist_move(moving, x, y, _GP(play).ShouldSmoothWalk())) == kMoveResult_NextStage)
+			&& _GP(play).ShouldSmoothWalk()) { }
 	}
 	if (cycling == 0) return;
 	if (view == RoomObject::NoView) return;

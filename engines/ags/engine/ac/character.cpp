@@ -1826,14 +1826,29 @@ int has_hit_another_character(int sourceChar) {
 // Returns 1 if they are now waiting for another char to move,
 // otherwise returns 0
 int doNextCharMoveStep(CharacterInfo *chi, int &char_index, CharacterExtras *chex) {
-	int ntf = 0, xwas = chi->x, ywas = chi->y;
-
-	if (do_movelist_move(chi->walking, chi->x, chi->y) == 2) {
+	int xwas = chi->x, ywas = chi->y;
+	// If we support smooth walk, then keep moving even across multiple stages,
+	// until all the "current move" is not depleted OR until we have to turn.
+	// NOTE: due to how this function acts, the movelist progress will only increment
+	// by +1.0 once here, either if we did not reach next stage yet, or if we did and
+	// then depleted all the move remainer. This +1.0 progress update will *not*
+	// be synced with the character position right away, but is scheduled for the next
+	// move update.
+	while (do_movelist_move(chi->walking, chi->x, chi->y, _GP(play).ShouldSmoothWalk()) == kMoveResult_NextStage) {
+		// Character just switched to the next path segment, test if we need to turn.
+		auto &mlist = _GP(mls)[chi->walking];
 		if ((chi->flags & CHF_MOVENOTWALK) == 0)
-			fix_player_sprite(&_GP(mls)[chi->walking], chi);
+			fix_player_sprite(&mlist, chi);
+		bool is_turning = (chi->walking >= TURNING_AROUND);
+		// If either started to turn, or we don't use smooth walk transition,
+		// then force reset stage progress to zero, so to eliminate any unused remainder.
+		if (!_GP(play).ShouldSmoothWalk() || is_turning) {
+			mlist.onpart = 0.f;
+			break;
+		}
 	}
 
-	ntf = has_hit_another_character(char_index);
+	int ntf = has_hit_another_character(char_index);
 	if (ntf >= 0) {
 		chi->walkwait = 30;
 		if (_GP(game).chars[ntf].walkspeed < 5)
