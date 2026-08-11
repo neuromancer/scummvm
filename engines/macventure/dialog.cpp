@@ -72,6 +72,7 @@ Dialog::Dialog(Gui *gui, Common::MacResManager *resourceManager, uint16 resID) {
 		stream->readUint32BE(); // reserved
 		PrebuiltDialogElement element;
 		element.action = kDANone;
+		element.title = "";
 		element.top = stream->readUint16BE();
 		element.left = stream->readUint16BE();
 		element.height = stream->readUint16BE() - element.top;
@@ -153,6 +154,9 @@ void Dialog::handleDialogAction(DialogElement *trigger, DialogAction action) {
 	case kDAQuit:
 		_gui->quitGame();
 		_gui->closeDialog();
+		break;
+	case kDAPrintDiploma:
+		_gui->printDiploma();
 		break;
 	default:
 		break;
