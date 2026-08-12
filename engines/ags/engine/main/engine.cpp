@@ -415,7 +415,7 @@ int check_write_access() {
 		put_backslash(android_base_directory);
 		tempPath.Format("%s""tmptest.tmp", android_base_directory);
 		temp_s = Shared::File::CreateFile(tempPath);
-		if (temp_s == NULL) return 0;
+		if (temp_s == nullptr) return 0;
 		else SetCustomSaveParent(android_base_directory);
 	}
 #else

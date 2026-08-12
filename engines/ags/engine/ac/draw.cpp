@@ -620,8 +620,10 @@ void on_roomcamera_changed(Camera *cam) {
 	invalidate_screen();
 }
 
+static const int AGS_OBJCACHE_INVALID_COORD = -9999;
+
 void mark_object_changed(int objid) {
-	_G(objcache)[objid].y = -9999;
+	_G(objcache)[objid].y = AGS_OBJCACHE_INVALID_COORD;
 }
 
 void reset_drawobj_for_overlay(int objnum) {
@@ -2258,7 +2260,7 @@ void render_graphics(IDriverDependantBitmap *extraBitmap, int extraX, int extraY
 	construct_game_screen_overlay(true);
 	render_to_screen();
 
-	if (!SHOULD_QUIT && !_GP(play).screen_is_faded_out) {
+	if (!AGS_SHOULD_QUIT && !_GP(play).screen_is_faded_out) {
 		// always update the palette, regardless of whether the plugin
 		// vetos the screen update
 		if (_G(bg_just_changed)) {

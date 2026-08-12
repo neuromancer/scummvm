@@ -85,12 +85,14 @@ ScriptAudioClip *AudioChannel_GetPlayingClip(ScriptAudioChannel *channel) {
 	return nullptr;
 }
 
+static const int AGS_FAST_FORWARD_AUDIO_POS = 999999999;
+
 int AudioChannel_GetPosition(ScriptAudioChannel *channel) {
 	auto *ch = AudioChans::GetChannelIfPlaying(channel->id);
 
 	if (ch) {
 		if (_GP(play).fast_forward)
-			return 999999999;
+			return AGS_FAST_FORWARD_AUDIO_POS;
 
 		return ch->get_pos();
 	}
@@ -102,7 +104,7 @@ int AudioChannel_GetPositionMs(ScriptAudioChannel *channel) {
 
 	if (ch) {
 		if (_GP(play).fast_forward)
-			return 999999999;
+			return AGS_FAST_FORWARD_AUDIO_POS;
 
 		return ch->get_pos_ms();
 	}

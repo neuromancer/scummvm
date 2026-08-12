@@ -7,7 +7,7 @@
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
- * of the License, or(at your option) any later version.
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -26,8 +26,6 @@
 namespace AGS3 {
 namespace Plugins {
 namespace AGSBlend {
-
-#pragma region Defines_and_Includes
 
 #define MIN_EDITOR_VERSION 1
 #define MIN_ENGINE_VERSION 3
@@ -74,8 +72,6 @@ namespace AGSBlend {
 #define STRINGIFY(s) STRINGIFY_X(s)
 #define STRINGIFY_X(s) #s
 
-#pragma endregion
-
 const char *AGSBlend::AGS_GetPluginName() {
 	return "AGSBlend";
 }
@@ -98,8 +94,6 @@ void AGSBlend::AGS_EngineStartup(IAGSEngine *engine) {
 }
 
 //------------------------------------------------------------------------------
-
-#pragma region Color_Functions
 
 int getr32(int c) {
 	return ((c >> DEFAULT_RGB_R_SHIFT_32) & 0xFF);
@@ -124,10 +118,6 @@ int makeacol32(int r, int g, int b, int a) {
 	        (a << DEFAULT_RGB_A_SHIFT_32));
 }
 
-#pragma endregion
-
-#pragma region Pixel32_Definition
-
 struct Pixel32 {
 public:
 	int Red = 0;
@@ -139,8 +129,6 @@ public:
 		return makeacol32(Red, Green, Blue, Alpha);
 	}
 };
-
-#pragma endregion
 
 void AGSBlend::GetAlpha(ScriptMethodParams &params) {
 	PARAMS3(int, sprite, int, x, int, y);

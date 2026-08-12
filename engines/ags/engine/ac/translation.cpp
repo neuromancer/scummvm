@@ -113,7 +113,7 @@ bool init_translation(const String &lang, const String &fallback_lang) {
 	String encoding_msg = !encoding.IsEmpty() ? encoding : "presume ASCII";
 	Debug::Printf("Translation's encoding: %s", encoding_msg.GetCStr());
 
-	// Mixed encoding support: 
+	// Mixed encoding support:
 	// original text unfortunately may contain extended ASCII chars (> 127);
 	// if translation is UTF-8 but game is extended ASCII, then the translation
 	// dictionary keys won't match. With that assumption we must convert

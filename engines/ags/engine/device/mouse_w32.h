@@ -23,7 +23,6 @@
 #define AGS_ENGINE_DEVICE_MOUSEW32_H
 
 #include "ags/shared/util/geometry.h"
-#include "ags/shared/util/geometry.h"
 
 namespace AGS3 {
 namespace AGS {

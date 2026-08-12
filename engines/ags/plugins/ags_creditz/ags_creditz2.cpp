@@ -72,7 +72,7 @@ void AGSCreditz2::RunCreditSequence(ScriptMethodParams &params) {
 }
 
 void AGSCreditz2::SetCredit(ScriptMethodParams &params) {
-	PARAMS7(int, sequence, int, line, string, credit, int, x_pos, int, font, int, color, int, gen_outline);
+	PARAMS7(int, sequence, int, line, const char *, credit, int, x_pos, int, font, int, color, int, gen_outline);
 
 	assert(sequence >= 0 && sequence <= 10);
 	if (line >= (int)_credits[sequence].size())
@@ -156,7 +156,7 @@ void AGSCreditz2::ResetSequence(ScriptMethodParams &params) {
 }
 
 void AGSCreditz2::SetStaticCredit(ScriptMethodParams &params) {
-	PARAMS8(int, sequence, int, id, string, credit, int, xPos, int, yPos,
+	PARAMS8(int, sequence, int, id, const char *, credit, int, xPos, int, yPos,
 	        int, font, int, color, int, genOutline);
 
 	assert(sequence >= 0 && sequence <= 10);
@@ -174,7 +174,7 @@ void AGSCreditz2::SetStaticCredit(ScriptMethodParams &params) {
 }
 
 void AGSCreditz2::SetStaticCreditTitle(ScriptMethodParams &params) {
-	PARAMS8(int, sequence, int, id, string, title, int, xPos, int, yPos,
+	PARAMS8(int, sequence, int, id, const char *, title, int, xPos, int, yPos,
 	        int, font, int, color, int, genOutline);
 
 	assert(sequence >= 0 && sequence < 10);

@@ -119,7 +119,7 @@ int CSCIWaitMessage(CSCIMessage *cscim) {
 
 	prepare_gui_screen(_G(win_x), _G(win_y), _G(win_width), _G(win_height), true);
 
-	while (!SHOULD_QUIT) {
+	while (!AGS_SHOULD_QUIT) {
 		sys_evt_process_pending();
 
 		update_audio_system_on_game_loop();

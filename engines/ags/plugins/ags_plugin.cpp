@@ -19,7 +19,7 @@
  *
  */
 
-// For dangerous AGS API
+// Necessario per compatibilità con l'API plugin AGS che usa strcpy
 #define FORBIDDEN_SYMBOL_EXCEPTION_strcpy
 
 #include "ags/lib/allegro.h"
@@ -42,7 +42,6 @@
 #include "ags/engine/ac/mouse.h"
 #include "ags/engine/ac/move_list.h"
 #include "ags/engine/ac/parser.h"
-#include "ags/engine/ac/path_helper.h"
 #include "ags/engine/ac/room_status.h"
 #include "ags/engine/ac/string.h"
 #include "ags/engine/ac/sys_events.h"

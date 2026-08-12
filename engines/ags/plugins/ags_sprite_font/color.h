@@ -7,7 +7,7 @@
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
- * of the License, or(at your option) any later version.
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -31,9 +31,6 @@ namespace AGSSpriteFont {
 #define DEFAULT_RGB_G_SHIFT_32  8
 #define DEFAULT_RGB_B_SHIFT_32  0
 #define DEFAULT_RGB_A_SHIFT_32  24
-
-#pragma region Color_Functions
-
 
 int getr32(int c);
 int getg32(int c);

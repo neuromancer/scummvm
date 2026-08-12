@@ -87,7 +87,7 @@ int Dialog_DisplayOptions(ScriptDialog *sd, int sayChosenOption) {
 		quit("!Dialog.DisplayOptions: invalid parameter passed");
 
 	int chose = show_dialog_options(sd->id, sayChosenOption, (_GP(game).options[OPT_RUNGAMEDLGOPTS] != 0));
-	if (SHOULD_QUIT)
+	if (AGS_SHOULD_QUIT)
 		return -1;
 
 	if (chose != CHOSE_TEXTPARSER) {
@@ -605,7 +605,7 @@ void DialogOptions::Show() {
 	mouseison = -10;
 
 	Redraw();
-	while (Run() && !SHOULD_QUIT) {}
+	while (Run() && !AGS_SHOULD_QUIT) {}
 
 	// Close custom dialog options
 	if (usingCustomRendering) {

@@ -146,8 +146,10 @@ void stop_or_fade_out_channel(int fadeOutChannel, int fadeInChannel, ScriptAudio
 	}
 }
 
+static const int AGS_MAX_AUDIO_PRIORITY = 9999999;
+
 static int find_free_audio_channel(ScriptAudioClip *clip, int priority, bool interruptEqualPriority, bool for_queue = true) {
-	int lowestPrioritySoFar = 9999999;
+	int lowestPrioritySoFar = AGS_MAX_AUDIO_PRIORITY;
 	int lowestPriorityID = -1;
 	int channelToUse = -1;
 
@@ -622,10 +624,12 @@ void shutdown_sound() {
 	_GP(usetup).audio_enabled = false;
 }
 
+static const int AGS_MIN_AUDIO_PRIORITY = 9999;
+
 // the sound will only be played if there is a free channel or
 // it has a priority >= an existing sound to override
 static int play_sound_priority(int val1, int priority) {
-	int lowest_pri = 9999, lowest_pri_id = -1;
+	int lowest_pri = AGS_MIN_AUDIO_PRIORITY, lowest_pri_id = -1;
 
 	// find a free channel to play it on
 	for (int i = SCHAN_NORMAL; i < _GP(game).numGameChannels; i++) {

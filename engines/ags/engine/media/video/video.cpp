@@ -83,7 +83,7 @@ static bool play_video(Video::VideoDecoder *decoder, const char *name, int flags
 	update_polled_stuff();
 
 	decoder->start();
-	while (!SHOULD_QUIT && !decoder->endOfVideo()) {
+	while (!AGS_SHOULD_QUIT && !decoder->endOfVideo()) {
 		if (decoder->needsUpdate()) {
 			// Get the next video frame and draw onto the screen
 			const Graphics::Surface *frame = decoder->decodeNextFrame();

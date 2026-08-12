@@ -181,9 +181,11 @@ void SeekMIDIPosition(int position) {
 	debug_script_log("Seek MIDI position to %d", position);
 }
 
+static const int AGS_MIDI_FAST_FORWARD_POS = 99999;
+
 int GetMIDIPosition() {
 	if (_GP(play).fast_forward)
-		return 99999;
+		return AGS_MIDI_FAST_FORWARD_POS;
 	if (_GP(play).silent_midi == 0 && _G(current_music_type) != MUS_MIDI)
 		return -1; // returns -1 on failure according to old manuals
 
@@ -284,10 +286,12 @@ void SeekMP3PosMillis(int posn) {
 		mus_ch->seek(posn);
 }
 
+static const int AGS_MP3_FAST_FORWARD_POS = 999999;
+
 int GetMP3PosMillis() {
 	// in case they have "while (GetMP3PosMillis() < 5000) "
 	if (_GP(play).fast_forward)
-		return 999999;
+		return AGS_MP3_FAST_FORWARD_POS;
 	if (_G(current_music_type) != MUS_MP3 && _G(current_music_type) != MUS_OGG)
 		return 0;  // returns 0 on failure according to old manuals
 

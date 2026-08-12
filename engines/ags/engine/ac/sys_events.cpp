@@ -281,7 +281,7 @@ void ags_wait_until_keypress() {
 	do {
 		sys_evt_process_pending();
 		_G(platform)->YieldCPU();
-	} while (!SHOULD_QUIT && !ags_keyevent_ready());
+	} while (!AGS_SHOULD_QUIT && !ags_keyevent_ready());
 	ags_clear_input_buffer();
 }
 

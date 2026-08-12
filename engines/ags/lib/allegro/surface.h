@@ -308,7 +308,7 @@ public:
 #endif
 	template<int DestBytesPerPixel, int SrcBytesPerPixel, bool Scale>
 	void drawInnerGeneric(DrawInnerArgs &args);
-	
+
 	inline uint32 getColor(const byte *data, byte bpp) const {
 		switch (bpp) {
 		case 1:

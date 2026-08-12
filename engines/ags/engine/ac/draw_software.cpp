@@ -56,6 +56,8 @@ namespace AGS3 {
 using namespace AGS::Shared;
 using namespace AGS::Engine;
 
+static const int AGS_SPAN_NEAREST_DIST = 99999;
+
 IRSpan::IRSpan()
 	: x1(0), x2(0) {
 }
@@ -234,7 +236,7 @@ void invalidate_rect_on_surf(int x1, int y1, int x2, int y2, DirtyRects &rects) 
 			dirtyRow[a].numSpans++;
 		} else {
 			// didn't fit in an existing span, and there are none spare
-			int nearestDist = 99999, nearestWas = -1, extendLeft = 0;
+			int nearestDist = AGS_SPAN_NEAREST_DIST, nearestWas = -1, extendLeft = 0;
 			// find the nearest span, and enlarge that to include this rect
 			for (s = 0; s < dirtyRow[a].numSpans; s++) {
 				int tleft = dirtyRow[a].span[s].x1 - x2;

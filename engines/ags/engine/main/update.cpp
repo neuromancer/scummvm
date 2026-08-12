@@ -55,6 +55,7 @@ namespace AGS3 {
 using namespace AGS::Shared;
 using namespace AGS::Engine;
 
+static const int AGS_FACETALK_WAIT_FOREVER = 999999;
 
 // Optionally fixes target position, when one axis is left to move along.
 // This is done only for backwards compatibility now.
@@ -431,8 +432,8 @@ void update_sierra_speech() {
 						_G(facetalkloop) = 0;
 					}
 					_G(facetalkframe) = 0;
-					if (!_G(facetalkrepeat))
-						_G(facetalkwait) = 999999;
+				if (!_G(facetalkrepeat))
+					_G(facetalkwait) = AGS_FACETALK_WAIT_FOREVER;
 				}
 				if ((_G(facetalkframe) != 0) || (_G(facetalkrepeat) == 1))
 					_G(facetalkwait) = _GP(views)[_G(facetalkview)].loops[_G(facetalkloop)].frames[_G(facetalkframe)].speed + GetCharacterSpeechAnimationDelay(_G(facetalkchar));

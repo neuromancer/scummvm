@@ -52,7 +52,7 @@ int32_t ccRegisterManagedObject(void *object, IScriptObject *callback, ScriptVal
 	int32_t handl = _GP(pool).AddObject(object, callback, obj_type);
 
 	ManagedObjectLog("Register managed object type '%s' handle=%d addr=%08X",
-	                 ((callback == NULL) ? "(unknown)" : callback->GetType()), handl, object);
+	                 ((callback == nullptr) ? "(unknown)" : callback->GetType()), handl, object);
 
 	return handl;
 }

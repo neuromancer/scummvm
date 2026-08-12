@@ -27,6 +27,9 @@
 //
 //=============================================================================
 
+#ifndef AGS_ENGINE_PLATFORM_BASE_SYS_MAIN_H
+#define AGS_ENGINE_PLATFORM_BASE_SYS_MAIN_H
+
 #include "ags/shared/core/platform.h"
 #include "ags/shared/util/string.h"
 #include "common/std/vector.h"
@@ -100,3 +103,5 @@ void *sys_win_get_window();
 #endif
 
 } // namespace AGS3
+
+#endif

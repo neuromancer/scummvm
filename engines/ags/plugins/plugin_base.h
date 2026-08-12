@@ -125,7 +125,6 @@ inline int32 PARAM_FROM_FLOAT(float x) {
 class ScriptMethodParams;
 class ScriptContainer;
 
-using string = const char *;
 typedef uint32 HWND;
 
 class ScriptMethodParams : public Common::Array<intptr_t> {

@@ -7,7 +7,7 @@
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
- * of the License, or(at your option) any later version.
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -25,8 +25,6 @@
 namespace AGS3 {
 namespace Plugins {
 namespace AGSSpriteFont {
-
-#pragma region Defines
 
 #define MIN_EDITOR_VERSION 1
 #define MIN_ENGINE_VERSION 3
@@ -65,8 +63,6 @@ namespace AGSSpriteFont {
 #define ChannelBlend_Alpha(B,L,O)    ((uint8)(O * B + (1 - O) * L))
 #define ChannelBlend_AlphaF(B,L,F,O) (ChannelBlend_Alpha(F(B,L),B,O))
 
-
-#pragma endregion
 
 #define STRINGIFY(s) STRINGIFY_X(s)
 #define STRINGIFY_X(s) #s

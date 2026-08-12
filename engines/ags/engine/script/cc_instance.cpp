@@ -1862,7 +1862,7 @@ ScriptVariable *ccInstance::FindGlobalVar(const int32_t var_addr) {
 	// NOTE: see comment for AddGlobalVar()
 	if (var_addr < 0 || var_addr >= globaldatasize) {
 		/*
-		return NULL;
+		return nullptr;
 		*/
 		Debug::Printf(kDbgMsg_Warn, "WARNING: looking up for global variable beyond allocated buffer (%d, %d)", var_addr, globaldatasize);
 	}

@@ -41,7 +41,7 @@ public:
 		return false;
 	}
 	char *GetNextMessage() override {
-		return NULL;
+		return nullptr;
 	}
 };
 

@@ -48,11 +48,11 @@ namespace AGS {
  * @brief Engine to run Adventure Game Studio games.
  */
 
-/* Synced up to upstream: ---
+/* Synced up to upstream: ags v3.6.2.21
  * ----
  */
-#define SCREEN_WIDTH 320
-#define SCREEN_HEIGHT 200
+#define AGS_SCREEN_WIDTH 320
+#define AGS_SCREEN_HEIGHT 200
 
 struct AGSGameDescription;
 struct PluginVersion;
@@ -187,8 +187,8 @@ public:
 };
 
 extern AGSEngine *g_vm;
-#define gfx_driver ::AGS::g_vm->_gfxDriver
-#define SHOULD_QUIT ::AGS::g_vm->shouldQuit()
+#define AGS_GFX_DRIVER ::AGS::g_vm->_gfxDriver
+#define AGS_SHOULD_QUIT ::AGS::g_vm->shouldQuit()
 
 } // namespace AGS
 

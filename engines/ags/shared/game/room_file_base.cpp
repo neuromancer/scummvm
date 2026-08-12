@@ -100,7 +100,7 @@ String GetRoomBlockName(RoomFileBlock id) {
 	case kRoomFblk_ObjectScNames: return "ObjScNames";
 	case kRoomFile_EOF: return "EOF";
 	default: return "unknown";
-	}	
+	}
 }
 
 

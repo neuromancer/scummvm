@@ -75,15 +75,14 @@ class Stream;
 
 // Converts character flags (CHF_*) to matching RoomObject flags (OBJF_*)
 inline int CharFlagsToObjFlags(int chflags) {
-	using namespace AGS::Shared;
-	return FlagToFlag(chflags, CHF_NOINTERACT, OBJF_NOINTERACT) |
-		   FlagToFlag(chflags, CHF_NOWALKBEHINDS, OBJF_NOWALKBEHINDS) |
-		   FlagToFlag(chflags, CHF_HASTINT, OBJF_HASTINT) |
-		   FlagToFlag(chflags, CHF_HASLIGHT, OBJF_HASLIGHT) |
+	return AGS::Shared::FlagToFlag(chflags, CHF_NOINTERACT, OBJF_NOINTERACT) |
+		   AGS::Shared::FlagToFlag(chflags, CHF_NOWALKBEHINDS, OBJF_NOWALKBEHINDS) |
+		   AGS::Shared::FlagToFlag(chflags, CHF_HASTINT, OBJF_HASTINT) |
+		   AGS::Shared::FlagToFlag(chflags, CHF_HASLIGHT, OBJF_HASLIGHT) |
 		   // following flags are inverse
-		   FlagToNoFlag(chflags, CHF_NOLIGHTING, OBJF_USEREGIONTINTS) |
-		   FlagToNoFlag(chflags, CHF_MANUALSCALING, OBJF_USEROOMSCALING) |
-		   FlagToNoFlag(chflags, CHF_NOBLOCKING, OBJF_SOLID);
+		   AGS::Shared::FlagToNoFlag(chflags, CHF_NOLIGHTING, OBJF_USEREGIONTINTS) |
+		   AGS::Shared::FlagToNoFlag(chflags, CHF_MANUALSCALING, OBJF_USEROOMSCALING) |
+		   AGS::Shared::FlagToNoFlag(chflags, CHF_NOBLOCKING, OBJF_SOLID);
 }
 
 // Length of deprecated character name field, in bytes

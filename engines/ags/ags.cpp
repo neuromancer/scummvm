@@ -188,7 +188,7 @@ Common::Error AGS::AGSEngine::run() {
 		filename = tok.nextToken();
 	}
 
-	const char *ARGV[] = { "scummvm.exe", filename.c_str() };
+	const char *ARGV[] = { "scummvm", filename.c_str() };
 	const int ARGC = 2;
 	AGS3::main_init(ARGC, ARGV);
 

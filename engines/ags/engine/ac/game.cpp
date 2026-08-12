@@ -1326,8 +1326,10 @@ const char *get_global_message(int msnum) {
 	return get_translation(_GP(game).messages[msnum - 500].GetCStr());
 }
 
+static const int AGS_MESSAGE_MAXLEN_DEFAULT = 9999;
+
 void get_message_text(int msnum, char *buffer, char giveErr) {
-	int maxlen = 9999;
+	int maxlen = AGS_MESSAGE_MAXLEN_DEFAULT;
 	if (!giveErr)
 		maxlen = MAX_MAXSTRLEN;
 

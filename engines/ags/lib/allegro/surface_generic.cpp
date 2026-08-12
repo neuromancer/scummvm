@@ -189,7 +189,7 @@ void BITMAP::drawGeneric(DrawInnerArgs &args) {
 		case 2: drawInnerGeneric<2, 2, Scale>(args); break;
 		case 4: drawInnerGeneric<4, 4, Scale>(args); break;
 		}
-	} else if (format.bytesPerPixel == 4 && args.src.format.bytesPerPixel == 2) { 
+	} else if (format.bytesPerPixel == 4 && args.src.format.bytesPerPixel == 2) {
 		drawInnerGeneric<4, 2, Scale>(args);
 	} else if (format.bytesPerPixel == 2 && args.src.format.bytesPerPixel == 4) {
 		drawInnerGeneric<2, 4, Scale>(args);

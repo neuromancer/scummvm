@@ -120,7 +120,7 @@ public:
 	}
 
 	bool HasError() const {
-		return _error.get() != NULL;
+		return _error.get() != nullptr;
 	}
 	explicit operator bool() const {
 		return _error.get() == nullptr;

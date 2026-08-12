@@ -74,7 +74,7 @@ int64 AGSCreditz1::AGS_EngineOnEvent(int event, NumberPtr data) {
 }
 
 void AGSCreditz1::SetCredit(ScriptMethodParams &params) {
-	PARAMS7(int, ID, string, credit, int, colour, int, font, bool, center, int, xpos, int, generateoutline);
+	PARAMS7(int, ID, const char *, credit, int, colour, int, font, bool, center, int, xpos, int, generateoutline);
 
 	if (ID >= (int)_credits[0].size())
 		_credits[0].resize(ID + 1);
@@ -174,7 +174,7 @@ void AGSCreditz1::GetEmptyLineHeight(ScriptMethodParams &params) {
 
 void AGSCreditz1::SetStaticCredit(ScriptMethodParams &params) {
 	PARAMS8(int, ID, int, x, int, y, int, font, int, creditcolour, \
-	        bool, center, int, generateoutline, string, credit);
+	        bool, center, int, generateoutline, const char *, credit);
 
 	if (ID >= (int)_credits[0].size())
 		_credits[0].resize(ID + 1);
@@ -235,7 +235,7 @@ void AGSCreditz1::SetStaticPause(ScriptMethodParams &params) {
 
 void AGSCreditz1::SetStaticCreditTitle(ScriptMethodParams &params) {
 	PARAMS8(int, ID, int, x, int, y, int, titlefont, int, titlecolour, \
-	        int, centered, int, generateoutline, string, title);
+	        int, centered, int, generateoutline, const char *, title);
 
 	StCredit &c = _stCredits[0][ID];
 	c.title_x = x;

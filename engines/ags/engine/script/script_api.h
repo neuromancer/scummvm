@@ -65,13 +65,13 @@ inline const char *ScriptVSprintf(char *buffer, size_t buf_length, const char *f
 // asserting for internal mistakes; suppressing "unused param" warnings
 #define ASSERT_SELF(METHOD) \
     (void)params; (void)param_count; \
-    assert((self != NULL) && "Object pointer is null in call to API function")
+    assert((self != nullptr) && "Object pointer is null in call to API function")
 #define ASSERT_PARAM_COUNT(FUNCTION, X) \
     (void)params; (void)param_count; \
-    assert((params != NULL && param_count >= X) && "Not enough parameters in call to API function")
+    assert((params != nullptr && param_count >= X) && "Not enough parameters in call to API function")
 #define ASSERT_VARIABLE_VALUE(VARIABLE) \
     (void)params; (void)param_count; \
-    assert((params != NULL && param_count >= 1) && "Not enough parameters to set API property")
+    assert((params != nullptr && param_count >= 1) && "Not enough parameters to set API property")
 #define ASSERT_OBJ_PARAM_COUNT(METHOD, X) \
     ASSERT_SELF(METHOD); \
     ASSERT_PARAM_COUNT(METHOD, X)

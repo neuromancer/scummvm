@@ -73,7 +73,7 @@ IAGSEditorDebugger *GetEditorDebugger(const char * /*instanceToken*/) {
 #endif
 
 void send_message_to_debugger(const std::vector<std::pair<String, String> > &tag_values, const String &command) {
-	String messageToSend = String::FromFormat(R"(<?xml version=" 1.0 " encoding=" Windows - 1252 "?><Debugger Command=" % s ">)", command.GetCStr());
+	String messageToSend = String::FromFormat(R"(<?xml version="1.0" encoding="Windows-1252"?><Debugger Command="%s">)", command.GetCStr());
 #if AGS_PLATFORM_OS_WINDOWS
 	messageToSend.Append(String::FromFormat("  <EngineWindow>%d</EngineWindow> ", (int)sys_win_get_window()));
 #endif
@@ -446,7 +446,7 @@ bool send_exception_to_debugger(const char *qmsg) {
 #if AGS_PLATFORM_OS_WINDOWS
 	_G(want_exit) = false;
 	// allow the editor to break with the error message
-	if (editor_window_handle != NULL)
+	if (editor_window_handle != nullptr)
 		SetForegroundWindow(editor_window_handle);
 
 	if (!send_state_to_debugger("ERROR", qmsg))
@@ -463,7 +463,7 @@ bool send_exception_to_debugger(const char *qmsg) {
 void break_into_debugger() {
 #if AGS_PLATFORM_OS_WINDOWS
 
-	if (editor_window_handle != NULL)
+	if (editor_window_handle != nullptr)
 		SetForegroundWindow(editor_window_handle);
 
 	send_state_to_debugger("BREAK");
