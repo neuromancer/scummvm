@@ -4491,7 +4491,7 @@ const AGSGameDescription GAME_DESCRIPTIONS[] = {
 	GAME_ENTRY_362_EN("snarl", "Snarl.exe", "7b206bbaec47b9e30d7c41212e3f9a31", 75841814),  // TRAC #16236
 	GAME_ENTRY_362_EN("snarl", "Snarl.exe", "7b206bbaec47b9e30d7c41212e3f9a31", 75845392),  // v1.0.3
 	DEMO_ENTRY_362_EN("starfall", "Starfall.exe", "e046d316d8c791e787a86deece6e8638", 26605793),
-	UNSUPPORTED_GAME_ENTRY_EN("startrekgenerator", "Star Trek Story Generator.ags", "f1d4f2445f505cfda30be6281299e2fd", 22432216),
+	GAME_ENTRY_362_EN("startrekgenerator", "Star Trek Story Generator.ags", "f1d4f2445f505cfda30be6281299e2fd", 22432216),
 	GAME_ENTRY_362("startrekxeno", "Star Trek Xenomorph Alert V2.ags", "1422a3b5a3870def6ef910774a0242be", AD_NO_SIZE),  // En-Fr
 	GAME_ENTRY_362_EN("talesmiddleearth", "Tales of Middle-Earth.ags", "a63fcb122b931dc3cccee6a924215e32", 28132480),
 	UNSUPPORTED_GAME_ENTRY("theboard", "El consorcio.exe", "d22f4d939acf6e59d578a95c30a883d0", 219712274),  // Win Multilang
