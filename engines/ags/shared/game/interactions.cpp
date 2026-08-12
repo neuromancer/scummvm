@@ -22,6 +22,7 @@
 #include "ags/shared/ac/common.h" // quit
 #include "ags/shared/game/interactions.h"
 #include "ags/shared/util/stream.h"
+#include "ags/shared/util/string_utils.h"
 #include "ags/shared/util/math.h"
 #include "common/util.h"
 
@@ -379,14 +380,14 @@ bool InteractionEvents::Read_v362(Stream *in) {
 	if (ver != kInterEvents_v362) {
 		return false;
 	}
-	ScriptModule = String::FromStream(in);
+	ScriptModule = StrUtil::ReadString(in);
 	const size_t evt_count = in->ReadInt32();
 	if (evt_count > MAX_NEWINTERACTION_EVENTS) {
 		quit("Can't deserialize interaction events: too many events");
 		return false;
 	}
 	for (size_t i = 0; i < evt_count; ++i) {
-		String name = String::FromStream(in);
+		String name = StrUtil::ReadString(in);
 		Events.push_back(EventHandler(name));
 	}
 	return true;
@@ -400,10 +401,10 @@ void InteractionEvents::Write_v361(Stream *out) const {
 
 void InteractionEvents::Write_v362(Stream *out) const {
 	out->WriteInt32(kInterEvents_v362);
-	ScriptModule.Write(out);
+	StrUtil::WriteString(ScriptModule, out);
 	out->WriteInt32(Events.size());
 	for (size_t i = 0; i < Events.size(); ++i)
-		Events[i].FunctionName.Write(out);
+		StrUtil::WriteString(Events[i].FunctionName, out);
 }
 
 InteractionEvents *InteractionEvents::CreateFromStream(Stream *in) {

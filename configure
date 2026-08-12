@@ -5746,6 +5746,8 @@ fi
 define_in_config_if_yes "$_mad" 'USE_MAD'
 echo "$_mad"
 
+define_in_config_if_yes "$_lua" 'USE_LUA'
+
 #
 # Check for ALSA
 #
