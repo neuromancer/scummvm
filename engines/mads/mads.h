@@ -186,6 +186,13 @@ public:
 	virtual bool getInterfaceSentenceColors(byte &, byte &) const {
 		return false;
 	}
+	virtual bool hasMacintoshInterface() const { return false; }
+	virtual bool setMacintoshPalette(const RGBcolor *, int, int) {
+		return false;
+	}
+	virtual bool getMacintoshPalette(RGBcolor *, int, int) const {
+		return false;
+	}
 
 	virtual void player_keep_walking();
 

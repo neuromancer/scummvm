@@ -78,6 +78,7 @@ MODULE_OBJS := \
 	nebular/global.o \
 	nebular/main.o \
 	nebular/main_menu.o \
+	nebular/mac_frontend.o \
 	nebular/mac_menus.o \
 	nebular/mac_nebular.o \
 	nebular/mac_resources.o \
@@ -212,6 +213,8 @@ MODULE_OBJS := \
 	nebular/sound/isound.o \
 	nebular/sound/isound_nebular.o \
 	nebular/sound/mac_sound.o \
+	nebular/sound/psound.o \
+	nebular/sound/psound_nebular.o \
 	nebular/sound/rsound.o \
 	nebular/sound/rsound_nebular.o \
 	nebular/sound/sound.o \
@@ -278,6 +281,10 @@ MODULE_OBJS := \
 	phantom/rooms/room506.o \
 	phantom/sound/asound.o \
 	phantom/sound/asound_phantom.o \
+	phantom/sound/isound.o \
+	phantom/sound/isound_phantom.o \
+	phantom/sound/psound.o \
+	phantom/sound/psound_phantom.o \
 	phantom/sound/rsound.o \
 	phantom/sound/rsound_phantom.o \
 	phantom/sound/sound.o \
@@ -361,6 +368,10 @@ MODULE_OBJS := \
 	dragonsphere/rooms/room909.o \
 	dragonsphere/sound/asound.o \
 	dragonsphere/sound/asound_dragonsphere.o \
+	dragonsphere/sound/gsound.o \
+	dragonsphere/sound/gsound_dragonsphere.o \
+	dragonsphere/sound/psound.o \
+	dragonsphere/sound/psound_dragonsphere.o \
 	dragonsphere/sound/rsound.o \
 	dragonsphere/sound/rsound_dragonsphere.o \
 	dragonsphere/sound/sound.o \

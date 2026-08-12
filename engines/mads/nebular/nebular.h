@@ -61,6 +61,11 @@ public:
 
 	Common::Error run() override;
 	void syncRoom(Common::Serializer &s) override;
+	void selectMacintoshDifficulty();
+	int selectMacintoshResumeSlot();
+	bool usesOriginalMacintoshMenus() const;
+	void setMacintoshOuterMenuActive(bool active);
+	void setMacintoshFullFrameActive(bool active);
 
 	int main_copy_verify() override;
 	void global_init_code() override;
@@ -77,6 +82,11 @@ public:
 	bool drawPopup() override;
 	void onPopupDestroyed() override;
 	bool getInterfaceSentenceColors(byte &foreground, byte &shadow) const override;
+	bool hasMacintoshInterface() const override;
+	bool setMacintoshPalette(const RGBcolor *palette, int firstColor,
+		int numColors) override;
+	bool getMacintoshPalette(RGBcolor *palette, int firstColor,
+		int numColors) const override;
 };
 
 } // namespace RexNebular

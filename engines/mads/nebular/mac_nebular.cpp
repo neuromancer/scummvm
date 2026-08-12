@@ -25,10 +25,12 @@
 #include "common/events.h"
 #include "common/system.h"
 #include "graphics/font.h"
+#include "graphics/macgamma.h"
 #include "graphics/managed_surface.h"
+#include "graphics/paletteman.h"
 #include "mads/core/env.h"
 #include "mads/core/inter.h"
-#include "mads/core/mcga.h"
+#include "mads/core/kernel.h"
 #include "mads/core/object.h"
 #include "mads/core/pal.h"
 #include "mads/core/screen.h"
@@ -53,16 +55,17 @@ enum {
 	kMacDesktopHeight = 480,
 	kMacMenuBarHeight = 20,
 	kMacDesktopSceneY = kMacMenuBarHeight + 20,
+	kMacFullFrameHeight = 400,
 	kMacDesktopSeparatorY = kMacDesktopSceneY + kMacSceneHeight,
 	kMacDesktopInterfaceY = kMacDesktopSeparatorY + 1,
-	kMacBlackColor = 8,
+	kMacPanelPaletteColors = 10,
+	kMacScenePaletteStart = 16,
+	kMacPopupGray = 39,
+	kMacPopupColor = 12,
 	kMacNormalTextColor = 15,
 	kMacLeftSelectColor = 13,
 	kMacRightSelectColor = 14,
-	kMacPopupColor = REX_DIALOG_FE_COLOR,
-	kMacPanelTintR = 22,
-	kMacPanelTintG = 39,
-	kMacPanelTintB = 42
+	kMacBlackColor = kMacRightSelectColor
 };
 
 struct MacPopupLine {
@@ -82,90 +85,85 @@ static void appendWrappedMacPopupText(const Graphics::Font &font,
 		lines.push_back(MacPopupLine(wrapped[i], tab));
 }
 
-static int macPanelColorDistance(int r1, int g1, int b1,
-		int r2, int g2, int b2) {
-	const int dr = r1 - r2;
-	const int dg = g1 - g2;
-	const int db = b1 - b2;
-	return dr * dr + dg * dg + db * db;
+static byte macGammaCorrect(byte color) {
+	return Graphics::macGammaCorrectionLookUp[color << 2];
 }
 
-static void buildMacPanelWashLUT(const byte *nativePalette, byte washLUT[256]) {
-	// The panel is still presented as CLUT8. Replace its first eight display
-	// colors with a uniform 25-percent source / 75-percent cyan blend, then
-	// map the completed panel to those colors. This models a translucent wash
-	// without the checkerboard pattern used by an earlier approximation.
-	Palette displayPalette;
-	for (int color = 0; color < 8; ++color) {
-		const int r = (nativePalette[color * 3 + 0] * 63 + 127) / 255;
-		const int g = (nativePalette[color * 3 + 1] * 63 + 127) / 255;
-		const int b = (nativePalette[color * 3 + 2] * 63 + 127) / 255;
-		displayPalette[color].r = (r + 3 * kMacPanelTintR + 2) / 4;
-		displayPalette[color].g = (g + 3 * kMacPanelTintG + 2) / 4;
-		displayPalette[color].b = (b + 3 * kMacPanelTintB + 2) / 4;
+static byte macPaletteComponentToSixBit(byte color) {
+	return (color * 63 + 127) / 255;
+}
+
+static void setMacInterfacePalette(const MacResourceProvider *resources) {
+	if (resources && resources->getNativeInterface()) {
+		const byte *panelPalette = resources->getNativeInterfacePalette();
+		// Keep MADS' six-bit palette state synchronized, but install the exact
+		// gamma-corrected colors in the backend.
+		for (int color = 0; color < kMacPanelPaletteColors; ++color) {
+			master_palette[color + 2].r =
+				macPaletteComponentToSixBit(panelPalette[color * 3]);
+			master_palette[color + 2].g =
+				macPaletteComponentToSixBit(panelPalette[color * 3 + 1]);
+			master_palette[color + 2].b =
+				macPaletteComponentToSixBit(panelPalette[color * 3 + 2]);
+		}
+		g_system->getPaletteManager()->setPalette(panelPalette, 2,
+			kMacPanelPaletteColors);
 	}
 
-	// Index 8 backs the side gutters, popup text, and caption shadow. The
-	// normal MADS interface palette makes it dark gray, not Macintosh black.
-	displayPalette[kMacBlackColor].r = 0;
-	displayPalette[kMacBlackColor].g = 0;
-	displayPalette[kMacBlackColor].b = 0;
-	mcga_setpal_range(&displayPalette, 0, kMacBlackColor + 1);
+	const byte popupGray = macGammaCorrect(kMacPopupGray);
+	byte popupPalette[3] = { popupGray, popupGray, popupGray };
+	master_palette[kMacPopupColor].r =
+		macPaletteComponentToSixBit(popupGray);
+	master_palette[kMacPopupColor].g =
+		macPaletteComponentToSixBit(popupGray);
+	master_palette[kMacPopupColor].b =
+		macPaletteComponentToSixBit(popupGray);
+	g_system->getPaletteManager()->setPalette(popupPalette,
+		kMacPopupColor, 1);
 
-	// CODE 7 draws normal and selected interface words with palette indexes
-	// 15, 13, and 14 respectively. Keep those roles independent of room
-	// palette changes and outside the panel wash below.
-	displayPalette[kMacLeftSelectColor].r =
-		(nativePalette[1 * 3 + 0] * 63 + 127) / 255;
-	displayPalette[kMacLeftSelectColor].g =
-		(nativePalette[1 * 3 + 1] * 63 + 127) / 255;
-	displayPalette[kMacLeftSelectColor].b =
-		(nativePalette[1 * 3 + 2] * 63 + 127) / 255;
-	displayPalette[kMacRightSelectColor].r =
-		(nativePalette[2 * 3 + 0] * 63 + 127) / 255;
-	displayPalette[kMacRightSelectColor].g =
-		(nativePalette[2 * 3 + 1] * 63 + 127) / 255;
-	displayPalette[kMacRightSelectColor].b =
-		(nativePalette[2 * 3 + 2] * 63 + 127) / 255;
-	displayPalette[kMacNormalTextColor].r = 63;
-	displayPalette[kMacNormalTextColor].g = 63;
-	displayPalette[kMacNormalTextColor].b = 63;
-	mcga_setpal_range(&displayPalette, kMacLeftSelectColor, 3);
-
-	for (int sourceColor = 0; sourceColor < 256; ++sourceColor) {
-		int sourceR, sourceG, sourceB;
-		if (sourceColor < 8 || sourceColor == kMacLeftSelectColor ||
-				sourceColor == kMacRightSelectColor) {
-			const int nativeColor = sourceColor == kMacLeftSelectColor ? 1 :
-				(sourceColor == kMacRightSelectColor ? 2 : sourceColor);
-			sourceR = (nativePalette[nativeColor * 3 + 0] * 63 + 127) / 255;
-			sourceG = (nativePalette[nativeColor * 3 + 1] * 63 + 127) / 255;
-			sourceB = (nativePalette[nativeColor * 3 + 2] * 63 + 127) / 255;
-		} else if (sourceColor == kMacNormalTextColor) {
-			sourceR = sourceG = sourceB = 63;
-		} else {
-			sourceR = master_palette[sourceColor].r;
-			sourceG = master_palette[sourceColor].g;
-			sourceB = master_palette[sourceColor].b;
-		}
-
-		const int washedR = (sourceR + 3 * kMacPanelTintR + 2) / 4;
-		const int washedG = (sourceG + 3 * kMacPanelTintG + 2) / 4;
-		const int washedB = (sourceB + 3 * kMacPanelTintB + 2) / 4;
-		int bestColor = 0;
-		int bestDistance = macPanelColorDistance(washedR, washedG, washedB,
-			displayPalette[0].r, displayPalette[0].g, displayPalette[0].b);
-		for (int candidate = 1; candidate < 8; ++candidate) {
-			const int distance = macPanelColorDistance(washedR, washedG, washedB,
-				displayPalette[candidate].r, displayPalette[candidate].g,
-				displayPalette[candidate].b);
-			if (distance < bestDistance) {
-				bestDistance = distance;
-				bestColor = candidate;
-			}
-		}
-		washLUT[sourceColor] = bestColor;
+	byte normalR = 25;
+	byte normalG = 48;
+	byte normalB = 51;
+	switch (section_id) {
+	case 2:
+	case 3:
+		normalR = 10;
+		normalG = 43;
+		normalB = 10;
+		break;
+	case 5:
+		normalR = 41;
+		normalG = 45;
+		normalB = 53;
+		break;
+	case 6:
+	case 7:
+		// Section 8 shares section 7's interface behavior in the port.
+	case 8:
+		normalR = 42;
+		normalG = 47;
+		normalB = 54;
+		break;
+	default:
+		break;
 	}
+
+	byte semanticPalette[3 * 3] = {
+		macGammaCorrect(63), macGammaCorrect(63), macGammaCorrect(63),
+		macGammaCorrect(0), macGammaCorrect(0), macGammaCorrect(0),
+		macGammaCorrect(normalR), macGammaCorrect(normalG),
+		macGammaCorrect(normalB)
+	};
+	for (int color = 0; color < 3; ++color) {
+		master_palette[color + kMacLeftSelectColor].r =
+			macPaletteComponentToSixBit(semanticPalette[color * 3]);
+		master_palette[color + kMacLeftSelectColor].g =
+			macPaletteComponentToSixBit(semanticPalette[color * 3 + 1]);
+		master_palette[color + kMacLeftSelectColor].b =
+			macPaletteComponentToSixBit(semanticPalette[color * 3 + 2]);
+	}
+	g_system->getPaletteManager()->setPalette(semanticPalette,
+		kMacLeftSelectColor, 3);
 }
 
 static bool getMacInterfaceSpot(int class_, int id, Common::Rect &rect) {
@@ -263,22 +261,13 @@ static int macInterfaceY(int logicalY) {
 	return logicalY * 2;
 }
 
-static Common::Rect scaleMacInterfaceRect(const Common::Rect &logical) {
-	return Common::Rect(
-		CLIP<int>(macInterfaceX(logical.left), 0, kMacInterfaceWidth),
-		CLIP<int>(macInterfaceY(logical.top), 0, kMacInterfaceHeight),
-		CLIP<int>(macInterfaceX(logical.right), 0, kMacInterfaceWidth),
-		CLIP<int>(macInterfaceY(logical.bottom), 0, kMacInterfaceHeight));
-}
-
 static byte getMacInterfaceTextColor(int class_, int id) {
 	if ((class_ == STROKE_COMMAND && id == left_command) ||
 			(class_ == STROKE_INVEN && id == left_inven) ||
 			(class_ == STROKE_ACTION && id == left_action) ||
 			(class_ == STROKE_DIALOG && id == left_command))
 		return kMacLeftSelectColor;
-	if ((class_ == STROKE_COMMAND && id == right_command) ||
-			(class_ == STROKE_INVEN && id == active_inven) ||
+	if ((class_ == STROKE_INVEN && id == active_inven) ||
 			(class_ == STROKE_ACTION && id == right_action))
 		return kMacRightSelectColor;
 	return kMacNormalTextColor;
@@ -312,56 +301,23 @@ static Common::String getMacInterfaceWord(int wordId) {
 	return Common::String(text);
 }
 
-static void setMacInterfacePixel(Graphics::ManagedSurface &panel,
-		int x, int y, byte color) {
-	if (x >= 0 && x < panel.w && y >= 0 && y < panel.h)
-		*(byte *)panel.getBasePtr(x, y) = color;
-}
-
-static void drawMacInterfaceArrow(Graphics::ManagedSurface &panel,
-		const Common::Rect &rect, bool up, byte color) {
-	if (rect.isEmpty())
-		return;
-
-	const int centerX = (rect.left + rect.right - 1) / 2;
-	const int centerY = (rect.top + rect.bottom - 1) / 2;
-	const int radius = MAX(1, MIN((rect.width() - 1) / 2,
-		(rect.height() - 1) / 2));
-	for (int row = 0; row <= radius; ++row) {
-		const int y = up ? centerY - radius / 2 + row :
-			centerY + radius / 2 - row;
-		for (int x = centerX - row; x <= centerX + row; ++x)
-			setMacInterfacePixel(panel, x, y, color);
-	}
-}
-
-static Common::Rect getScaledMacInterfaceSpot(int class_, int id) {
-	Common::Rect logical;
-	return getMacInterfaceSpot(class_, id, logical) ?
-		scaleMacInterfaceRect(logical) : Common::Rect();
-}
-
 static void drawMacInterfaceScrollbar(Graphics::ManagedSurface &panel) {
-	const Common::Rect up = getScaledMacInterfaceSpot(STROKE_SCROLL, SCROLL_UP);
-	const Common::Rect down = getScaledMacInterfaceSpot(STROKE_SCROLL, SCROLL_DOWN);
-	const Common::Rect elevator =
-		getScaledMacInterfaceSpot(STROKE_SCROLL, SCROLL_ELEVATOR);
-	Common::Rect thumb = getScaledMacInterfaceSpot(STROKE_SCROLL, SCROLL_THUMB);
+	// CODE 7 draws this control directly in native coordinates. The arrow
+	// line pattern is invisible in the normal state; the three frames are
+	// the complete control until the inventory exceeds five items.
+	const Common::Rect scrollbar(120, 2, 136, 86);
+	const Common::Rect up(120, 2, 136, 18);
+	const Common::Rect down(120, 70, 136, 86);
+	panel.frameRect(scrollbar, kMacNormalTextColor);
+	panel.frameRect(up, kMacNormalTextColor);
+	panel.frameRect(down, kMacNormalTextColor);
 
-	if (!elevator.isEmpty())
-		panel.frameRect(elevator, scrollbar_active == SCROLL_ELEVATOR ?
-			kMacLeftSelectColor : kMacNormalTextColor);
-	drawMacInterfaceArrow(panel, up, true,
-		scrollbar_active == SCROLL_UP ? kMacLeftSelectColor : kMacNormalTextColor);
-	drawMacInterfaceArrow(panel, down, false,
-		scrollbar_active == SCROLL_DOWN ? kMacLeftSelectColor : kMacNormalTextColor);
-
-	if (!thumb.isEmpty() && !elevator.isEmpty()) {
-		thumb.left = MAX<int>(thumb.left, elevator.left + 2);
-		thumb.right = MIN<int>(thumb.right, elevator.right - 2);
-		if (!thumb.isEmpty())
-			panel.fillRect(thumb, scrollbar_active == SCROLL_ELEVATOR ?
-				kMacLeftSelectColor : kMacNormalTextColor);
+	if (inven_num_objects > 5) {
+		panel.fillRect(Common::Rect(121, 18, 135, 70), 4);
+		const int thumbTop = 18 +
+			(first_inven * 48) / (inven_num_objects - 5);
+		panel.frameRect(Common::Rect(121, thumbTop, 135, thumbTop + 4),
+			kMacNormalTextColor);
 	}
 }
 
@@ -426,8 +382,16 @@ static bool isMacInterfaceSemanticPixel(int x, int y) {
 	return false;
 }
 
+static bool isMacInterfaceScrollbarPixel(int x, int y) {
+	// Mask the union of the scaled compatibility glyph area and CODE 7's
+	// native control so FONTMISC's private a/b/c/d glyphs cannot leak out.
+	return Common::Rect(macInterfaceX(inter_scroll_x1), 2, 136, 86)
+		.contains(x, y);
+}
+
 MacNebular::MacNebular(RexNebularEngine &engine) :
 		_engine(engine), _useOriginalMenus(ConfMan.getBool("original_mac_menus")) {
+	memset(_palette, 0, sizeof(_palette));
 }
 
 MacNebular::~MacNebular() {
@@ -461,11 +425,11 @@ bool MacNebular::initResources() {
 	_engine._soundManager = new Sound::MacSoundManager(
 		_engine._mixer, _engine._soundFlag, _resources);
 
+	_menus = new MacNebularMenu(_engine, *_resources, _output);
 	if (_useOriginalMenus) {
-		_menus = new MacNebularMenu(_engine, *_resources, _output);
 		if (!_menus->initialize()) {
 			delete _menus;
-			_menus = nullptr;
+			_menus = new MacNebularMenu(_engine, *_resources, _output);
 		}
 	}
 	return true;
@@ -483,7 +447,29 @@ void MacNebular::applyGameSettings() {
 	}
 }
 
+void MacNebular::selectDifficulty() {
+	selectMacintoshDifficulty(_menus);
+}
+
+int MacNebular::selectResumeSlot() {
+	return _menus ? _menus->selectResumeSlot() : -1;
+}
+
+void MacNebular::setOuterMenuActive(bool active) {
+	setFullFrameActive(active);
+	if (_menus)
+		_menus->setOuterMenuActive(active);
+}
+
 Common::Point MacNebular::screenToGame(const Common::Point &point) const {
+	if (_fullFrameActive) {
+		const int frameY = _useOriginalMenus ? kMacDesktopSceneY : 0;
+		if (point.y >= frameY && point.y < frameY + kMacFullFrameHeight)
+			return Common::Point(CLIP<int>(point.x / 2, 0, 319),
+				(point.y - frameY) / 2);
+		return Common::Point(-1, -1);
+	}
+
 	const int sceneY = _useOriginalMenus ? kMacDesktopSceneY : 0;
 	const int interfaceY = _useOriginalMenus ?
 		kMacDesktopInterfaceY : kMacSceneHeight;
@@ -505,6 +491,12 @@ Common::Point MacNebular::screenToGame(const Common::Point &point) const {
 }
 
 Common::Point MacNebular::gameToScreen(const Common::Point &point) const {
+	if (_fullFrameActive) {
+		const int frameY = _useOriginalMenus ? kMacDesktopSceneY : 0;
+		return Common::Point(point.x * 2,
+			frameY + point.y * 2);
+	}
+
 	const int sceneY = _useOriginalMenus ? kMacDesktopSceneY : 0;
 	const int interfaceY = _useOriginalMenus ?
 		kMacDesktopInterfaceY : kMacSceneHeight;
@@ -515,10 +507,102 @@ Common::Point MacNebular::gameToScreen(const Common::Point &point) const {
 		interfaceY + (point.y - 156) * 2);
 }
 
+void MacNebular::setPalette(const RGBcolor *palette, int firstColor,
+		int numColors) {
+	const int lastColor = MIN(firstColor + numColors,
+		Graphics::PALETTE_COUNT);
+	for (int color = firstColor; color < lastColor; ++color)
+		_palette[color] = palette[color];
+
+	// Full-frame viewers own the complete palette. Gameplay keeps the low
+	// colors available for the native interface.
+	const int outputFirst = _fullFrameActive ? firstColor :
+		MAX<int>(firstColor, kMacScenePaletteStart);
+	if (outputFirst >= lastColor)
+		return;
+
+	byte corrected[Graphics::PALETTE_SIZE];
+	for (int color = outputFirst; color < lastColor; ++color) {
+		const int offset = (color - outputFirst) * 3;
+		corrected[offset] = macGammaCorrect(palette[color].r);
+		corrected[offset + 1] = macGammaCorrect(palette[color].g);
+		corrected[offset + 2] = macGammaCorrect(palette[color].b);
+	}
+
+	if (!_fullFrameActive || !_useOriginalMenus || !_menus) {
+		g_system->getPaletteManager()->setPalette(corrected, outputFirst,
+			lastColor - outputFirst);
+		return;
+	}
+
+	// The native menu bar belongs to the Macintosh desktop, not to the
+	// game's indexed frame. Keep its system colors out of viewer fades.
+	byte menuBlack = 0;
+	byte menuWhite = 0;
+	_menus->getMenuColors(menuBlack, menuWhite);
+	int rangeFirst = outputFirst;
+	for (int color = outputFirst; color <= lastColor; ++color) {
+		if (color != lastColor && color != menuBlack &&
+			color != menuWhite)
+			continue;
+
+		if (rangeFirst < color) {
+			g_system->getPaletteManager()->setPalette(
+				corrected + (rangeFirst - outputFirst) * 3,
+				rangeFirst, color - rangeFirst);
+		}
+		rangeFirst = color + 1;
+	}
+}
+
+void MacNebular::getPalette(RGBcolor *palette, int firstColor,
+		int numColors) const {
+	const int lastColor = MIN(firstColor + numColors,
+		Graphics::PALETTE_COUNT);
+	for (int color = firstColor; color < lastColor; ++color)
+		palette[color] = _palette[color];
+}
+
 void MacNebular::presentScreen(int shakeOffset) {
+	// Keep the original Macintosh composition on its previous frame while
+	// the shared engine initializes the next room and interface.
+	if (_useOriginalMenus && !_fullFrameActive &&
+			kernel_mode != KERNEL_ACTIVE_CODE)
+		return;
+
+	if (_fullFrameActive) {
+		const int frameY = _useOriginalMenus ? kMacDesktopSceneY : 0;
+		const byte frameBlack = _useOriginalMenus && _menus ?
+			_menus->getBlackColor() : 0;
+		_output.fillRect(_output.getBounds(), frameBlack);
+		for (int y = 0; y < 200; ++y) {
+			const byte *source =
+				(const byte *)_engine._screen->getBasePtr(0, y);
+			byte *line1 = (byte *)_output.getBasePtr(
+				0, frameY + y * 2);
+			byte *line2 = (byte *)_output.getBasePtr(
+				0, frameY + y * 2 + 1);
+			for (int x = 0; x < 320; ++x) {
+				const byte color = source[(x + shakeOffset) % 320];
+				line1[x * 2] = color;
+				line1[x * 2 + 1] = color;
+			}
+			memcpy(line2, line1, kMacScreenWidth);
+		}
+
+		if (_useOriginalMenus && _menus)
+			_menus->draw();
+		g_system->copyRectToScreen(_output.getPixels(), _output.pitch,
+			0, 0, kMacScreenWidth, _output.h);
+		g_system->updateScreen();
+		_engine._screen->clearDirtyRects();
+		return;
+	}
+
 	const int sceneY = _useOriginalMenus ? kMacDesktopSceneY : 0;
 	const int interfaceY = _useOriginalMenus ?
 		kMacDesktopInterfaceY : kMacSceneHeight;
+	setMacInterfacePalette(_resources);
 	_output.fillRect(_output.getBounds(), kMacBlackColor);
 
 	// Native large-window mode doubles the 320x156 scene in both axes.
@@ -568,23 +652,11 @@ void MacNebular::presentScreen(int shakeOffset) {
 				for (int x = 0; x < kMacInterfaceWidth; ++x) {
 					const int logicalX = x * 320 / kMacInterfaceWidth;
 					if (current[logicalX] != baseline[logicalX] &&
-							(!interfaceFont ||
-							!isMacInterfaceSemanticPixel(logicalX, logicalY)))
+							!isMacInterfaceSemanticPixel(logicalX, logicalY) &&
+							!isMacInterfaceScrollbarPixel(x, y))
 						target[x] = current[logicalX];
 				}
 			}
-		}
-
-		// Apply the native blue layer to the panel artwork and non-semantic live
-		// state. CODE 7 draws the interface words afterward with distinct
-		// normal and selection colors, so they must not be quantized into the
-		// eight washed background colors.
-		byte washLUT[256];
-		buildMacPanelWashLUT(_resources->getNativeInterfacePalette(), washLUT);
-		for (int y = 0; y < kMacInterfaceHeight; ++y) {
-			byte *target = (byte *)panel.getBasePtr(0, y);
-			for (int x = 0; x < kMacInterfaceWidth; ++x)
-				target[x] = washLUT[target[x]];
 		}
 
 		if (interfaceFont)
@@ -631,7 +703,7 @@ void MacNebular::presentScreen(int shakeOffset) {
 		_layoutLogged = true;
 	}
 
-	if (_menus)
+	if (_useOriginalMenus && _menus)
 		_menus->draw();
 
 	g_system->copyRectToScreen(_output.getPixels(), _output.pitch,
@@ -641,7 +713,7 @@ void MacNebular::presentScreen(int shakeOffset) {
 }
 
 bool MacNebular::handleMacEvent(Common::Event &event) {
-	return _menus && _menus->processEvent(event);
+	return _useOriginalMenus && _menus && _menus->processEvent(event);
 }
 
 void MacNebular::showPopup() {
@@ -690,8 +762,7 @@ void MacNebular::showPopup() {
 			width - 20, lines);
 
 	const int popupAreaY = _useOriginalMenus ? kMacDesktopSceneY : 0;
-	const int popupAreaHeight = _useOriginalMenus ?
-		kMacSceneHeight : kMacLegacyScreenHeight;
+	const int popupAreaHeight = kMacLegacyScreenHeight;
 	const int height = CLIP<int>((int)lines.size() * 12 + 20, 20,
 		popupAreaHeight - 2);
 	_popup.create(width, height, Graphics::PixelFormat::createFormatCLUT8());
@@ -726,11 +797,17 @@ void MacNebular::showPopup() {
 		}
 	}
 
+	// CODE 9 centers a requested centered popup in the 640x400 content
+	// area. A popup with an explicit vertical position, as used by object
+	// examination, starts three pixels below the content midpoint.
+	const int logicalCenteredY = (video_y - box->ys) / 2;
+	const int popupY = box->y == logicalCenteredY ?
+		(popupAreaHeight - height) / 2 : popupAreaHeight / 2 + 3;
 	_popupRect = Common::Rect(
 		(kMacScreenWidth - width) / 2,
-		popupAreaY + (popupAreaHeight - height) / 2,
+		popupAreaY + popupY,
 		(kMacScreenWidth + width) / 2,
-		popupAreaY + (popupAreaHeight + height) / 2);
+		popupAreaY + popupY + height);
 	_popupActive = true;
 	presentScreen(0);
 }
@@ -741,7 +818,10 @@ void MacNebular::hidePopup() {
 
 	_popupActive = false;
 	_popup.free();
-	presentScreen(0);
+	// The popup owner resumes drawing after destruction. In particular,
+	// object examination still has a temporary work screen here and restores
+	// the room immediately afterwards, so presenting now would expose that
+	// intermediate buffer.
 }
 
 // -------------------------------------------------------------------------
@@ -775,6 +855,29 @@ bool RexNebularEngine::handleMacEvent(Common::Event &event) {
 	return _macNebular && _macNebular->handleMacEvent(event);
 }
 
+void RexNebularEngine::selectMacintoshDifficulty() {
+	if (_macNebular)
+		_macNebular->selectDifficulty();
+}
+
+int RexNebularEngine::selectMacintoshResumeSlot() {
+	return _macNebular ? _macNebular->selectResumeSlot() : -1;
+}
+
+bool RexNebularEngine::usesOriginalMacintoshMenus() const {
+	return _macNebular && _macNebular->usesOriginalMenus();
+}
+
+void RexNebularEngine::setMacintoshOuterMenuActive(bool active) {
+	if (_macNebular)
+		_macNebular->setOuterMenuActive(active);
+}
+
+void RexNebularEngine::setMacintoshFullFrameActive(bool active) {
+	if (_macNebular)
+		_macNebular->setFullFrameActive(active);
+}
+
 bool RexNebularEngine::drawPopup() {
 	if (!_macNebular)
 		return false;
@@ -794,6 +897,28 @@ bool RexNebularEngine::getInterfaceSentenceColors(byte &foreground, byte &shadow
 
 	foreground = kMacNormalTextColor;
 	shadow = kMacBlackColor;
+	return true;
+}
+
+bool RexNebularEngine::hasMacintoshInterface() const {
+	return _macNebular != nullptr;
+}
+
+bool RexNebularEngine::setMacintoshPalette(const RGBcolor *palette,
+		int firstColor, int numColors) {
+	if (!_macNebular)
+		return false;
+
+	_macNebular->setPalette(palette, firstColor, numColors);
+	return true;
+}
+
+bool RexNebularEngine::getMacintoshPalette(RGBcolor *palette,
+		int firstColor, int numColors) const {
+	if (!_macNebular)
+		return false;
+
+	_macNebular->getPalette(palette, firstColor, numColors);
 	return true;
 }
 

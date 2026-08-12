@@ -29,6 +29,12 @@
 namespace MADS {
 namespace AnimView {
 
+struct Presentation {
+	int bufferHeight;
+	bool drawBoundaryLines;
+	bool serviceFramesInline;
+};
+
 // Variables shared with other AnimView namespace files
 extern int speechFlags;
 extern int current_error_code;
@@ -58,6 +64,7 @@ extern int speechResourceId;
 
 // Main animview function
 extern void animview_main(const char *resName);
+extern void animview_main(const char *resName, const Presentation &presentation);
 
 } // namespace AnimView
 } // namespace MADS

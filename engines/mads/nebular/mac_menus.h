@@ -52,9 +52,11 @@ private:
 	Graphics::MacMenu *_menu = nullptr;
 	byte _palette[256 * 3] = {};
 	bool _paletteValid = false;
+	bool _outerMenuActive = false;
 	int _pendingCommand = -1;
 
 	static void menuCallback(int commandId, Common::String &name, void *data);
+	bool initializeWindowManager();
 	bool loadMenuResource(uint16 resourceID,
 		Graphics::MacMenuSubMenu *parent = nullptr, int parentItem = -1);
 	Graphics::MacMenuItem *getMenuItem(int menu, int item) const;
@@ -72,9 +74,14 @@ public:
 	bool initialize();
 	bool processEvent(Common::Event &event);
 	void draw();
+	byte getBlackColor();
+	void getMenuColors(byte &menuBlack, byte &menuWhite);
+	void setOuterMenuActive(bool active) { _outerMenuActive = active; }
+	int runDifficultyDialog();
+	int selectResumeSlot();
 };
 
-void selectMacintoshDifficulty();
+void selectMacintoshDifficulty(MacNebularMenu *menus);
 void macintoshGameMenu();
 
 } // namespace RexNebular
