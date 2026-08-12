@@ -22,9 +22,12 @@
 #include "ags/engine/script/system_imports.h"
 
 namespace AGS3 {
+using namespace AGS::Shared;
 
 uint32_t SystemImports::add(const String &name, const RuntimeScriptValue &value, ccInstance *anotherscr) {
-	uint32_t ixof = get_index_of(name);
+	// Only do exact match for add, not prefix/separator expansion
+	IndexMap::const_iterator it = btree.find(name);
+	uint32_t ixof = (it != btree.end()) ? it->_value : UINT32_MAX;
 	// Check if symbol already exists
 	if (ixof != UINT32_MAX) {
 		// Only allow override if not a script-exported function
@@ -94,8 +97,22 @@ uint32_t SystemImports::get_index_of(const String &name) {
 		}
 	}
 
-	if (args_separator == 0)
-		return UINT32_MAX; // no separator found, no further lookup possible
+	if (args_separator == 0) {
+		// No separator: try prefix search for matching exports
+		String name_only = name; // use full name as base
+		uint32_t name_only_match = UINT32_MAX;
+		IndexMap::const_iterator lb = btree.lower_bound(name_only);
+		for (; lb != btree.end(); ++lb) {
+			const String &try_sym = lb->_key;
+			if (try_sym.CompareLeft(name_only, name_only.GetLength()) != 0)
+				break;
+			if (try_sym.GetLength() == name_only.GetLength())
+				name_only_match = lb->_value;
+			else if (try_sym[name_only.GetLength()] == '$')
+				return lb->_value; // script export with matching base name found
+		}
+		return name_only_match;
+	}
 
 	String name_only = name.Left(args_at);
 
@@ -112,6 +129,8 @@ uint32_t SystemImports::get_index_of(const String &name) {
 				name_only_match = lb->_value;
 			else if (try_sym[name_only.GetLength()] == '$')
 				return lb->_value; // script export with matching base name found
+			else if (try_sym[name_only.GetLength()] == '^')
+				return lb->_value; // import/plugin symbol with matching base name found
 		}
 		return name_only_match;
 	}

@@ -26,6 +26,7 @@
 #include "ags/globals.h"
 
 namespace AGS3 {
+using namespace AGS::Shared;
 
 bool ccAddExternalStaticFunction(const String &name, ScriptAPIFunction *pfn) {
 	return _GP(simp).add(name, RuntimeScriptValue().SetStaticFunction(pfn), nullptr) != UINT32_MAX;

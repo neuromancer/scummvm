@@ -1769,6 +1769,10 @@ bool ccInstance::ResolveScriptImports(const ccScript *scri) {
 
 		resolved_imports[import_idx] = _GP(simp).get_index_of(scri->imports[import_idx]);
 		if (resolved_imports[import_idx] == UINT32_MAX) {
+			// Fallback to plugin symbol table
+			resolved_imports[import_idx] = _GP(simp_for_plugin).get_index_of(scri->imports[import_idx]);
+		}
+		if (resolved_imports[import_idx] == UINT32_MAX) {
 			Debug::Printf(kDbgMsg_Error, "unresolved import '%s' in '%s'", scri->imports[import_idx], scri->numSections > 0 ? scri->sectionNames[0] : "<unknown>");
 			errors++;
 			last_err_idx = import_idx;

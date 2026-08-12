@@ -52,6 +52,7 @@
 #include "ags/globals.h"
 
 namespace AGS3 {
+using namespace AGS::Shared;
 
 static bool DoRunScriptFuncCantBlock(ccInstance *sci, NonBlockingScriptFunction *funcToRun, bool hasTheFunc);
 static char scfunctionname[MAX_FUNCTION_NAME_LEN + 1];
@@ -228,6 +229,8 @@ int create_global_script() {
 
 	// Resolve the script imports after all the scripts have been loaded
 	for (auto &inst : all_insts) {
+		const char *section = inst->instanceof->numSections > 0 ? inst->instanceof->sectionNames[0] : "<?>";
+		Debug::Printf(kDbgMsg_Info, "create_global_script: resolving imports for '%s'", section);
 		if (!inst->ResolveScriptImports(inst->instanceof.get()))
 			return kscript_create_error;
 		if (!inst->ResolveImportFixups(inst->instanceof.get()))

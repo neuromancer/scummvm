@@ -4494,6 +4494,7 @@ const AGSGameDescription GAME_DESCRIPTIONS[] = {
 	GAME_ENTRY_362_EN("startrekgenerator", "Star Trek Story Generator.ags", "f1d4f2445f505cfda30be6281299e2fd", 22432216),
 	GAME_ENTRY_362("startrekxeno", "Star Trek Xenomorph Alert V2.ags", "1422a3b5a3870def6ef910774a0242be", AD_NO_SIZE),  // En-Fr
 	GAME_ENTRY_362_EN("talesmiddleearth", "Tales of Middle-Earth.ags", "a63fcb122b931dc3cccee6a924215e32", 28132480),
+	GAME_ENTRY_362("theboard", "El consorcio.ags", "70839112fc1c023b0b29b4e40007cd70", 216573694),  // Linux Multilang v1.04
 	UNSUPPORTED_GAME_ENTRY("theboard", "El consorcio.exe", "d22f4d939acf6e59d578a95c30a883d0", 219712274),  // Win Multilang
 	UNSUPPORTED_GAME_ENTRY("theboard", "El consorcio.ags", "3e4bd7d003a3f35cf439795bbc764c9c", 216573694),  // Linux Multilang
 	GAME_ENTRY_362_EN("thedissident", "Dissident.ags", "2fb5af288fe73751d51635d1576c42ca", 11952309),
