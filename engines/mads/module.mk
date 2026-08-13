@@ -18,7 +18,6 @@ MODULE_OBJS := \
 	core/cursor.o \
 	core/cycle.o \
 	core/dialog.o \
-	core/ems.o \
 	core/env.o \
 	core/error.o \
 	core/fileio.o \
@@ -26,7 +25,6 @@ MODULE_OBJS := \
 	core/game.o \
 	core/global.o \
 	core/heap.o \
-	core/himem.o \
 	core/hspot.o \
 	core/image.o \
 	core/imath.o \
@@ -42,7 +40,6 @@ MODULE_OBJS := \
 	core/mem.o \
 	core/mouse.o \
 	core/mps_archive.o \
-	core/mps_installer.o \
 	core/object.o \
 	core/pack.o \
 	core/pack_dcl.o \
@@ -66,7 +63,6 @@ MODULE_OBJS := \
 	core/video.o \
 	core/vocab.o \
 	core/window.o \
-	core/xms.o \
 	nebular/bonus/bonus.o \
 	nebular/bonus/bonus_exe_data.o \
 	nebular/bonus/bonus_text_ui.o \
@@ -83,6 +79,7 @@ MODULE_OBJS := \
 	nebular/mac_nebular.o \
 	nebular/mac_resources.o \
 	nebular/menus.o \
+	nebular/mps_installer.o \
 	nebular/popup.o \
 	nebular/mads/mads.o \
 	nebular/rooms/room101.o \
