@@ -204,6 +204,25 @@ Common::SeekableReadStream *MacResourceProvider::openResource(
 	return resourceContainer ? resourceContainer->getResource(type, id) : nullptr;
 }
 
+Common::String MacResourceProvider::getApplicationVersion() const {
+	Common::SeekableReadStream *stream = openResource(kApplicationContainer,
+		MKTAG('R', 'X', 'g', 'm'), 0);
+	if (!stream)
+		return Common::String();
+
+	const uint length = stream->readByte();
+	char version[256];
+	if (length > stream->size() - stream->pos() ||
+			stream->read(version, length) != length) {
+		delete stream;
+		return Common::String();
+	}
+
+	version[length] = '\0';
+	delete stream;
+	return Common::String(version);
+}
+
 const Graphics::Font *MacResourceProvider::getDialogFont() {
 	if (!_fontManager)
 		return nullptr;
@@ -223,6 +242,22 @@ const Graphics::Font *MacResourceProvider::getInterfaceFont() {
 	// Use it directly instead of enlarging text from the compatibility surface.
 	return _fontManager->getFont(Graphics::MacFont(
 		Graphics::kMacFontGeneva, 10, Graphics::kMacFontRegular));
+}
+
+const Graphics::Font *MacResourceProvider::getGameFont() {
+	if (!_fontManager)
+		return nullptr;
+
+	return _fontManager->getFont(Graphics::MacFont(
+		Graphics::kMacFontGeneva, 10, Graphics::kMacFontBold));
+}
+
+const Graphics::Font *MacResourceProvider::getAboutFont(int size) {
+	if (!_fontManager)
+		return nullptr;
+
+	return _fontManager->getFont(Graphics::MacFont(
+		Graphics::kMacFontGeneva, size, Graphics::kMacFontRegular));
 }
 
 MacResourceProvider::ResourceID MacResourceProvider::mapResource(const Common::String &filename) {
@@ -400,8 +435,7 @@ Common::SeekableReadStream *MacResourceProvider::createFontResource() {
 	// The native executable consistently selects bold Geneva (font ID 3) at
 	// 10 points for in-game text. MADS' DOS renderer expects its own packed
 	// font format, so rasterize the native system font into that format.
-	const Graphics::Font *font = _fontManager->getFont(Graphics::MacFont(
-		Graphics::kMacFontGeneva, 10, Graphics::kMacFontBold));
+	const Graphics::Font *font = getGameFont();
 	if (!font)
 		return nullptr;
 

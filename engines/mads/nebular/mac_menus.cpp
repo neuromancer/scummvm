@@ -19,25 +19,27 @@
  *
  */
 
+#include "common/array.h"
 #include "common/config-manager.h"
 #include "common/debug.h"
 #include "common/events.h"
 #include "common/stream.h"
 #include "common/system.h"
-#include "graphics/cursorman.h"
-#include "graphics/font.h"
+#include "common/translation.h"
 #include "graphics/macgui/macmenu.h"
 #include "graphics/macgui/macwindowmanager.h"
 #include "graphics/managed_surface.h"
 #include "graphics/paletteman.h"
-#include "graphics/primitives.h"
+#include "gui/message.h"
 #include "gui/saveload.h"
 #include "mads/core/config.h"
 #include "mads/core/game.h"
 #include "mads/core/kernel.h"
 #include "mads/core/sound_manager.h"
 #include "mads/mads.h"
+#include "mads/nebular/mac_dialogs.h"
 #include "mads/nebular/mac_menus.h"
+#include "mads/nebular/mac_nebular.h"
 #include "mads/nebular/mac_resources.h"
 #include "mads/nebular/nebular.h"
 
@@ -48,39 +50,79 @@ namespace {
 
 enum {
 	kDifficultyDialog = 2500,
-	kDialogButton = 4,
-	kDialogRadioButton = 6,
-	kDialogStaticText = 8,
+	kStartupPreferencesDialog = 2005,
+	kPreferencesDialog = 2105,
+	kStoryPasswordDialog = 2006,
+	kSaveDialog = 3001,
+	kOpenDialog = 3010,
+	kCopyProtectionDialog = 4000,
 
+	kAppleMenu = 0,
 	kFileMenu = 1,
+	kEditMenu = 2,
 	kOptionsMenu = 3,
 	kWindowMenu = 4,
 
+	kAppleAbout = (1000 << 16),
 	kFileOpen = (1001 << 16) | 2,
 	kFileSave = (1001 << 16) | 4,
 	kFileSaveAs = (1001 << 16) | 5,
+	kFilePreferences = (1001 << 16) | 7,
 	kFileQuit = (1001 << 16) | 9,
+	kEditUndo = (1002 << 16),
+	kEditCut = (1002 << 16) | 2,
+	kEditCopy = (1002 << 16) | 3,
+	kEditPaste = (1002 << 16) | 4,
+	kEditClear = (1002 << 16) | 5,
 	kOptionNoSound = (2001 << 16),
 	kOptionEasyInterface = (2001 << 16) | 1,
 	kFadeSmooth = (101 << 16),
 	kFadeMedium = (101 << 16) | 1,
 	kFadeFast = (101 << 16) | 2,
 	kStoryNaughty = (102 << 16),
-	kStoryNice = (102 << 16) | 1
+	kStoryNice = (102 << 16) | 1,
+	kStoryNiceLocked = (102 << 16) | 2,
+	kWindowStandard = (2000 << 16),
+	kWindow150 = (2000 << 16) | 1,
+	kWindow200 = (2000 << 16) | 2
 };
 
-struct DialogResourceItem {
-	Common::Rect bounds;
-	Common::String text;
-	byte type = 0;
-	bool enabled = false;
-};
+void collectSaves(RexNebularEngine &engine, Common::StringArray &names,
+		Common::Array<int> &slots) {
+	const SaveStateList saves = engine.listSaves();
+	for (SaveStateList::const_iterator save = saves.begin();
+			save != saves.end(); ++save) {
+		if (save->getSaveSlot() < 1 || save->getSaveSlot() > 99)
+			continue;
+		names.push_back(save->getDescription());
+		slots.push_back(save->getSaveSlot());
+	}
+}
 
-struct DialogResource {
-	Common::Rect bounds;
-	uint16 itemList = 0;
-	Common::Array<DialogResourceItem> items;
-};
+int findSaveSlot(const Common::Array<int> &slots, int slot) {
+	for (uint index = 0; index < slots.size(); ++index) {
+		if (slots[index] == slot)
+			return index;
+	}
+	return -1;
+}
+
+int findSaveName(const Common::StringArray &names,
+		const Common::String &name) {
+	for (uint index = 0; index < names.size(); ++index) {
+		if (names[index].equalsIgnoreCase(name))
+			return index;
+	}
+	return -1;
+}
+
+int firstFreeSaveSlot(const Common::Array<int> &slots) {
+	for (int slot = 1; slot <= 99; ++slot) {
+		if (findSaveSlot(slots, slot) < 0)
+			return slot;
+	}
+	return -1;
+}
 
 struct MenuResourceItem {
 	Common::String text;
@@ -125,138 +167,6 @@ bool readMenuResource(Common::SeekableReadStream &stream, MenuResource &resource
 	return false;
 }
 
-bool readDialogResource(Common::SeekableReadStream &stream,
-		DialogResource &resource) {
-	if (stream.size() < 21)
-		return false;
-
-	resource.bounds.top = stream.readUint16BE();
-	resource.bounds.left = stream.readUint16BE();
-	resource.bounds.bottom = stream.readUint16BE();
-	resource.bounds.right = stream.readUint16BE();
-	stream.skip(10); // Procedure, visibility, go-away flag, and refCon.
-	resource.itemList = stream.readUint16BE();
-	/* Common::String title = */ stream.readPascalString();
-	return !stream.err() && resource.bounds.isValidRect();
-}
-
-bool readDialogItems(Common::SeekableReadStream &stream,
-		DialogResource &resource) {
-	if (stream.size() < 2)
-		return false;
-
-	const uint itemCount = stream.readUint16BE() + 1;
-	for (uint itemNumber = 0; itemNumber < itemCount; ++itemNumber) {
-		if (stream.pos() + 14 > stream.size())
-			return false;
-
-		DialogResourceItem item;
-		stream.skip(4); // Placeholder for a handle or procedure pointer.
-		item.bounds.top = stream.readUint16BE();
-		item.bounds.left = stream.readUint16BE();
-		item.bounds.bottom = stream.readUint16BE();
-		item.bounds.right = stream.readUint16BE();
-		const byte rawType = stream.readByte();
-		const uint length = stream.readByte();
-		if (stream.pos() + length > stream.size())
-			return false;
-
-		item.type = rawType & 0x7f;
-		item.enabled = (rawType & 0x80) == 0;
-		if (item.type == kDialogButton ||
-				item.type == kDialogRadioButton ||
-				item.type == kDialogStaticText) {
-			for (uint i = 0; i < length; ++i)
-				item.text += (char)stream.readByte();
-			resource.items.push_back(item);
-		} else {
-			stream.skip(length);
-		}
-
-		if (length & 1)
-			stream.skip(1);
-	}
-
-	return !stream.err();
-}
-
-Common::Rect getDialogItemBounds(const DialogResource &dialog,
-		const DialogResourceItem &item) {
-	Common::Rect bounds(item.bounds);
-	bounds.translate(dialog.bounds.left, dialog.bounds.top);
-	return bounds;
-}
-
-void drawDifficultyDialog(Graphics::ManagedSurface &screen,
-		Graphics::MacWindowManager &windowManager,
-		const Graphics::Font &font, const DialogResource &dialog,
-		int selectedRadio, bool pressedButton) {
-	Graphics::Primitives &primitives = windowManager.getDrawPrimitives();
-	Graphics::MacPlotData plot(&screen, nullptr,
-		&windowManager.getBuiltinPatterns(), 1, 0, 0,
-		Common::Point(1, 1), windowManager._colorWhite, false);
-	primitives.drawFilledRect1(dialog.bounds, windowManager._colorWhite, &plot);
-	primitives.drawRect1(dialog.bounds, windowManager._colorBlack, &plot);
-
-	int radio = 0;
-	for (uint i = 0; i < dialog.items.size(); ++i) {
-		const DialogResourceItem &item = dialog.items[i];
-		const Common::Rect bounds = getDialogItemBounds(dialog, item);
-		const int textY = bounds.top +
-			(bounds.height() - font.getFontHeight()) / 2;
-
-		switch (item.type) {
-		case kDialogButton: {
-			primitives.drawRect1(bounds, windowManager._colorBlack, &plot);
-			if (pressedButton) {
-				Common::Rect inside(bounds);
-				inside.grow(-2);
-				primitives.drawFilledRect1(inside,
-					windowManager._colorBlack, &plot);
-			}
-			const uint32 color = pressedButton ? windowManager._colorWhite :
-				windowManager._colorBlack;
-			const int textX = bounds.left +
-				(bounds.width() - font.getStringWidth(item.text)) / 2;
-			font.drawString(&screen, item.text, textX, textY,
-				bounds.width(), color);
-			break;
-		}
-		case kDialogRadioButton: {
-			const int circleTop = bounds.top + (bounds.height() - 12) / 2;
-			primitives.drawEllipse(bounds.left, circleTop,
-				bounds.left + 11, circleTop + 11,
-				windowManager._colorBlack, false, &plot);
-			if (radio == selectedRadio)
-				primitives.drawEllipse(bounds.left + 4, circleTop + 4,
-					bounds.left + 7, circleTop + 7,
-					windowManager._colorBlack, true, &plot);
-			font.drawString(&screen, item.text, bounds.left + 17, textY,
-				bounds.width() - 17, windowManager._colorBlack);
-			++radio;
-			break;
-		}
-		case kDialogStaticText:
-			font.drawString(&screen, item.text, bounds.left, textY,
-				bounds.width(), windowManager._colorBlack);
-			break;
-		default:
-			break;
-		}
-	}
-}
-
-int difficultyForRadio(int radio) {
-	switch (radio) {
-	case 0:
-		return DIFFICULTY_EASY;
-	case 2:
-		return DIFFICULTY_HARD;
-	default:
-		return DIFFICULTY_MEDIUM;
-	}
-}
-
 } // namespace
 
 MacNebularMenu::MacNebularMenu(RexNebularEngine &engine,
@@ -277,11 +187,13 @@ bool MacNebularMenu::initializeWindowManager() {
 	byte palette[256 * 3];
 	g_system->getPaletteManager()->grabPalette(palette, 0, 256);
 
-	const uint32 mode = Graphics::kWMModeNoDesktop |
+	_windowManagerMode = Graphics::kWMModeNoDesktop |
 		Graphics::kWMModalMenuMode | Graphics::kWMModeNoCursorOverride |
 		Graphics::kWMModeForceMacFonts | Graphics::kWMModeNoSystemRedraw |
 		Graphics::kWMNoScummVMWallpaper;
-	_windowManager = new Graphics::MacWindowManager(mode);
+	if (_engine.getMacintoshHideMenuBar())
+		_windowManagerMode |= Graphics::kWMModeAutohideMenu;
+	_windowManager = new Graphics::MacWindowManager(_windowManagerMode);
 	g_system->getPaletteManager()->setPalette(palette, 0, 256);
 	_windowManager->setEngine(&_engine);
 	_windowManager->setScreen(&_screen);
@@ -389,12 +301,27 @@ void MacNebularMenu::updateState() {
 				itemIndex < _menu->numberOfMenuItems(topLevel); ++itemIndex)
 			setItemState(_menu->getSubMenuItem(topLevel, itemIndex), false, false);
 	}
+	setItemState(getMenuItem(kAppleMenu, 0), true, false);
+	if (_activeDialog) {
+		setItemState(getMenuItem(kEditMenu, 0),
+			_activeDialog->isEditCommandEnabled(kMacDialogUndo), false);
+		setItemState(getMenuItem(kEditMenu, 2),
+			_activeDialog->isEditCommandEnabled(kMacDialogCut), false);
+		setItemState(getMenuItem(kEditMenu, 3),
+			_activeDialog->isEditCommandEnabled(kMacDialogCopy), false);
+		setItemState(getMenuItem(kEditMenu, 4),
+			_activeDialog->isEditCommandEnabled(kMacDialogPaste), false);
+		setItemState(getMenuItem(kEditMenu, 5),
+			_activeDialog->isEditCommandEnabled(kMacDialogClear), false);
+		return;
+	}
 
 	setItemState(getMenuItem(kFileMenu, 2),
 		_engine.canLoadGameStateCurrently(nullptr), false);
 	const bool canSave = _engine.canSaveGameStateCurrently(nullptr);
 	setItemState(getMenuItem(kFileMenu, 4), canSave, false);
 	setItemState(getMenuItem(kFileMenu, 5), canSave, false);
+	setItemState(getMenuItem(kFileMenu, 7), true, false);
 	setItemState(getMenuItem(kFileMenu, 9), true, false);
 
 	const bool noSound = !_engine._musicFlag && !_engine._soundFlag;
@@ -407,18 +334,21 @@ void MacNebularMenu::updateState() {
 		setItemState(getSubMenuItem(kOptionsMenu, 2, fade), true,
 			kernel_screen_fade == fade);
 
+	const bool storyLocked = _engine.getMacintoshStoryLocked();
 	setItemState(getSubMenuItem(kOptionsMenu, 3, 0),
-		config_file.naughtiness != NAUGHTY,
-		config_file.naughtiness == NAUGHTY);
+		storyLocked || config_file.naughtiness != NAUGHTY,
+		!storyLocked && config_file.naughtiness == NAUGHTY);
 	setItemState(getSubMenuItem(kOptionsMenu, 3, 1),
-		config_file.naughtiness != NICE,
-		config_file.naughtiness == NICE);
-	setItemState(getSubMenuItem(kOptionsMenu, 3, 2), false,
-		config_file.naughtiness != NAUGHTY && config_file.naughtiness != NICE);
+		storyLocked || config_file.naughtiness != NICE,
+		!storyLocked && config_file.naughtiness == NICE);
+	setItemState(getSubMenuItem(kOptionsMenu, 3, 2), !storyLocked,
+		storyLocked);
 
-	setItemState(getMenuItem(kWindowMenu, 0), false, false);
-	setItemState(getMenuItem(kWindowMenu, 1), false, false);
-	setItemState(getMenuItem(kWindowMenu, 2), true, true);
+	const int displaySize = _engine.getMacintoshDisplaySize();
+	for (int size = kMacNebularDisplay100;
+			size <= kMacNebularDisplay200; ++size)
+		setItemState(getMenuItem(kWindowMenu, size), true,
+			displaySize == size);
 
 	if (_outerMenuActive) {
 		// CODE 133 disables New, Resume, Open, Save, and Save As while
@@ -433,17 +363,51 @@ void MacNebularMenu::updateState() {
 
 void MacNebularMenu::dispatchCommand(int commandId) {
 	switch (commandId) {
+	case kAppleAbout:
+		// Run the full-frame presentation after the menu event has unwound.
+		// Otherwise the closing menu window can be composited over room 990.
+		_aboutRequested = true;
+		break;
 	case kFileOpen:
 		if (_engine.canLoadGameStateCurrently(nullptr))
-			_engine.loadGameDialog();
+			runOpenDialog();
 		break;
 	case kFileSave:
+		if (_engine.canSaveGameStateCurrently(nullptr))
+			runSaveDialog(false);
+		break;
 	case kFileSaveAs:
 		if (_engine.canSaveGameStateCurrently(nullptr))
-			_engine.saveGameDialog();
+			runSaveDialog(true);
+		break;
+	case kFilePreferences:
+		// Like About, this opens a modal presentation. Defer it until the
+		// menu event and its transient window have been fully dismissed.
+		_preferencesRequested = true;
 		break;
 	case kFileQuit:
 		_engine.quitGame();
+		game.going = false;
+		break;
+	case kEditUndo:
+		if (_activeDialog)
+			_activeDialog->handleEditCommand(kMacDialogUndo);
+		break;
+	case kEditCut:
+		if (_activeDialog)
+			_activeDialog->handleEditCommand(kMacDialogCut);
+		break;
+	case kEditCopy:
+		if (_activeDialog)
+			_activeDialog->handleEditCommand(kMacDialogCopy);
+		break;
+	case kEditPaste:
+		if (_activeDialog)
+			_activeDialog->handleEditCommand(kMacDialogPaste);
+		break;
+	case kEditClear:
+		if (_activeDialog)
+			_activeDialog->handleEditCommand(kMacDialogClear);
 		break;
 	case kOptionNoSound: {
 		const bool enableSound = !_engine._musicFlag && !_engine._soundFlag;
@@ -475,9 +439,25 @@ void MacNebularMenu::dispatchCommand(int commandId) {
 		break;
 	case kStoryNaughty:
 	case kStoryNice:
+		if (_engine.getMacintoshStoryLocked() &&
+				!runStoryPasswordDialog(true))
+			break;
+		_engine.setMacintoshStoryLocked(false, Common::String());
 		config_file.naughtiness = commandId == kStoryNaughty ? NAUGHTY : NICE;
 		ConfMan.setBool("naughtiness", config_file.naughtiness == NAUGHTY);
 		ConfMan.flushToDisk();
+		break;
+	case kStoryNiceLocked:
+		if (runStoryPasswordDialog(false)) {
+			config_file.naughtiness = NICE;
+			ConfMan.setBool("naughtiness", false);
+			ConfMan.flushToDisk();
+		}
+		break;
+	case kWindowStandard:
+	case kWindow150:
+	case kWindow200:
+		_engine.setMacintoshDisplaySize(commandId - kWindowStandard, true);
 		break;
 	default:
 		break;
@@ -498,7 +478,7 @@ void MacNebularMenu::syncPalette() {
 }
 
 bool MacNebularMenu::processEvent(Common::Event &event) {
-	if (!_windowManager)
+	if (!_windowManager || !_menu)
 		return false;
 
 	updateState();
@@ -511,6 +491,10 @@ bool MacNebularMenu::processEvent(Common::Event &event) {
 	return handled;
 }
 
+bool MacNebularMenu::processDialogEvent(Common::Event &event) {
+	return processEvent(event);
+}
+
 void MacNebularMenu::draw() {
 	if (!_menu)
 		return;
@@ -518,6 +502,62 @@ void MacNebularMenu::draw() {
 	syncPalette();
 	updateState();
 	_menu->draw(&_screen, true);
+}
+
+bool MacNebularMenu::takeAboutRequest() {
+	const bool requested = _aboutRequested;
+	_aboutRequested = false;
+	return requested;
+}
+
+void MacNebularMenu::waitForAboutDismissal() {
+	bool pressed = false;
+	bool released = false;
+	bool pressedMouse = false;
+	uint32 releaseTime = 0;
+	g_system->delayMillis(166);
+	while (!_engine.shouldQuit() &&
+			(!pressed || !released || g_system->getMillis() < releaseTime)) {
+		Common::Event event;
+		while (g_system->getEventManager()->pollEvent(event)) {
+			switch (event.type) {
+			case Common::EVENT_QUIT:
+				_engine.quitGame();
+				break;
+			case Common::EVENT_LBUTTONDOWN:
+				if (!pressed) {
+					pressed = true;
+					pressedMouse = true;
+					releaseTime = g_system->getMillis() + 333;
+				}
+				break;
+			case Common::EVENT_KEYDOWN:
+				if (!pressed) {
+					pressed = true;
+					pressedMouse = false;
+					releaseTime = g_system->getMillis() + 333;
+				}
+				break;
+			case Common::EVENT_LBUTTONUP:
+				if (pressed && pressedMouse)
+					released = true;
+				break;
+			case Common::EVENT_KEYUP:
+				if (pressed && !pressedMouse)
+					released = true;
+				break;
+			default:
+				break;
+			}
+		}
+		g_system->delayMillis(10);
+	}
+}
+
+bool MacNebularMenu::takePreferencesRequest() {
+	const bool requested = _preferencesRequested;
+	_preferencesRequested = false;
+	return requested;
 }
 
 byte MacNebularMenu::getBlackColor() {
@@ -536,6 +576,228 @@ void MacNebularMenu::getMenuColors(byte &menuBlack, byte &menuWhite) {
 	menuWhite = (byte)_windowManager->_colorWhite;
 }
 
+void MacNebularMenu::setMenuBarHidden(bool hidden) {
+	if (!initialize())
+		return;
+	if (hidden)
+		_windowManagerMode |= Graphics::kWMModeAutohideMenu;
+	else
+		_windowManagerMode &= ~Graphics::kWMModeAutohideMenu;
+	_windowManager->setMode(_windowManagerMode);
+	_menu->setVisible(!hidden, true);
+}
+
+bool MacNebularMenu::runPreferencesDialog(bool startup) {
+	if (!initializeWindowManager())
+		return false;
+
+	syncPalette();
+	if (_windowManager->_colorBlack == _windowManager->_colorWhite)
+		return false;
+
+	MacNebularDialog dialog(_engine, _resources, _screen, *_windowManager,
+		this);
+	if (!dialog.load(startup ? kStartupPreferencesDialog :
+			kPreferencesDialog))
+		return false;
+	dialog.center();
+	dialog.setItemEnabled(2, !startup);
+	dialog.setItemChecked(4, _engine.getMacintoshHideMenuBar());
+	dialog.setItemEnabled(5, false);
+	dialog.setItemEnabled(6, false);
+	dialog.setItemChecked(7, true);
+	dialog.setItemChecked(8,
+		_engine.getMacintoshPreferencesAtStartup());
+	_activeDialog = &dialog;
+	const int result = dialog.runModal(1, startup ? 0 : 2);
+	_activeDialog = nullptr;
+	if (result == 1) {
+		const bool persist = dialog.isItemChecked(7);
+		_engine.setMacintoshHideMenuBar(dialog.isItemChecked(4), persist);
+		_engine.setMacintoshPreferencesAtStartup(dialog.isItemChecked(8),
+			persist);
+	}
+
+	return true;
+}
+
+int MacNebularMenu::runPopupEditor(const Common::Rect &bounds,
+		char *target, int maxLength) {
+	if (!initializeWindowManager() || !target || maxLength < 1)
+		return -1;
+
+	MacNebularDialog dialog(_engine, _resources, _screen, *_windowManager,
+		this);
+	dialog.configureInlineEditable(bounds, target, maxLength);
+	_activeDialog = &dialog;
+	const int result = dialog.runModal(1, 2);
+	_activeDialog = nullptr;
+	if (result != 1)
+		return 1;
+
+	Common::strcpy_s(target, maxLength + 1, dialog.getItemText(1).c_str());
+	return 0;
+}
+
+int MacNebularMenu::runCopyProtectionDialog(const Common::String &title,
+		const Common::String &subtitle, const Common::String &prompt,
+		char *target, int maxLength) {
+	if (!initializeWindowManager() || !target || maxLength < 1)
+		return -1;
+
+	syncPalette();
+	MacNebularDialog dialog(_engine, _resources, _screen, *_windowManager);
+	if (!dialog.load(kCopyProtectionDialog))
+		return -1;
+	dialog.center();
+	dialog.setItemText(2, target);
+	dialog.setItemMaxLength(2, maxLength);
+	dialog.setItemText(3, title);
+	dialog.setItemText(4, subtitle);
+	dialog.setItemText(7, prompt);
+
+	_activeDialog = &dialog;
+	const int result = dialog.runModal(1, 0);
+	_activeDialog = nullptr;
+	if (result != 1)
+		return 1;
+
+	Common::strcpy_s(target, maxLength + 1, dialog.getItemText(2).c_str());
+	return 0;
+}
+
+bool MacNebularMenu::runStoryPasswordDialog(bool leavingLocked) {
+	if (!initializeWindowManager())
+		return false;
+
+	Common::String prompt = leavingLocked ?
+		"Enter the password needed to unlock NICE mode." :
+		"Enter your password for future unlocking of NICE mode.";
+	for (;;) {
+		MacNebularDialog dialog(_engine, _resources, _screen,
+			*_windowManager, this);
+		if (!dialog.load(kStoryPasswordDialog))
+			return false;
+		dialog.center();
+		dialog.setItemText(3, prompt);
+		dialog.setItemText(4, Common::String());
+
+		_activeDialog = &dialog;
+		const int result = dialog.runModal(1, 2);
+		_activeDialog = nullptr;
+		if (result != 1)
+			return false;
+
+		const Common::String password = dialog.getItemText(4);
+		if (!leavingLocked) {
+			_engine.setMacintoshStoryLocked(true, password);
+			return true;
+		}
+		if (_engine.verifyMacintoshStoryPassword(password))
+			return true;
+		prompt = "Incorrect password. Try again.";
+	}
+}
+
+void MacNebularMenu::runOpenDialog() {
+	if (!initializeWindowManager())
+		return;
+
+	Common::StringArray names;
+	Common::Array<int> slots;
+	collectSaves(_engine, names, slots);
+	if (slots.empty())
+		return;
+
+	MacNebularDialog dialog(_engine, _resources, _screen, *_windowManager,
+		this);
+	if (!dialog.load(kOpenDialog))
+		return;
+	dialog.center();
+	dialog.setItemEnabled(5, false);
+	dialog.setItemEnabled(6, false);
+	int selection = findSaveSlot(slots, game.last_save + 1);
+	if (selection < 0)
+		selection = 0;
+	dialog.setList(7, names, selection);
+
+	_activeDialog = &dialog;
+	const int result = dialog.runModal(1, 3);
+	_activeDialog = nullptr;
+	if (result != 1)
+		return;
+
+	selection = dialog.getListSelection(7);
+	if (selection < 0 || (uint)selection >= slots.size())
+		return;
+	const int slot = slots[selection];
+	if (_engine.loadGameState(slot).getCode() == Common::kNoError)
+		game.last_save = slot - 1;
+}
+
+void MacNebularMenu::runSaveDialog(bool saveAs) {
+	Common::StringArray names;
+	Common::Array<int> slots;
+	collectSaves(_engine, names, slots);
+	const int currentSlot = game.last_save + 1;
+	const int currentIndex = findSaveSlot(slots, currentSlot);
+	if (!saveAs && currentIndex >= 0) {
+		const int previousLastSave = game.last_save;
+		game.last_save = currentSlot - 1;
+		if (_engine.saveGameState(currentSlot,
+				names[currentIndex]).getCode() != Common::kNoError)
+			game.last_save = previousLastSave;
+		return;
+	}
+
+	if (!initializeWindowManager())
+		return;
+	MacNebularDialog dialog(_engine, _resources, _screen, *_windowManager,
+		this);
+	if (!dialog.load(kSaveDialog))
+		return;
+	dialog.center();
+	dialog.setItemEnabled(4, false);
+	dialog.setItemEnabled(5, false);
+	dialog.setList(8, names, currentIndex >= 0 ? currentIndex : 0);
+	if (currentIndex >= 0)
+		dialog.setItemText(7, names[currentIndex]);
+
+	_activeDialog = &dialog;
+	const int result = dialog.runModal(1, 2);
+	_activeDialog = nullptr;
+	if (result != 1)
+		return;
+
+	Common::String name = dialog.getItemText(7);
+	if (name.empty()) {
+		const int selection = dialog.getListSelection(8);
+		if (selection >= 0 && (uint)selection < names.size())
+			name = names[selection];
+	}
+	if (name.empty())
+		return;
+
+	const int matchingIndex = findSaveName(names, name);
+	int slot = matchingIndex >= 0 ? slots[matchingIndex] :
+		firstFreeSaveSlot(slots);
+	if (slot < 0)
+		return;
+	if (matchingIndex >= 0) {
+		GUI::MessageDialog replaceDialog(
+			Common::U32String::format(_("A saved game named '%s' already "
+				"exists. Replace it?"), name.c_str()),
+			_("Replace"), _("Cancel"));
+		if (replaceDialog.runModal() != GUI::kMessageOK)
+			return;
+	}
+
+	const int previousLastSave = game.last_save;
+	game.last_save = slot - 1;
+	if (_engine.saveGameState(slot, name).getCode() != Common::kNoError)
+		game.last_save = previousLastSave;
+}
+
 void MacNebularMenu::menuCallback(int commandId, Common::String &, void *data) {
 	MacNebularMenu *menus = (MacNebularMenu *)data;
 	menus->_pendingCommand = commandId;
@@ -546,134 +808,22 @@ int MacNebularMenu::runDifficultyDialog() {
 	if (!initializeWindowManager())
 		return -1;
 
-	Common::SeekableReadStream *dialogStream = _resources.openResource(
-		MacResourceProvider::kApplicationContainer,
-		MKTAG('D', 'L', 'O', 'G'), kDifficultyDialog);
-	if (!dialogStream)
+	MacNebularDialog dialog(_engine, _resources, _screen, *_windowManager,
+		this);
+	if (!dialog.load(kDifficultyDialog))
 		return -1;
-
-	DialogResource dialog;
-	const bool validDialog = readDialogResource(*dialogStream, dialog);
-	delete dialogStream;
-	if (!validDialog || dialog.itemList != kDifficultyDialog)
+	dialog.center();
+	dialog.setItemChecked(4, true);
+	_activeDialog = &dialog;
+	const int result = dialog.runModal(1, 0);
+	_activeDialog = nullptr;
+	if (result != 1)
 		return -1;
-	dialog.bounds.moveTo((_screen.w - dialog.bounds.width()) / 2,
-		(_screen.h - dialog.bounds.height()) / 2);
-
-	Common::SeekableReadStream *itemsStream = _resources.openResource(
-		MacResourceProvider::kApplicationContainer,
-		MKTAG('D', 'I', 'T', 'L'), dialog.itemList);
-	if (!itemsStream)
-		return -1;
-
-	const bool validItems = readDialogItems(*itemsStream, dialog);
-	delete itemsStream;
-	const Graphics::Font *font = _resources.getDialogFont();
-	if (!validItems || !font)
-		return -1;
-
-	Graphics::ManagedSurface saved;
-	saved.create(dialog.bounds.width(), dialog.bounds.height(), _screen.format);
-	saved.copyRectToSurface(_screen.getBasePtr(dialog.bounds.left,
-		dialog.bounds.top), _screen.pitch, 0, 0,
-		dialog.bounds.width(), dialog.bounds.height());
-
-	int selectedRadio = 1;
-	bool pressedButton = false;
-	bool done = false;
-	bool quit = false;
-	bool redraw = true;
-	const bool cursorWasVisible = CursorMan.isVisible();
-	_windowManager->clearHandlingWidgets();
-	_windowManager->pushCursor(Graphics::kMacCursorArrow);
-	CursorMan.showMouse(true);
-
-	while (!done) {
-		if (redraw) {
-			drawDifficultyDialog(_screen, *_windowManager, *font, dialog,
-				selectedRadio, pressedButton);
-			g_system->copyRectToScreen(_screen.getBasePtr(dialog.bounds.left,
-				dialog.bounds.top), _screen.pitch, dialog.bounds.left,
-				dialog.bounds.top, dialog.bounds.width(), dialog.bounds.height());
-			redraw = false;
-		}
-
-		Common::Event event;
-		while (!done && g_system->getEventManager()->pollEvent(event)) {
-			switch (event.type) {
-			case Common::EVENT_QUIT:
-				quit = true;
-				done = true;
-				break;
-			case Common::EVENT_KEYDOWN:
-				if (event.kbd.keycode == Common::KEYCODE_RETURN ||
-						event.kbd.keycode == Common::KEYCODE_KP_ENTER) {
-					done = true;
-				} else if (event.kbd.keycode == Common::KEYCODE_UP) {
-					selectedRadio = MAX(0, selectedRadio - 1);
-					redraw = true;
-				} else if (event.kbd.keycode == Common::KEYCODE_DOWN) {
-					selectedRadio = MIN(2, selectedRadio + 1);
-					redraw = true;
-				}
-				break;
-			case Common::EVENT_LBUTTONDOWN: {
-				int radio = 0;
-				for (uint i = 0; i < dialog.items.size(); ++i) {
-					const DialogResourceItem &item = dialog.items[i];
-					const Common::Rect bounds = getDialogItemBounds(dialog, item);
-					if (item.type == kDialogRadioButton) {
-						if (item.enabled && bounds.contains(event.mouse.x,
-								event.mouse.y)) {
-							selectedRadio = radio;
-							redraw = true;
-						}
-						++radio;
-					} else if (item.type == kDialogButton && item.enabled &&
-							bounds.contains(event.mouse.x, event.mouse.y)) {
-						pressedButton = true;
-						redraw = true;
-					}
-				}
-				break;
-			}
-			case Common::EVENT_LBUTTONUP:
-				if (pressedButton) {
-					for (uint i = 0; i < dialog.items.size(); ++i) {
-						const DialogResourceItem &item = dialog.items[i];
-						if (item.type == kDialogButton && item.enabled &&
-								getDialogItemBounds(dialog, item).contains(
-									event.mouse.x, event.mouse.y))
-							done = true;
-					}
-				}
-				pressedButton = false;
-				redraw = true;
-				break;
-			default:
-				break;
-			}
-		}
-
-		if (!done) {
-			g_system->updateScreen();
-			g_system->delayMillis(10);
-		}
-	}
-
-	_screen.copyRectToSurface(saved.getPixels(), saved.pitch,
-		dialog.bounds.left, dialog.bounds.top,
-		dialog.bounds.width(), dialog.bounds.height());
-	g_system->copyRectToScreen(_screen.getBasePtr(dialog.bounds.left,
-		dialog.bounds.top), _screen.pitch, dialog.bounds.left,
-		dialog.bounds.top, dialog.bounds.width(), dialog.bounds.height());
-	g_system->updateScreen();
-	_windowManager->popCursor();
-	CursorMan.showMouse(cursorWasVisible);
-	if (quit)
-		_engine.quitGame();
-
-	return difficultyForRadio(selectedRadio);
+	if (dialog.isItemChecked(3))
+		return DIFFICULTY_EASY;
+	if (dialog.isItemChecked(5))
+		return DIFFICULTY_HARD;
+	return DIFFICULTY_MEDIUM;
 }
 
 int MacNebularMenu::selectResumeSlot() {
@@ -704,10 +854,14 @@ void macintoshGameMenu() {
 	const int requestedMenu = kernel.activate_menu;
 	kernel.activate_menu = GAME_NO_MENU;
 
-	if (requestedMenu == GAME_DIFFICULTY_MENU)
+	if (requestedMenu == GAME_DIFFICULTY_MENU) {
 		((RexNebularEngine *)g_engine)->selectMacintoshDifficulty();
-	else if (requestedMenu != GAME_NO_MENU)
+	} else if (requestedMenu != GAME_NO_MENU) {
 		g_engine->openMainMenuDialog();
+
+		if (g_engine->shouldQuit())
+			game.going = false;
+	}
 }
 
 } // namespace RexNebular

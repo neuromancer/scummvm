@@ -93,6 +93,8 @@ protected:
 	virtual void presentScreen(int shakeOffset);
 
 	virtual bool handleMacEvent(Common::Event &event) { return false; }
+	virtual void serviceMacintoshUI() {}
+	virtual void serviceMacintoshSound() {}
 
 	bool hasFeature(EngineFeature f) const override;
 
@@ -182,7 +184,13 @@ public:
 	// MADS rendering path used by DOS releases.
 	virtual bool hasInterfaceAnimations() const { return true; }
 	virtual bool drawPopup() { return false; }
+	virtual int editMacintoshPopup(char *, int) { return -1; }
 	virtual void onPopupDestroyed() {}
+	virtual int getMacintoshTextWidth(FontPtr, const char *, int) const {
+		return -1;
+	}
+	virtual bool drawMacintoshText(FontPtr, Buffer *, const char *, int,
+		int, int, int) const { return false; }
 	virtual bool getInterfaceSentenceColors(byte &, byte &) const {
 		return false;
 	}

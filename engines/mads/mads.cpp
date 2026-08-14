@@ -247,6 +247,7 @@ void MADSEngine::pollEvents() {
 	if (time >= _nextFrameTime) {
 		updateScreen();
 		_nextFrameTime = time + GAME_FRAME_TIME;
+		serviceMacintoshUI();
 	}
 
 	// Handle calling any set timer function
@@ -371,6 +372,8 @@ void MADSEngine::checkForTimerFunction() {
 			_nextTimerTime = time + (1000 / 60);
 		}
 	}
+
+	serviceMacintoshSound();
 }
 
 bool MADSEngine::hasPendingKey() {

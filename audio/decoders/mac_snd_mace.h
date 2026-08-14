@@ -19,32 +19,31 @@
  *
  */
 
-#ifndef MADS_CONSOLE_H
-#define MADS_CONSOLE_H
+#ifndef AUDIO_MAC_SND_MACE_H
+#define AUDIO_MAC_SND_MACE_H
 
-#include "gui/debugger.h"
+#include "common/scummsys.h"
+#include "common/types.h"
 
-namespace MADS {
+namespace Common {
+class SeekableReadStream;
+}
 
-extern int strToInt(const char *s);
+namespace Audio {
 
-class Console : public GUI::Debugger {
-private:
-	bool cmdTeleport(int argc, const char **argv);
-	bool cmdWalkable(int argc, const char **argv);
-	bool cmdDepth(int argc, const char **argv);
-	bool cmdQuotes(int argc, const char **argv);
-	bool cmdPlaySound(int argc, const char **argv);
-	bool cmdSoundCommand(int argc, const char **argv);
-	bool cmdSoundSection(int argc, const char **argv);
-	bool cmdSoundStop(int argc, const char **argv);
-	bool cmdText(int argc, const char **argv);
+class SeekableAudioStream;
 
-public:
-	Console();
-	~Console() override {}
+enum MacSndMACEType {
+	kMacSndMACE3,
+	kMacSndMACE6
 };
 
-} // namespace MADS
+SeekableAudioStream *makeMacSndMACEStream(
+	Common::SeekableReadStream *stream,
+	DisposeAfterUse::Flag disposeAfterUse,
+	uint16 rate, uint32 packetFrameCount, uint32 channels,
+	MacSndMACEType type);
+
+} // End of namespace Audio
 
 #endif

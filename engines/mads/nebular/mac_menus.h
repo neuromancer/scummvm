@@ -22,6 +22,7 @@
 #ifndef MADS_NEBULAR_MAC_MENUS_H
 #define MADS_NEBULAR_MAC_MENUS_H
 
+#include "common/rect.h"
 #include "common/scummsys.h"
 
 namespace Common {
@@ -42,6 +43,7 @@ namespace RexNebular {
 
 class MacResourceProvider;
 class RexNebularEngine;
+class MacNebularDialog;
 
 class MacNebularMenu {
 private:
@@ -50,9 +52,13 @@ private:
 	Graphics::ManagedSurface &_screen;
 	Graphics::MacWindowManager *_windowManager = nullptr;
 	Graphics::MacMenu *_menu = nullptr;
+	MacNebularDialog *_activeDialog = nullptr;
 	byte _palette[256 * 3] = {};
 	bool _paletteValid = false;
 	bool _outerMenuActive = false;
+	bool _aboutRequested = false;
+	bool _preferencesRequested = false;
+	uint32 _windowManagerMode = 0;
 	int _pendingCommand = -1;
 
 	static void menuCallback(int commandId, Common::String &name, void *data);
@@ -73,9 +79,23 @@ public:
 
 	bool initialize();
 	bool processEvent(Common::Event &event);
+	bool processDialogEvent(Common::Event &event);
 	void draw();
 	byte getBlackColor();
 	void getMenuColors(byte &menuBlack, byte &menuWhite);
+	void setMenuBarHidden(bool hidden);
+	bool takeAboutRequest();
+	void waitForAboutDismissal();
+	bool takePreferencesRequest();
+	bool runPreferencesDialog(bool startup);
+	void runOpenDialog();
+	void runSaveDialog(bool saveAs);
+	int runPopupEditor(const Common::Rect &bounds, char *target,
+		int maxLength);
+	int runCopyProtectionDialog(const Common::String &title,
+		const Common::String &subtitle, const Common::String &prompt,
+		char *target, int maxLength);
+	bool runStoryPasswordDialog(bool leavingLocked);
 	void setOuterMenuActive(bool active) { _outerMenuActive = active; }
 	int runDifficultyDialog();
 	int selectResumeSlot();
