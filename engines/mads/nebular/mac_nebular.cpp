@@ -78,6 +78,18 @@ enum {
 	kMacBlackColor = kMacRightSelectColor
 };
 
+bool setMacintoshMessageColors(int primaryR, int primaryG, int primaryB,
+		int secondaryR, int secondaryG, int secondaryB) {
+	if (!g_engine->hasMacintoshInterface())
+		return false;
+
+	pal_change_color(KERNEL_MESSAGE_COLOR_BASE,
+		primaryR, primaryG, primaryB);
+	pal_change_color(KERNEL_MESSAGE_COLOR_BASE + 1,
+		secondaryR, secondaryG, secondaryB);
+	return true;
+}
+
 struct MacPopupLine {
 	Common::String text;
 	word tab;
@@ -1340,6 +1352,24 @@ int MacNebular::runCopyProtectionDialog(const Common::String &title,
 		target, maxLength) : -1;
 }
 
+static Common::String getMacintoshDrawingText(const char *text) {
+	Common::String drawingText(text);
+	uint start = 0;
+	uint end = drawingText.size();
+
+	// The native renderer measures the markers as part of the string, but
+	// removes them immediately before the QuickDraw DrawString call.
+	if (end >= 2 && drawingText[0] == '1' && drawingText[1] == '~')
+		start = 2;
+	else if (end && drawingText[0] == '~')
+		start = 1;
+
+	if (end > start && drawingText[end - 1] == '~')
+		--end;
+
+	return drawingText.substr(start, end - start);
+}
+
 int MacNebular::getTextWidth(FontPtr font, const char *text, int) const {
 	if (!_resources || (font != font_main && font != font_conv))
 		return -1;
@@ -1362,8 +1392,12 @@ bool MacNebular::drawText(FontPtr font, Buffer *target, const char *text,
 	Graphics::Surface surface;
 	surface.init(target->x, target->y, target->x, target->data,
 		Graphics::PixelFormat::createFormatCLUT8());
-	macFont->drawString(&surface, text, x, y, MAX(0, target->x - x),
-		(byte)color);
+	const Common::String drawingText = getMacintoshDrawingText(text);
+	byte textColor = (byte)color;
+	if (!textColor)
+		textColor = (byte)(color >> 8);
+	macFont->drawString(&surface, drawingText, x, y,
+		MAX(0, target->x - x), textColor);
 	return true;
 }
 
@@ -1536,12 +1570,11 @@ void RexNebularEngine::onPopupDestroyed() {
 		_macNebular->hidePopup();
 }
 
-bool RexNebularEngine::getInterfaceSentenceColors(byte &foreground, byte &shadow) const {
+bool RexNebularEngine::getInterfaceSentenceColor(byte &foreground) const {
 	if (!_macNebular)
 		return false;
 
 	foreground = kMacNormalTextColor;
-	shadow = kMacBlackColor;
 	return true;
 }
 

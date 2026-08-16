@@ -699,8 +699,11 @@ void InsaneRebel1::checkDynamicLevelBranch(int32 curFrame) {
 		if (!_vm->_smushVideoShouldFinish &&
 			_pendingRouteCutoverFrame >= 0 &&
 			routeFrame >= (uint32)_pendingRouteCutoverFrame) {
-			if (_player && _currentLevel != 6)
-				_player->setPreserveGameVideoStateOnRelease(true);
+			// L7 destinations can contain no audio chunks at all. L8 preservation
+			// is decided by SmushPlayer at the actual stop, after the final frame
+			// has resolved whether the player or walker was destroyed.
+			if (_currentLevel == 6)
+				preserveInteractiveVideoAudioState();
 			_vm->_smushVideoShouldFinish = true;
 			const int32 resumeFrame = (_currentLevel == 6 && _pendingRouteStartFrame < 0) ?
 				0 : _pendingRouteStartFrame;
@@ -889,14 +892,16 @@ bool InsaneRebel1::updateGamepadReticleAim(int16 &inputX, int16 &inputY, bool *u
 		(_vm->getActionState(kScummActionInsaneRight) ? 1 : 0) -
 		(_vm->getActionState(kScummActionInsaneLeft) ? 1 : 0);
 	int dpadY =
-		(_vm->getActionState(kScummActionInsaneUp) ? 1 : 0) -
-		(_vm->getActionState(kScummActionInsaneDown) ? 1 : 0);
+		(_vm->getActionState(kScummActionInsaneDown) ? 1 : 0) -
+		(_vm->getActionState(kScummActionInsaneUp) ? 1 : 0);
 
 	const int16 analogAxisX = applyRebel1AnalogDeadzone(_joystickAxisX);
 	const int16 analogAxisY = applyRebel1AnalogDeadzone(_joystickAxisY);
 	const int analogX = CLIP<int32>(((int32)analogAxisX * kRA1CenteredAxisMax) / Common::JOYAXIS_MAX,
 		-kRA1CenteredAxisMax, kRA1CenteredAxisMax);
-	int analogY = CLIP<int32>((-(int32)analogAxisY * kRA1Op0BVerticalAxisMax) / Common::JOYAXIS_MAX,
+	// DOS FUN_231BE leaves joystick-up negative, and the opcode 0x0B handler
+	// (FUN_1CDA7) negates Y when it computes the on-screen flight position.
+	int analogY = CLIP<int32>(((int32)analogAxisY * kRA1Op0BVerticalAxisMax) / Common::JOYAXIS_MAX,
 		-kRA1Op0BVerticalAxisMax, kRA1Op0BVerticalAxisMax);
 
 	if (_optControlsYFlip) {

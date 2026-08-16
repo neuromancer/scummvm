@@ -225,12 +225,13 @@ int object_examine(int number, long message, int speech) {
 		cursor_last = cursor_id;
 	}
 
-	inter_turn_off_object();
+	if (!isRex)
+		inter_turn_off_object();
 	inter_screen_update();
 	if (isMacRex)
 		inter_hide_macintosh_sentence();
 
-	memcpy(top_eight, &master_palette[248].r, 8 * sizeof(RGBcolor));
+	memcpy(&top_eight[0].r, &master_palette[248].r, 8 * sizeof(RGBcolor));
 
 	// Use attribute buffer to cheat on memory requirements a bit
 	old_master_palette = scr_depth.data;

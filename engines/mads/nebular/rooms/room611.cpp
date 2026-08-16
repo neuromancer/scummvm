@@ -145,12 +145,12 @@ static void displayHermitQuestions(int question) {
 	case 1:
 	{
 		char *curQuote = quote_string(kernel.quotes, 0x281);
-		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		int width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x282);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 14, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 	}
@@ -159,12 +159,12 @@ static void displayHermitQuestions(int question) {
 	case 2:
 	{
 		char *curQuote = quote_string(kernel.quotes, 0x283);
-		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		int width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x284);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 14, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 	}
@@ -173,7 +173,7 @@ static void displayHermitQuestions(int question) {
 	case 3:
 	{
 		char *curQuote = quote_string(kernel.quotes, 0x285);
-		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		int width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 14, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 	}
@@ -182,7 +182,7 @@ static void displayHermitQuestions(int question) {
 	case 4:
 	{
 		char *curQuote = quote_string(kernel.quotes, 0x286);
-		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		int width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 14, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 	}
@@ -191,17 +191,17 @@ static void displayHermitQuestions(int question) {
 	case 5:
 	{
 		char *curQuote = quote_string(kernel.quotes, 0x297);
-		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		int width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y - 14, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x298);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x299);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 14, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 	}
@@ -210,12 +210,12 @@ static void displayHermitQuestions(int question) {
 	case 6:
 	{
 		char *curQuote = quote_string(kernel.quotes, 0x29A);
-		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		int width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x29B);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 14, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 	}
@@ -224,12 +224,12 @@ static void displayHermitQuestions(int question) {
 	case 7:
 	{
 		char *curQuote = quote_string(kernel.quotes, 0x2A0);
-		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		int width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 45, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2A1);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 59, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 	}
@@ -238,17 +238,17 @@ static void displayHermitQuestions(int question) {
 	case 8:
 	{
 		char *curQuote = quote_string(kernel.quotes, 0x2A2);
-		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		int width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 31, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2A3);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 45, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2A4);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 59, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 	}
@@ -257,12 +257,12 @@ static void displayHermitQuestions(int question) {
 	case 9:
 	{
 		char *curQuote = quote_string(kernel.quotes, 0x2A5);
-		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		int width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 45, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2A6);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 59, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 	}
@@ -271,17 +271,17 @@ static void displayHermitQuestions(int question) {
 	case 10:
 	{
 		char *curQuote = quote_string(kernel.quotes, 0x2A8);
-		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		int width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 31, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2A9);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 45, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2AA);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 59, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 	}
@@ -290,22 +290,22 @@ static void displayHermitQuestions(int question) {
 	case 11:
 	{
 		char *curQuote = quote_string(kernel.quotes, 0x2AB);
-		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		int width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 17, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2AC);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 31, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2AD);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 45, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2AE);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 59, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 	}
@@ -314,22 +314,22 @@ static void displayHermitQuestions(int question) {
 	case 12:
 	{
 		char *curQuote = quote_string(kernel.quotes, 0x2AF);
-		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		int width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 17, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2B0);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 31, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2B1);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 45, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2B2);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 59, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 	}
@@ -338,22 +338,22 @@ static void displayHermitQuestions(int question) {
 	case 13:
 	{
 		char *curQuote = quote_string(kernel.quotes, 0x2B3);
-		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		int width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 3, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2B4);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 17, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2B5);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 31, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2B6);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 45, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
@@ -366,22 +366,22 @@ static void displayHermitQuestions(int question) {
 	case 14:
 	{
 		char *curQuote = quote_string(kernel.quotes, 0x2BA);
-		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		int width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 17, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2BB);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 31, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2BC);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 45, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2BD);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 59, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 	}
@@ -390,22 +390,22 @@ static void displayHermitQuestions(int question) {
 	case 15:
 	{
 		char *curQuote = quote_string(kernel.quotes, 0x2BE);
-		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		int width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 17, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2BF);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 31, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2C0);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 45, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2C1);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 59, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 	}
@@ -414,27 +414,27 @@ static void displayHermitQuestions(int question) {
 	case 16:
 	{
 		char *curQuote = quote_string(kernel.quotes, 0x2C2);
-		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		int width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 3, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2C3);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 17, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2C4);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 31, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2C5);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 45, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2C6);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 59, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 	}
@@ -443,22 +443,22 @@ static void displayHermitQuestions(int question) {
 	case 17:
 	{
 		char *curQuote = quote_string(kernel.quotes, 0x2C7);
-		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		int width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 17, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2C8);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 31, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2C9);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 45, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2CA);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 59, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 	}
@@ -467,17 +467,17 @@ static void displayHermitQuestions(int question) {
 	case 18:
 	{
 		char *curQuote = quote_string(kernel.quotes, 0x2CB);
-		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		int width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 31, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2CC);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 45, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2CD);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 59, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 	}
@@ -486,17 +486,17 @@ static void displayHermitQuestions(int question) {
 	case 19:
 	{
 		char *curQuote = quote_string(kernel.quotes, 0x2CE);
-		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		int width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 31, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2CF);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 45, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2D0);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 59, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 	}
@@ -505,27 +505,27 @@ static void displayHermitQuestions(int question) {
 	case 20:
 	{
 		char *curQuote = quote_string(kernel.quotes, 0x2E1);
-		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		int width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 3, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2E2);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 17, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2E3);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 31, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2E4);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 45, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2E5);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 59, 0xFDFC, INDEFINITE_TIMEOUT, 0, 0);
 	}
@@ -534,27 +534,27 @@ static void displayHermitQuestions(int question) {
 	case 21:
 	{
 		char *curQuote = quote_string(kernel.quotes, 0x2D3);
-		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		int width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 3, 0xFDFC, 800, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2D4);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 17, 0xFDFC, 800, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2D5);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 31, 0xFDFC, 800, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2D6);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 45, 0xFDFC, 800, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2D7);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 59, 0xFDFC, 800, 0, 0);
 	}
@@ -563,22 +563,22 @@ static void displayHermitQuestions(int question) {
 	case 22:
 	{
 		char *curQuote = quote_string(kernel.quotes, 0x2D8);
-		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		int width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 17, 0xFDFC, 700, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2D9);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 31, 0xFDFC, 700, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2DA);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 45, 0xFDFC, 700, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2DB);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 59, 0xFDFC, 700, 0, 0);
 	}
@@ -587,27 +587,27 @@ static void displayHermitQuestions(int question) {
 	case 23:
 	{
 		char *curQuote = quote_string(kernel.quotes, 0x2DC);
-		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		int width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 3, 0xFDFC, 700, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2DD);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 17, 0xFDFC, 700, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2DE);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 31, 0xFDFC, 700, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2DF);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 45, 0xFDFC, 700, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2E0);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 59, 0xFDFC, 700, 0, 0);
 	}
@@ -620,7 +620,7 @@ static void displayHermitQuestions(int question) {
 
 static void handleSubDialog1() {
 	switch (player2.words[0]) {
-	case 0x287:
+	case words_air_purifier:
 		local._stickFingerFl = true;
 		local._nextFrame = 34;
 		local._hermitMovingFl = false;
@@ -636,7 +636,7 @@ static void handleSubDialog1() {
 		setDialogNode(2);
 		break;
 
-	case 0x288:
+	case words_dummy:
 		handleTalking(500);
 		displayHermitQuestions(6);
 		local._dialog1.write(0x288, false);
@@ -647,7 +647,7 @@ static void handleSubDialog1() {
 		setDialogNode(1);
 		break;
 
-	case 0x289:
+	case words_picture:
 		handleTalking(500);
 		displayHermitQuestions(10);
 		local._dialog1.write(0x289, false);
@@ -656,14 +656,14 @@ static void handleSubDialog1() {
 		setDialogNode(1);
 		break;
 
-	case 0x28A:
+	case words_baggage_check:
 		handleTalking(500);
 		displayHermitQuestions(11);
 		local._dialog1.write(0x28A, false);
 		setDialogNode(1);
 		break;
 
-	case 0x28B:
+	case words_departure_schedule:
 		handleTalking(500);
 		displayHermitQuestions(12);
 		local._dialog1.write(0x28C, true);
@@ -672,14 +672,14 @@ static void handleSubDialog1() {
 		setDialogNode(1);
 		break;
 
-	case 0x28C:
+	case words_shade_of_pale:
 		handleTalking(500);
 		displayHermitQuestions(13);
 		local._dialog1.write(0x28C, false);
 		setDialogNode(1);
 		break;
 
-	case 0x28D:
+	case words_itinerary:
 		handleTalking(500);
 		displayHermitQuestions(14);
 		local._dialog1.write(0x290, true);
@@ -688,7 +688,7 @@ static void handleSubDialog1() {
 		setDialogNode(1);
 		break;
 
-	case 0x28E:
+	case words_bargain_vat:
 		handleTalking(500);
 		displayHermitQuestions(15);
 		local._dialog1.write(0x295, true);
@@ -696,7 +696,7 @@ static void handleSubDialog1() {
 		setDialogNode(1);
 		break;
 
-	case 0x290:
+	case words_pad_if_paper:
 		handleTalking(500);
 		displayHermitQuestions(17);
 		local._dialog1.write(0x290, false);
@@ -708,7 +708,7 @@ static void handleSubDialog1() {
 		setDialogNode(1);
 		break;
 
-	case 0x291:
+	case words_deepest_depths:
 		handleTalking(500);
 		displayHermitQuestions(18);
 		local._dialog1.write(0x291, false);
@@ -727,7 +727,7 @@ static void handleSubDialog1() {
 		setDialogNode(1);
 		break;
 
-	case 0x28F:
+	case words_pencils:
 		handleTalking(500);
 		displayHermitQuestions(16);
 		local._dialog1.write(0x28F, false);
@@ -737,14 +737,14 @@ static void handleSubDialog1() {
 		setDialogNode(1);
 		break;
 
-	case 0x295:
+	case words_space_questing_viii:
 		handleTalking(500);
 		displayHermitQuestions(20);
 		local._dialog1.write(0x295, false);
 		setDialogNode(1);
 		break;
 
-	case 0x292:
+	case words_rolodex:
 		handleTalking(500);
 		displayHermitQuestions(19);
 		local._dialog1.write(0x292, false);
@@ -752,18 +752,18 @@ static void handleSubDialog1() {
 		setDialogNode(1);
 		break;
 
-	case 0x293:
+	case words_mona_tisa:
 	{
 		handleTalking(200);
 		kernel_message_purge();
 
 		char *curQuote = quote_string(kernel.quotes, 0x2D1);
-		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		int width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y, 0xFDFC, 120, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x2D2);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 14, 0xFDFC, 120, 0, 0);
 
@@ -772,7 +772,7 @@ static void handleSubDialog1() {
 	}
 	break;
 
-	case 0x294:
+	case words_abstract_art:
 	{
 		bool hermitPleasedFl = false;
 
@@ -813,12 +813,12 @@ static void handleSubDialog1() {
 	}
 	break;
 
-	case 0x296:
+	case words_theatrical_art:
 	{
 		kernel_message_purge();
 
 		char *curQuote = quote_string(kernel.quotes, 0x2E6);
-		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		int width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 14, 0xFDFC, 120, 0, 0);
 
@@ -834,29 +834,29 @@ static void handleSubDialog1() {
 
 static void handleSubDialog2() {
 	switch (player2.words[0]) {
-	case 0x29C:
+	case words_our_town:
 		displayHermitQuestions(7);
 		setDialogNode(1);
 		handleTalking(500);
 		break;
 
-	case 0x29D:
+	case words_embroidered_art:
 		displayHermitQuestions(8);
 		setDialogNode(1);
 		handleTalking(500);
 		break;
 
-	case 0x29E:
+	case words_george_bush_alike:
 		displayHermitQuestions(9);
 		setDialogNode(1);
 		handleTalking(500);
 		break;
 
-	case 0x29F:
+	case words_counter:
 	{
 		kernel_message_purge();
 		char *curQuote = quote_string(kernel.quotes, 0x2A7);
-		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		int width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 14, 0xFDFC, 120, 0, 0);
 		setDialogNode(0);
@@ -875,16 +875,16 @@ static void handleDialog() {
 		player.commands_allowed = false;
 
 		char *curQuote = quote_string(kernel.quotes, player2.words[0]);
-		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		int width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 
 		if (width > 200) {
 			static char subQuote1[34], subQuote2[34];
 			quote_split_string(curQuote, subQuote1, subQuote2);
 			kernel_message_add(subQuote1, 0, -14, 0x1110, 150, 0, 34);
 
-			if (player2.words[0] == 0x29D)
+			if (player2.words[0] == words_embroidered_art)
 				kernel_message_add(subQuote2, -18, 0, 0x1110, 150, 1, 34);
-			else if (player2.words[0] == 0x28A)
+			else if (player2.words[0] == words_baggage_check)
 				kernel_message_add(subQuote2, -10, 0, 0x1110, 150, 1, 34);
 			else
 				kernel_message_add(subQuote2, 0, 0, 0x1110, 150, 1, 34);
@@ -1352,12 +1352,12 @@ static void room_611_parser() {
 		kernel_message_purge();
 
 		char *curQuote = quote_string(kernel.quotes, 0x323);
-		int width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		int width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		int quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y, 0xFDFC, 120, 0, 0);
 
 		curQuote = quote_string(kernel.quotes, 0x324);
-		width = font_string_width(kernel_message_font, curQuote, kernel_message_spacing);
+		width = g_engine->getMessageTextWidth(kernel_message_font, curQuote, kernel_message_spacing);
 		quotePosX = local._defaultDialogPos_x - (width / 2);
 		kernel_message_add(curQuote, quotePosX, local._defaultDialogPos_y + 14, 0xFDFC, 120, 0, 0);
 	} else if (kernel.trigger == 90) {

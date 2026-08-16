@@ -166,11 +166,11 @@ void magic_map_to_grey_ramp(Palette *pal,
 	for (greys = 0; greys < num_greys; greys++) {
 		for (color = 0; color < 3; color++) {
 			if (magic_color_flags[color]) {
-				shift_sign = (char)magic_color_values[color];
+				shift_sign = (int8)magic_color_values[color];
 				if (shift_sign >= 0) {
 					intensity = grey_intensity[greys] << shift_sign;
 				} else {
-					intensity = grey_intensity[greys] >> abs(shift_sign);
+					intensity = grey_intensity[greys] >> ABS(shift_sign);
 				}
 			} else {
 				intensity = magic_color_values[color];
@@ -241,17 +241,17 @@ void magic_fade_to_grey(Palette &pal, byte *map_pointer,
 		index = count - base_color;
 		for (color = 0; color < 3; color++) {
 			if (magic_color_flags[color]) {
-				shift_sign = (char)magic_color_values[color];
+				shift_sign = (int8)magic_color_values[color];
 				if (shift_sign >= 0) {
 					intensity = magic_map[index].intensity << shift_sign;
 				} else {
-					intensity = magic_map[index].intensity >> abs(shift_sign);
+					intensity = magic_map[index].intensity >> ABS(shift_sign);
 				}
 			} else {
 				intensity = magic_color_values[color];
 			}
 			dif = (intensity - pal_color(pal, count, color));
-			*(pal_index + (color << 8) + count) = (byte)abs(dif);
+			*(pal_index + (color << 8) + count) = (byte)ABS(dif);
 			*(signs + (color << 8) + count) = (char)sgn(dif);
 		}
 	}
@@ -276,6 +276,7 @@ void magic_fade_to_grey(Palette &pal, byte *map_pointer,
 			g_system->updateScreen();
 
 		do {
+			g_engine->getScreen()->update();
 			now_timing = timer_read_600();
 		} while (now_timing < (base_timing + tick_delay));
 		base_timing = now_timing;
@@ -340,17 +341,17 @@ void magic_fade_from_grey(RGBcolor *pal, Palette target,
 		index = count - base_color;
 		for (color = 0; color < 3; color++) {
 			if (magic_color_flags[color]) {
-				shift_sign = (char)magic_color_values[color];
+				shift_sign = (int8)magic_color_values[color];
 				if (shift_sign >= 0) {
 					intensity = magic_map[index].intensity << shift_sign;
 				} else {
-					intensity = magic_map[index].intensity >> abs(shift_sign);
+					intensity = magic_map[index].intensity >> ABS(shift_sign);
 				}
 			} else {
 				intensity = magic_color_values[color];
 			}
 			dif = (pal_color(target, count, color) - intensity);
-			*(pal_index + (count * 3) + color) = (byte)abs(dif);
+			*(pal_index + (count * 3) + color) = (byte)ABS(dif);
 			*(signs + (color << 8) + count) = (char)sgn(dif);
 			magic_map[index].accum[color] = 0;
 		}
@@ -376,6 +377,7 @@ void magic_fade_from_grey(RGBcolor *pal, Palette target,
 			g_system->updateScreen();
 
 		do {
+			g_engine->getScreen()->update();
 			now_timing = timer_read_600();
 		} while (now_timing < (base_timing + tick_delay));
 		base_timing = now_timing;

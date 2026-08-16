@@ -137,7 +137,6 @@ int  picked_word = 0;           /* Word most recently picked.         */
 
 char inter_sentence[64];                /* Sentence building buffer            */
 int  inter_sentence_handle = -1;       /* Sentence message handle (for matte) */
-static int inter_sentence_shadow_handle = -1;
 static bool inter_macintosh_sentence_hidden = false;
 int  inter_sentence_changed = false;    /* Mark if sentence contents changed   */
 
@@ -246,7 +245,6 @@ void init_inter() {
 	picked_word = 0;
 	memset(inter_sentence, 0, sizeof(inter_sentence));
 	inter_sentence_handle = -1;
-	inter_sentence_shadow_handle = -1;
 	inter_macintosh_sentence_hidden = false;
 	inter_sentence_changed = false;
 	inter_look_around = 0;
@@ -421,7 +419,6 @@ static void inter_show_word(int class_, int id) {
 	int x, y, junk;
 	int word_id = 0;
 	char temp_buf[80] = { 0 };
-	int write_it = true;
 
 	if (!inter_get_spot(class_, id, &x, &y, &junk, &junk)) {
 		goto done;
@@ -510,8 +507,7 @@ static void inter_show_word(int class_, int id) {
 	temp_buf[0] = (char)toupper((int)temp_buf[0]);
 
 write:
-	if (write_it)
-		font_write(font_inter, &scr_inter, temp_buf, x, y, 0);
+	font_write(font_inter, &scr_inter, temp_buf, x, y, 0);
 
 done:
 	;
@@ -1521,9 +1517,10 @@ static void inter_compile_sentence() {
 	}
 
 	len = strlen(inter_sentence);
-	if (strlen(inter_sentence)) {
+	if (len > 0) {
 		mark = &inter_sentence[len - 1];
-		if (*mark == ' ') *mark = 0;
+		if (*mark == ' ')
+			*mark = 0;
 	}
 
 done:
@@ -1985,11 +1982,6 @@ void inter_hide_macintosh_sentence() {
 		inter_sentence_handle = -1;
 		changed = true;
 	}
-	if (inter_sentence_shadow_handle >= 0) {
-		matte_clear_message(inter_sentence_shadow_handle);
-		inter_sentence_shadow_handle = -1;
-		changed = true;
-	}
 	if (changed)
 		matte_frame(false, false);
 	inter_sentence_changed = true;
@@ -2179,18 +2171,12 @@ void inter_main_loop(int allow_input) {
 			matte_clear_message(inter_sentence_handle);
 			inter_sentence_handle = -1;
 		}
-		if (inter_sentence_shadow_handle >= 0) {
-			matte_clear_message(inter_sentence_shadow_handle);
-			inter_sentence_shadow_handle = -1;
-		}
 		if (g_engine->getGameID() != GType_Forest && (strlen(inter_sentence) > 0) &&
 				((inter_input_mode == INTER_BUILDING_SENTENCES) || (inter_input_mode == INTER_LIMITED_SENTENCES))) {
 			use_font = font_main;
 			use_spacing = -1;
-			width = g_engine->getMacintoshTextWidth(use_font,
-				inter_sentence, use_spacing);
-			if (width < 0)
-				width = font_string_width(use_font, inter_sentence, use_spacing);
+			width = g_engine->getMessageTextWidth(use_font, inter_sentence,
+				use_spacing);
 
 			if (width > video_x) {
 				use_font = font_inter;
@@ -2203,12 +2189,7 @@ void inter_main_loop(int allow_input) {
 
 			byte sentenceColor = g_engine->getGameID() == GType_RexNebular ?
 				INTER_MESSAGE_COLOR_REX : INTER_MESSAGE_COLOR;
-			byte shadowColor = 0;
-			if (g_engine->getInterfaceSentenceColors(sentenceColor, shadowColor)) {
-				inter_sentence_shadow_handle = matte_add_message(use_font,
-					inter_sentence, x + 1, y + 1, shadowColor,
-					use_spacing, g_engine->hasMacintoshInterface());
-			}
+			g_engine->getInterfaceSentenceColor(sentenceColor);
 			inter_sentence_handle = matte_add_message(use_font, inter_sentence, x, y,
 				sentenceColor,
 				use_spacing, g_engine->hasMacintoshInterface());

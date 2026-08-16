@@ -134,6 +134,13 @@ void MADSEngine::readConfigFile() {
 		savegame_slot = ConfMan.getInt("save_slot");
 }
 
+int MADSEngine::getMessageTextWidth(FontPtr font, const char *text,
+		int spacing) const {
+	const int macintoshWidth = getMacintoshTextWidth(font, text, spacing);
+	return macintoshWidth >= 0 ? macintoshWidth :
+		font_string_width(font, text, spacing);
+}
+
 bool MADSEngine::canLoadGameStateCurrently(Common::U32String *msg) {
 	return game.going && !win_status && !kernel.activate_menu &&
 		inter_input_mode == INTER_BUILDING_SENTENCES &&
@@ -252,6 +259,9 @@ void MADSEngine::pollEvents() {
 
 	// Handle calling any set timer function
 	checkForTimerFunction();
+
+	// Slight delay to prevent throttling
+	g_system->delayMillis(5);
 
 	// Poll for events
 	Common::Event e;

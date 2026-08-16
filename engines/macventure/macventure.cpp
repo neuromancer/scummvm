@@ -401,7 +401,18 @@ void MacVentureEngine::handleObjectSelect(ObjID objID, WindowReference win, bool
 	const WindowData &windata = _gui->getWindowData(win);
 
 	if (shiftPressed) {
-		// TODO: Implement shift functionality.
+		if (objID == 0) {
+			objID = windata.objRef;
+		}
+		if (objID > 0) {
+			if (findObjectInArray(objID, _currentSelection) != -1) {
+				unselectObject(objID);
+			} else {
+				selectObject(objID);
+			}
+			refreshReady();
+			preparedToRun();
+		}
 	} else {
 		if (_selectedControl && _currentSelection.size() > 0 && getInvolvedObjects() > 1) {
 			if (objID == 0) {
@@ -564,9 +575,6 @@ bool MacVenture::MacVentureEngine::runScriptEngine() {
 	while (!_currentSelection.empty()) {
 		ObjID obj = _currentSelection.front();
 		_currentSelection.remove_at(0);
-		if (getInvolvedObjects() > 1 && obj == _destObject) {
-			continue;
-		}
 		if (isGameRunning() && _world->isObjActive(obj)) {
 			if (_scriptEngine->runControl(_selectedControl, obj, _destObject, _deltaPoint)) {
 				_haltedInSelection = true;
@@ -921,14 +929,20 @@ void MacVentureEngine::selectObject(ObjID objID) {
 	}
 	if (findObjectInArray(objID, _currentSelection) == -1) {
 		_currentSelection.push_back(objID);
+	}
+	if (findObjectInArray(objID, _selectedObjs) == -1) {
+		_selectedObjs.push_back(objID);
 		highlightExit(objID);
 	}
 }
 
 void MacVentureEngine::unselectObject(ObjID objID) {
-	int idxCur = findObjectInArray(objID, _currentSelection);
-	if (idxCur != -1) {
-		_currentSelection.remove_at(idxCur);
+	int idx = findObjectInArray(objID, _currentSelection);
+	if (idx != -1) {
+		_currentSelection.remove_at(idx);
+	}
+	if ((idx = findObjectInArray(objID, _selectedObjs)) != -1) {
+		_selectedObjs.remove_at(idx);
 		highlightExit(objID);
 	}
 }
@@ -997,12 +1011,15 @@ void MacVentureEngine::selectPrimaryObject(ObjID objID) {
 	int idx;
 	debugC(4, kMVDebugMain, "Select primary object (%d)", objID);
 	if (_destObject > 0 &&
-		(idx = findObjectInArray(_destObject, _currentSelection)) != -1) {
-		unselectAll();
+		(idx = findObjectInArray(_destObject, _selectedObjs)) != -1 &&
+		findObjectInArray(_destObject, _currentSelection) == -1) {
+		_selectedObjs.remove_at(idx);
+		highlightExit(_destObject);
 	}
 	_destObject = objID;
-	if (findObjectInArray(_destObject, _currentSelection) == -1) {
-		selectObject(_destObject);
+	if (findObjectInArray(_destObject, _selectedObjs) == -1) {
+		_selectedObjs.push_back(_destObject);
+		highlightExit(_destObject);
 	}
 
 	_cmdReady = true;
@@ -1135,10 +1152,9 @@ void MacVentureEngine::reflectSwap(ObjID fromID, ObjID toID) {
 }
 
 void MacVentureEngine::toggleExits() {
-	Common::Array<ObjID> exits = _currentSelection;
-	while (!exits.empty()) {
-		ObjID obj = exits.front();
-		exits.remove_at(0);
+	while (!_selectedObjs.empty()) {
+		ObjID obj = _selectedObjs.back();
+		_selectedObjs.pop_back();
 		highlightExit(obj);
 		updateWindow(findParentWindow(obj));
 	}
@@ -1151,7 +1167,7 @@ void MacVentureEngine::zoomObject(ObjID objID) {
 bool MacVentureEngine::isObjEnqueued(ObjID objID) {
 	Common::Array<QueuedObject>::const_iterator it;
 	for (it = _objQueue.begin(); it != _objQueue.end(); it++) {
-		if ((*it).object == objID) {
+		if ((*it).id == kUpdateObject && (*it).object == objID) {
 			return true;
 		}
 	}
@@ -1240,7 +1256,7 @@ bool MacVentureEngine::isObjDraggable(ObjID objID) {
 }
 
 bool MacVentureEngine::isObjSelected(ObjID objID) {
-	int idx = findObjectInArray(objID, _currentSelection);
+	int idx = findObjectInArray(objID, _selectedObjs);
 	return idx != -1;
 }
 
