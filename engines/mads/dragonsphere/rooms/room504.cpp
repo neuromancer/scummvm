@@ -535,7 +535,6 @@ static void handle_animation_tom_poking() {
 				local->tom_talk_action = TOM_TALK;
 				local->anim_3_running  = true;
 				local->anim_1_running  = false;
-				poking_reset_frame     = -1;
 				break;
 
 			default:
@@ -586,7 +585,6 @@ static void handle_animation_tom_poking() {
 
 					kernel_abort_animation(aa[1]);
 					local->anim_1_running  = false;
-					poking_reset_frame     = -1;
 					local->ready_to_heal   = false;
 					player.walker_visible  = false;
 					local->lani_pid_action = PID_HEAL;
@@ -779,7 +777,6 @@ static void handle_animation_tom_talk() {
 				local->poking_action  = TOM_SHUT_UP;
 				local->anim_3_running = true;
 				local->anim_4_running = false;
-				tom_talk_reset_frame  = -1;
 				break;
 			}
 			break;
@@ -892,8 +889,10 @@ static void handle_animation_heal() {
 static void room_504_init() {
 	int id;
 
-	if (!player.been_here_before) ++global[dragon_high_scene];
-	if (!player.been_here_before) ++global[player_score];
+	if (!player.been_here_before) {
+		++global[dragon_high_scene];
+		++global[player_score];
+	}
 
 	if (global[monster_is_dead]) {
 		global[found_lani_504] = true;
@@ -1475,9 +1474,6 @@ static void process_conv_lani_pid() {
 }
 
 static void process_conv_king() {
-	int you_trig_flag = false;
-	int me_trig_flag  = false;
-
 	if (player_verb == conv026_exit_b_b) {
 		if (local->pid_is_kneeling) {
 			local->lani_pid_action = BOTH_SHUT_UP;
@@ -1496,13 +1492,11 @@ static void process_conv_king() {
 		local->poking_action = TOM_SHUT_UP;
 	}
 
-	if (!you_trig_flag) {
-		conv_you_trigger(ROOM_504_YOU_TALK);
-	}
+	/* !you_trig_flag */
+	conv_you_trigger(ROOM_504_YOU_TALK);
 
-	if (!me_trig_flag) {
-		conv_me_trigger(ROOM_504_ME_TALK);
-	}
+	/* !me_trig_flag */
+	conv_me_trigger(ROOM_504_ME_TALK);
 
 	local->poking_talk_count = 0;
 }
@@ -1887,8 +1881,7 @@ static void room_504_parser() {
 				player.command_ready = false;
 				return;
 
-			} else if (global[said_poem_in_504] && global[put_bundle_on_llanie_504] &&
-			           global[llanie_status] != IS_SAVED) {
+			} else if (global[llanie_status] != IS_SAVED) {
 				text_show(50437);
 				player.command_ready = false;
 				return;

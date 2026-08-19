@@ -491,7 +491,6 @@ static void handle_animation_mac() {
 			kernel_abort_animation(aa[0]);
 			player.commands_allowed = true;
 			local->anim_0_running = false;
-			mac_reset_frame = -1;
 			break;
 
 		case 115:
@@ -750,9 +749,6 @@ static void handle_animation_a_queen() {
 			break;
 
 		case 98: /* when queen turns to walk south, send her to 131 to make her invisible */
-			a_q_reset_frame = 130;
-			break;
-
 		case 131:  /* keep queen invisible when she turns to walk south */
 			a_q_reset_frame = 130;
 			break;

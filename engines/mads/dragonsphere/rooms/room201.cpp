@@ -549,7 +549,7 @@ static void room_201_init() {
 		local->crossed_line = false;
 	}
 
-	if (previous_room == 120 || previous_room == 201 || previous_room != KERNEL_RESTORING_GAME) {
+	if (previous_room != KERNEL_RESTORING_GAME) {
 		local->prevent = false;
 	} else {
 		local->prevent = true;
@@ -757,7 +757,7 @@ static void room_201_init() {
 			WALK_TO_X_FROM_203, WALK_TO_Y_FROM_203, FACING_SOUTHWEST, true);
 		camera_jump_to(480, 0);  /* jump to right half */
 
-	} else if ((previous_room == 120 || previous_room == 201 || previous_room != KERNEL_RESTORING_GAME)) {
+	} else if (previous_room != KERNEL_RESTORING_GAME) {
 
 		if (global[player_persona] == PLAYER_IS_KING) {
 			if (global[king_got_stabbed] == 1) {
@@ -2012,7 +2012,7 @@ static void room_201_pre_parser() {
 				}
 
 			} else {
-				if (global[player_persona] == PLAYER_IS_KING && !local->activate_timer) {
+				if (!local->activate_timer) {
 					player_walk(WALK_TO_X_FROM_120, WALK_TO_Y_FROM_120, FACING_NORTHEAST);
 
 				} else {
@@ -2189,12 +2189,11 @@ static void room_201_parser() {
 				conv_export_value(0);
 				conv_export_value(1);
 			}
-			goto handled;
-
-		} if (global[guards_are_asleep]) {
+		} else if (global[guards_are_asleep]) {
 			text_show(20152);
-			goto handled;
 		}
+
+		goto handled;
 	}
 
 	id = object_named(player_main_noun);

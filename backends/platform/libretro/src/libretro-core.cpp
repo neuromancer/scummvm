@@ -24,6 +24,8 @@
 #include "common/fs.h"
 #include "common/error.h"
 #include "streams/file_stream.h"
+#include <file/file_path.h>
+#include <retro_dirent.h>
 #include "graphics/surface.h"
 #ifdef _WIN32
 #include <direct.h>
@@ -54,6 +56,7 @@
 #include "backends/platform/libretro/include/libretro-threads.h"
 #include "backends/platform/libretro/include/libretro-core-options.h"
 #include "backends/platform/libretro/include/libretro-os.h"
+#include "backends/platform/libretro/include/libretro-fs.h"
 #include "backends/platform/libretro/include/libretro-mapper.h"
 
 static struct retro_game_info game_buf;
@@ -104,6 +107,7 @@ static retro_time_t audio_last_time_usec = 0; // timestamp of the previous audio
 static int16 *audio_sample_buffer = NULL; // pointer to output buffer
 
 static bool input_bitmask_supported = false;
+static bool browsing_mode_authorized = false;
 static bool updating_variables = false;
 
 #ifdef USE_OPENGL
@@ -362,6 +366,17 @@ static void update_variables(void) {
 		sample_rate = atoi(sample_rate_var);
 	} else
 		sample_rate = DEFAULT_SAMPLE_RATE;
+
+	var.key = "scummvm_browsing_mode";
+	var.value = NULL;
+	if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+		browsing_mode_authorized = (strcmp(var.value, "authorized") == 0);
+	else
+#ifdef ANDROID
+		browsing_mode_authorized = true;
+#else
+		browsing_mode_authorized = false;
+#endif
 
 	var.key = "scummvm_mapper_up";
 	var.value = NULL;
@@ -642,6 +657,10 @@ uint16 retro_setting_get_sample_rate(void) {
 	return sample_rate;
 }
 
+bool retro_setting_get_browsing_mode_authorized(void) {
+	return browsing_mode_authorized;
+}
+
 
 static uint32 next_pow2(uint32 x) {
 	if (x <= 1) return 1;
@@ -660,7 +679,7 @@ uint16 retro_setting_get_audio_samples_buffer_size(void) {
 	for (uint16 v : allowed) {
 		if (pow2 <= v) return v;
 	}
-	return allowed[sizeof(allowed)/sizeof(allowed[0])];
+	return allowed[ARRAYSIZE(allowed) - 1];
 }
 
 void init_command_params(void) {
@@ -794,6 +813,7 @@ void retro_set_input_state(retro_input_state_t cb) {
 
 void retro_set_environment(retro_environment_t cb) {
 	environ_cb = cb;
+
 	bool tmp = true;
 	bool has_categories;
 	environ_cb(RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME, &tmp);
@@ -864,6 +884,15 @@ const char *retro_get_system_dir(void) {
 	return sysdir;
 }
 
+const char *retro_get_file_browser_start_dir(void) {
+	const char *startdir = NULL;
+
+	if (!environ_cb || !environ_cb(RETRO_ENVIRONMENT_GET_FILE_BROWSER_START_DIRECTORY, &startdir))
+		return NULL;
+
+	return startdir;
+}
+
 const char *retro_get_save_dir(void) {
 	const char *savedir = NULL;
 
@@ -922,10 +951,49 @@ void retro_init(void) {
 	else
 		retro_log_cb = NULL;
 
+	struct retro_vfs_interface_info vfs_iface;
+	vfs_iface.required_interface_version = STAT64_REQUIRED_VFS_VERSION;
+	vfs_iface.iface = nullptr;
+
+	bool vfs_ok = environ_cb(RETRO_ENVIRONMENT_GET_VFS_INTERFACE, &vfs_iface);
+
+	if (vfs_ok) {
+		filestream_vfs_init(&vfs_iface);
+		path_vfs_init(&vfs_iface);
+		dirent_vfs_init(&vfs_iface);
+	}
+
+	LibRetroFilesystemNode::clearAuthorizedLocations();
+
+	{
+		struct retro_vfs_authorized_locations locations;
+		memset(&locations, 0, sizeof(locations));
+
+		if (environ_cb && environ_cb(RETRO_ENVIRONMENT_GET_VFS_AUTHORIZED_LOCATIONS, &locations) &&
+				locations.locations) {
+			for (size_t i = 0; i < locations.count; ++i) {
+				const char *path = locations.locations[i].path;
+				const char *label = locations.locations[i].label;
+
+				if (path && *path)
+					LibRetroFilesystemNode::addAuthorizedLocation(
+							Common::String(path),
+							label ? Common::String(label) : Common::String());
+			}
+		}
+	}
+
 	if (retro_log_cb)
 		retro_log_cb(RETRO_LOG_DEBUG, "ScummVM core version: %s\n", __GIT_VERSION);
 
 	update_variables();
+
+	if (retro_setting_get_browsing_mode_authorized() && !LibRetroFilesystemNode::hasAuthorizedLocations()) {
+		if (retro_log_cb)
+			retro_log_cb(RETRO_LOG_WARN, "[scummvm] Browsing mode set to 'Authorized storage' but no authorized locations are available; falling back to local filesystem. Authorize folders from the frontend and restart the core.\n");
+		retro_osd_notification("No authorized storage available, using local filesystem.");
+	}
+
 	max_width = gui_width > max_width ? gui_width : max_width;
 	max_height = gui_height > max_height ? gui_height : max_height;
 
@@ -1145,7 +1213,9 @@ void retro_run(void) {
 
 	/* Setting RA's video or audio driver to null will disable video/audio bits */
 	int audio_video_enable = 0;
-	environ_cb(RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE, &audio_video_enable);
+	if (!environ_cb(RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE, &audio_video_enable))
+		/* If this flag is not supported, the core assumes that the frontend will not skip any steps, as per API contract */
+		audio_video_enable = RETRO_AV_ENABLE_VIDEO | RETRO_AV_ENABLE_AUDIO;
 
 	if (g_system) {
 		/* Switch to ScummVM thread */

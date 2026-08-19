@@ -348,6 +348,15 @@ void ColonyEngine::setPlayerCellMarker() {
 	_robotArray[_me.xindex][_me.yindex] = kMeNum;
 }
 
+// CHCKWALL.C never blocks a move that stays inside the cell you already occupy.
+// Footprints let the player be in one, so they must be able to walk back out.
+bool ColonyEngine::playerStartsInsideObject(int rnum) const {
+	if (rnum <= 0 || rnum > (int)_objects.size())
+		return false;
+	const Thing &obj = _objects[rnum - 1];
+	return obj.alive && playerIntersectsObjectFootprint(obj, _me.xloc, _me.yloc);
+}
+
 bool ColonyEngine::playerIntersectsObjectFootprint(const Thing &obj, int xloc, int yloc) const {
 	ObjectFootprint fp;
 	if (!objectFootprintForType(obj.type, fp))
@@ -380,7 +389,7 @@ int ColonyEngine::occupiedObjectAt(int xnew, int ynew, int x, int y, const Locat
 				!playerIntersectsObjectFootprint(obj, xnew, ynew))
 			return 0;
 		if (obj.type <= kBaseObject)
-			obj.where.look = obj.where.ang = _me.ang + 128;
+			obj.where.look = obj.where.ang = objAngFromPlayer((uint8)(_me.ang + 128));
 	}
 	return rnum;
 }
@@ -550,7 +559,7 @@ int ColonyEngine::checkwall(int xnew, int ynew, Locate *pobject) {
 		if (yind2 == pobject->yindex) {
 			if (pobject == &_me) {
 				const int rnum = occupiedObjectAt(xnew, ynew, xind2, yind2, pobject);
-				if (rnum)
+				if (rnum && !playerStartsInsideObject(rnum))
 					return rnum;
 			}
 			pobject->dx = xnew - pobject->xloc;
@@ -737,6 +746,10 @@ int ColonyEngine::goToDestination(const uint8 *map, Locate *pobject) {
 	if (targetMap == 0 && targetX == 0 && targetY == 0)
 		return 1;
 
+	// GOTOMAP.C GoTo(): robots never follow a destination.
+	if (pobject->type == 0)
+		return 0;
+
 	if (targetMap == 127) {
 		if (pobject != &_me)
 			return 0;
@@ -785,10 +798,8 @@ int ColonyEngine::goToDestination(const uint8 *map, Locate *pobject) {
 		pobject->yindex = targetY;
 	}
 
-	if (targetMap > 0 && targetMap != _level) {
+	if (targetMap > 0 && targetMap != _level)
 		loadMap(targetMap);
-		_coreIndex = (targetMap == 1) ? 0 : 1;
-	}
 
 	if (pobject->xindex >= 0 && pobject->xindex < 32 &&
 		pobject->yindex >= 0 && pobject->yindex < 32)
@@ -805,8 +816,10 @@ int ColonyEngine::tryPassThroughFeature(int fromX, int fromY, int direction, Loc
 
 	switch (map[0]) {
 	case kWallFeatureDoor:
+		// GOTOMAP.C OpenDoor(): a door carries a destination like any other
+		// feature, so opening one can warp instead of stepping through.
 		if (map[1] == 0)
-			return 1; // already open  pass through
+			return goToDestination(map, pobject);
 		if (pobject != &_me)
 			return 0; // robots can't open doors
 		// DOS DoDoor: play door animation, player clicks handle to open
@@ -824,7 +837,7 @@ int ColonyEngine::tryPassThroughFeature(int fromX, int fromY, int direction, Loc
 			playAnimation();
 			if (_animationResult) {
 				setDoorState(fromX, fromY, direction, 0);
-				return 1; // pass through
+				return goToDestination(map, pobject);
 			}
 			return 0; // player didn't open the door
 		}
@@ -865,19 +878,32 @@ int ColonyEngine::tryPassThroughFeature(int fromX, int fromY, int direction, Loc
 		}
 
 	case kWallFeatureUpStairs:
-	case kWallFeatureDnStairs:
-	case kWallFeatureTunnel: {
+	case kWallFeatureDnStairs: {
 		if (pobject != &_me)
-			return 0; // robots don't use stairs/tunnels
+			return 0; // robots don't use stairs
 
-		// Play appropriate sound
-		if (map[0] == kWallFeatureDnStairs)
-			_sound->play(Sound::kClatter);
+		// UpStairs(): the forklift cannot be driven up a staircase.
+		if (map[0] == kWallFeatureUpStairs && _fl)
+			return 0;
+
 		const int result = goToDestination(map, pobject);
+		if (map[0] == kWallFeatureDnStairs && _fl)
+			doDnStairs();
 		if (result == 2) {
 			debugC(1, kColonyDebugMove, "Level change via %s: level=%d pos=(%d,%d)",
-				map[0] == kWallFeatureUpStairs ? "upstairs" :
-				map[0] == kWallFeatureDnStairs ? "downstairs" : "tunnel",
+				map[0] == kWallFeatureUpStairs ? "upstairs" : "downstairs",
+				_level, pobject->xindex, pobject->yindex);
+		}
+		return result;
+	}
+
+	case kWallFeatureTunnel: {
+		if (pobject != &_me)
+			return 0;
+
+		const int result = rideTunnel(map, pobject);
+		if (result == 2) {
+			debugC(1, kColonyDebugMove, "Level change via tunnel: level=%d pos=(%d,%d)",
 				_level, pobject->xindex, pobject->yindex);
 		}
 		return result;
@@ -921,10 +947,8 @@ int ColonyEngine::tryPassThroughFeature(int fromX, int fromY, int direction, Loc
 				pobject->look = pobject->ang;
 			}
 
-			if (targetMap > 0 && targetMap != _level) {
+			if (targetMap > 0 && targetMap != _level)
 				loadMap(targetMap);
-				_coreIndex = (targetMap == 1) ? 0 : 1;
-			}
 
 			if (pobject->xindex >= 0 && pobject->xindex < 32 &&
 				pobject->yindex >= 0 && pobject->yindex < 32)
@@ -1056,11 +1080,12 @@ void ColonyEngine::playTunnelEffect(bool falling) {
 	int counter = falling ? 2 : kTunnelST[0];
 	int spd = 180 / counter;
 
-	_sound->play(Sound::kTunnel2);
+	// Tunnel1 runs under the ride, Tunnel2 on arrival.
+	_sound->play(Sound::kTunnel1);
 
 	for (int remaining = tunnelFrames; remaining > 0 && !shouldQuit(); ) {
 		if (!_sound->isPlaying())
-			_sound->play(Sound::kTunnel2);
+			_sound->play(Sound::kTunnel1);
 
 		if (macColor) {
 			fillTunnelPattern(_gfx, effectRect, fillFg, fillBg, _macColors[tunnelColor].pattern);
@@ -1172,6 +1197,28 @@ void ColonyEngine::playTunnelEffect(bool falling) {
 	}
 
 	_sound->stop();
+	_sound->play(Sound::kTunnel2);
+}
+
+// TUNNEL.C tunnel(FALSE): ride the subway, then arrive at the far station.
+int ColonyEngine::rideTunnel(const uint8 *map, Locate *pobject) {
+	const bool hasDestination = (map[2] || map[3] || map[4]);
+
+	playTunnelEffect(false);
+	const int result = goToDestination(map, pobject);
+
+	if (!hasDestination) {
+		terminateGame(false);
+		return 0;
+	}
+	return result;
+}
+
+// DoDnStairs(): only the forklift clatters down the steps.
+void ColonyEngine::doDnStairs() {
+	_sound->play(Sound::kClatter);
+	_gfx->fillRect(_screenR, _gfx->black());
+	_gfx->copyToScreen();
 }
 
 void ColonyEngine::fallThroughHole() {
@@ -1301,17 +1348,94 @@ void ColonyEngine::cCommand(int xnew, int ynew, bool allowInteraction) {
 	const int oldYIndex = _me.yindex;
 	const bool sameCellAttempt = ((xnew >> 8) == oldXIndex && (ynew >> 8) == oldYIndex);
 	const int robot = checkwall(xnew, ynew, &_me);
-	if (robot > 0 && allowInteraction)
-		interactWithObject(robot);
-	else if (robot)
-		playCollisionSound();
-	else if (sameCellAttempt && _me.xindex == oldXIndex && _me.yindex == oldYIndex &&
-			(_me.xloc != xnew || _me.yloc != ynew))
-		playCollisionSound();
+	if (robot > 0 && allowInteraction) {
+		// CCommand() ran once per key event; movement here is continuous, so latch
+		// the object until contact breaks or its message reopens every frame.
+		if (robot != _bumpedObject) {
+			_bumpedObject = robot;
+			interactWithObject(robot);
+		} else {
+			playCollisionSound();
+		}
+	} else {
+		_bumpedObject = 0;
+		if (robot)
+			playCollisionSound();
+		else if (sameCellAttempt && _me.xindex == oldXIndex && _me.yindex == oldYIndex &&
+				(_me.xloc != xnew || _me.yloc != ynew))
+			playCollisionSound();
+	}
 
 	setPlayerCellMarker();
 
 	_suppressCollisionSound = false;
+}
+
+// DOS Forward(): inch ahead along _me.ang until the player leaves the cell.
+bool ColonyEngine::stepOutOfCell() {
+	const int xindex = _me.xindex;
+	const int yindex = _me.yindex;
+
+	// clampToWalls() can pin the player short of the boundary, so cap the walk.
+	int guard = 16;
+	_me.type = 2; // temporary small collision type
+	while (_me.xindex == xindex && _me.yindex == yindex) {
+		if (--guard < 0 || checkwall(_me.xloc + _cost[_me.ang], _me.yloc + _sint[_me.ang], &_me)) {
+			_sound->play(Sound::kChime);
+			_me.type = kMeNum;
+			return false;
+		}
+	}
+	_me.type = kMeNum;
+	return true;
+}
+
+// DOS ExitTeleport(): walk clear of the arrival booth, trying each quarter turn,
+// then leave a booth behind. False = all four directions blocked.
+bool ColonyEngine::exitTeleport() {
+	const int xloc = _me.xloc;
+	const int yloc = _me.yloc;
+	const int xindex = _me.xindex;
+	const int yindex = _me.yindex;
+
+	// goToDestination() stamped this cell as the player's; occupiedObjectAt()
+	// would read that marker back as a blocker.
+	clearPlayerCellMarker();
+
+	_me.ang = 48;
+	bool out = false;
+	for (int tries = 0; tries < 4 && !out; tries++) {
+		out = stepOutOfCell();
+		if (!out) {
+			_me.xloc = xloc;
+			_me.yloc = yloc;
+			_me.xindex = xindex;
+			_me.yindex = yindex;
+			_me.ang += 64;
+		}
+	}
+	if (!out)
+		return false;
+
+	if (xindex < 0 || xindex >= 32 || yindex < 0 || yindex >= 32)
+		return true;
+
+	// The original always rebuilds the booth because it reloads the map; the port
+	// keeps its object table, so relink an existing one instead of duplicating it.
+	if (_robotArray[xindex][yindex] != 0)
+		return true;
+
+	for (uint i = 0; i < _objects.size() && i < 255; i++) {
+		const Thing &obj = _objects[i];
+		if (obj.alive && obj.type == kObjTeleport &&
+				obj.where.xindex == xindex && obj.where.yindex == yindex) {
+			_robotArray[xindex][yindex] = (uint8)(i + 1);
+			return true;
+		}
+	}
+
+	createObject(kObjTeleport, (xindex << 8) + 128, (yindex << 8) + 128, 0);
+	return true;
 }
 
 // DOS ExitFL(): step back one cell and drop the forklift.

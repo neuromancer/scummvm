@@ -26,6 +26,7 @@
 #include "common/stream.h"
 #include "common/system.h"
 #include "common/translation.h"
+#include "graphics/cursorman.h"
 #include "graphics/macgui/macmenu.h"
 #include "graphics/macgui/macwindowmanager.h"
 #include "graphics/managed_surface.h"
@@ -35,6 +36,7 @@
 #include "mads/core/config.h"
 #include "mads/core/game.h"
 #include "mads/core/kernel.h"
+#include "mads/core/player.h"
 #include "mads/core/sound_manager.h"
 #include "mads/mads.h"
 #include "mads/nebular/mac_dialogs.h"
@@ -155,7 +157,7 @@ bool readMenuResource(Common::SeekableReadStream &stream, MenuResource &resource
 		if (stream.pos() + 4 > stream.size())
 			return false;
 
-		/* byte icon = */ stream.readByte();
+		/* byte icon = */ (void)stream.readByte();
 		item.key = stream.readByte();
 		item.mark = stream.readByte();
 		item.style = stream.readByte();
@@ -259,7 +261,11 @@ bool MacNebularMenu::loadMenuResource(uint16 resourceID,
 		const char shortcut = item.key == 0x1b ? 0 : item.key;
 		const int itemIndex = _menu->addMenuItem(submenu, item.text,
 			(resource.id << 16) | index, item.style, shortcut, item.enabled);
-		submenu->items[itemIndex]->checkSymbol = item.mark;
+		// Resource mark 18 is the native checkmark character. Let MacGUI
+		// select its equivalent built-in glyph, while preserving hierarchical
+		// submenu IDs stored in the same byte.
+		submenu->items[itemIndex]->checkSymbol =
+			item.mark == 18 ? 0 : item.mark;
 	}
 
 	return true;
@@ -301,7 +307,10 @@ void MacNebularMenu::updateState() {
 				itemIndex < _menu->numberOfMenuItems(topLevel); ++itemIndex)
 			setItemState(_menu->getSubMenuItem(topLevel, itemIndex), false, false);
 	}
-	setItemState(getMenuItem(kAppleMenu, 0), true, false);
+	const bool canShowAbout = !_outerMenuActive && !_activeDialog &&
+		kernel_mode == KERNEL_ACTIVE_CODE && !kernel.fx &&
+		player.commands_allowed && cursor_id != CURSOR_WAIT;
+	setItemState(getMenuItem(kAppleMenu, 0), canShowAbout, false);
 	if (_activeDialog) {
 		setItemState(getMenuItem(kEditMenu, 0),
 			_activeDialog->isEditCommandEnabled(kMacDialogUndo), false);
@@ -364,9 +373,11 @@ void MacNebularMenu::updateState() {
 void MacNebularMenu::dispatchCommand(int commandId) {
 	switch (commandId) {
 	case kAppleAbout:
-		// Run the full-frame presentation after the menu event has unwound.
-		// Otherwise the closing menu window can be composited over room 990.
-		_aboutRequested = true;
+		if (!_outerMenuActive) {
+			// Run the presentation after the menu event has unwound. Otherwise
+			// the closing menu window can be composited over room 990.
+			_aboutRequested = true;
+		}
 		break;
 	case kFileOpen:
 		if (_engine.canLoadGameStateCurrently(nullptr))
@@ -550,8 +561,31 @@ void MacNebularMenu::waitForAboutDismissal() {
 				break;
 			}
 		}
+		// Software cursors are presented by updateScreen(). Keep the native
+		// arrow responsive while waiting for the press-and-release dismissal.
+		g_system->updateScreen();
 		g_system->delayMillis(10);
 	}
+}
+
+void MacNebularMenu::beginAboutPresentation(bool &cursorWasVisible,
+		bool &cursorPushed) {
+	cursorWasVisible = CursorMan.isVisible();
+	cursorPushed = initializeWindowManager();
+	if (cursorPushed) {
+		_windowManager->clearHandlingWidgets();
+		_windowManager->pushCursor(Graphics::kMacCursorArrow);
+	}
+	CursorMan.showMouse(true);
+}
+
+void MacNebularMenu::endAboutPresentation(bool cursorWasVisible,
+		bool cursorPushed) {
+	if (cursorPushed) {
+		_windowManager->clearHandlingWidgets();
+		_windowManager->popCursor();
+	}
+	CursorMan.showMouse(cursorWasVisible);
 }
 
 bool MacNebularMenu::takePreferencesRequest() {
@@ -613,7 +647,7 @@ bool MacNebularMenu::runPreferencesDialog(bool startup) {
 	_activeDialog = nullptr;
 	if (result == 1) {
 		const bool persist = dialog.isItemChecked(7);
-		_engine.setMacintoshHideMenuBar(dialog.isItemChecked(4), persist);
+		_engine.setMacintoshHideMenuBar(dialog.isItemChecked(4));
 		_engine.setMacintoshPreferencesAtStartup(dialog.isItemChecked(8),
 			persist);
 	}
@@ -840,8 +874,7 @@ void selectMacintoshDifficulty(MacNebularMenu *menus) {
 
 	const int nativeDifficulty = menus ? menus->runDifficultyDialog() :
 		DIFFICULTY_MEDIUM;
-	if (nativeDifficulty >= DIFFICULTY_HARD &&
-			nativeDifficulty <= DIFFICULTY_EASY) {
+	if (nativeDifficulty != -1) {
 		game.difficulty = nativeDifficulty;
 		return;
 	}

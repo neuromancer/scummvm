@@ -437,8 +437,6 @@ static void global_menu_options() {
 
 	result = popup_execute();
 
-	kernel.activate_menu = GAME_MAIN_MENU;
-
 	if (result == cancel_button) {
 		switch (game_menu_popup->key) {
 		case alt_x_key:
@@ -451,6 +449,7 @@ static void global_menu_options() {
 
 		case f1_key:
 		case f5_key:
+		default:
 			kernel.activate_menu = GAME_MAIN_MENU;
 			break;
 
@@ -464,10 +463,6 @@ static void global_menu_options() {
 
 		case f4_key:
 			kernel.activate_menu = GAME_SCORE_MENU;
-			break;
-
-		default:
-			kernel.activate_menu = GAME_MAIN_MENU;
 			break;
 		}
 	}

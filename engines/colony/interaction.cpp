@@ -145,40 +145,13 @@ void ColonyEngine::interactWithObject(int objNum) {
 			}
 			break;
 		}
-		// fl==0 or fl==2: use the teleporter
-		_sound->play(Sound::kTeleport);
-		int targetLevelRaw = _mapData[x][y][4][2];
-		int targetX = _action0;
-		int targetY = _action1;
-		// Check if this teleporter was relocated via patch
-		PassPatch tp;
-		tp.level = _level;
-		tp.xindex = x;
-		tp.yindex = y;
-		uint8 patchData[5];
-		if (patchMapTo(tp, patchData)) {
-			targetLevelRaw = patchData[2];
-			targetX = patchData[3];
-			targetY = patchData[4];
-		}
-		const int targetLevel = (targetLevelRaw == 0) ? _level : targetLevelRaw;
-		if (targetLevel >= 100 || targetX <= 0 || targetX >= 31 || targetY <= 0 || targetY >= 31) {
-			inform("TELEPORTER INITIALIZATION FAILED", true);
-			break;
-		}
-		if (targetLevel != _level)
-			loadMap(targetLevel);
-		const int oldX = _me.xindex;
-		const int oldY = _me.yindex;
-		_me.xindex = targetX;
-		_me.yindex = targetY;
-		_me.xloc = (targetX << 8) + 128;
-		_me.yloc = (targetY << 8) + 128;
-		_me.ang = _me.look;
-		if (oldX >= 0 && oldX < 32 && oldY >= 0 && oldY < 32 &&
-				_robotArray[oldX][oldY] == kMeNum)
-			_robotArray[oldX][oldY] = 0;
-		setPlayerCellMarker();
+		// fl==0 or fl==2: step into the booth
+		_teleportX = x;
+		_teleportY = y;
+		_teleportInside = false;
+		_teleportDone = false;
+		if (loadAnimation("tele"))
+			playAnimation();
 		break;
 	}
 	case kObjDrawer:
@@ -233,7 +206,7 @@ void ColonyEngine::interactWithObject(int objNum) {
 					newPatch(kObjForkLift, from, _carryPatch[0], _mapData[CLIP<int>(from.xindex, 0, 30)][CLIP<int>(from.yindex, 0, 30)][4]);
 					_robotArray[obj.where.xindex][obj.where.yindex] = 0;
 					_objects[objNum - 1].alive = 0;
-					_me.look = _me.ang = obj.where.ang;
+					_me.look = _me.ang = objWorldAng(obj.where.ang);
 					_me.lookY = 0;
 					_fl = 1;
 				}
@@ -310,6 +283,52 @@ void ColonyEngine::interactWithObject(int objNum) {
 		_sound->play(Sound::kBonk);
 		break;
 	}
+}
+
+// GANIMATE.C TelePorted(): runs when the booth door closes, never on contact.
+void ColonyEngine::teleportPlayer() {
+	const int x = CLIP<int>(_teleportX, 0, 30);
+	const int y = CLIP<int>(_teleportY, 0, 30);
+
+	uint8 mapdata[5] = {};
+	PassPatch from = {};
+	from.level = (uint8)_level;
+	from.xindex = (uint8)x;
+	from.yindex = (uint8)y;
+
+	PassPatch to = {};
+	if (patchMapTo(from, mapdata)) {
+		// Carried here; it kept the destination it was built with.
+		to.level = mapdata[2];
+		to.xindex = mapdata[3];
+		to.yindex = mapdata[4];
+	} else {
+		to.level = _mapData[x][y][4][2];
+		to.xindex = _mapData[x][y][4][3];
+		to.yindex = _mapData[x][y][4][4];
+	}
+
+	// The booth at the far end may itself have been carried elsewhere.
+	if (!patchMapFrom(to, mapdata)) {
+		mapdata[2] = (uint8)to.level;
+		mapdata[3] = (uint8)to.xindex;
+		mapdata[4] = (uint8)to.yindex;
+	}
+
+	goToDestination(mapdata, &_me);
+
+	if (!exitTeleport()) {
+		// Text 65: no way out of the booth
+		doText(65, 0);
+		terminateGame(false);
+		return;
+	}
+
+	setPlayerCellMarker();
+
+	// Wired to nowhere, or to the eighth dimension: the player is scattered.
+	if (mapdata[2] == 100 || !(mapdata[2] || mapdata[3] || mapdata[4]))
+		terminateGame(true);
 }
 
 // shoot.c SetPower(): adjust player's 3 power levels and update display.
@@ -439,6 +458,39 @@ void ColonyEngine::cShoot() {
 	}
 }
 
+void ColonyEngine::invertViewport() {
+	_gfx->setXorMode(true);
+	_gfx->fillRect(_screenR, 0xFFFFFF);
+	_gfx->setXorMode(false);
+	_gfx->copyToScreen();
+	_system->updateScreen();
+}
+
+// InvertRect(&Clip) for as long as the explosion sound runs, or silentFlips
+// times when sound is off.
+void ColonyEngine::explodeFlash(int silentFlips) {
+	const uint32 kFlipMs = 40;
+	int flips = 0;
+	if (!_soundOn) {
+		for (; flips < silentFlips && !shouldQuit(); flips++) {
+			invertViewport();
+			_system->delayMillis(kFlipMs);
+		}
+	} else {
+		_sound->play(Sound::kExplode);
+		const uint32 start = _system->getMillis();
+		while (!shouldQuit() && _sound->isPlaying() &&
+				_system->getMillis() - start < 1200) {
+			invertViewport();
+			_system->delayMillis(kFlipMs);
+			flips++;
+		}
+		_sound->stop();
+	}
+	if (flips & 1)
+		invertViewport();
+}
+
 // shoot.c DestroyRobot(): player damages a robot.
 // Damage = (epower[0] * weapons^2) << 1. Robot dies when power[1] <= 0.
 void ColonyEngine::destroyRobot(int num) {
@@ -464,7 +516,7 @@ void ColonyEngine::destroyRobot(int num) {
 		obj.opcode = 4; // FSHOOT
 
 	// Face robot towards player
-	obj.where.look = obj.where.ang = (uint8)(_me.ang + 128);
+	obj.where.look = obj.where.ang = objAngFromPlayer((uint8)(_me.ang + 128));
 
 	obj.where.power[1] -= damage;
 	debugC(1, kColonyDebugAnimation, "DestroyRobot(%d): type=%d damage=%d remaining_hp=%d",
@@ -484,39 +536,12 @@ void ColonyEngine::destroyRobot(int num) {
 					_robotArray[gx][gy] = 0;
 				}
 			}
-			// Mac shoot.c: InvertRect(&Clip) strobe while the explosion sound
-			// plays (16 inversions with sound off). DOS SHOOT.C has no flash.
-			if (isMacRenderMode()) {
-				auto invertViewport = [this]() {
-					_gfx->setXorMode(true);
-					_gfx->fillRect(_screenR, 0xFFFFFF);
-					_gfx->setXorMode(false);
-					_gfx->copyToScreen();
-					_system->updateScreen();
-				};
-				const uint32 kFlipMs = 40;
-				int flips = 0;
-				if (!_soundOn) {
-					for (; flips < 16 && !shouldQuit(); flips++) {
-						invertViewport();
-						_system->delayMillis(kFlipMs);
-					}
-				} else {
-					_sound->play(Sound::kExplode);
-					const uint32 start = _system->getMillis();
-					while (!shouldQuit() && _sound->isPlaying() &&
-							_system->getMillis() - start < 1200) {
-						invertViewport();
-						_system->delayMillis(kFlipMs);
-						flips++;
-					}
-					_sound->stop();
-				}
-				if (flips & 1)
-					invertViewport();
-			} else {
+			// Mac shoot.c strobes the viewport for the explosion; DOS SHOOT.C
+			// only plays the sound.
+			if (isMacRenderMode())
+				explodeFlash(16);
+			else
 				_sound->play(Sound::kExplode);
-			}
 			copyOverflowObjectToSlot(num);
 			debugC(1, kColonyDebugCombat, "Robot %d destroyed!", num);
 		} else {

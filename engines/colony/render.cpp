@@ -251,7 +251,7 @@ int mapObjColorToMacColor(int colorIdx, int level) {
 	case kColorDroneEye:  return 51;  // c_edrone
 	case kColorSoldierBody: return 52; // c_soldier
 	case kColorSoldierEye: return 53; // c_esoldier
-	case kColorQueenBody: return 43 + CLIP(level - 2, 0, 4); // c_queen1..c_queen5
+	case kColorQueenBody: return 43 + CLIP(level - 2, 0, 5); // c_queen1..c_queenP
 	case kColorQueenEye:  return 49;  // c_equeen
 	case kColorQueenWingRed: return 48; // unused in Mac mode
 	case kColorTopSnoop:  return 56;  // c_snooper1
@@ -402,6 +402,21 @@ uint8 ColonyEngine::wallAt(int x, int y) const {
 	if (x < 0 || x >= 32 || y < 0 || y >= 32)
 		return 3;
 	return _wall[x][y];
+}
+
+bool ColonyEngine::isRecessFeature(int x, int y, int direction) const {
+	const uint8 *map = mapFeatureAt(x, y, direction);
+	if (!map)
+		return false;
+	return map[0] == kWallFeatureUpStairs || map[0] == kWallFeatureDnStairs;
+}
+
+// Bit 0x01 spans (x,y-1)/(x,y); bit 0x02 spans (x-1,y)/(x,y). Either side may
+// record the well.
+bool ColonyEngine::wallSegmentIsOpenWell(int x, int y, uint8 bit) const {
+	if (bit == 0x01)
+		return isRecessFeature(x, y, kDirSouth) || isRecessFeature(x, y - 1, kDirNorth);
+	return isRecessFeature(x, y, kDirWest) || isRecessFeature(x - 1, y, kDirEast);
 }
 
 const uint8 *ColonyEngine::mapFeatureAt(int x, int y, int direction) const {
@@ -669,6 +684,23 @@ void ColonyEngine::draw3DLeaf(const Thing &obj, const PrismPartDef &def) {
 	}
 }
 
+// Each vertex stays on its own view ray, so only the depth test moves.
+void ColonyEngine::pullTowardCamera(float *px, float *py, float *pz, int count) const {
+	if (_eyeDepthPull <= 0.0f)
+		return;
+	for (int i = 0; i < count; i++) {
+		const float dx = px[i] - (float)_me.xloc;
+		const float dy = py[i] - (float)_me.yloc;
+		const float d = sqrtf(dx * dx + dy * dy + pz[i] * pz[i]);
+		if (d <= _eyeDepthPull)
+			continue;
+		const float k = (d - _eyeDepthPull) / d;
+		px[i] = (float)_me.xloc + dx * k;
+		py[i] = (float)_me.yloc + dy * k;
+		pz[i] *= k;
+	}
+}
+
 void ColonyEngine::draw3DSphere(Thing &obj, int pt0x, int pt0y, int pt0z,
 	int pt1x, int pt1y, int pt1z,
 	uint32 fillColor, uint32 outlineColor, bool accumulateBounds) {
@@ -702,19 +734,36 @@ void ColonyEngine::draw3DSphere(Thing &obj, int pt0x, int pt0y, int pt0z,
 	float dx = wx1 - wx0, dy = wy1 - wy0, dz = wz1 - wz0;
 	float radius = sqrtf(dx * dx + dy * dy + dz * dz);
 
-	// Billboard: create a polygon perpendicular to the camera direction.
+	// Billboard turned to face the camera in 3D. The original drew the ball as a
+	// screen-space oval and never tilted the view; keeping the disc upright in
+	// world Z instead flattens it to a sliver when looking down at a floor egg.
 	// Camera is at (_me.xloc, _me.yloc, 0).
-	float viewDx = cx - (float)_me.xloc;
-	float viewDy = cy - (float)_me.yloc;
-	float viewLen = sqrtf(viewDx * viewDx + viewDy * viewDy);
+	float viewX = cx - (float)_me.xloc;
+	float viewY = cy - (float)_me.yloc;
+	float viewZ = cz;
+	float viewLen = sqrtf(viewX * viewX + viewY * viewY + viewZ * viewZ);
 	if (viewLen < 0.001f)
 		return;
+	viewX /= viewLen;
+	viewY /= viewLen;
+	viewZ /= viewLen;
 
-	// "right" vector: perpendicular to view in XY plane
-	float rightX = -viewDy / viewLen;
-	float rightY = viewDx / viewLen;
-	// "up" vector: world Z axis
-	float upZ = 1.0f;
+	// right = worldUp x view, collapsing to +X when looking straight down.
+	float rightX = -viewY;
+	float rightY = viewX;
+	float rightLen = sqrtf(rightX * rightX + rightY * rightY);
+	if (rightLen < 0.001f) {
+		rightX = 1.0f;
+		rightY = 0.0f;
+		rightLen = 1.0f;
+	}
+	rightX /= rightLen;
+	rightY /= rightLen;
+
+	// up = view x right; right has no Z component, so two terms drop out.
+	const float upX = -viewZ * rightY;
+	const float upY = viewZ * rightX;
+	const float upZ = viewX * rightY - viewY * rightX;
 
 	// Create 12-sided polygon
 	const int N = 12;
@@ -723,8 +772,8 @@ void ColonyEngine::draw3DSphere(Thing &obj, int pt0x, int pt0y, int pt0z,
 		float a = (float)i * 2.0f * (float)M_PI / (float)N;
 		float cosA = cosf(a);
 		float sinA = sinf(a);
-		px[i] = cx + radius * (cosA * rightX);
-		py[i] = cy + radius * (cosA * rightY);
+		px[i] = cx + radius * (cosA * rightX + sinA * upX);
+		py[i] = cy + radius * (cosA * rightY + sinA * upY);
 		pz[i] = cz + radius * (sinA * upZ);
 	}
 
@@ -741,6 +790,8 @@ void ColonyEngine::draw3DSphere(Thing &obj, int pt0x, int pt0y, int pt0z,
 			}
 		}
 	}
+
+	pullTowardCamera(px, py, pz, N);
 
 	if (isMacColorMode()) {
 		// Mac color: map fillColor to Mac color index and use RGB
@@ -950,10 +1001,11 @@ void ColonyEngine::renderCorridor3D() {
 	for (int y = 0; y < 32; y++) {
 		for (int x = 0; x < 32; x++) {
 			uint8 w = _wall[x][y];
-			if (w & 0x01) {
+			// A stair well is a hole: the feature draws the opening itself.
+			if ((w & 0x01) && !wallSegmentIsOpenWell(x, y, 0x01)) {
 				_gfx->draw3DWall(x, y, x + 1, y, wallColor);
 			}
-			if (w & 0x02) {
+			if ((w & 0x02) && !wallSegmentIsOpenWell(x, y, 0x02)) {
 				_gfx->draw3DWall(x, y, x, y + 1, wallColor);
 			}
 		}

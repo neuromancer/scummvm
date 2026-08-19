@@ -56,8 +56,10 @@ private:
 	MacNebularMenu *_menus = nullptr;
 	Graphics::ManagedSurface _output;
 	Graphics::ManagedSurface _popup;
+	Graphics::ManagedSurface _aboutPicture;
 	Common::Rect _popupRect;
 	RGBcolor _palette[256];
+	RGBcolor _aboutPalette[256];
 	bool _useOriginalMenus;
 	int _displaySize;
 	bool _hideMenuBar;
@@ -68,6 +70,7 @@ private:
 	Common::String _storyPassword;
 	bool _fullFrameActive = false;
 	bool _aboutActive = false;
+	bool _aboutRoomLoaded = false;
 	bool _gameplayHandoffPending = false;
 	bool _gameplayHandoffEffectSeen = false;
 	bool _popupActive = false;
@@ -103,7 +106,7 @@ public:
 	bool getStoryLocked() const { return _storyLocked; }
 	bool verifyStoryPassword(const Common::String &password) const;
 	void setDisplaySize(int displaySize, bool persist);
-	void setHideMenuBar(bool hide, bool persist);
+	void setHideMenuBar(bool hide);
 	void setPreferencesAtStartup(bool show, bool persist);
 	void setStoryLocked(bool locked, const Common::String &password);
 	void setFullFrameActive(bool active);
