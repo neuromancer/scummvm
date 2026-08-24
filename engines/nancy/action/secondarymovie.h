@@ -91,9 +91,17 @@ public:
 
 	bool getIsFinished() const { return _isFinished; }
 
+	// Enhancement: jump a cinematic straight to its end, as if it had finished
+	// playing on its own. Only movies that hide the player cursor are skipped;
+	// the rest are background animations the player isn't waiting on.
+	void skip();
+
 	Common::Path _videoName;
 	Common::Path _paletteName;
 	Common::Path _bitmapOverlayName;
+
+	// Container the record asks for; only meaningful from Nancy7 to Nancy12.
+	byte _videoPlaytype = kVideoPlaytypeAuto;
 
 	uint16 _videoFormat = kLargeVideoFormat;
 	uint16 _videoSceneChange = kMovieNoSceneChange;
@@ -136,9 +144,8 @@ public:
 	uint16 _randomPlayerCursorAllowed = kPlayerCursorAllowed;
 	Common::Array<RandomSequence> _sequences;
 
-	// Nancy13+ carries one extra "secondary" movie (a recognition animation)
-	// after the sequence list. Stored for future playback; reading it is
-	// required so the trailing hotspot list stays aligned.
+	// Nancy13+ carries one extra "secondary" movie after the sequence list: the
+	// character's recognition animation, played while the mouse hovers it.
 	RandomSequence _secondaryMovie;
 
 	// Nancy13 talkable characters: the scene to open when the character is
@@ -160,6 +167,16 @@ public:
 	// and whether the recognition (secondary) movie is currently playing.
 	bool _isHovered = false;
 	bool _playingSecondary = false;
+
+	// Rewind state for the recognition movie. When the mouse leaves the
+	// character the movie is played backwards to its first frame so the
+	// character turns away again instead of snapping back to its idle pose.
+	// Bink can't be played in reverse by the decoder, so the frames are
+	// stepped through by hand.
+	bool _secondaryRewinding = false;
+	int _rewindFrame = 0;
+	uint32 _rewindLastFrameTime = 0;
+	uint32 _rewindFrameDelay = 66;
 
 	// Called by PlayRandomMovieControl::execute() to wind down the AR.
 	void stopRandom() { _randomStopRequested = true; }
@@ -208,6 +225,12 @@ protected:
 
 	// Load & start the recognition (secondary) movie in place of the idle loop.
 	bool activateSecondaryMovie();
+
+	// Start playing the recognition movie backwards from wherever it is now.
+	void beginSecondaryRewind();
+	// Advance the manual rewind; returns the frame to draw, or nullptr when
+	// the next frame isn't due yet.
+	const Graphics::Surface *updateSecondaryRewind();
 
 	// A Nancy13 talkable character: has a conversation scene and a recognition
 	// movie to swap to on hover.

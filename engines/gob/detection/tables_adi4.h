@@ -44,7 +44,7 @@
 		ADGF_UNSTABLE,
 		GUIO1(GUIO_NOASPECT)
 	},
-	kFeatures640x480,
+	kFeaturesTrueColor | kFeatures640x480,
 	0, 0, 0
 },
 {
@@ -70,7 +70,7 @@
 		ADGF_UNSTABLE,
 		GUIO1(GUIO_NOASPECT)
 	},
-	kFeatures640x480,
+	kFeaturesTrueColor | kFeatures640x480,
 	0, 0, 0
 },
 {
@@ -138,7 +138,7 @@
 		ADGF_UNSTABLE,
 		GUIO1(GUIO_NOASPECT)
 	},
-	kFeatures640x480,
+	kFeaturesTrueColor | kFeatures640x480,
 	0, "GA2INTRO.TOT", 0
 },
 {
@@ -151,7 +151,7 @@
 		ADGF_UNSTABLE,
 		GUIO1(GUIO_NOASPECT)
 	},
-	kFeatures640x480,
+	kFeaturesTrueColor | kFeatures640x480,
 	"simule.stk", "INTRODD.TOT", 0 // INTRODD.TOT brings up a main menu to select various environmental learning tasks.
 },
 {
@@ -177,7 +177,7 @@
 		ADGF_UNSTABLE,
 		GUIO1(GUIO_NOASPECT)
 	},
-	kFeatures640x480,
+	kFeaturesTrueColor | kFeatures640x480,
 	0, 0, 0
 },
 {
@@ -222,7 +222,7 @@
 		ADGF_DEMO | ADGF_UNSTABLE,
 		GUIO1(GUIO_NOASPECT)
 	},
-	kFeatures640x480,
+	kFeaturesTrueColor | kFeatures640x480,
 	0, 0, 0
 },
 {
@@ -232,10 +232,10 @@
 		AD_ENTRY1s("intro.stk", "d41d8cd98f00b204e9800998ecf8427e", 0),
 		FR_FRA,
 		kPlatformWindows,
-		ADGF_DEMO | ADGF_UNSTABLE,
+		ADGF_DEMO,
 		GUIO1(GUIO_NOASPECT)
 	},
-	kFeatures640x480,
+	kFeaturesTrueColor | kFeatures640x480,
 	0, 0, 0
 },
 
@@ -305,6 +305,20 @@
 // 11-12 years
 
 // 12-13 years
+{
+	{
+		"adi4anglais1213",
+		"",
+		AD_ENTRY2s("A52RAN.STK", "5a55f6ceb6e7b197e9da909f71ac47b3", 91078,
+				   "ADIA52.STK", "ced8138cb3aee93093c62d2b91ffc9d2", 12256800),
+		DE_DEU,
+		kPlatformWindows,
+		ADGF_ADDON | ADGF_UNSTABLE,
+		GUIO0()
+	},
+	kFeatures640x480,
+	0, 0, 0
+},
 
 // 13-14 years
 

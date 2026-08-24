@@ -682,7 +682,8 @@ bool InsaneRebel1::notifyEvent(const Common::Event &event) {
 
 	if (isTouchscreenActive() && !_interactiveVideoActive && !_menuActive &&
 			event.type == Common::EVENT_LBUTTONDOWN) {
-		_vm->_smushVideoShouldFinish = true;
+		if (_touchTapDetector.addTap(event.mouse.x, event.mouse.y, _vm->_system->getMillis()))
+			_vm->_smushVideoShouldFinish = true;
 		return true;
 	}
 
@@ -753,6 +754,11 @@ bool InsaneRebel1::notifyEvent(const Common::Event &event) {
 			event.joystick.button, event.type == Common::EVENT_JOYBUTTON_DOWN,
 			_menuActive, _interactiveVideoActive && !_menuActive,
 			_joystickAxisX, _joystickAxisY);
+		if (_interactiveVideoActive && !_menuActive &&
+			event.joystick.button == Common::JOYSTICK_BUTTON_A) {
+			_playerFired = event.type == Common::EVENT_JOYBUTTON_DOWN;
+			return true;
+		}
 	}
 
 	if (event.type == Common::EVENT_CUSTOM_BACKEND_ACTION_AXIS) {

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ScummVM 2026.3.1git\n"
 "Report-Msgid-Bugs-To: scummvm-devel@lists.scummvm.org\n"
-"POT-Creation-Date: 2026-08-17 13:00+0000\n"
+"POT-Creation-Date: 2026-08-22 10:00+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -128,7 +128,7 @@ msgstr ""
 #: backends/platform/android/options.cpp:293
 #: backends/platform/wii/options.cpp:47 engines/asylum/asylum.cpp:204
 #: engines/buried/saveload.cpp:83 engines/cine/saveload.cpp:857
-#: engines/colony/intro.cpp:197 engines/director/lingo/xlibs/j/jitdraw3.cpp:123
+#: engines/colony/intro.cpp:196 engines/director/lingo/xlibs/j/jitdraw3.cpp:123
 #: engines/drascula/saveload.cpp:51 engines/grim/inputdialog.cpp:84
 #: engines/hypno/metaengine.cpp:282 engines/mohawk/myst_stacks/menu.cpp:283
 #: engines/mohawk/myst_stacks/menu.cpp:300
@@ -323,7 +323,7 @@ msgstr ""
 #: gui/launcher.cpp:534 gui/launcher.cpp:1970 gui/options.cpp:3500
 #: gui/options.cpp:3874 base/main.cpp:608
 #: backends/events/default/default-events.cpp:207 engines/buried/buried.cpp:598
-#: engines/chamber/metaengine.cpp:95 engines/colony/intro.cpp:195
+#: engines/chamber/metaengine.cpp:95 engines/colony/intro.cpp:194
 #: engines/director/events.cpp:122
 #: engines/director/lingo/xlibs/j/jitdraw3.cpp:139
 #: engines/efh/metaengine.cpp:362 engines/grim/grim.cpp:366
@@ -343,7 +343,7 @@ msgstr ""
 #: gui/fluidsynth-dialog.cpp:210 gui/launcher.cpp:428 gui/launcher.cpp:457
 #: gui/launcher.cpp:534 gui/launcher.cpp:1971 gui/options.cpp:3500
 #: gui/options.cpp:3874 engines/buried/buried.cpp:598
-#: engines/chamber/metaengine.cpp:101 engines/colony/intro.cpp:196
+#: engines/chamber/metaengine.cpp:101 engines/colony/intro.cpp:195
 #: engines/director/events.cpp:122
 #: engines/director/lingo/xlibs/j/jitdraw3.cpp:139
 #: engines/efh/metaengine.cpp:368 engines/grim/grim.cpp:366
@@ -3214,10 +3214,10 @@ msgstr ""
 #: backends/events/default/default-events.cpp:231
 #: backends/events/default/default-events.cpp:372
 #: engines/adl/metaengine.cpp:352 engines/buried/metaengine.cpp:154
-#: engines/chamber/metaengine.cpp:88 engines/colony/intro.cpp:247
-#: engines/colony/intro.cpp:1339 engines/drascula/metaengine.cpp:304
-#: engines/hdb/metaengine.cpp:275 engines/hypno/metaengine.cpp:308
-#: engines/lab/metaengine.cpp:172 engines/mohawk/myst_stacks/menu.cpp:317
+#: engines/chamber/metaengine.cpp:88 engines/colony/intro.cpp:246
+#: engines/drascula/metaengine.cpp:304 engines/hdb/metaengine.cpp:275
+#: engines/hypno/metaengine.cpp:308 engines/lab/metaengine.cpp:172
+#: engines/mohawk/myst_stacks/menu.cpp:317
 #: engines/mohawk/riven_stacks/aspit.cpp:454
 #: engines/neverhood/metaengine.cpp:200 engines/saga/metaengine.cpp:449
 #: engines/scumm/help.cpp:84 engines/scumm/help.cpp:86
@@ -3653,7 +3653,7 @@ msgstr ""
 #: engines/kyra/engine/lol.cpp:505 engines/lure/metaengine.cpp:177
 #: engines/made/metaengine.cpp:137 engines/mads/metaengine.cpp:258
 #: engines/mm/metaengine.cpp:186 engines/mtropolis/metaengine.cpp:161
-#: engines/nancy/input.cpp:181 engines/parallaction/metaengine.cpp:138
+#: engines/nancy/input.cpp:189 engines/parallaction/metaengine.cpp:138
 #: engines/saga/metaengine.cpp:278 engines/sludge/keymapper_tables.h:561
 #: engines/sludge/keymapper_tables.h:580 engines/stark/metaengine.cpp:189
 #: engines/sword1/metaengine.cpp:271 engines/tinsel/metaengine.cpp:246
@@ -3686,7 +3686,7 @@ msgstr ""
 #: engines/kyra/engine/eobcommon.cpp:370 engines/kyra/engine/lol.cpp:506
 #: engines/lure/metaengine.cpp:183 engines/made/metaengine.cpp:144
 #: engines/mads/metaengine.cpp:264 engines/mm/metaengine.cpp:192
-#: engines/mtropolis/metaengine.cpp:167 engines/nancy/input.cpp:188
+#: engines/mtropolis/metaengine.cpp:167 engines/nancy/input.cpp:196
 #: engines/parallaction/metaengine.cpp:144 engines/saga/metaengine.cpp:289
 #: engines/sludge/keymapper_tables.h:567 engines/sludge/keymapper_tables.h:586
 #: engines/stark/metaengine.cpp:195 engines/sword1/metaengine.cpp:277
@@ -5804,7 +5804,7 @@ msgstr ""
 #: engines/asylum/metaengine.cpp:198 engines/cine/metaengine.cpp:377
 #: engines/efh/metaengine.cpp:286 engines/hdb/metaengine.cpp:213
 #: engines/hypno/metaengine.cpp:363 engines/hypno/metaengine.cpp:411
-#: engines/nancy/input.cpp:195 engines/tinsel/metaengine.cpp:263
+#: engines/nancy/input.cpp:203 engines/tinsel/metaengine.cpp:263
 #: engines/titanic/metaengine.cpp:324 engines/ultima/ultima8/metaengine.cpp:52
 msgid "Move up"
 msgstr ""
@@ -5814,7 +5814,7 @@ msgstr ""
 #: engines/asylum/metaengine.cpp:205 engines/cine/metaengine.cpp:384
 #: engines/efh/metaengine.cpp:293 engines/hdb/metaengine.cpp:219
 #: engines/hypno/metaengine.cpp:351 engines/hypno/metaengine.cpp:399
-#: engines/nancy/input.cpp:201 engines/tinsel/metaengine.cpp:269
+#: engines/nancy/input.cpp:209 engines/tinsel/metaengine.cpp:269
 #: engines/titanic/metaengine.cpp:330 engines/ultima/ultima8/metaengine.cpp:53
 msgid "Move down"
 msgstr ""
@@ -5826,7 +5826,7 @@ msgstr ""
 #: engines/efh/metaengine.cpp:300 engines/hdb/metaengine.cpp:225
 #: engines/hypno/metaengine.cpp:345 engines/hypno/metaengine.cpp:393
 #: engines/kyra/engine/eobcommon.cpp:373 engines/lure/metaengine.cpp:218
-#: engines/nancy/input.cpp:207 engines/tinsel/metaengine.cpp:275
+#: engines/nancy/input.cpp:215 engines/tinsel/metaengine.cpp:275
 #: engines/titanic/metaengine.cpp:312 engines/titanic/metaengine.cpp:390
 #: engines/ultima/ultima8/metaengine.cpp:54
 msgid "Move left"
@@ -5839,7 +5839,7 @@ msgstr ""
 #: engines/efh/metaengine.cpp:307 engines/hdb/metaengine.cpp:231
 #: engines/hypno/metaengine.cpp:357 engines/hypno/metaengine.cpp:405
 #: engines/kyra/engine/eobcommon.cpp:374 engines/lure/metaengine.cpp:226
-#: engines/nancy/input.cpp:213 engines/tinsel/metaengine.cpp:281
+#: engines/nancy/input.cpp:221 engines/tinsel/metaengine.cpp:281
 #: engines/titanic/metaengine.cpp:318 engines/titanic/metaengine.cpp:396
 #: engines/ultima/ultima8/metaengine.cpp:55
 msgid "Move right"
@@ -7507,19 +7507,19 @@ msgid ""
 "beginning using new savegames."
 msgstr ""
 
-#: engines/colony/intro.cpp:211
+#: engines/colony/intro.cpp:210
 msgid "Save this game?"
 msgstr ""
 
-#: engines/colony/intro.cpp:245 engines/colony/intro.cpp:1340
+#: engines/colony/intro.cpp:244
 msgid "New Game"
 msgstr ""
 
-#: engines/colony/intro.cpp:246 engines/colony/intro.cpp:1338
+#: engines/colony/intro.cpp:245
 msgid "Load Game"
 msgstr ""
 
-#: engines/colony/intro.cpp:1315 engines/colony/intro.cpp:1340
+#: engines/colony/intro.cpp:1309
 msgid "You have been terminated."
 msgstr ""
 
@@ -7919,7 +7919,7 @@ msgstr ""
 
 #: engines/draci/metaengine.cpp:243 engines/hopkins/metaengine.cpp:302
 #: engines/mohawk/myst.cpp:554 engines/mohawk/riven.cpp:835
-#: engines/nancy/input.cpp:225
+#: engines/nancy/input.cpp:233
 msgid "Open main menu"
 msgstr ""
 
@@ -10265,31 +10265,31 @@ msgid ""
 "graphical/audio glitches."
 msgstr ""
 
-#: engines/macs2/dialogs.cpp:54 engines/scumm/dialogs.cpp:1172
+#: engines/macs2/dialogs.cpp:55 engines/scumm/dialogs.cpp:1172
 msgid "Audio-visual improvements"
 msgstr ""
 
-#: engines/macs2/dialogs.cpp:55 engines/scumm/dialogs.cpp:1173
+#: engines/macs2/dialogs.cpp:56
 msgid ""
-"Makes adjustments not related to bugs for certain audio and graphics "
-"elements (e.g. version consistency changes)."
+"Optional generated dialogue speech (SPEECH/*.wav) and other audio/visual "
+"polish."
 msgstr ""
 
-#: engines/macs2/dialogs.cpp:58 engines/scumm/dialogs.cpp:1176
+#: engines/macs2/dialogs.cpp:60 engines/scumm/dialogs.cpp:1176
 msgid "Restored content"
 msgstr ""
 
-#: engines/macs2/dialogs.cpp:59 engines/scumm/dialogs.cpp:1177
+#: engines/macs2/dialogs.cpp:61 engines/scumm/dialogs.cpp:1177
 msgid ""
 "Restores dialogs, graphics, and audio elements which were originally cut in "
 "the original release."
 msgstr ""
 
-#: engines/macs2/dialogs.cpp:63 engines/scumm/dialogs.cpp:1180
+#: engines/macs2/dialogs.cpp:65 engines/scumm/dialogs.cpp:1180
 msgid "Modern UI/UX adjustments"
 msgstr ""
 
-#: engines/macs2/dialogs.cpp:64
+#: engines/macs2/dialogs.cpp:66
 msgid "Activates some modern comforts for a smoother user experience."
 msgstr ""
 
@@ -10962,19 +10962,19 @@ msgstr ""
 msgid "Invalid file name for saving"
 msgstr ""
 
-#: engines/nancy/input.cpp:178
+#: engines/nancy/input.cpp:186
 msgid "Nancy Drew"
 msgstr ""
 
-#: engines/nancy/input.cpp:219
+#: engines/nancy/input.cpp:227
 msgid "Fast move modifier"
 msgstr ""
 
-#: engines/nancy/input.cpp:234
+#: engines/nancy/input.cpp:242
 msgid "Nancy Drew - Maze"
 msgstr ""
 
-#: engines/nancy/input.cpp:236
+#: engines/nancy/input.cpp:244
 msgid "Show / hide maze map"
 msgstr ""
 
@@ -11932,6 +11932,12 @@ msgstr ""
 
 #: engines/scumm/dialogs.cpp:1056
 msgid "Expert"
+msgstr ""
+
+#: engines/scumm/dialogs.cpp:1173
+msgid ""
+"Makes adjustments not related to bugs for certain audio and graphics "
+"elements (e.g. version consistency changes)."
 msgstr ""
 
 #: engines/scumm/dialogs.cpp:1181

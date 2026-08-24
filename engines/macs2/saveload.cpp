@@ -19,6 +19,7 @@
  *
  */
 
+#include "common/util.h"
 #include "macs2/gameobjects.h"
 #include "macs2/macs2.h"
 #include "macs2/view1.h"
@@ -372,10 +373,11 @@ Common::Error Macs2Engine::syncGame(Common::Serializer &s) {
 			_hotspotOverrides[i + 1] = val;
 		}
 	}
-	if (s.isLoading() && _hotspotOverrides.size() < 0x21)
+	if (s.isLoading() && _hotspotOverrides.size() < 0x21) {
 		_hotspotOverrides.resize(0x21, 0xFFFF);
+	}
 
-	for (int i = 0; i < 4; i++) {
+	for (int i = 0; i < ARRAYSIZE(_sceneTimerParams); i++) {
 		s.syncAsUint32LE(_sceneTimerParams[i]);
 	}
 
@@ -848,7 +850,7 @@ Common::Error Macs2Engine::syncGame(Common::Serializer &s) {
 		view1->rebuildCharacterLookupTable();
 		view1->refreshProtagonistInventoryAfterLoad(actorIndex);
 		view1->_uiPanelState = View1::kUiPanelNone;
-		view1->ensureScummVerbUI();
+		view1->ensureActionBar();
 
 		// Restore UseInventory cursor image after load.
 		// The cursor slot is only populated when clicking an inventory item in the panel;

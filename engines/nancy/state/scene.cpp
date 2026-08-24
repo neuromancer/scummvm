@@ -36,6 +36,7 @@
 #include "engines/nancy/state/scene.h"
 #include "engines/nancy/state/map.h"
 
+#include "engines/nancy/action/conversation.h"
 #include "engines/nancy/action/secondarymovie.h"
 
 #include "engines/nancy/ui/button.h"
@@ -237,19 +238,6 @@ bool Scene::onStateExit(const NancyState::NancyState nextState) {
 
 void Scene::changeScene(const SceneChangeDescription &sceneDescription) {
 	if (sceneDescription.sceneID == kNoScene || _state == kLoad) {
-		return;
-	}
-
-	// HACK: Nancy 9 tries to reload the same scene when changing
-	// angle/power in scene 5651 (stuck bottle in rocks). This ends up
-	// resetting the scene flags, which makes the angle/power buttons
-	// unresponsive. We avoid reloading the scene in this case, if the
-	// new scene is the same as the current one. This has the negative
-	// side-effect that the button arrows are not updated, but at least
-	// it makes them usable.
-	// TODO: find a better solution for this.
-	if (sceneDescription.sceneID == _sceneState.currentScene.sceneID &&
-		g_nancy->getGameType() == kGameTypeNancy9 && sceneDescription.sceneID == 5651) {
 		return;
 	}
 
@@ -1579,9 +1567,21 @@ void Scene::handleInput() {
 				g_nancy->_cursor->warpCursor(input.mousePos);
 			}
 		}
-	} else if (!_activeMovie) {
-		// Check if player has pressed esc
-		if (input.input & NancyInput::kOpenMainMenu) {
+	}
+
+	// Check if player has pressed esc. While a dialogue line or a cinematic is
+	// playing, esc skips it instead of opening the main menu. Only the initial
+	// press counts, so holding the key down doesn't skip line after line.
+	const bool escPressed = (input.input & NancyInput::kOpenMainMenu) != 0;
+	const bool escJustPressed = escPressed && !_escHeld;
+	_escHeld = escPressed;
+
+	if (escJustPressed) {
+		if (_activeConversation) {
+			_activeConversation->skipLine();
+		} else if (_activeMovie) {
+			_activeMovie->skip();
+		} else {
 			g_nancy->setState(NancyState::kMainMenu);
 			return;
 		}

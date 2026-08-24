@@ -214,8 +214,8 @@ void PlaySecondaryMovie::readRandomMovieDataNancy14(Common::Serializer &ser, Com
 	}
 
 	// Recognition ("secondary") movie: its name followed by its own blt
-	// descriptors. Stored for future playback; the descriptors are consumed to
-	// keep the stream aligned (no home in the struct yet).
+	// descriptors. The descriptors are consumed to keep the stream aligned
+	// (no home in the struct yet).
 	readFilename(ser, _secondaryMovie.name);
 	uint16 numSecondaryDescs = 0;
 	ser.syncAsUint16LE(numSecondaryDescs);
@@ -229,7 +229,6 @@ void PlaySecondaryMovie::readRandomMovieDataNancy14(Common::Serializer &ser, Com
 
 void PlaySecondaryMovie::applyStartingRandomSequence() {
 	// "RandomMovie" picks any sequence; otherwise look up by name.
-	// Only the first sequence is played; chained playback is TODO.
 	if (!_sequences.empty()) {
 		int startIdx = -1;
 		if (_startingSequenceName == "RandomMovie") {
@@ -299,8 +298,35 @@ bool PlaySecondaryMovie::activateSecondaryMovie() {
 	resolveSentinelFrames();
 
 	_isFinished = false;
+	_secondaryRewinding = false;
 	_curViewportFrame = -1;
 	return true;
+}
+
+void PlaySecondaryMovie::beginSecondaryRewind() {
+	_secondaryRewinding = true;
+	_rewindFrame = _decoder.getCurFrame();
+	_rewindLastFrameTime = g_system->getMillis();
+
+	const int frameCount = _decoder.getFrameCount();
+	const uint32 durationMs = _decoder.getDuration().msecs();
+	_rewindFrameDelay = (frameCount > 0 && durationMs > 0) ? (durationMs / frameCount) : 66;
+	_isFinished = false;
+}
+
+const Graphics::Surface *PlaySecondaryMovie::updateSecondaryRewind() {
+	uint32 now = g_system->getMillis();
+	if (now - _rewindLastFrameTime < _rewindFrameDelay) {
+		return nullptr;
+	}
+
+	_rewindLastFrameTime = now;
+
+	if (_rewindFrame > (int)_firstFrame) {
+		--_rewindFrame;
+	}
+
+	return _decoder.decodeNextFrame(_rewindFrame);
 }
 
 void PlaySecondaryMovie::resolveSentinelFrames() {
@@ -531,7 +557,16 @@ void PlaySecondaryMovie::readData(Common::SeekableReadStream &stream) {
 	readFilename(ser, _paletteName, kGameTypeVampire, kGameTypeVampire);
 	readFilename(ser, _bitmapOverlayName, kGameTypeVampire, kGameTypeNancy9);
 
-	ser.skip(2, kGameTypeNancy7);	// videoType
+	if (g_nancy->getGameType() >= kGameTypeNancy7) {
+		uint16 videoType = 0;
+		ser.syncAsUint16LE(videoType);
+
+		// Nancy13 dropped AVF altogether, so the slot no longer selects a container.
+		if (g_nancy->getGameType() <= kGameTypeNancy12) {
+			_videoPlaytype = videoType == kVideoPlaytypeBink ? kVideoPlaytypeBink : kVideoPlaytypeAVF;
+		}
+	}
+
 	ser.skip(2, kGameTypeVampire, kGameTypeNancy9); // videoPlaySource
 	ser.syncAsUint16LE(_videoFormat);
 	if (g_nancy->getGameType() >= kGameTypeNancy10)
@@ -593,7 +628,7 @@ void PlaySecondaryMovie::readData(Common::SeekableReadStream &stream) {
 
 void PlaySecondaryMovie::init() {
 	if (!_decoder.isVideoLoaded()) {
-		if (!_decoder.loadFile(_videoName)) {
+		if (!_decoder.loadFile(_videoName, _videoPlaytype)) {
 			error("Couldn't load video file %s", _videoName.toString().c_str());
 		}
 
@@ -679,16 +714,24 @@ void PlaySecondaryMovie::execute() {
 			break;
 		}
 
-		// Talkable character: swap immediately between the idle loop and the
-		// recognition ("turn around") movie as the mouse enters/leaves the
-		// character, without waiting for the current cycle to finish.
+		// Talkable character: swap immediately from the idle loop to the
+		// recognition ("turn around") movie as the mouse enters the character,
+		// without waiting for the current cycle to finish. On the way out the
+		// recognition movie is played backwards instead, so the character turns
+		// away again before the idle loop resumes.
 		if (isTalkable()) {
-			if (_isHovered && !_playingSecondary) {
-				_playingSecondary = true;
-				activateSecondaryMovie();
-			} else if (!_isHovered && _playingSecondary) {
-				_playingSecondary = false;
-				activateRandomSequence(_activeSequenceIndex);
+			if (_isHovered) {
+				if (!_playingSecondary) {
+					_playingSecondary = true;
+					activateSecondaryMovie();
+				} else if (_secondaryRewinding) {
+					// The mouse came back mid-turn: play forward again from here.
+					_secondaryRewinding = false;
+					_isFinished = false;
+					_decoder.pauseVideo(false);
+				}
+			} else if (_playingSecondary && !_secondaryRewinding) {
+				beginSecondaryRewind();
 			}
 		}
 
@@ -731,7 +774,7 @@ void PlaySecondaryMovie::execute() {
 		// another action record, but doesn't do so, because updateGraphics() gets called after all
 		// action record execution. Instead, the movie's own scene change (which is inexplicably enabled)
 		// gets triggered, and teleports the player to the wrong place instead of making them lose the game
-		if (!_decoder.isPlaying() && _isVisible && !_isFinished) {
+		if (!_decoder.isPlaying() && _isVisible && !_isFinished && !_secondaryRewinding) {
 			_decoder.start();
 			resolveSentinelFrames();
 
@@ -743,7 +786,10 @@ void PlaySecondaryMovie::execute() {
 			}
 		}
 
-		if (_decoder.needsUpdate()) {
+		const Graphics::Surface *decodedFrame = _secondaryRewinding ? updateSecondaryRewind() :
+			(_decoder.needsUpdate() ? _decoder.decodeNextFrame() : nullptr);
+
+		if (decodedFrame) {
 			uint descID = 0;
 
 			for (uint i = 0; i < _videoDescs.size(); ++i) {
@@ -752,7 +798,7 @@ void PlaySecondaryMovie::execute() {
 				}
 			}
 
-			GraphicsManager::copyToManaged(*_decoder.decodeNextFrame(), _fullFrame, g_nancy->getGameType() == kGameTypeVampire, _videoFormat == kSmallVideoFormat);
+			GraphicsManager::copyToManaged(*decodedFrame, _fullFrame, g_nancy->getGameType() == kGameTypeVampire, _videoFormat == kSmallVideoFormat);
 
 			// Nancy14 stores an all -1 srcRect to mean "use the whole frame".
 			Common::Rect srcRect = _videoDescs[descID].srcRect;
@@ -788,12 +834,25 @@ void PlaySecondaryMovie::execute() {
 			}
 		}
 
-		if ((_decoder.getCurFrame() == _lastFrame && _playDirection == kPlayMovieForward) ||
+		if (_secondaryRewinding) {
+			// The character has turned away again: hand the screen back to the
+			// idle loop it was playing before the mouse arrived.
+			if (_rewindFrame <= (int)_firstFrame) {
+				_playingSecondary = false;
+				_secondaryRewinding = false;
+				activateRandomSequence(_activeSequenceIndex);
+			}
+		} else if ((_decoder.getCurFrame() == _lastFrame && _playDirection == kPlayMovieForward) ||
 			(_decoder.getCurFrame() == _firstFrame && _playDirection == kPlayMovieReverse) ||
 			_decoder.endOfVideo()) {
 
-			_decoder.pauseVideo(true);
-			_isFinished = true;
+			// A movie held on its last frame keeps matching the check above every
+			// tick; only pause it the once, so the pause level stays balanced for
+			// whoever resumes playback.
+			if (!_isFinished) {
+				_decoder.pauseVideo(true);
+				_isFinished = true;
+			}
 
 			if (_isRandom) {
 				// Sequence finished: roll for next. If stop was requested
@@ -856,6 +915,21 @@ void PlaySecondaryMovie::execute() {
 
 		break;
 	}
+}
+
+void PlaySecondaryMovie::skip() {
+	if (_isRandom || _state != kRun || _playerCursorAllowed != kNoPlayerCursorAllowed) {
+		return;
+	}
+
+	g_nancy->_sound->stopSound(_sound);
+
+	if (!_isFinished) {
+		_decoder.pauseVideo(true);
+		_isFinished = true;
+	}
+
+	_state = kActionTrigger;
 }
 
 // --- PlayRandomMovieControl --------------------------------------------

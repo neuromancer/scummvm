@@ -23,6 +23,7 @@
 #define MACS2_SCRIPTEXECUTOR_H
 
 #include "common/array.h"
+#include "common/path.h"
 #include "common/rect.h"
 #include "common/scummsys.h"
 #include "common/str-array.h"
@@ -120,6 +121,12 @@ public:
 	/** Script dialect v1 opcode table (MCS / Amiga demo bytecode). */
 	static const OpcodeEntry kV1OpcodeTable[];
 	static const uint kV1OpcodeTableSize;
+	/**
+	 * Script dialect v2 opcode table (extends v1 through 0x6D).
+	 * Remaps a few audio slots and adds 0x4F..0x6D
+	 */
+	static const OpcodeEntry kV2OpcodeTable[];
+	static const uint kV2OpcodeTableSize;
 
 private:
 #ifdef DEMACS2
@@ -203,6 +210,61 @@ public:
 	OpcodeResult scriptEndOverlayText();
 	OpcodeResult scriptFadeFromBlack();
 	OpcodeResult scriptFreePcmSound();
+
+	/** Seek to the length-prefixed end of the current opcode payload. */
+	void scriptSkipOpcodeRemainder(uint8 opcode);
+
+	// Dialect v2: remapped audio slots (v1 PCM/music-slot opcodes are NOPs here).
+	OpcodeResult scriptNopSkipRemainder();
+	OpcodeResult scriptPlaySfx();
+	OpcodeResult scriptPlaySong();
+	OpcodeResult scriptStopSong();
+	/** Fixed 13-byte Pascal-style filename field from the script stream. */
+	Common::String scriptReadFixedFileName();
+	Common::String scriptParsePascalFileName(const Common::String &raw);
+	/** Resolve SPEECH/SOUNDFX basename (no extension) for openStreamFile; empty if none. */
+	Common::Path resolveAudioFilePath(const Common::String &fileName, bool preferSpeech) const;
+	/** Resolve MUSICGS then MUSICOPL; empty if neither exists. */
+	Common::Path resolveMidiFilePath(const Common::String &fileName) const;
+	/**
+	 * Optional generated dialogue audio (kEnhAudioChanges):
+	 * scene -> SPEECH/sSS_OOOO.*, object -> SPEECH/oOOO_OOOO.*.
+	 * Missing files are ignored.
+	 */
+	void tryPlayGeneratedDialogueSpeech(uint16 stringOffset);
+
+	// Dialect v2: extended opcodes 0x4F..0x6D (stubs until backends exist).
+	OpcodeResult scriptSetMainActor();
+	OpcodeResult scriptLoadDeltaAnim();
+	OpcodeResult scriptPlayDeltaAnim();
+	OpcodeResult scriptRemoveDeltaAnim();
+	OpcodeResult scriptSetButtonStep();
+	OpcodeResult scriptTestButtonAnimFrame();
+	OpcodeResult scriptScreenShot();
+	OpcodeResult scriptWaitObjectAnimStep();
+	OpcodeResult scriptWaitSpecialAnimStep();
+	OpcodeResult scriptSetObjectAdjust();
+	OpcodeResult scriptReloadSpecialAnim();
+	OpcodeResult scriptPlayDiskDelta();
+	OpcodeResult scriptSetDiskCache();
+	OpcodeResult scriptSetMidiVolume();
+	OpcodeResult scriptSetWaveVolume();
+	OpcodeResult scriptLoadSpecialAnimSlot();
+	OpcodeResult scriptSetSpecialAnimSlot();
+	OpcodeResult scriptClearSpecialAnimSlot();
+	OpcodeResult scriptSetDeltaRange();
+	OpcodeResult scriptClearDeltaRange();
+	OpcodeResult scriptAddDeltaSfx();
+	OpcodeResult scriptClearDeltaSfxList();
+	OpcodeResult scriptShowActionBar();
+	OpcodeResult scriptHideActionBar();
+	OpcodeResult scriptSetCursorType();
+	OpcodeResult scriptCheckDeltaSpeed();
+	OpcodeResult scriptLoadDistanceMask();
+	OpcodeResult scriptLoadAreaMask();
+	OpcodeResult scriptLoadWalkMask();
+	OpcodeResult scriptLoadShadowMask();
+	OpcodeResult scriptTalkTo();
 
 	inline void scriptUnimplementedOpcode(const char *source, uint16 opcode) {
 		debug("Unimplemented opcode (%s): %.2x.", source, opcode);
@@ -323,8 +385,11 @@ private:
 	uint16 _executingScriptObjectId = 0;
 
 public:
-	ScriptExecutor();
+	ScriptExecutor(Macs2::Macs2Engine *engine);
 	~ScriptExecutor();
+
+	/** Strip a trailing audio extension (.wav/.ogg/...) if present. */
+	static Common::String stripAudioExtension(const Common::String &fileName);
 
 	void setIdle() { _state = ExecutorState::Idle; }
 
@@ -390,6 +455,8 @@ public:
 	bool _scriptSkippable = false;
 	bool _musicEnabled = true;
 	bool _soundSystemActive = true;
+	/** Dialogue/subtitle text display toggle (native options HUD). */
+	bool _textEnabled = true;
 	bool _overlayTextStageActive = false;
 	bool _inventoryActionFlag = false;
 	bool _inventoryCombineFlag = false;
@@ -405,6 +472,16 @@ public:
 	bool _waitForPcmSound = false;
 	bool _waitForMusicControl = false;
 	bool _waitForAdlibReady = false;
+	// Dialect-v2: wait until an object/scene anim sequencePosition reaches a target.
+	bool _waitForObjectAnimStep = false;
+	uint16 _waitObjectAnimObjectId = 0;
+	uint16 _waitObjectAnimSlot = 0;
+	uint16 _waitObjectAnimTargetStep = 0;
+	bool _waitForSpecialAnimStep = false;
+	uint16 _waitSpecialAnimIndex = 0;
+	uint16 _waitSpecialAnimTargetStep = 0;
+	bool _waitForDeltaAnim = false;
+	bool _waitForDeltaSpeed = false;
 	bool _debugPaused = false;
 	bool _pickupInProgress = false;
 	uint16 _pickupActorObjectID = 0;
@@ -414,7 +491,7 @@ public:
 	// Mutex indicating if the A3D2 function is active
 	bool _isSkipping = false;
 
-	Macs2::Macs2Engine *_engine = nullptr;
+	Macs2::Macs2Engine *_engine;
 
 	// Button 8 skip from handleInput (1008:e8bf)
 	bool skipToEndOfSkippableSection();
@@ -452,7 +529,9 @@ public:
 	bool isScriptWaitDeferred() const {
 		return _state == ExecutorState::WaitingForCallback ||
 			   _frameWaitTicksRemaining != 0 || _walkTargetObjectIndex != 0 ||
-			   _waitForPcmSound || _waitForMusicControl || _waitForAdlibReady;
+			   _waitForPcmSound || _waitForMusicControl || _waitForAdlibReady ||
+			   _waitForObjectAnimStep || _waitForSpecialAnimStep ||
+			   _waitForDeltaAnim || _waitForDeltaSpeed;
 	}
 
 	bool isExecuting() const {

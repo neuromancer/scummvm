@@ -19,41 +19,38 @@
  *
  */
 
-#ifndef BACKENDS_MIXER_ATARI_H
-#define BACKENDS_MIXER_ATARI_H
+#include "common/util.h"
 
-#include "backends/mixer/mixer.h"
-#include "common/events.h"
+#include "scumm/insane/rebel/rebel_touch.h"
 
-/**
- *  Atari XBIOS based audio mixer.
- */
+namespace Scumm {
 
-class AtariMixerManager : public MixerManager, Common::EventObserver {
-public:
-	AtariMixerManager();
-	virtual ~AtariMixerManager();
+const uint32 kRebelDoubleTapIntervalMs = 500;
+// Wider than a desktop double click: a finger lands less precisely.
+const int kRebelDoubleTapSlop = 32;
 
-	void init() override;
-	void update();
+RebelTouchTapDetector::RebelTouchTapDetector() :
+	_lastTapTime(0), _lastTapX(0), _lastTapY(0) {
+}
 
-	void suspendAudio() override;
-	int resumeAudio() override;
+void RebelTouchTapDetector::reset() {
+	_lastTapTime = 0;
+}
 
-	bool notifyEvent(const Common::Event &event) override;
+bool RebelTouchTapDetector::addTap(int16 x, int16 y, uint32 now) {
+	const bool inTime = _lastTapTime != 0 && now - _lastTapTime <= kRebelDoubleTapIntervalMs;
+	const bool inPlace = ABS((int)x - (int)_lastTapX) <= kRebelDoubleTapSlop &&
+	                     ABS((int)y - (int)_lastTapY) <= kRebelDoubleTapSlop;
 
-private:
-	int _outputRate = 0;
-	int _outputChannels = 0;
-	bool _emulated16bitMono = false;
-	bool _downsample = false;
+	if (inTime && inPlace) {
+		reset();
+		return true;
+	}
 
-	int _samples = 0;
-	int _sampleBufferSize = 0;
-	byte *_sampleBuffer = nullptr;
+	_lastTapTime = now;
+	_lastTapX = x;
+	_lastTapY = y;
+	return false;
+}
 
-	int _atariSampleBufferSize = 0;
-	byte *_atariSampleBuffer = nullptr;
-};
-
-#endif
+} // End of namespace Scumm

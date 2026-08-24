@@ -19,41 +19,27 @@
  *
  */
 
-#ifndef BACKENDS_MIXER_ATARI_H
-#define BACKENDS_MIXER_ATARI_H
+#ifndef SCUMM_INSANE_REBEL_TOUCH_H
+#define SCUMM_INSANE_REBEL_TOUCH_H
 
-#include "backends/mixer/mixer.h"
-#include "common/events.h"
+#include "common/scummsys.h"
 
-/**
- *  Atari XBIOS based audio mixer.
- */
+namespace Scumm {
 
-class AtariMixerManager : public MixerManager, Common::EventObserver {
+// Double rather than single, because a single tap is the gameplay fire button.
+class RebelTouchTapDetector {
 public:
-	AtariMixerManager();
-	virtual ~AtariMixerManager();
+	RebelTouchTapDetector();
 
-	void init() override;
-	void update();
-
-	void suspendAudio() override;
-	int resumeAudio() override;
-
-	bool notifyEvent(const Common::Event &event) override;
+	bool addTap(int16 x, int16 y, uint32 now);
+	void reset();
 
 private:
-	int _outputRate = 0;
-	int _outputChannels = 0;
-	bool _emulated16bitMono = false;
-	bool _downsample = false;
-
-	int _samples = 0;
-	int _sampleBufferSize = 0;
-	byte *_sampleBuffer = nullptr;
-
-	int _atariSampleBufferSize = 0;
-	byte *_atariSampleBuffer = nullptr;
+	uint32 _lastTapTime;
+	int16 _lastTapX;
+	int16 _lastTapY;
 };
+
+} // End of namespace Scumm
 
 #endif

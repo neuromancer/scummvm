@@ -34,7 +34,7 @@
 #include "macs2/gameobjects.h"
 #include "macs2/macs2.h"
 #include "macs2/music.h"
-#include "macs2/scummui.h"
+#include "macs2/actionbar.h"
 
 namespace Macs2 {
 namespace {
@@ -127,6 +127,11 @@ View1::View1() : UIElement("View1") {
 	_paletteDirty = false;
 	CursorMan.showMouse(true);
 
+	const int sw = g_engine->screenWidth();
+	const int sh = g_engine->screenHeight();
+	_bounds = Common::Rect(0, 0, sw, sh);
+	_innerBounds = _bounds;
+
 	// TODO: Check if this works like this
 	Character *protagonist = new Character();
 	// TODO: Need to properly handle the offset
@@ -137,35 +142,45 @@ View1::View1() : UIElement("View1") {
 	_inventorySource = protagonist->_gameObject;
 	_inventoryButtonLocations.resize(6);
 
-	if (hasScummVerbUI()) {
-		_scummUI = new ScummUI(this);
-		_bounds = Common::Rect(0, 0, kScreenWidth, kScreenHeight);
-		_innerBounds = _bounds;
+	if (hasPersistentActionBar()) {
+		_actionBar = new ActionBar(this);
 		setInventorySource(_inventorySource);
 	}
 }
 
-void View1::ensureScummVerbUI() {
-	if (!hasScummVerbUI())
+void View1::ensureActionBar() {
+	if (!hasPersistentActionBar())
 		return;
-	if (!_scummUI) {
-		_scummUI = new ScummUI(this);
+	if (!_actionBar) {
+		_actionBar = new ActionBar(this);
 		if (_inventorySource)
 			setInventorySource(_inventorySource);
 	}
-	if (_bounds.height() != kScreenHeight) {
-		_bounds = Common::Rect(0, 0, kScreenWidth, kScreenHeight);
+	const int sw = g_engine->screenWidth();
+	const int sh = g_engine->screenHeight();
+	if (_innerBounds.width() != sw || _innerBounds.height() != sh) {
+		_bounds = Common::Rect(0, 0, sw, sh);
 		_innerBounds = _bounds;
-		::initGraphics(kScreenWidth, kScreenHeight);
+		::initGraphics(sw, sh);
 	}
 }
 
-bool View1::hasScummVerbUI() const {
-	return g_engine->enhancementEnabled(kEnhUIUX);
+bool View1::hasPersistentActionBar() const {
+	return g_engine->enhancementEnabled(kEnhUIUX) || g_engine->hasNativeHudAssets();
 }
 
-bool View1::shouldShowScummVerbUI() const {
-	if (!hasScummVerbUI())
+int View1::actionBarTopY() const {
+	if (_actionBar && shouldShowActionBar())
+		return _actionBar->gameAreaBottomY();
+	if (g_engine->hasNativeHudAssets() && g_engine->isBottomHudVisible() && g_engine->_menuMode != 0)
+		return (int)g_engine->_panelTopY;
+	return g_engine->gameHeight();
+}
+
+bool View1::shouldShowActionBar() const {
+	if (!hasPersistentActionBar())
+		return false;
+	if (!g_engine->isBottomHudVisible())
 		return false;
 	if (_currentMode == ViewMode::VM_HELP)
 		return false;
@@ -188,7 +203,7 @@ bool View1::shouldShowScummVerbUI() const {
 }
 
 View1::~View1() {
-	delete _scummUI;
+	delete _actionBar;
 	for (Character *c : _characters) {
 		delete c;
 	}
@@ -231,9 +246,9 @@ void View1::openInventory(GameObject *newInventorySource) {
 	_pendingPanelRequest = kPanelRequestNone; // Binary: g_wPendingPanelRequest = 0
 
 	// SCUMM verb UI: protagonist inventory is always visible in the strip.
-	if (hasScummVerbUI() && newInventorySource->_index == Scenes::instance()._currentActorIndex) {
-		if (_scummUI)
-			_scummUI->syncInventory();
+	if (hasPersistentActionBar() && newInventorySource->_index == Scenes::instance()._currentActorIndex) {
+		if (_actionBar)
+			_actionBar->syncInventory();
 		return;
 	}
 
@@ -302,8 +317,8 @@ void View1::setInventorySource(GameObject *newInventorySource) {
 			_inventoryItems.push_back(currentObject);
 		}
 	}
-	if (hasScummVerbUI() && _scummUI)
-		_scummUI->syncInventory();
+	if (hasPersistentActionBar() && _actionBar)
+		_actionBar->syncInventory();
 }
 
 void View1::refreshProtagonistInventoryAfterLoad(uint16 actorIndex) {
@@ -333,8 +348,8 @@ void View1::refreshProtagonistInventoryAfterLoad(uint16 actorIndex) {
 
 	_inventoryItems = validated;
 
-	if (hasScummVerbUI() && _scummUI)
-		_scummUI->resetInventoryAfterLoad();
+	if (hasPersistentActionBar() && _actionBar)
+		_actionBar->resetInventoryAfterLoad();
 }
 
 bool View1::isInventorySourceProtagonist() const {
@@ -345,8 +360,8 @@ void View1::transferInventoryItem(GameObject *item, GameObject *targetContainer)
 	int index = findInventoryItem(item);
 	_inventoryItems.remove_at(index);
 	item->_sceneIndex = targetContainer->_index + 0x400;
-	if (hasScummVerbUI() && _scummUI)
-		_scummUI->syncInventory();
+	if (hasPersistentActionBar() && _actionBar)
+		_actionBar->syncInventory();
 }
 
 int View1::findInventoryItem(const GameObject *item) {
@@ -429,8 +444,9 @@ void View1::updateCursor(const byte *palette) {
 	// The array has 33 entries (indices 0-32). Cursor modes 0x13-0x1A map to entries 18-25.
 	int mode = (int)g_engine->_scriptExecutor->_cursorMode - 1;
 
-	// SCUMM-style UI: gameplay verbs share the walk cursor; the sentence line shows the active verb.
-	if (hasScummVerbUI()) {
+	// SCUMM-style enhancement only: gameplay verbs share the walk cursor; the sentence
+	// line shows the active verb. Native V2 HUD must keep per-MouseNr graphics.
+	if (g_engine->enhancementEnabled(kEnhUIUX) && !g_engine->hasNativeHudAssets()) {
 		const Script::MouseMode cursorMode = g_engine->_scriptExecutor->_cursorMode;
 		switch (cursorMode) {
 		case Script::MouseMode::Talk:
@@ -473,7 +489,16 @@ void View1::updateCursor(const byte *palette) {
 		rgbaCursor[i] = rgbaCursorFormat.RGBToColor(paletteEntry[0], paletteEntry[1], paletteEntry[2]);
 	}
 
-	CursorMan.replaceCursor(rgbaCursor.data(), width, height, width >> 1, height >> 1, 0, &rgbaCursorFormat);
+	int hotX = width >> 1;
+	int hotY = height >> 1;
+	if (mode >= 0 && mode < ARRAYSIZE(g_engine->_cursorHotspots)) {
+		const Common::Point &hot = g_engine->_cursorHotspots[mode];
+		if (hot.x != 0 || hot.y != 0) {
+			hotX = hot.x;
+			hotY = hot.y;
+		}
+	}
+	CursorMan.replaceCursor(rgbaCursor.data(), width, height, hotX, hotY, 0, &rgbaCursorFormat);
 	// Enable a cursor palette so the backend won't re-blit the cursor on
 	// every screen palette change. The macs2 engine uses RGBA cursors with
 	// baked-in palette colors, so the cursor palette content is irrelevant -
@@ -516,7 +541,7 @@ void View1::drawDarkRectangle(uint16 x, uint16 y, uint16 width, uint16 height) {
 			const uint16 currentY = y + yOffset;
 			const uint8 currentValue = (uint8)s.getPixel(currentX, currentY);
 			const uint8 newValue = g_engine->_panelRemapTable[currentValue];
-			if (currentX < kScreenWidth && currentY < kGameHeight)
+			if (currentX < (uint16)g_engine->screenWidth() && currentY < (uint16)g_engine->gameHeight())
 				s.setPixel(currentX, currentY, newValue);
 		}
 	}
@@ -526,29 +551,46 @@ void View1::drawBackgroundAnimations(Graphics::ManagedSurface &s) {
 	for (int i = 0; i < (int)g_engine->_backgroundAnimations.size(); i++) {
 		BackgroundAnimation &current = g_engine->_backgroundAnimations[i];
 		BackgroundAnimationBlob &currentBlob = g_engine->_backgroundAnimationsBlobs[i];
+		Common::Array<uint8> &blob = currentBlob.activeBlob();
 		// Binary drawAllCharacters (1008:90a2): null bg-anim blob -> error 0x08;
 		// zero frame count -> error 0x0B; aborts entire draw pass.
-		if (currentBlob._blob.empty()) {
+		if (blob.empty()) {
 			g_engine->_scriptExecutor->setScriptError(8);
 			return;
 		}
-		AnimBlobView view(currentBlob._blob);
+		AnimBlobView view(blob);
 		if (!view.isValid() || view.frameCount() == 0) {
 			g_engine->_scriptExecutor->setScriptError(view.frameCount() == 0 ? 0x0B : 8);
 			return;
 		}
 		// Binary drawAllCharacters (1008:929c): drawAnimFrame(2, y, x+1, blob) - one
 		// advanceAnimFrame(save=1, mode=2) per frame, not a separate tick advance.
-		uint16 frameStart = BackgroundAnimationBlob::advanceAnimFrame(currentBlob._blob, true, 2);
-		int16 frameOffsetX = (int16)READ_LE_UINT16(&currentBlob._blob[frameStart]);
-		int16 frameOffsetY = (int16)READ_LE_UINT16(&currentBlob._blob[frameStart + 2]);
+		const uint32 frameStart = BackgroundAnimationBlob::advanceAnimFrame(blob, true, 2);
+		if (frameStart == 0 || frameStart + 10 > blob.size())
+			continue;
+		const int16 frameOffsetX = (int16)READ_LE_UINT16(&blob[frameStart]);
+		const int16 frameOffsetY = (int16)READ_LE_UINT16(&blob[frameStart + 2]);
 		AnimFrame currentFrame;
-		currentFrame._width = READ_LE_UINT16(&currentBlob._blob[frameStart + 6]);
-		currentFrame._height = READ_LE_UINT16(&currentBlob._blob[frameStart + 8]);
-		currentFrame._data.resize(currentFrame._width * currentFrame._height);
-		memcpy(currentFrame._data.data(), &currentBlob._blob[frameStart + 10],
-			   currentFrame._width * currentFrame._height);
-		drawSprite(current._x + 1 + frameOffsetX, current._y + frameOffsetY, currentFrame, s, false);
+		currentFrame._width = READ_LE_UINT16(&blob[frameStart + 6]);
+		currentFrame._height = READ_LE_UINT16(&blob[frameStart + 8]);
+		const uint32 pix = (uint32)currentFrame._width * (uint32)currentFrame._height;
+		// V2 blobs can be >64KB; reject corrupt/oversized frame headers.
+		if (currentFrame._width == 0 || currentFrame._height == 0 ||
+			currentFrame._width > 640 || currentFrame._height > 400 ||
+			frameStart + 10 + pix > blob.size()) {
+			continue;
+		}
+		currentFrame._data.resize(pix);
+		memcpy(currentFrame._data.data(), &blob[frameStart + 10], pix);
+		if (g_engine->isV2()) {
+			const int16 ox = (int16)(frameOffsetX << 1);
+			const int16 oy = (int16)(frameOffsetY << 1);
+			drawSpriteTransparent(0, 0, 200, current._x + 1 + ox, current._y + oy,
+								  currentFrame._width, currentFrame._height,
+								  currentFrame._data.data(), s);
+		} else {
+			drawSprite(current._x + 1 + frameOffsetX, current._y + frameOffsetY, currentFrame, s, false);
+		}
 	}
 }
 
@@ -765,17 +807,17 @@ void View1::drawPathfindingPoints(Graphics::ManagedSurface &s) {
 		yOffset = xData._height / 2;
 	}
 	for (int i = 0; i < 16; i++) {
-		PathfindingPoint &current = g_engine->pathfindingPoints[i];
+		PathfindingPoint &current = g_engine->_pathfindingPoints[i];
 		renderString(current._position.x - xOffset, current._position.y - yOffset, "x");
 
 		Common::String number = Common::String::format("%u", i);
 		renderString(current._position.x - xOffset + 10, current._position.y - yOffset + 10, number.c_str());
 
 		for (uint8 adjacentIndex : current._adjacentPoints) {
-			if (adjacentIndex >= g_engine->pathfindingPoints.size()) {
+			if (adjacentIndex >= g_engine->_pathfindingPoints.size()) {
 				continue;
 			}
-			PathfindingPoint &other = g_engine->pathfindingPoints[adjacentIndex - 1];
+			PathfindingPoint &other = g_engine->_pathfindingPoints[adjacentIndex - 1];
 			s.drawLine(current._position.x, current._position.y, other._position.x, other._position.y, 0xFFFFFFFF);
 		}
 	}
@@ -787,9 +829,11 @@ void View1::drawPathfindingPoints(Graphics::ManagedSurface &s) {
 		return;
 	}
 	const Common::Array<uint8> &overlay = c->_pathfindingOverlay;
-	for (int y = 0; y < kGameHeight; y++) {
-		for (int x = 0; x < kScreenWidth; x++) {
-			const uint8 currentValue = overlay[y * kScreenWidth + x];
+	const int sw = g_engine->screenWidth();
+	const int gh = g_engine->gameHeight();
+	for (int y = 0; y < gh; y++) {
+		for (int x = 0; x < sw; x++) {
+			const uint8 currentValue = overlay[y * sw + x];
 			if (currentValue != 0) {
 				s.setPixel(x, y, currentValue);
 			}
@@ -817,16 +861,16 @@ void View1::drawPath(Graphics::ManagedSurface &s) {
 }
 
 void View1::layoutActionBarButtons() {
+	_mainMenuButtonLocations.resize(9);
 	uint16 maxW = 0, maxH = 0;
-	for (int i = 0; i < 9 && i < (int)g_engine->_imageResources.size(); i++) {
+	for (int i = 0; i < (int)_mainMenuButtonLocations.size() && i < (int)g_engine->_imageResources.size(); i++) {
 		maxW = MAX(maxW, g_engine->_imageResources[i]._width);
 		maxH = MAX(maxH, g_engine->_imageResources[i]._height);
 	}
 	const uint16 btnW = maxW + 6;
 	const uint16 btnH = maxH + 6;
 
-	_mainMenuButtonLocations.resize(9);
-	for (int i = 0; i < 9; i++) {
+	for (int i = 0; i < (int)_mainMenuButtonLocations.size(); i++) {
 		const int col = i % 3;
 		const int row = i / 3;
 		const uint16 cellX = _mainMenuRect.left + 4 + col * (btnW + 4);
@@ -836,7 +880,7 @@ void View1::layoutActionBarButtons() {
 }
 
 void View1::openMainMenu(Common::Point clickedPosition) {
-	if (hasScummVerbUI())
+	if (hasPersistentActionBar())
 		return;
 
 	// Binary handleInput: save cursor and set to PanelCursor (0x19)
@@ -861,11 +905,13 @@ void View1::openMainMenu(Common::Point clickedPosition) {
 		upperLeft.y = 0;
 	}
 	// Binary openActionBarAtPosition (1008:3fba): clamp to screen bounds.
-	if ((int)(upperLeft.x + panelSize.x) >= kScreenWidth) {
-		upperLeft.x = kScreenWidth - panelSize.x - 1;
+	const int sw = g_engine->screenWidth();
+	const int gh = g_engine->gameHeight();
+	if ((int)(upperLeft.x + panelSize.x) >= sw) {
+		upperLeft.x = sw - panelSize.x - 1;
 	}
-	if ((int)(upperLeft.y + panelSize.y) >= kGameHeight) {
-		upperLeft.y = kGameHeight - panelSize.y - 1;
+	if ((int)(upperLeft.y + panelSize.y) >= gh) {
+		upperLeft.y = gh - panelSize.y - 1;
 	}
 
 	_mainMenuRect = Common::Rect(upperLeft, upperLeft + panelSize);
@@ -874,9 +920,28 @@ void View1::openMainMenu(Common::Point clickedPosition) {
 	redraw();
 }
 
+void View1::openScriptActionBar(const Common::Point &position, Script::MouseMode restoreCursorMode) {
+	if (_uiPanelState != kUiPanelNone || hasPersistentActionBar())
+		return;
+	openMainMenu(position);
+	g_engine->setCursorMode(restoreCursorMode);
+	updateCursor();
+}
+
+void View1::closeScriptActionBar(Script::MouseMode &outSavedCursorMode) {
+	if (_uiPanelState != kUiPanelActionBar)
+		return;
+	outSavedCursorMode = g_engine->_scriptExecutor->_cursorMode;
+	_uiPanelState = kUiPanelNone;
+	_clickedButtonIndex = 0;
+	_uiBackgroundRestorePending = false;
+	redraw();
+}
+
 void View1::enterMapMode() {
 	// Binary handleInput end-block when scene+0x61db != 0 (1008:e8bf): fade, load map
 	// from scene+0x5DDB (_mapSceneOffsets[0]), set cursor 0x18 (PanelUse).
+	// this path is the DOS help-map overlay
 	uint32 helpOffset = g_engine->_mapSceneOffsets[0];
 	if (helpOffset == 0 || helpOffset >= (uint32)g_engine->_fileStream->size()) {
 		return;
@@ -904,7 +969,7 @@ void View1::drawMainMenu(Graphics::ManagedSurface &s) {
 	drawBorderSide(Common::Point(_mainMenuRect.left, _mainMenuRect.top), Common::Point(_mainMenuRect.width(), _mainMenuRect.height()), s);
 	drawNinePatchBorder(Common::Point(_mainMenuRect.left, _mainMenuRect.top), Common::Point(_mainMenuRect.width(), _mainMenuRect.height()), kBorderRaised, false, false, s);
 
-	for (int i = 0; i < 9 && i < (int)g_engine->_imageResources.size(); i++) {
+	for (int i = 0; i < (int)_mainMenuButtonLocations.size() && i < (int)g_engine->_imageResources.size(); i++) {
 		const Common::Rect &cell = _mainMenuButtonLocations[i];
 		const bool pressed = (_clickedButtonIndex == (uint16)(i + 1));
 		const BorderStyle &border = pressed ? kBorderPressed : kBorderRaised;
@@ -923,6 +988,12 @@ void View1::handleTextBoxInput() {
 	// then sets g_wIsShowingTextBox = 0. Nothing else.
 	_isShowingTextBox = false;
 	g_engine->_scriptExecutor->_waitingForUiClick = false;
+	// Stop dialogue speech only - leave environment PCM/SFX on _currentSoundHandle.
+	g_engine->stopSpeech();
+	if (!g_engine->isSamplePlaying() && !g_engine->isSpeechPlaying()) {
+		g_engine->_scriptExecutor->_waitForPcmSound = false;
+		g_engine->getMusic()->setSmfDucked(false);
+	}
 	redraw();
 }
 
@@ -931,6 +1002,11 @@ void View1::dismissDialoguePanel() {
 	// then sets g_wIsShowingDialoguePanel = 0. Does NOT touch scene+0x53B9.
 	_isShowingDialoguePanel = false;
 	g_engine->_scriptExecutor->_waitingForUiClick = false;
+	g_engine->stopSpeech();
+	if (!g_engine->isSamplePlaying() && !g_engine->isSpeechPlaying()) {
+		g_engine->_scriptExecutor->_waitForPcmSound = false;
+		g_engine->getMusic()->setSmfDucked(false);
+	}
 	redraw();
 }
 
@@ -1062,8 +1138,8 @@ void View1::transferPickupTarget(GameObject *targetObject) {
 		}
 	}
 
-	if (hasScummVerbUI() && _scummUI)
-		_scummUI->syncInventory();
+	if (hasPersistentActionBar() && _actionBar)
+		_actionBar->syncInventory();
 
 	// Binary sets g_wNeedsRedraw and restores scene background over the panel area.
 	redraw();
@@ -1268,7 +1344,7 @@ bool View1::handleInventoryClick(const MouseDownMessage &msg) {
 		return true;
 	}
 
-	for (int i = 0; i < 6; i++) {
+	for (int i = 0; i < (int)_inventoryButtonLocations.size(); i++) {
 		const Common::Rect &current = _inventoryButtonLocations[i];
 		if (!current.contains(msg._pos)) {
 			continue;
@@ -1416,7 +1492,7 @@ bool View1::handleContainerInventoryClick(const MouseDownMessage &msg) {
 		return true;
 	}
 
-	for (int i = 0; i < 6; i++) {
+	for (int i = 0; i < (int)_inventoryButtonLocations.size(); i++) {
 		const Common::Rect &current = _inventoryButtonLocations[i];
 		if (!current.contains(msg._pos)) {
 			continue;
@@ -1457,8 +1533,8 @@ bool View1::handleContainerInventoryClick(const MouseDownMessage &msg) {
 				updateCursor();
 				g_engine->_scriptExecutor->_inventoryActionFlag = true;
 				setInventorySource(_inventorySource);
-				if (hasScummVerbUI() && _scummUI)
-					_scummUI->syncInventory();
+				if (hasPersistentActionBar() && _actionBar)
+					_actionBar->syncInventory();
 			}
 			break;
 		}
@@ -1498,8 +1574,8 @@ bool View1::handleContainerInventoryClick(const MouseDownMessage &msg) {
 		}
 		g_engine->setCursorMode(Script::MouseMode::UseInventory);
 		updateCursor();
-		if (hasScummVerbUI() && _scummUI)
-			_scummUI->syncInventory();
+		if (hasPersistentActionBar() && _actionBar)
+			_actionBar->syncInventory();
 		return true;
 	}
 
@@ -1582,7 +1658,7 @@ bool View1::handleActionBarClick(const MouseDownMessage &msg) {
 }
 
 bool View1::handleHelpClick(const MouseDownMessage &msg) {
-	Common::Rect screenRect(kScreenWidth, kGameHeight);
+	Common::Rect screenRect(g_engine->screenWidth(), g_engine->gameHeight());
 	if (screenRect.contains(msg._pos)) {
 		uint8 depth = g_engine->_depthMap.getPixel(msg._pos.x, msg._pos.y);
 		if (depth > 0 && depth < 0xFA) {
@@ -1626,9 +1702,9 @@ bool View1::handleInput(const MouseDownMessage &msg) {
 			return handleHelpClick(msg);
 		}
 
-		if (shouldShowScummVerbUI() && _scummUI && _scummUI->isPointInUI(msg._pos)) {
+		if (shouldShowActionBar() && _actionBar && _actionBar->isPointInUI(msg._pos)) {
 			if (g_engine->_scriptExecutor->_cursorMode != Script::MouseMode::Disabled) {
-				_scummUI->handleClick(msg._pos, g_engine->_scriptExecutor->isExecuting());
+				_actionBar->handleClick(msg._pos, g_engine->_scriptExecutor->isExecuting());
 				presentFrame();
 			}
 			return true;
@@ -1709,7 +1785,7 @@ bool View1::handleInput(const MouseDownMessage &msg) {
 		}
 
 		if (g_engine->_scriptExecutor->_cursorMode == Script::MouseMode::Walk) {
-			if (shouldShowScummVerbUI() && msg._pos.y >= kGameHeight)
+			if (shouldShowActionBar() && msg._pos.y >= actionBarTopY())
 				return true;
 
 			Character *protagonist = getCharacterByIndex(Scenes::instance()._currentActorIndex);
@@ -1752,7 +1828,7 @@ bool View1::handleInput(const MouseDownMessage &msg) {
 		}
 
 		// Check if we hit something
-		if (shouldShowScummVerbUI() && msg._pos.y >= kGameHeight)
+		if (shouldShowActionBar() && msg._pos.y >= actionBarTopY())
 			return true;
 
 		// Original order: getHotspotAtPoint first, then drawCharactersAndHitTest overrides.
@@ -1810,6 +1886,10 @@ bool View1::handleInput(const MouseDownMessage &msg) {
 				!g_engine->_scriptExecutor->_waitForPcmSound &&
 				!g_engine->_scriptExecutor->_waitForMusicControl &&
 				!g_engine->_scriptExecutor->_waitForAdlibReady &&
+				!g_engine->_scriptExecutor->_waitForObjectAnimStep &&
+				!g_engine->_scriptExecutor->_waitForSpecialAnimStep &&
+				!g_engine->_scriptExecutor->_waitForDeltaAnim &&
+				!g_engine->_scriptExecutor->_waitForDeltaSpeed &&
 				g_engine->_scriptExecutor->canOpenSaveMenu()) {
 				if (ConfMan.getBool("original_menus")) {
 					// Binary handleInput (1008:f2af): saves cursor mode before opening panel
@@ -1831,13 +1911,14 @@ bool View1::handleInput(const MouseDownMessage &msg) {
 		if (g_engine->_scriptExecutor->_cursorMode == Script::MouseMode::Disabled) {
 			return true;
 		}
-		if (hasScummVerbUI()) {
-			if (shouldShowScummVerbUI()) {
+		if (hasPersistentActionBar()) {
+			const bool canCycleVerbs = shouldShowActionBar() || g_engine->hasNativeHudAssets();
+			if (canCycleVerbs) {
 				g_engine->nextCursorMode();
 				_activeInventoryItem = nullptr;
 				g_engine->_scriptExecutor->_interactedInventoryItemId = 0;
-				if (_scummUI)
-					_scummUI->syncActiveVerbFromCursorMode();
+				if (_actionBar && shouldShowActionBar())
+					_actionBar->syncActiveVerbFromCursorMode();
 				updateCursor();
 				presentFrame();
 			}
@@ -1978,11 +2059,11 @@ bool View1::msgMouseMove(const MouseMoveMessage &msg) {
 	_hoverAreaId = g_engine->_scriptExecutor->getAreaAtPoint(msg._pos.x, msg._pos.y);
 	_hoverHotspotId = g_engine->getHotspotAtPoint(msg._pos);
 
-	if (shouldShowScummVerbUI() && _scummUI) {
-		if (_scummUI->isPointInUI(msg._pos)) {
-			_scummUI->handleMouseMove(msg._pos);
-		} else if (msg._pos.y < kGameHeight) {
-			_scummUI->clearSentenceObject();
+	if (shouldShowActionBar() && _actionBar) {
+		if (_actionBar->isPointInUI(msg._pos)) {
+			_actionBar->handleMouseMove(msg._pos);
+		} else if (msg._pos.y < actionBarTopY()) {
+			_actionBar->clearSentenceObject();
 			uint16 index = getHitObjectID(msg._pos);
 			if (index == 0)
 				index = g_engine->getHotspotAtPoint(msg._pos);
@@ -1991,7 +2072,7 @@ bool View1::msgMouseMove(const MouseMoveMessage &msg) {
 				if (objIndex < GameObjects::instance()._objectNames.size()) {
 					const Common::String &name = GameObjects::instance()._objectNames[objIndex];
 					if (!name.empty())
-						_scummUI->updateSentenceLine(name);
+						_actionBar->updateSentenceLine(name);
 				}
 			}
 		}
@@ -2069,7 +2150,7 @@ bool View1::msgKeypress(const KeypressMessage &msg) {
 	// Binary (handleInput 1008:edff): UI panels only open when not executing and cursor != Disabled.
 	if (!g_engine->_scriptExecutor->isExecuting() && g_engine->_scriptExecutor->_cursorMode != Script::MouseMode::Disabled) {
 		if (msg.ascii == (uint16)'i') {
-			if (hasScummVerbUI()) {
+			if (hasPersistentActionBar()) {
 				if (_uiPanelState == kUiPanelContainerInventory)
 					closeInventory();
 			} else if (_uiPanelState != kUiPanelInventory) {
@@ -2078,13 +2159,13 @@ bool View1::msgKeypress(const KeypressMessage &msg) {
 				closeInventory();
 			}
 		} else if (msg.ascii == 'n') {
-			if (hasScummVerbUI()) {
-				if (shouldShowScummVerbUI()) {
+			if (hasPersistentActionBar()) {
+				if (shouldShowActionBar()) {
 					g_engine->nextCursorMode();
 					_activeInventoryItem = nullptr;
 					g_engine->_scriptExecutor->_interactedInventoryItemId = 0;
-					if (_scummUI)
-						_scummUI->syncActiveVerbFromCursorMode();
+					if (_actionBar)
+						_actionBar->syncActiveVerbFromCursorMode();
 					updateCursor();
 					presentFrame();
 				}
@@ -2171,7 +2252,7 @@ void View1::draw() {
 
 	// We keep the inventory on but don't draw it in case we display a string
 	// i.e. a description of an item
-	const bool showProtagonistInventory = _uiPanelState == kUiPanelInventory && !hasScummVerbUI();
+	const bool showProtagonistInventory = _uiPanelState == kUiPanelInventory && !hasPersistentActionBar();
 	if ((showProtagonistInventory || _uiPanelState == kUiPanelContainerInventory) && !_isShowingTextBox && !_isShowingDialoguePanel) {
 		drawInventory(s);
 	}
@@ -2199,7 +2280,7 @@ void View1::draw() {
 	}
 
 	if (_uiPanelState == kUiPanelInventory && g_engine->enhancementEnabled(kEnhUIUX)) {
-		for (int i = 0; i < 6; i++) {
+		for (int i = 0; i < (int)_inventoryButtonLocations.size(); i++) {
 			if (_inventoryButtonLocations[i].contains(mousePos)) {
 				static const char *const buttonNames[] = {
 					"Schauen", "Benutzen", "Hoch", "Runter", "Ablegen", "Schliessen"};
@@ -2220,7 +2301,7 @@ void View1::draw() {
 	}
 
 	if (_uiPanelState == kUiPanelSaveLoad && g_engine->enhancementEnabled(kEnhUIUX)) {
-		for (int i = 0; i < 7; i++) {
+		for (int i = 0; i < ARRAYSIZE(_saveLoadButtonRects); i++) {
 			if (_saveLoadButtonRects[i].contains(mousePos)) {
 				static const char *const buttonNames[] = {
 					"Laden", "Speichern", "Musik an/aus",
@@ -2232,14 +2313,21 @@ void View1::draw() {
 		}
 	}
 
-	if (hasScummVerbUI()) {
-		ensureScummVerbUI();
-		if (_scummUI && !_isShowingTextBox && !_isShowingDialoguePanel) {
-			Graphics::ManagedSurface fullScreen(*g_events->getScreen(), Common::Rect(0, 0, kScreenWidth, kScreenHeight));
-			if (shouldShowScummVerbUI()) {
-				_scummUI->draw(fullScreen);
+	if (hasPersistentActionBar()) {
+		ensureActionBar();
+		if (_actionBar && !_isShowingTextBox && !_isShowingDialoguePanel) {
+			const int sw = g_engine->screenWidth();
+			const int sh = g_engine->screenHeight();
+			Graphics::ManagedSurface fullScreen(*g_events->getScreen(), Common::Rect(0, 0, sw, sh));
+			if (shouldShowActionBar()) {
+				_actionBar->draw(fullScreen);
+			} else if (g_engine->hasNativeHudAssets() && g_engine->_menuMode == 0) {
+				// hideActionBar / overview map: leave playfield pixels alone so
+				// scene art (and hotspots) remain visible in the former panel band.
 			} else {
-				fullScreen.fillRect(Common::Rect(0, kGameHeight, kScreenWidth, kScreenHeight), 0);
+				const int top = actionBarTopY();
+				if (top >= 0 && top < sh)
+					fullScreen.fillRect(Common::Rect(0, top, sw, sh), 0);
 			}
 		}
 	}
@@ -2440,10 +2528,11 @@ bool View1::tick() {
 				}
 			} else if (executor->_waitForPcmSound) {
 				drawSceneUpdate();
-				if (!g_engine->isSamplePlaying()) {
+				if (!g_engine->isSamplePlaying() && !g_engine->isSpeechPlaying()) {
 					debugC(kDebugScript, "waitForSound complete");
 					executor->debugLogActorWalkState("waitForSound complete");
 					executor->_waitForPcmSound = false;
+					g_engine->getMusic()->setSmfDucked(false);
 					g_engine->runScriptExecutor();
 				}
 			} else if (executor->_waitForMusicControl) {
@@ -2454,9 +2543,71 @@ bool View1::tick() {
 				}
 			} else if (executor->_waitForAdlibReady) {
 				drawSceneUpdate();
-				if (g_engine->getMusic()->isPlaybackReady()) {
+				Music *music = g_engine->getMusic();
+				const bool ready = music->isMidiFilePlaying() ? false : music->isPlaybackReady();
+				if (ready) {
 					executor->_waitForAdlibReady = false;
 					g_engine->runScriptExecutor();
+				}
+			} else if (executor->_waitForObjectAnimStep) {
+				drawSceneUpdate();
+				bool animStepReached = false;
+				GameObject *waitObject = GameObjects::getObjectByIndex(executor->_waitObjectAnimObjectId);
+				if (waitObject != nullptr && waitObject->_dataOffset != 0) {
+					const Common::Array<uint8> *blob = waitObject->getAnimSlotBlob(executor->_waitObjectAnimSlot);
+					if (blob != nullptr && !blob->empty()) {
+						AnimBlobView view(*blob);
+						if (view.isValid())
+							animStepReached = view.sequencePosition() >= executor->_waitObjectAnimTargetStep;
+					}
+				}
+				if (animStepReached) {
+					debugC(kDebugScript, "waitObjectAnimStep complete obj=%u slot=%u step=%u",
+						   executor->_waitObjectAnimObjectId, executor->_waitObjectAnimSlot,
+						   executor->_waitObjectAnimTargetStep);
+					executor->_waitForObjectAnimStep = false;
+					g_engine->runScriptExecutor();
+				}
+			} else if (executor->_waitForSpecialAnimStep) {
+				drawSceneUpdate();
+				bool animStepReached = false;
+				const uint16 animIndex = executor->_waitSpecialAnimIndex;
+				if (animIndex > 0 && animIndex <= g_engine->_backgroundAnimationsBlobs.size()) {
+					const BackgroundAnimationBlob &blob = g_engine->_backgroundAnimationsBlobs[animIndex - 1];
+					const Common::Array<uint8> &active = blob.activeBlob();
+					if (!active.empty()) {
+						AnimBlobView view(active);
+						if (view.isValid())
+							animStepReached = view.sequencePosition() >= executor->_waitSpecialAnimTargetStep;
+					}
+				}
+				if (animStepReached) {
+					debugC(kDebugScript, "waitSpecialAnimStep complete anim=%u step=%u",
+						   executor->_waitSpecialAnimIndex, executor->_waitSpecialAnimTargetStep);
+					executor->_waitForSpecialAnimStep = false;
+					g_engine->runScriptExecutor();
+				}
+			} else if (executor->_waitForDeltaAnim) {
+				drawSceneUpdate();
+				if (!g_engine->tickDeltaPlayback()) {
+					debugC(kDebugScript, "waitForDeltaAnim complete");
+					executor->_waitForDeltaAnim = false;
+					_backgroundSurface.copyFrom(g_engine->_sceneBackground);
+					g_engine->runScriptExecutor();
+				} else {
+					_backgroundSurface.copyFrom(g_engine->_sceneBackground);
+					redraw();
+				}
+			} else if (executor->_waitForDeltaSpeed) {
+				drawSceneUpdate();
+				if (!g_engine->_deltaAnim.playing || !g_engine->tickDeltaPlayback()) {
+					debugC(kDebugScript, "waitForDeltaSpeed complete");
+					executor->_waitForDeltaSpeed = false;
+					_backgroundSurface.copyFrom(g_engine->_sceneBackground);
+					g_engine->runScriptExecutor();
+				} else {
+					_backgroundSurface.copyFrom(g_engine->_sceneBackground);
+					redraw();
 				}
 			}
 		} else {
@@ -2615,7 +2766,9 @@ void View1::drawAllCharacters(Graphics::ManagedSurface *surface, bool fullUpdate
 			// drawAllCharacters @ 1008:93f8-9440 (inlined; not a separate EXE function)
 			int32 depthOffset = ((int32)charY - (int32)g_engine->_walkDepthThresholdY) *
 								(int32)g_engine->_walkDepthScaleFactor / 100;
-			const uint16 scalingFactor = (uint16)((int32)g_engine->_walkBaseSpeedPct + depthOffset);
+			uint16 scalingFactor = (uint16)((int32)g_engine->_walkBaseSpeedPct + depthOffset);
+			if (obj->_hasDoubleResAnim)
+				scalingFactor = (uint16)(scalingFactor * 2);
 			if (obj->_index == 1) {
 				_scalingValues.characterY = (uint16)charY;
 				_scalingValues.scalingFactor = scalingFactor;
@@ -2627,39 +2780,58 @@ void View1::drawAllCharacters(Graphics::ManagedSurface *surface, bool fullUpdate
 				if (Macs2Engine::isWalkabilityBlocking((uint16)walkabilityOffset))
 					walkabilityOffset = 0;
 			}
+			if (g_engine->isV2())
+				walkabilityOffset = (int16)(walkabilityOffset << 1);
 			if (obj->_verticalOffsetScale != 0)
 				walkabilityOffset = (scalingFactor * obj->_verticalOffsetScale) / 100;
 
 			int shadingTableOffset = 0;
 			if (g_engine->_shadowMap.w > 0) {
-				const int sx = CLIP<int>(charX, 0, kScreenWidthLast);
-				const int sy = CLIP<int>(charY, 0, kGameHeightLast);
-				shadingTableOffset = MIN<int>(g_engine->_shadowMap.getPixel(sx, sy), 0x20);
+				const int sx = CLIP<int>(charX, 0, g_engine->screenWidth() - 1);
+				const int sy = CLIP<int>(charY, 0, g_engine->gameHeight() - 1);
+				shadingTableOffset = MIN<int>(g_engine->_shadowMap.getPixel(sx, sy), 0x1f);
 			}
 
 			uint16 frameWidth;
 			uint16 frameHeight;
+			int16 offsetX = frame._offsetX;
+			int16 offsetY = frame._offsetY;
+			// Frame header offsets are authored in half-res when +0x2e3 is set.
+			if (obj->_hasDoubleResAnim) {
+				offsetX = (int16)(offsetX << 1);
+				offsetY = (int16)(offsetY << 1);
+			}
 			if (obj->_hasScaling) {
 				frameWidth = (frame._width * scalingFactor) / 100;
 				frameHeight = (frame._height * scalingFactor) / 100;
+			} else if (obj->_hasDoubleResAnim) {
+				// exact 2x blit of half-res anim data.
+				frameWidth = (uint16)(frame._width << 1);
+				frameHeight = (uint16)(frame._height << 1);
 			} else {
 				frameWidth = frame._width;
 				frameHeight = frame._height;
 			}
 
-			const int16 drawX = charX - (frameWidth >> 1) + frame._offsetX;
-			const int16 drawY = (charY - frameHeight) - walkabilityOffset + frame._offsetY;
+			const int16 drawX = charX - (frameWidth >> 1) + offsetX + (int16)obj->_objectAdjust1;
+			const int16 drawY = (charY - frameHeight) - walkabilityOffset + offsetY + (int16)obj->_objectAdjust2;
 			const uint8 depthThreshold = g_engine->depthThresholdForY(charY);
 			const byte *pixelData = frame._data.data();
 
 			// drawAllCharacters @ 1008:9573-9754: drawAnimFrame / drawAnimFrameShaded / drawAnimFrameDepth
-			const bool clipGameArea = hasScummVerbUI();
+			const bool clipGameArea = hasPersistentActionBar();
+			const bool useMaskedShading = g_engine->isV2() && (obj->_hasScaling || obj->_hasShading);
 			if (obj->_hasScaling) {
 				drawSpriteTransparent(shadingTableOffset, depthThreshold, scalingFactor,
-									  drawX, drawY, frame._width, frame._height, pixelData, *surface);
+									  drawX, drawY, frame._width, frame._height, pixelData, *surface,
+									  useMaskedShading);
+			} else if (obj->_hasDoubleResAnim) {
+				drawSpriteTransparent(obj->_hasShading ? shadingTableOffset : 0, depthThreshold, 200,
+									  drawX, drawY, frame._width, frame._height, pixelData, *surface,
+									  useMaskedShading);
 			} else if (obj->_hasShading) {
 				drawSpriteScaled(shadingTableOffset, depthThreshold, drawX, drawY,
-								 frame._width, frame._height, pixelData, *surface);
+								 frame._width, frame._height, pixelData, *surface, useMaskedShading);
 			} else {
 				drawSprite(drawX, drawY, frame._width, frame._height,
 						   const_cast<byte *>(pixelData), *surface, false, false, 0, clipGameArea);
@@ -2694,7 +2866,7 @@ void View1::drawAllCharacters(Graphics::ManagedSurface *surface, bool fullUpdate
 			if (current != nullptr && DebugMan.isDebugChannelEnabled(kDebugGraphics)) {
 				Common::String number = Common::String::format("%u", obj->_orientation);
 				renderString(current->getPosition(), number.c_str());
-				Common::Rect screenRect(0, 0, kScreenWidth, kGameHeight);
+				Common::Rect screenRect(0, 0, g_engine->screenWidth(), g_engine->gameHeight());
 				if (screenRect.contains(current->getPosition()))
 					surface->setPixel(current->getPosition().x, current->getPosition().y, 0xFF);
 			}
@@ -2790,7 +2962,7 @@ void View1::drawInventory(Graphics::ManagedSurface &s) {
 
 	// Draw the buttons at the bottom
 	for (int i = 0; i < 6; i++) {
-		if (hasScummVerbUI() && !isInventorySourceProtagonist() && i == (int)InventoryButtonIndex::Drop)
+		if (hasPersistentActionBar() && !isInventorySourceProtagonist() && i == (int)InventoryButtonIndex::Drop)
 			continue;
 
 		uint16 index = iconIndices[i];
@@ -2886,7 +3058,7 @@ void View1::drawSprite(int16 x, int16 y, uint16 width, uint16 height, byte *data
 				int finalX = x + actualX;
 				int finalY = y + currentY;
 				if (finalX >= 0 && finalX < s.w && finalY >= 0 && finalY < s.h) {
-					if (clipToGameArea && finalY >= kGameHeight)
+					if (clipToGameArea && finalY >= actionBarTopY())
 						continue;
 					// Check for depth
 					uint8 bgDepth = g_engine->_depthMap.getPixel(finalX, finalY);
@@ -2970,31 +3142,57 @@ void View1::drawSpriteFitted(const Common::Rect &bounds, const Sprite &sprite, G
 	}
 }
 
-static byte applyShadingTable(byte color, int shadingTableOffset) {
+static byte applyShadingTable(byte color, int shadingTableOffset, byte bgColor, bool useMaskedShading) {
+	if (g_engine->_shadingTable.empty())
+		return color;
+
+	if (useMaskedShading) {
+		const uint intensity = (uint)CLIP(shadingTableOffset, 0, 0x1f);
+		if (color == 1) {
+			const uint idx = (uint)bgColor * 0x20u + intensity;
+			if (idx < g_engine->_shadingTable.size())
+				return g_engine->_shadingTable[idx];
+			return color;
+		}
+		if (intensity == 0)
+			return color;
+		const uint idx = (uint)color * 0x20u + intensity;
+		if (idx >= g_engine->_shadingTable.size())
+			return color;
+		return g_engine->_shadingTable[idx];
+	}
+
 	if (shadingTableOffset == 0)
 		return color;
 	// drawSpriteTransparent @ 1010:0fba: (color - 0xC0) * 0x20 + shadingTableOffset + scene+0x53D3
+	if (color < 0xC0)
+		return color;
 	const uint idx = (uint)(color - 0xC0) * 0x20 + (uint)shadingTableOffset;
+	if (idx >= g_engine->_shadingTable.size())
+		return color;
 	return g_engine->_shadingTable[idx];
 }
 
 // drawSpriteScaled @ 1010:102b
 void View1::drawSpriteScaled(int shadingTableOffset, uint8 depthThreshold, int16 drawX, int16 drawY,
 							 uint16 srcWidth, uint16 srcHeight, const byte *srcPixels,
-							 Graphics::ManagedSurface &s) {
+							 Graphics::ManagedSurface &s, bool useMaskedShading) {
 	int screenY = drawY;
 	int srcRow = 0;
 	int remainingRows = srcHeight;
 	while (remainingRows > 0) {
-		if (screenY >= 0 && screenY < s.h && !(hasScummVerbUI() && screenY >= kGameHeight)) {
+		if (screenY >= 0 && screenY < s.h && !(hasPersistentActionBar() && screenY >= actionBarTopY())) {
 			int screenX = drawX;
 			for (uint16 srcX = 0; srcX < srcWidth; srcX++) {
 				if (screenX >= 0 && screenX < s.w) {
 					const uint8 bgDepth = g_engine->_depthMap.getPixel(screenX, screenY);
 					if (bgDepth < depthThreshold) {
 						const uint8 color = srcPixels[srcRow + srcX];
-						if (color != 0)
-							s.setPixel(screenX, screenY, applyShadingTable(color, shadingTableOffset));
+						if (color != 0) {
+							const byte bg = s.getPixel(screenX, screenY);
+							s.setPixel(screenX, screenY,
+									   applyShadingTable(color, shadingTableOffset, bg, useMaskedShading));
+						}
 					}
 				}
 				screenX++;
@@ -3009,14 +3207,14 @@ void View1::drawSpriteScaled(int shadingTableOffset, uint8 depthThreshold, int16
 // drawSpriteTransparent @ 1010:0ed1
 void View1::drawSpriteTransparent(int shadingTableOffset, uint8 depthThreshold, uint16 scalingFactor,
 								  int16 drawX, int16 drawY, uint16 srcWidth, uint16 srcHeight,
-								  const byte *srcPixels, Graphics::ManagedSurface &s) {
+								  const byte *srcPixels, Graphics::ManagedSurface &s, bool useMaskedShading) {
 	int screenY = drawY;
 	int srcRowOffset = 0;
 	int remainingRows = (int)srcHeight;
 	uint16 yScaleAccum = 0;
 
 	while (remainingRows > 0) {
-		if (screenY >= 0 && screenY < s.h && !(hasScummVerbUI() && screenY >= kGameHeight)) {
+		if (screenY >= 0 && screenY < s.h && !(hasPersistentActionBar() && screenY >= actionBarTopY())) {
 			int screenX = drawX;
 			const byte *srcPtr = srcPixels + srcRowOffset;
 			int remainingSrcPixels = (int)srcWidth;
@@ -3027,7 +3225,9 @@ void View1::drawSpriteTransparent(int shadingTableOffset, uint8 depthThreshold, 
 				const uint8 color = *srcPtr;
 				if (color != 0 && screenX >= 0 && screenX < s.w &&
 					g_engine->_depthMap.getPixel(screenX, screenY) < depthThreshold) {
-					s.setPixel(screenX, screenY, applyShadingTable(color, shadingTableOffset));
+					const byte bg = s.getPixel(screenX, screenY);
+					s.setPixel(screenX, screenY,
+							   applyShadingTable(color, shadingTableOffset, bg, useMaskedShading));
 				}
 
 				screenX++;
@@ -3342,7 +3542,7 @@ uint16 View1::getHitObjectID(const Common::Point &pos) const {
 			continue;
 
 		const uint8 characterDepth = currentCharacter->getPosition().y;
-		if (pos.x >= 0 && pos.x < kScreenWidth && pos.y >= 0 && pos.y < kGameHeight) {
+		if (pos.x >= 0 && pos.x < g_engine->screenWidth() && pos.y >= 0 && pos.y < g_engine->gameHeight()) {
 			const uint8 bgDepth = g_engine->_depthMap.getPixel(pos.x, pos.y);
 			if (bgDepth >= characterDepth)
 				continue;
@@ -3432,7 +3632,7 @@ bool Character::isWalkable(const Common::Point &p) const {
 	return Macs2Engine::isWalkabilityWalkable(lookupWalkability(p));
 }
 
-Character::Character() : _pathfindingOverlay(kScreenWidth * kGameHeight, 0) {
+Character::Character() : _pathfindingOverlay(g_engine->screenWidth() * g_engine->gameHeight(), 0) {
 }
 
 bool Character::calculatePath(Common::Point target) {
@@ -3446,7 +3646,7 @@ bool Character::calculatePath(Common::Point target) {
 	// scene[i + 0x50C2] = isPathWalkable(finalDest, node[i])
 	bool reachable[MAX_NODES + 1] = {};
 	for (int i = 1; i <= nodeCount; i++) {
-		const Common::Point &nodePos = g_engine->pathfindingPoints[i - 1]._position;
+		const Common::Point &nodePos = g_engine->_pathfindingPoints[i - 1]._position;
 		reachable[i] = g_engine->isPathWalkable(target.y, target.x, nodePos.y, nodePos.x);
 	}
 
@@ -3454,7 +3654,7 @@ bool Character::calculatePath(Common::Point target) {
 	int bestCost = 0x7777;
 	int bestNode = 0;
 	for (int i = 1; i <= nodeCount; i++) {
-		const Common::Point &nodePos = g_engine->pathfindingPoints[i - 1]._position;
+		const Common::Point &nodePos = g_engine->_pathfindingPoints[i - 1]._position;
 		int costToDest = g_engine->euclideanDistance(nodePos, target);
 		int costToChar = g_engine->euclideanDistance(nodePos, charPos);
 		if (costToDest + costToChar < bestCost) {
@@ -3491,7 +3691,7 @@ bool Character::calculatePath(Common::Point target) {
 	_path.push_back(bestNode);
 	int currentNode = bestNode;
 	while (!reachable[currentNode]) {
-		const PathfindingPoint &curPt = g_engine->pathfindingPoints[currentNode - 1];
+		const PathfindingPoint &curPt = g_engine->_pathfindingPoints[currentNode - 1];
 		int localBestCost = 0x7777;
 		int nextNode = currentNode;
 		for (uint a = 0; a < curPt._adjacentPoints.size(); a++) {
@@ -3511,8 +3711,8 @@ bool Character::calculatePath(Common::Point target) {
 
 	// Step 4: Validate path - consecutive nodes must be walkable to each other
 	for (uint i = 0; i + 1 < _path.size(); i++) {
-		const Common::Point &p1 = g_engine->pathfindingPoints[_path[i + 1] - 1]._position;
-		const Common::Point &p2 = g_engine->pathfindingPoints[_path[i] - 1]._position;
+		const Common::Point &p1 = g_engine->_pathfindingPoints[_path[i + 1] - 1]._position;
+		const Common::Point &p2 = g_engine->_pathfindingPoints[_path[i] - 1]._position;
 		if (!g_engine->isPathWalkable(p1.y, p1.x, p2.y, p2.x)) {
 			// Path invalid - abort, go directly to target
 			_path.clear();
@@ -3527,14 +3727,14 @@ bool Character::calculatePath(Common::Point target) {
 	// is actually the character position.
 	_currentPathIndex = 0;
 	while (_currentPathIndex + 1 < (int16)_path.size()) {
-		const Common::Point &nextNodePos = g_engine->pathfindingPoints[_path[_currentPathIndex + 1] - 1]._position;
+		const Common::Point &nextNodePos = g_engine->_pathfindingPoints[_path[_currentPathIndex + 1] - 1]._position;
 		if (!g_engine->isPathWalkable(nextNodePos.y, nextNodePos.x, charPos.y, charPos.x))
 			break;
 		_currentPathIndex++;
 	}
 
 	// Set immediate target to the current path node
-	const Common::Point &firstTarget = g_engine->pathfindingPoints[_path[_currentPathIndex] - 1]._position;
+	const Common::Point &firstTarget = g_engine->_pathfindingPoints[_path[_currentPathIndex] - 1]._position;
 	_targetPosition = firstTarget;
 	return true;
 }
@@ -3545,7 +3745,7 @@ bool Character::canNodeConnectSourceToTarget(uint16 nodeIndex, const Common::Poi
 	// 1. Node must be able to see the target
 	// 2. Flood-fill connected component from node
 	// 3. Some node in component must see target AND some node must be seen from source
-	const Common::Point &nodePos = g_engine->pathfindingPoints[nodeIndex - 1]._position;
+	const Common::Point &nodePos = g_engine->_pathfindingPoints[nodeIndex - 1]._position;
 	if (!g_engine->isPathWalkable(nodePos.y, nodePos.x, target.y, target.x))
 		return false;
 
@@ -3559,7 +3759,7 @@ bool Character::canNodeConnectSourceToTarget(uint16 nodeIndex, const Common::Poi
 	for (int i = 1; i <= nodeCount; i++) {
 		if (!visited[i])
 			continue;
-		const Common::Point &p = g_engine->pathfindingPoints[i - 1]._position;
+		const Common::Point &p = g_engine->_pathfindingPoints[i - 1]._position;
 		if (g_engine->isPathWalkable(p.y, p.x, target.y, target.x))
 			anySeesTarget = true;
 		if (g_engine->isPathWalkable(charPos.y, charPos.x, p.y, p.x))
@@ -3574,7 +3774,7 @@ void Character::floodFillConnectedNodes(int nodeIndex, bool *visited, int nodeCo
 	if (visited[nodeIndex])
 		return;
 	visited[nodeIndex] = true;
-	const PathfindingPoint &pt = g_engine->pathfindingPoints[nodeIndex - 1];
+	const PathfindingPoint &pt = g_engine->_pathfindingPoints[nodeIndex - 1];
 	for (uint i = 0; i < pt._adjacentPoints.size(); i++) {
 		floodFillConnectedNodes(pt._adjacentPoints[i], visited, nodeCount);
 	}
@@ -3612,7 +3812,7 @@ bool Character::walkAlongPath() {
 	// Binary: if (pathNodeIndex != 0) posX/Y = nodeCoords[pathNodes[pathNodeIndex]]
 	if (_currentPathIndex >= 0 && _currentPathIndex < (int16)_path.size()) {
 		const uint16 snapIdx = _path[_currentPathIndex];
-		const Common::Point &snapPos = g_engine->pathfindingPoints[snapIdx - 1]._position;
+		const Common::Point &snapPos = g_engine->_pathfindingPoints[snapIdx - 1]._position;
 		_gameObject->_position = snapPos;
 	}
 	_currentPathIndex++;
@@ -3626,7 +3826,7 @@ bool Character::walkAlongPath() {
 		return false; // No more path segments after this
 	}
 	const uint16 nodeIdx = _path[_currentPathIndex];
-	const Common::Point &nodePos = g_engine->pathfindingPoints[nodeIdx - 1]._position;
+	const Common::Point &nodePos = g_engine->_pathfindingPoints[nodeIdx - 1]._position;
 	_targetPosition = nodePos;
 	_stepDeltaX = abs(_targetPosition.x - _gameObject->_position.x);
 	_stepDeltaY = abs(_targetPosition.y - _gameObject->_position.y);

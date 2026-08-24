@@ -109,7 +109,7 @@ struct GlyphData : public Sprite {
 	char _ascii = 0;
 
 	void readFromeFile(Common::File &file);
-	void readFromMemory(Common::MemoryReadStream *stream);
+	void readFromMemory(Common::SeekableReadStream *stream);
 };
 
 struct AnimFrame : public Sprite {
@@ -117,9 +117,24 @@ struct AnimFrame : public Sprite {
 	int16 _offsetY = 0;
 
 	void readFromeFile(Common::File &file);
-	void readFromStream(Common::MemoryReadStream *stream);
+	void readFromStream(Common::SeekableReadStream *stream);
 	bool pixelHit(const Common::Point &point) const;
 	Common::Point getBottomMiddleOffset(uint16 scale = 100) const;
+};
+
+/** Persistent native HUD button (megapic panel skin). */
+struct HudButton {
+	int16 x = 0;
+	int16 y = 0;
+	uint16 inactiveStep = 0;
+	uint16 activeStep = 0;
+	uint16 hoverStep = 0;
+	uint16 buttonId = 0; // 1=Walk, 2=Look, 3=Talk, 4=Use, 0x33=Options, ...
+	uint16 menuId = 0;   // 1=main bar, 2=options, ...
+	AnimFrame frame;
+	AnimFrame activeFrame;
+	AnimFrame hoverFrame;
+	Common::Array<uint8> animBlob;
 };
 
 struct BackgroundAnimation {
@@ -133,9 +148,22 @@ struct BackgroundAnimationBlob {
 	uint16 _x = 0;
 	uint16 _y = 0;
 	Common::Array<uint8> _blob;
+	/** Dialect-v2 special-anim extra slots (1..8); primary remains _blob. */
+	Common::Array<uint8> _extraBlobs[8];
+	uint16 _activeExtraSlot = 0; // 0 = primary _blob; 1..8 = _extraBlobs[slot-1]
 	uint16 _unknown0C = 0; // +0x50F3: purpose unknown (word, read from file, not used at runtime)
 	uint8 _unknown0E = 0;  // +0x50F5: purpose unknown (byte, read from file, not used at runtime)
 	uint8 _unknown0F = 0;  // +0x50F6: purpose unknown (byte, read from file, not used at runtime)
+	Common::Array<uint8> &activeBlob() {
+		if (_activeExtraSlot >= 1 && _activeExtraSlot <= 8)
+			return _extraBlobs[_activeExtraSlot - 1];
+		return _blob;
+	}
+	const Common::Array<uint8> &activeBlob() const {
+		if (_activeExtraSlot >= 1 && _activeExtraSlot <= 8)
+			return _extraBlobs[_activeExtraSlot - 1];
+		return _blob;
+	}
 	AnimFrame getCurrentFrame();
 	static uint16 advanceAnimFrame(Common::Array<uint8> &blob, bool bpp6, uint16 bpp8);
 	static uint16 getAnimFrameCount(Common::Array<uint8> &blob);
@@ -253,18 +281,26 @@ protected:
 	}
 
 public:
-	Graphics::ManagedSurface readRLEImage(int64 offs, Common::MemoryReadStream *stream);
+	Graphics::ManagedSurface readRLEImage(int64 offs, Common::SeekableReadStream *stream);
 
-	/** Open RESOURCE.MCS, check magic, dispatch to loadResourceFileV1. */
+	/** Open primary MCS archive, check magic, load v1 or v2 layout. */
 	void readResourceFile();
 	/** MCS dialect from the 12-byte file magic. */
 	enum class McsFileVersion {
 		Unknown = 0,
-		V1 // AHFFMACS0100
+		V1, // AHFFMACS0100
+		V2  // AHFFMACS0200
 	};
 	McsFileVersion detectMcsFileVersion(Common::SeekableReadStream &stream) const;
 	/** Load AHFFMACS0100 layout (loadResourceFile @ 1008:2e8d). */
 	void loadResourceFileV1();
+	/** Load AHFFMACS0200 layout */
+	void loadResourceFileV2();
+	/** Shared actor/scene/object directory load after dialect-specific globals */
+	void bootstrapMcsActorsObjectsAndScene();
+	/** Soft restart (options button 0x20 / Macs2PretReInit). */
+	void softRestart();
+	const char *getResourceMcsFilename() const;
 	/** Amiga: open DataA/Mdir, load OO objects as GameObjects, cursors, and scene stubs. */
 	void readAmigaResources();
 	void applyAmigaUiPalette();
@@ -300,10 +336,10 @@ public:
 	void readExecutable();
 
 	// Assumes that the stream is at the location of the number of background animations
-	void readBackgroundAnimations(Common::MemoryReadStream *stream);
+	void readBackgroundAnimations(Common::SeekableReadStream *stream);
 
 	// Assumes that the stream is at the start of the right section
-	void readImageResources(Common::MemoryReadStream *stream);
+	void readImageResources(Common::SeekableReadStream *stream);
 
 public:
 	Macs2Engine(OSystem *osystem, const ADGameDescription *gameDesc);
@@ -344,8 +380,7 @@ public:
 	Common::Array<PathfindingAreaOverride> _pathfindingOverrides;
 	// Area override table at scene+value*5+0x4EA8 (for getAreaAtPoint)
 	uint16 _areaOverrides[AREA_OVERRIDE_COUNT] = {0};
-	uint16 _pathfindingPoints[32];
-	Common::Array<PathfindingPoint> pathfindingPoints;
+	Common::Array<PathfindingPoint> _pathfindingPoints;
 	Common::Array<Common::Point> _path;
 
 	bool getPathfindingOverride(uint16 index, uint16 &result);
@@ -378,6 +413,8 @@ public:
 	Common::Array<uint16> _hotspotOverrides;
 
 	Common::Array<Macs2::AnimFrame> _imageResources;
+	/** Per-cursor hotspot from native HUD button metadata (v2); (0,0) = use center. */
+	Common::Point _cursorHotspots[33];
 
 	GlyphData _glyphs[256];
 	GlyphData _panelGlyphs[256]; // Font 2: clean sans-serif font used by save/load panel
@@ -387,6 +424,78 @@ public:
 	uint16 numPanelGlyphs = 0;
 	uint16 maxPanelGlyphHeight = 0;
 	bool loadOverlayFont(uint8 resourceIndex, uint16 executingObjectID);
+	/**
+	 * Resolve scene/object resource table entry to an absolute MCS file offset.
+	 * Shared by sized-resource loads, AHFFANIM, AHFFDLTA, and MegaPic masks.
+	 */
+	bool resolveResourceFileOffset(uint8 resourceIndex, uint16 executingObjectId, uint32 &outOffset) const;
+	/** Read size-prefixed resource payload (size dword excluded from outPayload). */
+	bool loadSizedResourcePayload(uint8 resourceIndex, uint16 executingObjectId, Common::Array<uint8> &outPayload);
+	/** Decode AHFFANIM0100 body into a runtime anim blob. */
+	bool loadAhffAnimResource(uint8 resourceIndex, uint16 executingObjectId, Common::Array<uint8> &outBlob);
+	/** Decode MegaPic row-RLE into dest (width x height). */
+	bool readMegaPicImage(Common::SeekableReadStream *stream, int width, int height, Graphics::ManagedSurface &out);
+	/**
+	 * Load a MegaPic mask resource into dest.
+	 * If upscaleHalfRes, decode at (width x height) then nearest-neighbor 2x into dest
+	 * sized (width*2 x height*2). Otherwise dest is created at width x height.
+	 */
+	bool loadMaskFromResource(uint8 resourceIndex, uint16 executingObjectId, Graphics::ManagedSurface &dest,
+							  int megapicW, int megapicH, bool upscaleHalfRes = false);
+
+	/** Dialect-v2 AHFFDLTA cutscene state (load/play delta opcodes). */
+	struct DeltaStrip {
+		uint16 y = 0;
+		Common::Array<uint8> rle;
+	};
+	struct DeltaFrame {
+		Common::Array<DeltaStrip> strips;
+	};
+	struct DeltaSfxEvent {
+		uint16 frameIndex = 0;
+		Common::String fileName;
+		bool duckMusic = false;
+	};
+	struct DeltaAnimState {
+		bool loaded = false;
+		bool playing = false;
+		uint16 frameCount = 0;
+		uint16 startFrame = 0;
+		uint16 endFrame = 0;
+		uint16 speedTicks = 1;
+		uint16 tickCounter = 0;
+		uint16 currentFrame = 0;
+		uint16 clipMiX = 0;
+		uint16 clipMiY = 0;
+		uint16 clipMaX = 0;
+		uint16 clipMaY = 0;
+		byte palette[0x300] = {};
+		bool applyPaletteOnStart = false;
+		Common::Array<DeltaFrame> frames;
+		Common::Array<DeltaSfxEvent> sfxEvents;
+		void clear(int screenW, int screenH) {
+			loaded = false;
+			playing = false;
+			frameCount = 0;
+			startFrame = endFrame = currentFrame = 0;
+			speedTicks = 1;
+			tickCounter = 0;
+			applyPaletteOnStart = false;
+			frames.clear();
+			sfxEvents.clear();
+			clipMiX = clipMiY = 0;
+			clipMaX = (uint16)MAX(0, screenW - 1);
+			clipMaY = (uint16)MAX(0, screenH - 1);
+			memset(palette, 0, sizeof(palette));
+		}
+	};
+	DeltaAnimState _deltaAnim;
+	bool loadDeltaAnimResource(uint8 resourceIndex, uint16 executingObjectId, bool forceSkipSpeed1 = false);
+	void clearDeltaAnim();
+	bool startDeltaPlayback(uint16 startFrame, uint16 endFrame, uint16 speedTicks, bool applyPalette);
+	bool tickDeltaPlayback();
+	void applyDeltaFrameToBackground(const DeltaFrame &frame);
+	void playDeltaFrameSfx(uint16 displayFrame);
 	// Font glyph count (79 glyphs in the resource file's font data)
 	uint16 numGlyphs = 79;
 	uint16 maxGlyphHeight;
@@ -409,8 +518,10 @@ public:
 	Common::Array<BackgroundAnimation> _backgroundAnimations;
 	Common::Array<BackgroundAnimationBlob> _backgroundAnimationsBlobs;
 
-	Common::MemoryReadStream *_fileStream = nullptr;
+	Common::SeekableReadStream *_fileStream = nullptr;
 	McsFileVersion _mcsFileVersion = McsFileVersion::Unknown;
+	/** Absolute file offset of the 0x3000-byte scene/object directory. */
+	uint32 _mcsDirectoryOffset = kMcsV1DirectoryOffset;
 
 	/** Amiga MXFF line pitch: measureTextWidth @ 00224420 uses (font[+8] - 1). */
 	uint16 amigaTextLinePitch = 0;
@@ -421,6 +532,44 @@ public:
 	/** Filled by loadAmigaSceneBackground; consumed by Amiga changeScene. */
 	Common::Array<byte> _amigaPendingSceneScript;
 	Common::Array<byte> _amigaPendingSceneStrings;
+
+	/** Bottom HUD visible (showActionBar/hideActionBar); default shown. */
+	bool _bottomHudVisible = true;
+
+	/**
+	 * Native persistent HUD button table and megapic panels.
+	 * Populated when dialect-v2 panel assets are loaded.
+	 */
+	Graphics::ManagedSurface _hudMegapics[6];
+	bool _hudMegapicLoaded[6] = {};
+	Common::Array<HudButton> _hudButtons;
+	/** Y where the bottom HUD starts; scene above this is interactive. */
+	uint16 _panelTopY = 0;
+	uint16 _panelHeight = 0;
+	/** 0=hidden, 1=main verbs/invent, 2=options, 4=dialogue list. */
+	uint16 _menuMode = 1;
+	/** 0=none, 1=save, 2=load (options submenu). */
+	uint16 _optionsSubMode = 0;
+	Script::MouseMode _savedMenuCursorMode = Script::MouseMode::Walk;
+	uint16 _inventScroll = 1;
+	uint16 _inventOriginX = 0;
+	uint16 _inventOriginY = 0;
+	uint16 _inventCols = 4;
+	uint16 _inventRows = 2;
+	uint16 _inventSlotW = 64;
+	uint16 _inventSlotH = 52;
+	uint16 _inventLayoutMode = 0;
+	/**
+	 * Text layout after invent grid:
+	 * [0..4] = options list X/Y/maxW/rows/pitch
+	 * [5..6] = dialogue list X/Y
+	 */
+	uint16 _hudTextLayout[7] = {};
+	uint16 _hudTextRecolor[4] = {};
+	uint16 _saveListScroll = 1;
+	Common::Array<Common::String> _saveSlotNames;
+	/** Cutscene skip-speed preference (1..4) from options HUD. */
+	uint16 _skipSpeed = 1;
 
 	void setCursorMode(Script::MouseMode newMode);
 	void nextCursorMode();
@@ -470,6 +619,11 @@ public:
 	// Returns the Music volume (0-63) scaled by the user's music_volume setting
 	uint16 scaledMusicVolume(uint16 gameAttenuation) const;
 	/**
+	 * TalkVol / setWaveVolume percent (0..100). Used to duck SMF while speech plays.
+	 * 0 means unset (duck uses a 50% default).
+	 */
+	uint16 _talkVol = 0;
+	/**
 	 * Install PCM for opcode 0x3E / playSample.
 	 * @param rateHz sample rate (DOS Sound Blaster path uses 8000)
 	 * @param headerSkip bytes to skip at start of buffer (DOS resources have a 2-byte size header;
@@ -481,6 +635,14 @@ public:
 	void playSample();
 	void stopSample();
 	bool isSamplePlaying() const;
+	/**
+	 * Play digital audio by basename (no extension). Tries flac/ogg/mp3/m4a/wav
+	 * via SeekableAudioStream::openStreamFile (codec #ifdefs live in audio/).
+	 * SPEECH paths use the speech mixer handle; others use the SFX handle.
+	 */
+	void playDigitalAudioFile(const Common::Path &basename, bool speechBus);
+	void stopSpeech();
+	bool isSpeechPlaying() const;
 
 	// Offset 50D3h - This is used in 0037:10C4 to terminate the loop
 	uint16 _numHotspots;
@@ -537,7 +699,10 @@ public:
 	Common::Array<uint8> _currentSoundData;
 	int _currentSoundRate = 0x1F40;
 	int _currentSoundHeaderSkip = 2;
+	/** One-shot PCM / SOUNDFX WAV (script SFX). */
 	Audio::SoundHandle _currentSoundHandle;
+	/** Optional SPEECH WAV dialogue (independent of environment SFX). */
+	Audio::SoundHandle _speechSoundHandle;
 
 	// Schedules a run of the script the next time the executor is ticked
 	void scheduleRun(bool initScene = false);
@@ -570,40 +735,73 @@ public:
 
 	bool isDemo() const { return getFeatures() & ADGF_DEMO; }
 
-	/** MCS directory base (v1: file+0x10 after magic + actor/scene words). */
-	uint32 getMcsDirectoryOffset() const { return kMcsV1DirectoryOffset; }
-	McsFileVersion getMcsFileVersion() const { return _mcsFileVersion; }
-	int screenWidth() const { return kScreenWidth; }
-	int screenWidthLast() const { return screenWidth() - 1; }
-	int gameHeight() const { return kGameHeight; }
-	int gameHeightLast() const { return gameHeight() - 1; }
+	/** AHFFMACS0200 dialect (directory at 0x212) vs AHFFMACS0100 (0x10). */
+	bool isV2() const { return _mcsFileVersion == McsFileVersion::V2; }
 
-	// --- Layout / dialect facades (DOS defaults; other platforms override later) ---
+	/** MCS directory base. */
+	uint32 getMcsDirectoryOffset() const { return _mcsDirectoryOffset; }
+	McsFileVersion getMcsFileVersion() const { return _mcsFileVersion; }
+	int screenWidth() const { return isV2() ? kWinScreenWidth : kScreenWidth; }
+	int screenWidthLast() const { return screenWidth() - 1; }
+	int gameHeight() const { return isV2() ? kWinGameHeight : kGameHeight; }
+	int gameHeightLast() const { return gameHeight() - 1; }
+	/**
+	 * Full framebuffer height (playfield + bottom HUD / Scumm strip).
+	 * Matches initGraphics height used at startup.
+	 */
+	int screenHeight() {
+		if (isV2()) {
+			if (_panelTopY == 0 || _panelHeight == 0)
+				return kWinGameHeight;
+			return (int)_panelTopY + (int)_panelHeight;
+		}
+		if (enhancementEnabled(kEnhUIUX))
+			return gameHeight() + kUIHeight;
+		return gameHeight();
+	}
+	int screenHeightLast() { return screenHeight() - 1; }
+
+	/**
+	 * Bottom HUD / action-bar visibility (dialect-neutral).
+	 * Driven by showActionBar / hideActionBar; Scumm verb strip and native
+	 * HUDs both respect this flag. Native skin also maps visible <-> menuMode.
+	 */
+	bool isBottomHudVisible() const { return _bottomHudVisible; }
+	void setBottomHudVisible(bool visible);
+
+	/** True when dialect-v2 panel geometry/assets are available for native HUD. */
+	bool hasNativeHudAssets() const {
+		return _panelTopY != 0 && _panelHeight != 0;
+	}
+
+	// --- Layout / dialect facades ---
 
 	/** Game-loop timer quantum in milliseconds. */
-	uint32 timerTickMs() const { return 46; }
+	uint32 timerTickMs() const { return isV2() ? 55 : 46; }
 	/** Normal-speed: game frames per that many timer ticks. */
-	uint16 ticksPerGameFrame() const { return 2; }
+	uint16 ticksPerGameFrame() const { return isV2() ? 1 : 2; }
 
 	/** ReadyObject anim slots (1-based inclusive max). */
-	uint16 maxAnimSlots() const { return 0x15; }
+	uint16 maxAnimSlots() const { return isV2() ? 0x26 : 0x15; }
 	/** Orientations that map to anim slots 1..N (inclusive). */
-	uint16 maxOrientations() const { return 0x14; }
-	/** Overload / special-anim slot index (DOS ReadyObject slot 0x15). */
-	uint16 overloadAnimSlot() const { return 0x15; }
+	uint16 maxOrientations() const { return isV2() ? 0x25 : 0x14; }
+	/** Overload / special-anim slot index. */
+	uint16 overloadAnimSlot() const { return maxAnimSlots(); }
+	static uint16 specialAnimSlotToAnimSlot(uint16 specialSlot);
 	/** Scene hotspot override table entries (1-based inclusive max). */
-	uint16 maxHotspots() const { return 0x10; }
+	/** Hotspot remap table indices (1-based). DOS scene+0x5BD1: 16; V2 ActModule+0x6161: 32. */
+	uint16 maxHotspots() const { return isV2() ? 0x20 : 0x10; }
 	/** Per-object resource offset table entries. */
 	uint maxObjectResources() const { return 32; }
-	/** Anim slot used for the current orientation (DOS overload-direction rule). */
+	/** Anim slot used for the current orientation (overload-direction rule). */
 	uint16 resolveAnimSlotIndex(const GameObject *obj) const;
 
 	/** Script stream: literals carry an extra high word after the value word. */
-	bool scriptValuesHaveHighWord() const { return false; }
+	bool scriptValuesHaveHighWord() const { return isV2(); }
 	/** Script stream: variable index is followed by a padding word. */
-	bool scriptVarIndexHasPaddingWord() const { return false; }
-	/** Script coordinates -> screen/runtime coordinates (identity on DOS). */
-	int16 scaleScriptCoord(int16 coord) const { return coord; }
+	bool scriptVarIndexHasPaddingWord() const { return isV2(); }
+	/** Script coordinates -> screen/runtime coordinates (x2 on v2). */
+	int16 scaleScriptCoord(int16 coord) const { return isV2() ? (int16)(coord * 2) : coord; }
 
 	/** Dialogue / text-box chrome (DOS l0037_B368 / B462). */
 	int dialogPadW() const { return isAmiga() ? 0x08 : 0x12; }
@@ -624,16 +822,22 @@ public:
 		return (int)maxGlyphHeight + dialogLineGap();
 	}
 
-	/** Depth-map compare Y for sprite occlusion (full Y on DOS). */
-	uint8 depthThresholdForY(int16 charY) const { return (uint8)charY; }
+	/** Depth-map compare Y for sprite occlusion (halved on v2 full-res depth). */
+	uint8 depthThresholdForY(int16 charY) const {
+		return isV2() ? (uint8)((uint16)charY >> 1) : (uint8)charY;
+	}
 
-	/** Resource bootstrap (DOS MCS or Amiga DataA/Mdir). */
+	/** Resource bootstrap (MCS or Amiga DataA/Mdir). */
 	void loadBootstrapResources();
 	/**
 	 * Load scene background, maps, pathfinding, and related scene tables.
 	 * Called from changeScene; Amiga uses native MXMM from DataA.
 	 */
 	bool loadSceneGraphics(uint32 sceneIndex);
+	/** AHFFMACS0100 scene package (RLE maps). */
+	bool loadSceneGraphicsV1(uint32 sceneIndex);
+	/** AHFFMACS0200 ReadyModule scene package (MegaPic + half-res masks). */
+	bool loadSceneGraphicsV2(uint32 sceneIndex);
 
 	/**
 	 * Returns the game Id
