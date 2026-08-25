@@ -759,8 +759,9 @@ void Macs2Engine::readBackgroundAnimations(Common::SeekableReadStream *stream) {
 				break;
 			current._frames[j]._width = fi.width;
 			current._frames[j]._height = fi.height;
-			current._frames[j]._data.resize(fi.width * fi.height);
-			memcpy(current._frames[j]._data.data(), fi.pixels, fi.width * fi.height);
+			const uint32 pix = (uint32)fi.width * (uint32)fi.height;
+			current._frames[j]._data.resize(pix);
+			memcpy(current._frames[j]._data.data(), fi.pixels, pix);
 		}
 
 		// The blob's internal frame pointer is stored in the resource file data.
@@ -1671,18 +1672,19 @@ bool Macs2Engine::loadDeltaAnimResource(uint8 resourceIndex, uint16 executingObj
 		_fileStream->seek(oldPos, SEEK_SET);
 		return false;
 	}
+	const uint16 numFrames = frameCount;
 
 	// Scripts call addDeltaSfx before playDiskDelta; keep the pending SFX list.
 	Common::Array<DeltaSfxEvent> savedSfx = Common::move(_deltaAnim.sfxEvents);
 	clearDeltaAnim();
 	_deltaAnim.sfxEvents = Common::move(savedSfx);
 	_fileStream->read(_deltaAnim.palette, 0x300);
-	_deltaAnim.frames.resize(frameCount);
-	_deltaAnim.frameCount = frameCount;
+	_deltaAnim.frames.resize(numFrames);
+	_deltaAnim.frameCount = numFrames;
 	_deltaAnim.loaded = true;
 
 	const uint32 base = address + 4;
-	for (uint16 fi = 0; fi < frameCount; fi++) {
+	for (uint16 fi = 0; fi < numFrames; fi++) {
 		const uint32 absOff = relOffsets[fi] + base;
 		if (absOff >= (uint32)_fileStream->size())
 			continue;

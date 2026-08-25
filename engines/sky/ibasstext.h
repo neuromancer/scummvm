@@ -19,38 +19,16 @@
  *
  */
 
-#ifndef AVALANCHE_SOUND_H
-#define AVALANCHE_SOUND_H
+#ifndef SKY_IBASSTEXT_H
+#define SKY_IBASSTEXT_H
 
-#include "audio/mixer.h"
+#include "common/scummsys.h"
 
-namespace Audio {
-class PCSpeaker;
+namespace Sky {
+
+extern const char *const ukAscii[];
+extern const uint kUkAsciiCount;
+
 }
 
-namespace Avalanche {
-
-class SoundHandler {
-public:
-	bool _soundFl;
-
-	SoundHandler(AvalancheEngine *vm);
-	~SoundHandler();
-
-	void toggleSound();
-	void playNote(int freq, int length);
-	void click();
-	void blip();
-	void syncVolume();
-	void stopSound();
-	void playMod(const Common::Path &filename);
-	void stopMod();
-
-private:
-	AvalancheEngine *_vm;
-	Audio::PCSpeaker *_speaker;
-};
-
-} // End of namespace Avalanche
-
-#endif // AVALANCHE_SOUND_H
+#endif

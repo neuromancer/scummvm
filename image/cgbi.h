@@ -19,38 +19,38 @@
  *
  */
 
-#ifndef AVALANCHE_SOUND_H
-#define AVALANCHE_SOUND_H
+#ifndef IMAGE_CGBI_H
+#define IMAGE_CGBI_H
 
-#include "audio/mixer.h"
+#include "common/scummsys.h"
+#include "image/image_decoder.h"
+#include "image/png.h"
+#include "graphics/surface.h"
 
-namespace Audio {
-class PCSpeaker;
-}
+namespace Image {
 
-namespace Avalanche {
-
-class SoundHandler {
+class CgBIDecoder : public ImageDecoder {
 public:
-	bool _soundFl;
+	CgBIDecoder();
+	~CgBIDecoder();
 
-	SoundHandler(AvalancheEngine *vm);
-	~SoundHandler();
-
-	void toggleSound();
-	void playNote(int freq, int length);
-	void click();
-	void blip();
-	void syncVolume();
-	void stopSound();
-	void playMod(const Common::Path &filename);
-	void stopMod();
+	bool loadStream(Common::SeekableReadStream &stream) override;
+	void destroy() override;
+	Graphics::Surface *getSurface() const override {
+		return _surface;
+	}
+	const Graphics::Palette &getPalette() const override {
+		return _palette;
+	}
+	void unfilterScanline(uint8 *scanline, uint8 *prev, int scanlineLen, int bpp);
+	void unfilterScanlines(uint8 *filtered, uint32 width, uint32 height, uint32 bpp);
+	void convertBGRAtoRGBA(const byte *filtered, byte *out, uint32 width, uint32 height, uint32 bpp, bool hasAlpha);
 
 private:
-	AvalancheEngine *_vm;
-	Audio::PCSpeaker *_speaker;
+	Graphics::Surface *_surface;
+	Graphics::Palette _palette;
 };
 
-} // End of namespace Avalanche
+} // End of namespace Image
 
-#endif // AVALANCHE_SOUND_H
+#endif
