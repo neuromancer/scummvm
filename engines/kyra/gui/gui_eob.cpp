@@ -564,7 +564,7 @@ void EoBCoreEngine::gui_drawInventoryItem(int slot, int redraw, int pageNum) {
 			gui_drawBox(x - 1, y - 1, wh, wh, col1, col2, slot == 16 ? -1 : guiSettings()->colors.fill);
 
 		if (slot == 16) {
-			_screen->fillRect(x + 3, y + 9, x + 14, y + 13, guiSettings()->colors.guiColorBlack);
+			_screen->fillRect(x + 2, y + 9, x + 14, y + 13, guiSettings()->colors.guiColorBlack);
 			int cnt = countQueuedItems(_characters[_updateCharNum].inventory[slot], -1, -1, 1, 1);
 			if (_flags.platform != Common::kPlatformSegaCD) {
 				Screen::FontId cf = _screen->setFont(Screen::FID_6_FNT);
@@ -841,11 +841,17 @@ void EoBCoreEngine::gui_setInventoryButtons() {
 
 	if (_flags.platform == Common::kPlatformSegaCD)
 		gui_initButton(95);
+
+	if (_configAutomap)
+		gui_initButton(99);
 }
 
 void EoBCoreEngine::gui_setStatsListButtons() {
 	gui_resetButtonList();
 	gui_initButtonsFromList(_updateFlags ? _buttonList6 : _buttonList4);
+
+	if (_configAutomap)
+		gui_initButton(99);
 }
 
 void EoBCoreEngine::gui_setSwapCharacterButtons() {
