@@ -168,6 +168,9 @@ bool GSound::validateOverlay(const GSoundDriverData &driverData) {
 	if (file.read(identity, 21) != 21)
 		return false;
 	identity[21] = 0;
+	if (identity[11] != '0' + driverData.section)
+		return false;
+	identity[11] = 'N';
 	if (Common::String(identity) != "Dragon GM  N12-21-93")
 		return false;
 
@@ -196,6 +199,13 @@ bool GSound::validateOverlay(const GSoundDriverData &driverData) {
 }
 
 bool GSound::contains(const byte *ptr, uint32 count) const {
+	// Fade completion redirects the channel to this native { 0, 0 }
+	// termination stream before the poller makes the channel inactive.
+	if (ptr == _silenceStream)
+		return count <= sizeof(_silenceStream);
+	if (ptr == _silenceStream + 1)
+		return count <= sizeof(_silenceStream) - 1;
+
 	if (_soundData.empty())
 		return false;
 	const byte *start = &_soundData[0];
@@ -212,6 +222,11 @@ byte *GSound::dataAt(uint16 offset) {
 
 int8 GSound::readSignedByte(byte *&pSrc) {
 	return (int8)readByte(pSrc);
+}
+
+int GSound::readCenteredValue(byte *&pSrc) {
+	const int value = readSignedByte(pSrc);
+	return 64 + (value >= 0 ? value / 2 : (value - 1) / 2);
 }
 
 byte GSound::readByte(byte *&pSrc) {
@@ -872,24 +887,24 @@ dispatch:
 			sendPan(channel);
 			goto dispatch;
 		case 0xF1:
+			channel._volume = readCenteredValue(pSrc);
+			channel._pSrc += 2;
+			sendVolume(channel);
+			goto dispatch;
+		case 0xF2:
 			channel._pitchBend = readByte(pSrc);
 			channel._pSrc += 2;
 			sendPitchBend(midiChannel, channel._pitchBend);
 			goto dispatch;
-		case 0xF2:
+		case 0xF3:
 			channel._volumeFadeReload = readByte(pSrc);
 			channel._volumeFadeStep = readSignedByte(pSrc);
 			channel._volumeFadeCounter = 1;
 			channel._pSrc += 3;
 			goto dispatch;
-		case 0xF3:
-			channel._velocity = readByte(pSrc);
-			channel._pSrc += 2;
-			goto dispatch;
 		case 0xF4:
-			channel._volume = readByte(pSrc);
+			channel._velocity = readCenteredValue(pSrc);
 			channel._pSrc += 2;
-			sendVolume(channel);
 			goto dispatch;
 		case 0xF5:
 			channel._pitchBendFadeReload = readByte(pSrc);

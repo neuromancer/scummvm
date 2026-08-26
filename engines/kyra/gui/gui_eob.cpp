@@ -33,6 +33,9 @@
 #include "common/system.h"
 #include "common/savefile.h"
 #include "graphics/scaler.h"
+#include "graphics/surface.h"
+#include "graphics/font.h"
+#include "graphics/fontman.h"
 
 namespace Kyra {
 
@@ -46,7 +49,7 @@ Button *EoBCoreEngine::gui_getButton(Button *buttonList, int index) {
 	return 0;
 }
 
-void EoBCoreEngine::gui_drawPlayField(bool refresh) {
+void EoBCoreEngine::gui_drawPlayField(bool refresh, bool screenUpdt) {
 	_screen->loadEoBBitmap("PLAYFLD", _cgaMappingDeco, 5, 3, 2);
 	int cp = _screen->setCurPage(2);
 	if (_flags.lang == Common::Language::ZH_TWN) {
@@ -65,7 +68,7 @@ void EoBCoreEngine::gui_drawPlayField(bool refresh) {
 	_screen->setCurPage(cp);
 	_screen->copyRegion(0, 0, 0, 0, 320, 200, 2, 0, Screen::CR_NO_P_CHECK);
 
-	if (!_loading)
+	if (!_loading && screenUpdt)
 		_screen->updateScreen();
 
 	gui_setupPlayFieldHelperPages();
@@ -87,13 +90,15 @@ void EoBCoreEngine::gui_setupPlayFieldHelperPages(bool) {
 void EoBCoreEngine::gui_restorePlayField() {
 	loadVcnData(0, _cgaLevelMappingIndex ? _cgaMappingLevel[_cgaLevelMappingIndex[_currentLevel - 1]] : 0);
 	_screen->_curPage = 0;
-	gui_drawPlayField(true);
+	gui_drawPlayField(true, false);
 	gui_drawAllCharPortraitsWithStats();
 }
 
-void EoBCoreEngine::gui_drawAllCharPortraitsWithStats() {
+void EoBCoreEngine::gui_drawAllCharPortraitsWithStats(bool screenUpdt) {
 	for (int i = 5; i >= 0; --i)
-		gui_drawCharPortraitWithStats(i);
+		gui_drawCharPortraitWithStats(i, false);
+	if (screenUpdt && _screen->_curPage == 0)
+		_screen->updateScreen();
 }
 
 void EoBCoreEngine::gui_drawCharPortraitWithStats(int index, bool screenUpdt) {
@@ -825,6 +830,9 @@ void EoBCoreEngine::gui_toggleButtons() {
 void EoBCoreEngine::gui_setPlayFieldButtons() {
 	gui_resetButtonList();
 	gui_initButtonsFromList(_updateFlags ? _buttonList2 : _buttonList1);
+		
+	if (_configAutomap)
+		gui_initButton(99);
 }
 
 void EoBCoreEngine::gui_setInventoryButtons() {
@@ -854,7 +862,7 @@ void EoBCoreEngine::gui_initButton(int index, int, int, int) {
 	Button *b = 0;
 	int cnt = 1;
 
-	if ((_flags.gameID == GI_EOB1 && !(_flags.platform == Common::kPlatformSegaCD && index >= 95) && index > 92) || (_flags.gameID == GI_EOB2 && _buttonDefs[index].x == 0x7fff))
+	if ((_flags.gameID == GI_EOB1 && !(_flags.platform == Common::kPlatformSegaCD && index >= 95) && index > 92 && index < 99) || (_flags.gameID == GI_EOB2 && _buttonDefs[index].x == 0x7fff))
 		return;
 
 	if (_activeButtons) {
@@ -2567,7 +2575,7 @@ void GUI_EoB::runCampMenu() {
 					i = selectCharacterDialogue(53);
 					if (i > 0) {
 						_vm->dropCharacter(i);
-						_vm->gui_drawPlayField(false);
+						_vm->gui_drawPlayField(false, false);
 						_screen->copyRegion(0, 120, 0, 0, 176, 24, 0, Screen_EoB::kCampMenuBackupPage, Screen::CR_NO_P_CHECK);
 						Screen::FontId cfn = _screen->setFont(_vm->_conFont);
 						_vm->gui_drawAllCharPortraitsWithStats();
