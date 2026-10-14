@@ -31,6 +31,7 @@
 #include "image/codecs/jyv1.h"
 #include "image/codecs/mjpeg.h"
 #include "image/codecs/mpeg.h"
+#include "image/codecs/msmpeg4.h"
 #include "image/codecs/msvideo1.h"
 #include "image/codecs/msrle.h"
 #include "image/codecs/msrle4.h"
@@ -85,6 +86,8 @@ Codec *createBitmapCodec(uint32 tag, uint32 streamTag, int width, int height, in
 		return new MSVideo1Decoder(width, height, bitsPerPixel);
 	case MKTAG('c','v','i','d'):
 		return new CinepakDecoder(bitsPerPixel);
+	case MKTAG('M','P','4','3'):
+		return new MSMPEG4Decoder(width, height);
 
 	case MKTAG('I','V','3','2'):
 #ifdef USE_INDEO3
